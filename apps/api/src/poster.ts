@@ -80,7 +80,7 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
 
   const decoded = references.map(decodeDataUrl);
   const prompt = specToImagePrompt(spec);
-  const image = await createImage({ prompt, aspectRatio, references });
+  const image = await createImage({ prompt, aspectRatio, references, label: "generate" });
   const posterId = newPosterId();
   fs.mkdirSync(POSTERS_DIR, { recursive: true });
   fs.writeFileSync(posterPath(posterId, "png"), Buffer.from(image.b64, "base64"));

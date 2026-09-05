@@ -8,6 +8,7 @@ export const DATA_DIR = path.join(REPO_ROOT, "data");
 export const DB_PATH = path.join(DATA_DIR, "scenic-route.sqlite");
 export const POSTERS_DIR = path.join(DATA_DIR, "posters");
 export const OSM_CACHE_DIR = path.join(DATA_DIR, "osm-cache");
+export const LLM_TRACES_DIR = path.join(DATA_DIR, "llm-traces");
 
 const POSTER_ID_RE = /^[0-9]{8}T[0-9]{6}Z-[a-f0-9]+$/;
 

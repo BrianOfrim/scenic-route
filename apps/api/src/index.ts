@@ -3,7 +3,7 @@ import { config } from "dotenv";
 import { serve } from "@hono/node-server";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
-import { REPO_ROOT, isSafePosterId } from "./paths";
+import { LLM_TRACES_DIR, REPO_ROOT, isSafePosterId } from "./paths";
 
 config({ path: path.join(REPO_ROOT, ".env.local") });
 config({ path: path.join(REPO_ROOT, ".env") });
@@ -264,4 +264,5 @@ function fail(c: Context, error: unknown) {
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`scenic-route api http://127.0.0.1:${info.port}`);
   console.log(`strava configured: ${isStravaConfigured() ? "yes" : "no"}`);
+  console.log(`llm traces: ${LLM_TRACES_DIR}`);
 });

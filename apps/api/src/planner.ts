@@ -73,6 +73,7 @@ export async function planPoster(input: PlannerInput): Promise<{ spec: PosterSpe
   const { value, cost } = await chatJson<unknown>({
     messages: buildPlannerMessages(input),
     schemaName: "poster_spec",
+    label: "plan",
   });
   return { spec: validatePosterSpec(value), cost };
 }

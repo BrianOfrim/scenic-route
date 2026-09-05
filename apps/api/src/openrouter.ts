@@ -1,3 +1,4 @@
+import { withLlmTrace } from "./llmTrace";
 import { POSTER_SPEC_SCHEMA } from "./posterSpec";
 
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -55,88 +56,126 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 export async function chatJson<T>(options: {
   messages: unknown[];
   schemaName?: string;
+  label?: string;
 }): Promise<{ value: T; cost: number | null }> {
   const key = requireKey();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PLAN_TIMEOUT_MS);
-  try {
-    const response = await fetch(OPENROUTER_CHAT_URL, {
-      method: "POST",
-      headers: headers(key),
-      body: JSON.stringify({
-        model: chatModel(),
-        messages: options.messages,
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: options.schemaName ?? "poster_spec",
-            strict: true,
-            schema: POSTER_SPEC_SCHEMA,
-          },
-        },
-      }),
-      signal: controller.signal,
-    });
-    const parsed = await readJson(response);
-    if (!response.ok) {
-      throw new OpenRouterError(errorMessage(parsed, `OpenRouter ${response.status}`), response.status === 401 ? 401 : 502);
-    }
-    const record = asRecord(parsed);
-    const choices = Array.isArray(record?.choices) ? record.choices : [];
-    const first = asRecord(choices[0]);
-    const message = asRecord(first?.message);
-    const content = extractContent(message?.content);
-    if (!content) throw new OpenRouterError("OpenRouter returned an empty planner response", 502);
-    const value = JSON.parse(extractJson(content)) as T;
-    return { value, cost: usageCost(record) };
-  } catch (error) {
-    if (error instanceof OpenRouterError) throw error;
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new OpenRouterError("Planner timed out", 504);
-    }
-    throw new OpenRouterError(error instanceof Error ? error.message : "Planner failed", 502);
-  } finally {
-    clearTimeout(timer);
-  }
+  const model = chatModel();
+  const request = {
+    model,
+    messages: options.messages,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: options.schemaName ?? "poster_spec",
+        strict: true,
+        schema: POSTER_SPEC_SCHEMA,
+      },
+    },
+  };
+  return withLlmTrace(
+    {
+      kind: "chat",
+      label: options.label ?? "chat",
+      model,
+      url: OPENROUTER_CHAT_URL,
+      request,
+    },
+    async (capture) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), PLAN_TIMEOUT_MS);
+      try {
+        const response = await fetch(OPENROUTER_CHAT_URL, {
+          method: "POST",
+          headers: headers(key),
+          body: JSON.stringify(request),
+          signal: controller.signal,
+        });
+        const parsed = await readJson(response);
+        const record = asRecord(parsed);
+        capture({ status: response.status, response: parsed, cost: usageCost(record) });
+        if (!response.ok) {
+          throw new OpenRouterError(errorMessage(parsed, `OpenRouter ${response.status}`), response.status === 401 ? 401 : 502);
+        }
+        const choices = Array.isArray(record?.choices) ? record.choices : [];
+        const first = asRecord(choices[0]);
+        const message = asRecord(first?.message);
+        const content = extractContent(message?.content);
+        if (!content) throw new OpenRouterError("OpenRouter returned an empty planner response", 502);
+        const value = JSON.parse(extractJson(content)) as T;
+        const cost = usageCost(record);
+        capture({ cost });
+        return { value, cost };
+      } catch (error) {
+        if (error instanceof OpenRouterError) throw error;
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new OpenRouterError("Planner timed out", 504);
+        }
+        throw new OpenRouterError(error instanceof Error ? error.message : "Planner failed", 502);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
 }
 
 export async function createImage(options: {
   prompt: string;
   aspectRatio: string;
   references: string[];
+  label?: string;
 }): Promise<{ b64: string; mediaType: string; cost: number | null }> {
   const key = requireKey();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GENERATE_TIMEOUT_MS);
-  try {
-    const response = await fetch(OPENROUTER_IMAGES_URL, {
-      method: "POST",
-      headers: headers(key),
-      body: JSON.stringify({
-        model: imageModel(),
-        prompt: options.prompt,
-        aspect_ratio: options.aspectRatio,
-        input_references: options.references.map((url) => ({
-          type: "image_url",
-          image_url: { url },
-        })),
-      }),
-      signal: controller.signal,
-    });
-    const parsed = await readJson(response);
-    if (!response.ok) {
-      throw new OpenRouterError(errorMessage(parsed, `OpenRouter image request failed (${response.status})`), response.status === 401 ? 401 : 502);
-    }
-    return parseImageResponse(parsed);
-  } catch (error) {
-    if (error instanceof OpenRouterError) throw error;
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new OpenRouterError("Image generation timed out", 504);
-    }
-    throw new OpenRouterError(error instanceof Error ? error.message : "Image generation failed", 502);
-  } finally {
-    clearTimeout(timer);
-  }
+  const model = imageModel();
+  const request = {
+    model,
+    prompt: options.prompt,
+    aspect_ratio: options.aspectRatio,
+    input_references: options.references.map((url) => ({
+      type: "image_url",
+      image_url: { url },
+    })),
+  };
+  return withLlmTrace(
+    {
+      kind: "image",
+      label: options.label ?? "generate",
+      model,
+      url: OPENROUTER_IMAGES_URL,
+      request,
+    },
+    async (capture) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), GENERATE_TIMEOUT_MS);
+      try {
+        const response = await fetch(OPENROUTER_IMAGES_URL, {
+          method: "POST",
+          headers: headers(key),
+          body: JSON.stringify(request),
+          signal: controller.signal,
+        });
+        const parsed = await readJson(response);
+        const record = asRecord(parsed);
+        capture({ status: response.status, response: parsed, cost: usageCost(record) });
+        if (!response.ok) {
+          throw new OpenRouterError(
+            errorMessage(parsed, `OpenRouter image request failed (${response.status})`),
+            response.status === 401 ? 401 : 502,
+          );
+        }
+        const image = parseImageResponse(parsed);
+        capture({ cost: image.cost });
+        return image;
+      } catch (error) {
+        if (error instanceof OpenRouterError) throw error;
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new OpenRouterError("Image generation timed out", 504);
+        }
+        throw new OpenRouterError(error instanceof Error ? error.message : "Image generation failed", 502);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
 }
 
 export function parseImageResponse(payload: unknown): {
