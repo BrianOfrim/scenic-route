@@ -12,7 +12,7 @@ import { activityToFeatureCollection, getActivity, listActivities, listSportType
 import { catalogPublic } from "./osm/catalog";
 import { loadRouteFeatures } from "./osm/features";
 import { lookupLandmark } from "./osm/landmark";
-import { OpenRouterError, maxImageReferences } from "./openrouter";
+import { OpenRouterError, imageModel, listImageModels, maxImageReferences } from "./openrouter";
 import { planPoster } from "./planner";
 import {
   PosterError,
@@ -178,10 +178,28 @@ app.post("/api/poster/generate", async (c) => {
 });
 
 app.get("/api/poster/capabilities", async (c) => {
+  const requested = c.req.query("model") || undefined;
+  const fallback = imageModel();
   try {
-    return c.json({ maxReferences: await maxImageReferences() });
+    if (requested) {
+      return c.json({
+        defaultModel: fallback,
+        maxReferences: await maxImageReferences(requested),
+      });
+    }
+    const models = await listImageModels();
+    const selected = models.find((item) => item.id === fallback);
+    return c.json({
+      defaultModel: fallback,
+      maxReferences: selected?.maxReferences ?? (await maxImageReferences(fallback)),
+      models,
+    });
   } catch {
-    return c.json({ maxReferences: 3 });
+    return c.json({
+      defaultModel: fallback,
+      maxReferences: 3,
+      models: [{ id: fallback, name: fallback, maxReferences: 3 }],
+    });
   }
 });
 

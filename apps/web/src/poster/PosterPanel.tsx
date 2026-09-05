@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   fetchMaxReferences,
+  fetchPosterCapabilities,
   fetchPosterContext,
   fetchPosters,
   formatKm,
@@ -8,6 +9,7 @@ import {
   lookupPosterLandmark,
   planPoster,
   type FormattedStat,
+  type ImageModelOption,
   type PosterContext,
   type PosterPoi,
   type PosterRecord,
@@ -23,7 +25,50 @@ import { DEFAULT_POSTER_STYLE, POSTER_STYLES } from "./styles";
 
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
 
+const IMAGE_MODEL_KEY = "scenic-route.image-model";
+
+function readStoredImageModel() {
+  try {
+    return localStorage.getItem(IMAGE_MODEL_KEY)?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredImageModel(id: string) {
+  try {
+    localStorage.setItem(IMAGE_MODEL_KEY, id);
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 type GroundingKey = "schematic" | "terrain" | "streets" | "satellite" | "silhouette";
+
+const GROUNDING_KEYS: GroundingKey[] = ["schematic", "terrain", "streets", "satellite", "silhouette"];
+
+const TILE_SOURCE: Partial<Record<GroundingKey, "topo" | "osm" | "satellite">> = {
+  terrain: "topo",
+  streets: "osm",
+  satellite: "satellite",
+};
+
+const GROUNDING_LEGEND: Record<GroundingKey, string> = {
+  schematic: "red = route; grey = roads; blue = water; green = forest; green/black dots = start/finish",
+  silhouette: "route only, north up",
+  terrain: "OpenTopoMap terrain with route overlay",
+  streets: "OSM streets with route overlay",
+  satellite: "satellite imagery with route overlay",
+};
+
+type ModelRef = { role: string; legend?: string; dataUrl: string };
+
+function savedModelRefs(record: PosterRecord): ModelRef[] {
+  return Array.from({ length: record.referenceCount }, (_, index) => ({
+    role: `reference ${index + 1}`,
+    dataUrl: `/api/posters/${record.posterId}/ref-${index + 1}.png`,
+  }));
+}
 
 type Props = {
   activityId: number;
@@ -71,7 +116,14 @@ export function PosterPanel({
     silhouette: false,
   });
   const [previews, setPreviews] = useState<Partial<Record<GroundingKey, string>>>({});
+  const [tileLoading, setTileLoading] = useState(false);
+  const [modelRefs, setModelRefs] = useState<ModelRef[]>([]);
+  const [sentRefs, setSentRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
+  const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
+  const [imageModelId, setImageModelId] = useState(
+    refineFrom?.model || readStoredImageModel(),
+  );
   const [spec, setSpec] = useState<PosterSpec | null>(refineFrom?.spec ?? null);
   const [planning, setPlanning] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -80,8 +132,27 @@ export function PosterPanel({
   const [refineNotes, setRefineNotes] = useState("");
 
   useEffect(() => {
-    void fetchMaxReferences().then(setMaxRefs);
+    let cancelled = false;
+    void fetchPosterCapabilities().then((caps) => {
+      if (cancelled) return;
+      setImageModels(caps.models);
+      setImageModelId((current) => current || caps.defaultModel || caps.models[0]?.id || "");
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!imageModelId) return;
+    let cancelled = false;
+    void fetchMaxReferences(imageModelId).then((value) => {
+      if (!cancelled) setMaxRefs(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [imageModelId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +172,7 @@ export function PosterPanel({
         setCropEnd(Math.max(1, next.latlng.length - 1));
         if (refineFrom) {
           setStatIds(refineFrom.stats.map((item) => item.label.toLowerCase().replace(/\s+/g, "")));
+          setSentRefs(savedModelRefs(refineFrom));
         }
       })
       .catch((err: unknown) => {
@@ -205,11 +277,77 @@ export function PosterPanel({
         aspectRatio,
         silhouette: true,
       });
-      setPreviews((current) => ({ ...current, schematic, silhouette }));
+      setPreviews((current) => ({
+        terrain: current.terrain,
+        streets: current.streets,
+        satellite: current.satellite,
+        schematic,
+        silhouette,
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not render schematic");
     }
   }, [context, croppedLatLng, displayBbox, selectedPois, aspectRatio, featureIds.join(",")]);
+
+  useEffect(() => {
+    if (!displayBbox || croppedLatLng.length < 2) return;
+    const jobs = GROUNDING_KEYS.filter((key) => groundingOn[key] && TILE_SOURCE[key]);
+    if (!jobs.length) {
+      setTileLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setTileLoading(true);
+    void (async () => {
+      for (const key of jobs) {
+        const source = TILE_SOURCE[key];
+        if (!source) continue;
+        try {
+          const dataUrl = await snapshotTiles({
+            source,
+            bbox: displayBbox,
+            latlng: croppedLatLng,
+            aspectRatio,
+          });
+          if (cancelled) return;
+          setPreviews((current) => ({ ...current, [key]: dataUrl }));
+        } catch (err) {
+          if (!cancelled) setError(err instanceof Error ? err.message : "Could not snapshot tiles");
+        }
+      }
+      if (!cancelled) setTileLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [displayBbox, croppedLatLng, aspectRatio, groundingOn.terrain, groundingOn.streets, groundingOn.satellite]);
+
+  useEffect(() => {
+    setPreviews((current) => ({
+      schematic: current.schematic,
+      silhouette: current.silhouette,
+    }));
+  }, [displayBbox, croppedLatLng, aspectRatio]);
+
+  useEffect(() => {
+    const layers: GroundingLayer[] = [];
+    for (const key of GROUNDING_KEYS) {
+      if (!groundingOn[key]) continue;
+      const dataUrl = previews[key];
+      if (!dataUrl) {
+        setModelRefs([]);
+        return;
+      }
+      layers.push({ role: key, legend: GROUNDING_LEGEND[key], dataUrl });
+    }
+    let cancelled = false;
+    void renderContactSheets(layers, maxRefs, aspectRatio).then((packed) => {
+      if (!cancelled) setModelRefs(packed);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [previews, groundingOn, maxRefs, aspectRatio]);
 
   useEffect(() => {
     if (!generating && !planning) {
@@ -224,31 +362,22 @@ export function PosterPanel({
   async function buildGrounding(): Promise<GroundingLayer[]> {
     if (!displayBbox || croppedLatLng.length < 2) return [];
     const layers: GroundingLayer[] = [];
-    if (groundingOn.schematic && previews.schematic) {
-      layers.push({
-        role: "schematic",
-        legend: "red = route; grey = roads; blue = water; green = forest; green/black dots = start/finish",
-        dataUrl: previews.schematic,
-      });
-    }
-    if (groundingOn.silhouette && previews.silhouette) {
-      layers.push({ role: "silhouette", legend: "route only, north up", dataUrl: previews.silhouette });
-    }
-    const tileJobs: Array<{ key: GroundingKey; source: "topo" | "osm" | "satellite"; legend: string }> = [];
-    if (groundingOn.terrain) tileJobs.push({ key: "terrain", source: "topo", legend: "OpenTopoMap terrain with route overlay" });
-    if (groundingOn.streets) tileJobs.push({ key: "streets", source: "osm", legend: "OSM streets with route overlay" });
-    if (groundingOn.satellite) tileJobs.push({ key: "satellite", source: "satellite", legend: "satellite imagery with route overlay" });
-    for (const job of tileJobs) {
+    for (const key of GROUNDING_KEYS) {
+      if (!groundingOn[key]) continue;
+      const source = TILE_SOURCE[key];
       const dataUrl =
-        previews[job.key] ??
-        (await snapshotTiles({
-          source: job.source,
-          bbox: displayBbox,
-          latlng: croppedLatLng,
-          aspectRatio,
-        }));
-      setPreviews((current) => ({ ...current, [job.key]: dataUrl }));
-      layers.push({ role: job.key, legend: job.legend, dataUrl });
+        previews[key] ??
+        (source
+          ? await snapshotTiles({
+              source,
+              bbox: displayBbox,
+              latlng: croppedLatLng,
+              aspectRatio,
+            })
+          : undefined);
+      if (!dataUrl) continue;
+      if (source) setPreviews((current) => ({ ...current, [key]: dataUrl }));
+      layers.push({ role: key, legend: GROUNDING_LEGEND[key], dataUrl });
     }
     return layers;
   }
@@ -298,6 +427,12 @@ export function PosterPanel({
     try {
       const layers = await buildGrounding();
       const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
+      const previousUrl = result?.url ?? refineFrom?.url;
+      const sent: ModelRef[] = packed.map((item) => ({ role: item.role, legend: item.legend, dataUrl: item.dataUrl }));
+      if (previousUrl && sent.length < maxRefs) {
+        sent.push({ role: "previous poster", dataUrl: previousUrl });
+      }
+      setSentRefs(sent);
       const record = await generatePoster({
         activityId,
         spec,
@@ -310,6 +445,7 @@ export function PosterPanel({
         styleId,
         stylePrompt,
         aspectRatio,
+        model: imageModelId || undefined,
       });
       setResult(record);
       setHistory((current) => [record, ...current.filter((item) => item.posterId !== record.posterId)]);
@@ -372,6 +508,19 @@ export function PosterPanel({
     if (preset.id !== "custom") setStylePrompt(preset.prompt);
   }
 
+  function applyImageModel(id: string) {
+    setImageModelId(id);
+    writeStoredImageModel(id);
+    const known = imageModels.find((item) => item.id === id);
+    if (known?.maxReferences) setMaxRefs(known.maxReferences);
+  }
+
+  const modelOptions = imageModels.some((item) => item.id === imageModelId) || !imageModelId
+    ? imageModels
+    : [{ id: imageModelId, name: imageModelId, maxReferences: maxRefs }, ...imageModels];
+
+  const previousRef =
+    modelRefs.length < maxRefs ? (result?.url ?? refineFrom?.url ?? null) : null;
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
   const croppedKm = trackDistanceM(croppedLatLng);
   const busy = planning || generating;
@@ -575,7 +724,7 @@ export function PosterPanel({
                 {key}
               </label>
             ))}
-            <label className="poster-aspect">
+            <label className="poster-field">
               Aspect
               <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value as AspectRatio)}>
                 {ASPECTS.map((item) => (
@@ -585,17 +734,53 @@ export function PosterPanel({
                 ))}
               </select>
             </label>
+            <label className="poster-field">
+              Image model
+              <select
+                value={imageModelId}
+                onChange={(event) => applyImageModel(event.target.value)}
+                disabled={!modelOptions.length}
+              >
+                {modelOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="preview-grid">
-              {groundingOn.schematic && previews.schematic && (
-                <img className="poster-ref" src={previews.schematic} alt="Schematic grounding" />
-              )}
-              {groundingOn.silhouette && previews.silhouette && (
-                <img className="poster-ref" src={previews.silhouette} alt="Route silhouette" />
-              )}
-              {groundingOn.terrain && previews.terrain && (
-                <img className="poster-ref" src={previews.terrain} alt="Terrain grounding" />
-              )}
+              {GROUNDING_KEYS.filter((key) => groundingOn[key] && previews[key]).map((key) => (
+                <figure key={key} className="poster-ref-card">
+                  <img className="poster-ref" src={previews[key]} alt={`${key} grounding`} />
+                  <figcaption>{key}</figcaption>
+                </figure>
+              ))}
+              {previousRef ? (
+                <figure className="poster-ref-card">
+                  <img className="poster-ref" src={previousRef} alt="Previous poster" />
+                  <figcaption>previous poster</figcaption>
+                </figure>
+              ) : null}
             </div>
+            {modelRefs.length > 0 && modelRefs.some((item) => item.role.startsWith("contact-sheet")) ? (
+              <>
+                <div className="eyebrow">Packed for the model</div>
+                <div className="preview-grid">
+                  {modelRefs.map((item) => (
+                    <figure key={item.role} className="poster-ref-card">
+                      <img className="poster-ref" src={item.dataUrl} alt={item.role} />
+                      <figcaption>{item.role}</figcaption>
+                    </figure>
+                  ))}
+                </div>
+              </>
+            ) : null}
+            {tileLoading ? <p className="muted">Loading map tiles…</p> : null}
+            <p className="muted">
+              {modelRefs.length + (previousRef ? 1 : 0)} reference
+              {modelRefs.length + (previousRef ? 1 : 0) === 1 ? "" : "s"} will be sent
+              {modelRefs.length > maxRefs ? "" : ` · max ${maxRefs}`}
+            </p>
             {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
           </div>
 
@@ -626,7 +811,23 @@ export function PosterPanel({
                   Open
                 </a>
               </div>
-              {result.cost != null && <p className="muted">Cost ${result.cost.toFixed(3)}</p>}
+              <p className="muted">
+                {result.model}
+                {result.cost != null ? ` · $${result.cost.toFixed(3)}` : ""}
+              </p>
+              {sentRefs.length > 0 && (
+                <>
+                  <div className="eyebrow">Sent to the model</div>
+                  <div className="preview-grid">
+                    {sentRefs.map((item, index) => (
+                      <figure key={`${item.role}-${index}`} className="poster-ref-card">
+                        <img className="poster-ref" src={item.dataUrl} alt={item.role} />
+                        <figcaption>{item.role}</figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                </>
+              )}
               <textarea
                 className="poster-prompt"
                 rows={3}
@@ -657,6 +858,8 @@ export function PosterPanel({
                     onClick={() => {
                       setResult(item);
                       setSpec(item.spec);
+                      setSentRefs(savedModelRefs(item));
+                      if (item.model) applyImageModel(item.model);
                     }}
                   >
                     <img src={item.url} alt={item.title} />

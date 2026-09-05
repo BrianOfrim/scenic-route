@@ -86,6 +86,18 @@ h1 {
   overflow: auto;
 }
 
+.activity-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.activity-header,
+.activity-footer {
+  flex-shrink: 0;
+}
+
 .poster-panel {
   border-right: 0;
   border-left: 1px solid var(--line);
@@ -188,8 +200,14 @@ textarea {
 }
 
 .activity-list {
-  max-height: calc(100vh - 280px);
+  flex: 1;
+  min-height: 0;
   overflow: auto;
+}
+
+.activity-footer {
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
 }
 
 .activity {
@@ -264,6 +282,14 @@ textarea {
   color: var(--muted);
 }
 
+.poster-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .poster-ref,
 .poster-result,
 .gallery-card img,
@@ -279,6 +305,16 @@ textarea {
   display: grid;
   gap: 8px;
   margin-top: 8px;
+}
+
+.poster-ref-card {
+  margin: 0;
+}
+
+.poster-ref-card figcaption {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .poster-thumbs {

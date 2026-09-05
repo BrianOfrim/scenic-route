@@ -239,9 +239,35 @@ export async function deletePoster(id: string): Promise<void> {
   await readJson(await fetch(`/api/posters/${id}`, { method: "DELETE" }));
 }
 
-export async function fetchMaxReferences(): Promise<number> {
+export type ImageModelOption = {
+  id: string;
+  name: string;
+  maxReferences: number;
+};
+
+export type PosterCapabilities = {
+  defaultModel: string;
+  maxReferences: number;
+  models: ImageModelOption[];
+};
+
+export async function fetchPosterCapabilities(): Promise<PosterCapabilities> {
   try {
-    const body = await readJson<{ maxReferences: number }>(await fetch("/api/poster/capabilities"));
+    const body = await readJson<Partial<PosterCapabilities>>(await fetch("/api/poster/capabilities"));
+    return {
+      defaultModel: body.defaultModel || "",
+      maxReferences: body.maxReferences || 3,
+      models: Array.isArray(body.models) ? body.models : [],
+    };
+  } catch {
+    return { defaultModel: "", maxReferences: 3, models: [] };
+  }
+}
+
+export async function fetchMaxReferences(model?: string): Promise<number> {
+  try {
+    const qs = model ? `?model=${encodeURIComponent(model)}` : "";
+    const body = await readJson<{ maxReferences: number }>(await fetch(`/api/poster/capabilities${qs}`));
     return body.maxReferences || 3;
   } catch {
     return 3;

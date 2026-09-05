@@ -34,6 +34,23 @@ export function imageModel() {
   return process.env.OPENROUTER_IMAGE_MODEL?.trim() || DEFAULT_IMAGE_MODEL;
 }
 
+const MODEL_ID = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/i;
+
+export function isImageModelId(value: string) {
+  return MODEL_ID.test(value.trim());
+}
+
+export function resolveImageModel(requested?: string | null) {
+  const trimmed = requested?.trim() ?? "";
+  return trimmed && isImageModelId(trimmed) ? trimmed : imageModel();
+}
+
+export type ImageModelInfo = {
+  id: string;
+  name: string;
+  maxReferences: number;
+};
+
 export function referer() {
   return process.env.WEB_ORIGIN ?? "http://localhost:5174";
 }
@@ -122,10 +139,11 @@ export async function createImage(options: {
   prompt: string;
   aspectRatio: string;
   references: string[];
+  model?: string;
   label?: string;
 }): Promise<{ b64: string; mediaType: string; cost: number | null }> {
   const key = requireKey();
-  const model = imageModel();
+  const model = resolveImageModel(options.model);
   const request = {
     model,
     prompt: options.prompt,
@@ -198,12 +216,52 @@ export function parseImageResponse(payload: unknown): {
 }
 
 let cachedMaxRefs: { model: string; value: number; at: number } | null = null;
+let cachedModels: { value: ImageModelInfo[]; at: number } | null = null;
 
-export async function maxImageReferences(): Promise<number> {
-  const model = imageModel();
+export async function listImageModels(): Promise<ImageModelInfo[]> {
+  if (cachedModels && Date.now() - cachedModels.at < 6 * 60 * 60 * 1000) {
+    return cachedModels.value;
+  }
+  const fallback: ImageModelInfo[] = [{ id: imageModel(), name: imageModel(), maxReferences: 3 }];
+  try {
+    const key = requireKey();
+    const response = await fetch("https://openrouter.ai/api/v1/images/models", {
+      headers: headers(key),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(String(response.status));
+    const models = withDefaultModel(parseImageModels(await response.json()));
+    cachedModels = { value: models, at: Date.now() };
+    return models;
+  } catch {
+    return fallback;
+  }
+}
+
+export function parseImageModels(payload: unknown): ImageModelInfo[] {
+  const record = asRecord(payload);
+  const data = Array.isArray(record?.data) ? record.data : [];
+  const models: ImageModelInfo[] = [];
+  const seen = new Set<string>();
+  for (const item of data) {
+    const row = asRecord(item);
+    const id = typeof row?.id === "string" ? row.id.trim() : "";
+    if (!isImageModelId(id) || seen.has(id)) continue;
+    seen.add(id);
+    const name = typeof row?.name === "string" && row.name.trim() ? row.name.trim() : id;
+    models.push({ id, name, maxReferences: maxRefsFromModel(row) ?? 3 });
+  }
+  models.sort((a, b) => a.name.localeCompare(b.name));
+  return models;
+}
+
+export async function maxImageReferences(requested?: string | null): Promise<number> {
+  const model = resolveImageModel(requested);
   if (cachedMaxRefs && cachedMaxRefs.model === model && Date.now() - cachedMaxRefs.at < 6 * 60 * 60 * 1000) {
     return cachedMaxRefs.value;
   }
+  if (!cachedModels) await listImageModels();
+  const listed = listedMaxRefs(model);
   try {
     const key = requireKey();
     const response = await fetch(
@@ -212,12 +270,13 @@ export async function maxImageReferences(): Promise<number> {
     );
     if (!response.ok) throw new Error(String(response.status));
     const payload = (await response.json()) as unknown;
-    const value = extractMaxRefs(payload) ?? 3;
+    const value = extractMaxRefs(payload) ?? listed ?? 3;
     cachedMaxRefs = { model, value, at: Date.now() };
     return value;
   } catch {
-    cachedMaxRefs = { model, value: 3, at: Date.now() };
-    return 3;
+    const value = listed ?? 3;
+    cachedMaxRefs = { model, value, at: Date.now() };
+    return value;
   }
 }
 
@@ -229,15 +288,42 @@ export function extractMaxRefs(payload: unknown): number | null {
   for (const item of endpoints) {
     const endpoint = asRecord(item);
     const params = asRecord(endpoint?.supported_parameters) ?? asRecord(endpoint?.parameters);
-    const refs = asRecord(params?.input_references) ?? params;
-    const candidate =
-      Number(asRecord(refs)?.max ?? asRecord(refs)?.maximum ?? endpoint?.max_input_references ?? 0) || 0;
+    const fromParams = maxRefsFromParams(params);
+    const candidate = fromParams ?? (Number(endpoint?.max_input_references ?? 0) || 0);
     if (candidate > 0) max = Math.max(max ?? 0, candidate);
   }
   if (typeof data?.max_input_references === "number") {
     max = Math.max(max ?? 0, data.max_input_references);
   }
   return max && max > 0 ? max : null;
+}
+
+function maxRefsFromModel(row: Record<string, unknown> | null): number | null {
+  if (!row) return null;
+  const fromParams = maxRefsFromParams(asRecord(row.supported_parameters));
+  if (fromParams) return fromParams;
+  if (typeof row.max_input_references === "number" && row.max_input_references > 0) {
+    return row.max_input_references;
+  }
+  return null;
+}
+
+function maxRefsFromParams(params: Record<string, unknown> | null): number | null {
+  if (!params) return null;
+  const refs = asRecord(params.input_references) ?? params;
+  const candidate = Number(refs.max ?? refs.maximum ?? 0) || 0;
+  return candidate > 0 ? candidate : null;
+}
+
+function withDefaultModel(models: ImageModelInfo[]): ImageModelInfo[] {
+  const fallback = imageModel();
+  if (models.some((item) => item.id === fallback)) return models;
+  return [{ id: fallback, name: fallback, maxReferences: 3 }, ...models];
+}
+
+function listedMaxRefs(model: string): number | null {
+  const listed = cachedModels?.value.find((item) => item.id === model)?.maxReferences;
+  return listed && listed > 0 ? listed : null;
 }
 
 async function readJson(response: Response): Promise<unknown> {

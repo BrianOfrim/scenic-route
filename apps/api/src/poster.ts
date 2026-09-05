@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
-import { createImage, imageModel, maxImageReferences } from "./openrouter";
+import { createImage, maxImageReferences, resolveImageModel } from "./openrouter";
 import { POSTERS_DIR, isSafePosterId, posterPath } from "./paths";
 import { specToImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
 
@@ -47,6 +47,7 @@ export type GeneratePosterBody = {
   styleId?: string;
   stylePrompt?: string;
   aspectRatio?: string;
+  model?: string;
 };
 
 export function decodeDataUrl(url: string): { mime: string; bytes: Buffer } {
@@ -67,11 +68,12 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
     throw new PosterError("activityId is required");
   }
   const spec = validatePosterSpec(body.spec);
+  const model = resolveImageModel(body.model);
   const aspectRatio = (body.aspectRatio || spec.composition.aspectRatio || "2:3").trim();
   const incoming = (body.references ?? []).filter((item) => typeof item === "string" && item.trim());
   if (!incoming.length) throw new PosterError("at least one grounding image is required");
 
-  const maxRefs = await maxImageReferences();
+  const maxRefs = await maxImageReferences(model);
   const references = incoming.slice(0, maxRefs);
   if (body.previousPosterId && isSafePosterId(body.previousPosterId) && references.length < maxRefs) {
     const previous = readPosterPng(body.previousPosterId);
@@ -80,7 +82,7 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
 
   const decoded = references.map(decodeDataUrl);
   const prompt = specToImagePrompt(spec);
-  const image = await createImage({ prompt, aspectRatio, references, label: "generate" });
+  const image = await createImage({ prompt, aspectRatio, references, model, label: "generate" });
   const posterId = newPosterId();
   fs.mkdirSync(POSTERS_DIR, { recursive: true });
   fs.writeFileSync(posterPath(posterId, "png"), Buffer.from(image.b64, "base64"));
@@ -94,7 +96,7 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
     subtitle: spec.text.subtitle,
     spec,
     prompt,
-    model: imageModel(),
+    model,
     aspectRatio,
     cost: image.cost,
     createdAt: new Date().toISOString(),

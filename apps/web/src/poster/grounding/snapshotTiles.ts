@@ -88,13 +88,16 @@ function stroke(ctx: CanvasRenderingContext2D, points: [number, number][]) {
   ctx.stroke();
 }
 
-function waitFor(map: Map, event: "load" | "idle") {
+function waitFor(map: Map, event: "load" | "idle", timeoutMs = 12_000) {
   return new Promise<void>((resolve) => {
-    const done = () => resolve();
     if (event === "load" && map.loaded()) {
       resolve();
       return;
     }
-    map.once(event, done);
+    const timer = window.setTimeout(() => resolve(), timeoutMs);
+    map.once(event, () => {
+      window.clearTimeout(timer);
+      resolve();
+    });
   });
 }

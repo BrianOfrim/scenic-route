@@ -45,44 +45,46 @@ export function ActivityList({
 
   return (
     <aside className="panel activity-panel">
-      <div className="panel-block">
-        <div className="eyebrow">Activities</div>
-        <p className="muted">
-          {!status
-            ? "Checking Strava…"
-            : strava?.connected
-              ? `${strava.athlete ? `${strava.athlete.firstname} ${strava.athlete.lastname} · ` : ""}${strava.sync.streamsSynced} tracks${strava.sync.streamsPending ? ` · ${strava.sync.streamsPending} pending` : ""}`
-              : strava?.configured
-                ? ""
-                : "Add Strava keys to .env.local"}
-          {status && strava?.configured && !strava.connected ? (
-            <a href="/api/strava/auth">Connect Strava</a>
-          ) : null}
-        </p>
-        <div className="row">
-          <button type="button" className="button" onClick={onSync} disabled={busy || !strava?.connected}>
-            {busy ? "Syncing…" : "Sync Strava"}
-          </button>
+      <div className="activity-header">
+        <div className="panel-block">
+          <div className="eyebrow">Activities</div>
+          <p className="muted">
+            {!status
+              ? "Checking Strava…"
+              : strava?.connected
+                ? `${strava.athlete ? `${strava.athlete.firstname} ${strava.athlete.lastname} · ` : ""}${strava.sync.streamsSynced} tracks${strava.sync.streamsPending ? ` · ${strava.sync.streamsPending} pending` : ""}`
+                : strava?.configured
+                  ? ""
+                  : "Add Strava keys to .env.local"}
+            {status && strava?.configured && !strava.connected ? (
+              <a href="/api/strava/auth">Connect Strava</a>
+            ) : null}
+          </p>
+          <div className="row">
+            <button type="button" className="button" onClick={onSync} disabled={busy || !strava?.connected}>
+              {busy ? "Syncing…" : "Sync Strava"}
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="panel-block">
-        <input
-          className="search"
-          placeholder="Search rides"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <label className="filter">
-          Sport
-          <select value={sport} onChange={(event) => setSport(event.target.value)}>
-            <option value="all">All</option>
-            {sports.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="panel-block">
+          <input
+            className="search"
+            placeholder="Search rides"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <label className="filter">
+            Sport
+            <select value={sport} onChange={(event) => setSport(event.target.value)}>
+              <option value="all">All</option>
+              {sports.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
       <div className="activity-list">
         {filtered.map((item) => (
@@ -102,7 +104,7 @@ export function ActivityList({
         {!filtered.length && <p className="muted">No matching activities.</p>}
       </div>
       {selected && (
-        <div className="panel-block">
+        <div className="panel-block activity-footer">
           <p className="muted">
             {formatKm(selected.distance)}
             {selected.movingTime != null ? ` · ${formatDuration(selected.movingTime)}` : ""}
