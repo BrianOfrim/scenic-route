@@ -29,6 +29,8 @@ export function MapView({ selectedLatLng, cropLatLng, pois, basemap, viewNonce =
   cropRef.current = cropLatLng;
   poisRef.current = pois;
 
+  const basemapRef = useRef(basemap);
+
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const map = new Map({
@@ -41,11 +43,14 @@ export function MapView({ selectedLatLng, cropLatLng, pois, basemap, viewNonce =
     mapRef.current = map;
     const paint = () => {
       map.resize();
-      drawOverlays(map, trackRef.current, cropRef.current, poisRef.current);
+      if (!drawOverlays(map, trackRef.current, cropRef.current, poisRef.current)) return;
       fit(map, cropRef.current ?? trackRef.current, 0);
     };
     map.on("load", paint);
+    map.on("style.load", paint);
     return () => {
+      map.off("load", paint);
+      map.off("style.load", paint);
       map.remove();
       mapRef.current = null;
     };
@@ -53,18 +58,25 @@ export function MapView({ selectedLatLng, cropLatLng, pois, basemap, viewNonce =
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || basemapRef.current === basemap) return;
+    basemapRef.current = basemap;
     map.setStyle(styleFor(basemap));
-    map.once("style.load", () => {
-      drawOverlays(map, trackRef.current, cropRef.current, poisRef.current);
-    });
   }, [basemap]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    drawOverlays(map, selectedLatLng, cropLatLng, pois);
-    fit(map, cropLatLng ?? selectedLatLng, 600);
+    const apply = () => {
+      if (!drawOverlays(map, selectedLatLng, cropLatLng, pois)) {
+        map.once("style.load", apply);
+        return;
+      }
+      fit(map, cropLatLng ?? selectedLatLng, 600);
+    };
+    apply();
+    return () => {
+      map.off("style.load", apply);
+    };
   }, [selectedLatLng, cropLatLng, pois, viewNonce]);
 
   return <div ref={containerRef} className="map" />;
@@ -131,33 +143,41 @@ function drawOverlays(
   cropLatLng: [number, number][] | null | undefined,
   pois: PosterPoi[] | undefined,
 ) {
-  if (!map.isStyleLoaded()) return;
-  ensureSource(map, "full-track", lineCollection(selectedLatLng));
-  ensureSource(map, "crop-track", lineCollection(cropLatLng ?? selectedLatLng));
-  ensureSource(map, "pois", pointCollection(pois));
-  addLine(map, "full-track-line", "full-track", "#52525b", 3, 0.4);
-  addLine(map, "crop-track-casing", "crop-track", "#111111", 8, 0.9);
-  addLine(map, "crop-track-line", "crop-track", "#e11d48", 4.5, 1);
-  if (!map.getLayer("poi-dots")) {
-    map.addLayer({
-      id: "poi-dots",
-      type: "circle",
-      source: "pois",
-      paint: { "circle-radius": 4, "circle-color": "#f4efe4", "circle-stroke-width": 1.5, "circle-stroke-color": "#111" },
-    });
-    map.addLayer({
-      id: "poi-labels",
-      type: "symbol",
-      source: "pois",
-      layout: {
-        "text-field": ["get", "name"],
-        "text-size": 11,
-        "text-offset": [0, 1],
-        "text-anchor": "top",
-      },
-      paint: { "text-color": "#f4efe4", "text-halo-color": "#111", "text-halo-width": 1 },
-    });
+  if (!map.getStyle()) return false;
+  try {
+    ensureSource(map, "full-track", lineCollection(selectedLatLng));
+    ensureSource(map, "crop-track", lineCollection(cropLatLng ?? selectedLatLng));
+    ensureSource(map, "pois", pointCollection(pois));
+    addLine(map, "full-track-line", "full-track", "#52525b", 3, 0.4);
+    addLine(map, "crop-track-casing", "crop-track", "#111111", 8, 0.9);
+    addLine(map, "crop-track-line", "crop-track", "#e11d48", 4.5, 1);
+    if ((pois?.length ?? 0) > 0) addPoiLayers(map);
+    return Boolean(map.getLayer("crop-track-line"));
+  } catch {
+    return false;
   }
+}
+
+function addPoiLayers(map: Map) {
+  if (map.getLayer("poi-dots")) return;
+  map.addLayer({
+    id: "poi-dots",
+    type: "circle",
+    source: "pois",
+    paint: { "circle-radius": 4, "circle-color": "#f4efe4", "circle-stroke-width": 1.5, "circle-stroke-color": "#111" },
+  });
+  map.addLayer({
+    id: "poi-labels",
+    type: "symbol",
+    source: "pois",
+    layout: {
+      "text-field": ["get", "name"],
+      "text-size": 11,
+      "text-offset": [0, 1],
+      "text-anchor": "top",
+    },
+    paint: { "text-color": "#f4efe4", "text-halo-color": "#111", "text-halo-width": 1 },
+  });
 }
 
 function addLine(map: Map, id: string, source: string, color: string, width: number, opacity: number) {

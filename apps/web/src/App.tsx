@@ -17,6 +17,8 @@ import { Gallery } from "./gallery/Gallery";
 import { MapView } from "./MapView";
 import { PosterPanel } from "./poster/PosterPanel";
 
+const EMPTY_POIS: PosterPoi[] = [];
+
 function currentPath() {
   return window.location.pathname;
 }
@@ -198,7 +200,7 @@ export function App() {
           <MapView
             selectedLatLng={selectedLatLng}
             cropLatLng={posterOpen ? cropLatLng : null}
-            pois={posterOpen ? pois : []}
+            pois={posterOpen ? pois : EMPTY_POIS}
             basemap={basemap}
             viewNonce={viewNonce}
           />
