@@ -477,25 +477,9 @@ export function PosterPanel({
                 </label>
               ))}
             <div className="chip-row">
-              {context.pois.map((poi) => (
+              {selectedPois.map((poi) => (
                 <button
                   key={`${poi.name}-${poi.lat}`}
-                  type="button"
-                  className={`chip ${labels.includes(poi.name) ? "on" : ""}`}
-                  onClick={() =>
-                    setLabels((current) =>
-                      current.includes(poi.name)
-                        ? current.filter((name) => name !== poi.name)
-                        : [...current, poi.name],
-                    )
-                  }
-                >
-                  {poi.name}
-                </button>
-              ))}
-              {customPois.map((poi) => (
-                <button
-                  key={`custom-${poi.name}`}
                   type="button"
                   className="chip on"
                   onClick={() => {
