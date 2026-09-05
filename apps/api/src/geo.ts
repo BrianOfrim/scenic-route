@@ -100,10 +100,77 @@ export function tileBboxes(bbox: BBox): BBox[] {
   ];
 }
 
-export function simplifyLatLng(latlng: LatLng[], maxPoints = 1200): LatLng[] {
-  if (latlng.length <= maxPoints) return latlng;
+export const MIN_STOP_S = 45;
+export const STOP_SPEED_MS = 0.6;
+export const STOP_CLUSTER_M = 40;
+export const STOP_MERGE_M = 75;
+
+export function findStopIndexes(
+  latlng: LatLng[],
+  time: number[] = [],
+  velocity: number[] = [],
+): number[] {
+  const n = latlng.length;
+  if (n < 2) return [];
+  const times = alignNumbers(time, n);
+  const speeds = alignNumbers(velocity, n);
+  const stops: number[] = [];
+
+  if (times) {
+    for (let i = 1; i < times.length; i += 1) {
+      if (times[i] - times[i - 1] >= MIN_STOP_S) stops.push(i - 1);
+    }
+  }
+
+  let i = 0;
+  while (i < n) {
+    if (!isStationary(i, latlng, times, speeds)) {
+      i += 1;
+      continue;
+    }
+    const start = i;
+    const origin = latlng[start];
+    i += 1;
+    while (
+      i < n &&
+      isStationary(i, latlng, times, speeds) &&
+      haversineM(origin, latlng[i]) <= STOP_CLUSTER_M
+    ) {
+      i += 1;
+    }
+    const end = i - 1;
+    if (dwellSeconds(start, end, times) >= MIN_STOP_S) stops.push(start);
+  }
+
+  return mergeStops(stops, latlng).filter((index) => !isEdgeIndex(index, n, times));
+}
+
+export function simplifyTrack(
+  latlng: LatLng[],
+  maxPoints = 1200,
+  keep: number[] = [],
+): { points: LatLng[]; kept: number[] } {
+  const validKeep = [...new Set(keep.filter((index) => Number.isInteger(index) && index >= 0 && index < latlng.length))].sort(
+    (a, b) => a - b,
+  );
+  if (latlng.length <= maxPoints) {
+    return { points: latlng, kept: validKeep };
+  }
   const step = (latlng.length - 1) / (maxPoints - 1);
-  return Array.from({ length: maxPoints }, (_, i) => latlng[Math.round(i * step)]);
+  const indexSet = new Set<number>();
+  for (let i = 0; i < maxPoints; i += 1) {
+    indexSet.add(Math.round(i * step));
+  }
+  for (const index of validKeep) indexSet.add(index);
+  const indexes = [...indexSet].sort((a, b) => a - b);
+  return {
+    points: indexes.map((index) => latlng[index]),
+    kept: validKeep.map((index) => indexes.indexOf(index)),
+  };
+}
+
+export function simplifyLatLng(latlng: LatLng[], maxPoints = 1200): LatLng[] {
+  return simplifyTrack(latlng, maxPoints).points;
 }
 
 export function bearingWord(from: LatLng, to: LatLng): string {
@@ -166,6 +233,55 @@ export function schematicXY(
   const col = x < 0.33 ? "left" : x < 0.66 ? "center" : "right";
   const row = y < 0.33 ? "upper" : y < 0.66 ? "middle" : "lower";
   return { x: round4(x), y: round4(y), region: `${row}-${col}` };
+}
+
+function alignNumbers(values: number[], length: number): number[] | null {
+  if (values.length < 2) return null;
+  const n = Math.min(values.length, length);
+  return values.slice(0, n).map((value) => Number(value));
+}
+
+function isStationary(
+  index: number,
+  latlng: LatLng[],
+  times: number[] | null,
+  speeds: number[] | null,
+): boolean {
+  if (speeds && index < speeds.length) return speeds[index] <= STOP_SPEED_MS;
+  if (index <= 0) return false;
+  if (times && index < times.length) {
+    const dt = times[index] - times[index - 1];
+    if (dt <= 0) return haversineM(latlng[index - 1], latlng[index]) <= 4;
+    return haversineM(latlng[index - 1], latlng[index]) / dt <= STOP_SPEED_MS;
+  }
+  return haversineM(latlng[index - 1], latlng[index]) <= 4;
+}
+
+function dwellSeconds(start: number, end: number, times: number[] | null): number {
+  if (times && end < times.length) return times[end] - times[start];
+  return end - start;
+}
+
+function mergeStops(stops: number[], latlng: LatLng[]): number[] {
+  const sorted = [...new Set(stops.filter((index) => Number.isInteger(index) && index >= 0 && index < latlng.length))].sort(
+    (a, b) => a - b,
+  );
+  const merged: number[] = [];
+  for (const index of sorted) {
+    const prev = merged[merged.length - 1];
+    if (prev != null && haversineM(latlng[prev], latlng[index]) <= STOP_MERGE_M) continue;
+    merged.push(index);
+  }
+  return merged;
+}
+
+function isEdgeIndex(index: number, length: number, times: number[] | null): boolean {
+  const pad = Math.min(30, Math.floor(length * 0.02));
+  if (index <= pad || index >= length - 1 - pad) return true;
+  if (!times || index >= times.length) return false;
+  const last = times[Math.min(times.length, length) - 1];
+  const edgeT = Math.min(45, last * 0.03);
+  return times[index] < edgeT || times[index] > last - edgeT;
 }
 
 function routeSamples(latlng: LatLng[], maxPoints: number): [LatLng[], number[]] {

@@ -4,6 +4,7 @@ import {
   bearingWord,
   bboxDiagonal,
   bboxFromLatLng,
+  findStopIndexes,
   haversineM,
   isLoop,
   nearestOnRoute,
@@ -12,6 +13,7 @@ import {
   schematicXY,
   shouldTile,
   simplifyLatLng,
+  simplifyTrack,
   tileBboxes,
 } from "./geo";
 
@@ -78,6 +80,60 @@ test("simplifyLatLng keeps endpoints", () => {
   assert.equal(slim.length, 100);
   assert.deepEqual(slim[0], points[0]);
   assert.deepEqual(slim[99], points[4999]);
+});
+
+function line(count: number, start: [number, number] = [53, -113]): [number, number][] {
+  return Array.from({ length: count }, (_, i) => [start[0] + i * 0.0001, start[1]]);
+}
+
+test("findStopIndexes detects a recording gap", () => {
+  const latlng = line(10);
+  const time = [0, 1, 2, 3, 4, 124, 125, 126, 127, 128];
+  const stops = findStopIndexes(latlng, time);
+  assert.ok(stops.some((index) => index === 4 || index === 5));
+});
+
+test("findStopIndexes detects a low-speed dwell", () => {
+  const moving1 = line(80);
+  const parked = Array.from({ length: 70 }, () => moving1[79]);
+  const moving2 = line(80, [moving1[79][0] + 0.0001, moving1[79][1]]);
+  const latlng = [...moving1, ...parked, ...moving2];
+  const time = latlng.map((_, i) => i);
+  const velocity = [...Array(80).fill(5), ...Array(70).fill(0.1), ...Array(80).fill(5)];
+  const stops = findStopIndexes(latlng, time, velocity);
+  assert.equal(stops.length, 1);
+  assert.ok(stops[0] >= 79 && stops[0] <= 150);
+});
+
+test("findStopIndexes merges nearby dwells into one snap point", () => {
+  const moving1 = line(80);
+  const cafe = moving1[79];
+  const parked = Array.from({ length: 70 }, () => cafe);
+  const fidget = Array.from({ length: 70 }, (_, i) => [cafe[0] + i * 0.00001, cafe[1]] as [number, number]);
+  const moving2 = line(80, [cafe[0] + 0.0002, cafe[1]]);
+  const latlng = [...moving1, ...parked, ...fidget, ...moving2];
+  const time = latlng.map((_, i) => i);
+  const velocity = [
+    ...Array(80).fill(5),
+    ...Array(70).fill(0.1),
+    ...Array(70).fill(0.2),
+    ...Array(80).fill(5),
+  ];
+  assert.equal(findStopIndexes(latlng, time, velocity).length, 1);
+});
+
+test("findStopIndexes ignores brief hesitations", () => {
+  const latlng = line(20);
+  const time = latlng.map((_, i) => i);
+  const velocity = Array.from({ length: 20 }, (_, i) => (i === 10 || i === 11 ? 0 : 5));
+  assert.deepEqual(findStopIndexes(latlng, time, velocity), []);
+});
+
+test("simplifyTrack keeps stop indexes", () => {
+  const points = Array.from({ length: 5000 }, (_, i) => [53 + i / 10000, -113] as [number, number]);
+  const { points: slim, kept } = simplifyTrack(points, 100, [2500]);
+  assert.ok(slim.length >= 100);
+  assert.deepEqual(slim[kept[0]], points[2500]);
 });
 
 test("schematicXY maps corners to regions", () => {

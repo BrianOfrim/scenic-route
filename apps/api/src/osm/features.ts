@@ -1,17 +1,18 @@
 import type { Feature, FeatureCollection, Geometry } from "geojson";
-import { getActivity, parseLatLng } from "../activities";
+import { getActivity, parseLatLng, parseNumberArray } from "../activities";
 import {
   bboxDiagonal,
   bboxFromLatLng,
   bboxToCorners,
   bearingWord,
   centroid,
+  findStopIndexes,
   isLoop,
   nearestOnRoute,
   padBbox,
   padMeters,
   schematicXY,
-  simplifyLatLng,
+  simplifyTrack,
   type BBox,
   type LatLng,
 } from "../geo";
@@ -59,6 +60,7 @@ export type PosterContext = {
   };
   bbox: [[number, number], [number, number]];
   latlng: LatLng[];
+  stops: number[];
   ways: PosterWays;
   pois: PosterPoi[];
   stats: FormattedStat[];
@@ -86,6 +88,8 @@ export async function loadRouteFeatures(activityId: number, featureIds?: string[
   if (!row) throw new Error(`activity ${activityId} not found`);
   const latlng = parseLatLng(row.latlng);
   if (latlng.length < 2) throw new Error(`activity ${activityId} has no GPS track`);
+  const stops = findStopIndexes(latlng, parseNumberArray(row.time), parseNumberArray(row.velocity));
+  const simplified = simplifyTrack(latlng, 1200, stops);
 
   const features = resolveFeatures(featureIds);
   const trackBbox = bboxFromLatLng(latlng);
@@ -128,7 +132,8 @@ export async function loadRouteFeatures(activityId: number, featureIds?: string[
       finish: { lat: latlng[latlng.length - 1][0], lng: latlng[latlng.length - 1][1] },
     },
     bbox: bboxToCorners(padded),
-    latlng: simplifyLatLng(latlng),
+    latlng: simplified.points,
+    stops: simplified.kept,
     ways,
     pois,
     stats: buildStats(row, startPlace, finishPlace),

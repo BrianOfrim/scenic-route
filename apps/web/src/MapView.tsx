@@ -8,6 +8,7 @@ type Basemap = "osm" | "topo";
 type Props = {
   selectedLatLng: [number, number][] | null;
   cropLatLng?: [number, number][] | null;
+  cropStops?: [number, number][];
   pois?: PosterPoi[];
   basemap: Basemap;
   viewNonce?: number;
@@ -19,14 +20,16 @@ const TILES: Record<Basemap, string> = {
   topo: "/api/tiles/topo/{z}/{x}/{y}.png",
 };
 
-export function MapView({ selectedLatLng, cropLatLng, pois, basemap, viewNonce = 0 }: Props) {
+export function MapView({ selectedLatLng, cropLatLng, cropStops, pois, basemap, viewNonce = 0 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const trackRef = useRef(selectedLatLng);
   const cropRef = useRef(cropLatLng);
+  const stopsRef = useRef(cropStops);
   const poisRef = useRef(pois);
   trackRef.current = selectedLatLng;
   cropRef.current = cropLatLng;
+  stopsRef.current = cropStops;
   poisRef.current = pois;
 
   const basemapRef = useRef(basemap);
@@ -43,7 +46,7 @@ export function MapView({ selectedLatLng, cropLatLng, pois, basemap, viewNonce =
     mapRef.current = map;
     const paint = () => {
       map.resize();
-      if (!drawOverlays(map, trackRef.current, cropRef.current, poisRef.current)) return;
+      if (!drawOverlays(map, trackRef.current, cropRef.current, stopsRef.current, poisRef.current)) return;
       fit(map, cropRef.current ?? trackRef.current, 0);
     };
     map.on("load", paint);
@@ -67,7 +70,7 @@ export function MapView({ selectedLatLng, cropLatLng, pois, basemap, viewNonce =
     const map = mapRef.current;
     if (!map) return;
     const apply = () => {
-      if (!drawOverlays(map, selectedLatLng, cropLatLng, pois)) {
+      if (!drawOverlays(map, selectedLatLng, cropLatLng, cropStops, pois)) {
         map.once("style.load", apply);
         return;
       }
@@ -77,7 +80,7 @@ export function MapView({ selectedLatLng, cropLatLng, pois, basemap, viewNonce =
     return () => {
       map.off("style.load", apply);
     };
-  }, [selectedLatLng, cropLatLng, pois, viewNonce]);
+  }, [selectedLatLng, cropLatLng, cropStops, pois, viewNonce]);
 
   return <div ref={containerRef} className="map" />;
 }
@@ -126,6 +129,17 @@ function pointCollection(pois: PosterPoi[] | undefined): FeatureCollection {
   };
 }
 
+function stopsCollection(stops: [number, number][] | undefined): FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: (stops ?? []).map(([lat, lng]) => ({
+      type: "Feature" as const,
+      properties: {},
+      geometry: { type: "Point" as const, coordinates: [lng, lat] },
+    })),
+  };
+}
+
 function ensureSource(map: Map, id: string, data: FeatureCollection) {
   const source = map.getSource(id);
   if (source && "setData" in source) {
@@ -141,21 +155,39 @@ function drawOverlays(
   map: Map,
   selectedLatLng: [number, number][] | null,
   cropLatLng: [number, number][] | null | undefined,
+  cropStops: [number, number][] | undefined,
   pois: PosterPoi[] | undefined,
 ) {
   if (!map.getStyle()) return false;
   try {
     ensureSource(map, "full-track", lineCollection(selectedLatLng));
     ensureSource(map, "crop-track", lineCollection(cropLatLng ?? selectedLatLng));
+    ensureSource(map, "crop-stops", stopsCollection(cropStops));
     ensureSource(map, "pois", pointCollection(pois));
     addLine(map, "full-track-line", "full-track", "#52525b", 3, 0.4);
     addLine(map, "crop-track-casing", "crop-track", "#111111", 8, 0.9);
     addLine(map, "crop-track-line", "crop-track", "#e11d48", 4.5, 1);
+    addStopLayer(map);
     if ((pois?.length ?? 0) > 0) addPoiLayers(map);
     return Boolean(map.getLayer("crop-track-line"));
   } catch {
     return false;
   }
+}
+
+function addStopLayer(map: Map) {
+  if (map.getLayer("crop-stop-dots")) return;
+  map.addLayer({
+    id: "crop-stop-dots",
+    type: "circle",
+    source: "crop-stops",
+    paint: {
+      "circle-radius": 5,
+      "circle-color": "#e8c36a",
+      "circle-stroke-width": 1.5,
+      "circle-stroke-color": "#111111",
+    },
+  });
 }
 
 function addPoiLayers(map: Map) {

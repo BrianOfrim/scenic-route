@@ -13,7 +13,7 @@ import {
   type PosterRecord,
   type PosterSpec,
 } from "../api";
-import { clampCrop, paddedBbox, sliceTrack, trackDistanceM } from "./crop";
+import { clampCrop, paddedBbox, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
 import { FEATURE_CATALOG, DEFAULT_FEATURE_IDS, type FeatureOption } from "./featureCatalog";
 import { planContactSheets, renderContactSheets, type GroundingLayer } from "./grounding/contactSheet";
 import { renderSchematicDataUrl, type AspectRatio } from "./grounding/renderSchematic";
@@ -30,6 +30,7 @@ type Props = {
   features: FeatureOption[];
   onClose: () => void;
   onCropChange?: (crop: [number, number][] | null) => void;
+  onStopsChange?: (stops: [number, number][]) => void;
   onPoisChange?: (pois: PosterPoi[]) => void;
   refineFrom?: PosterRecord | null;
 };
@@ -39,6 +40,7 @@ export function PosterPanel({
   features,
   onClose,
   onCropChange,
+  onStopsChange,
   onPoisChange,
   refineFrom,
 }: Props) {
@@ -117,6 +119,16 @@ export function PosterPanel({
     return sliceTrack(context.latlng, cropStart, cropEnd);
   }, [context, cropStart, cropEnd]);
 
+  const stopIndexes = useMemo(() => {
+    const last = Math.max(0, (context?.latlng.length ?? 1) - 1);
+    return [...new Set((context?.stops ?? []).filter((index) => index >= 0 && index <= last))].sort((a, b) => a - b);
+  }, [context]);
+
+  const stopLatLng = useMemo(() => {
+    if (!context?.latlng?.length) return [];
+    return stopIndexes.map((index) => context.latlng[index]).filter(Boolean);
+  }, [context, stopIndexes]);
+
   const selectedPois = useMemo(() => {
     const suggested = (context?.pois ?? []).filter((poi) => labels.includes(poi.name));
     const seen = new Set(suggested.map((poi) => poi.name.toLowerCase()));
@@ -148,10 +160,20 @@ export function PosterPanel({
   }, [croppedLatLng, onCropChange]);
 
   useEffect(() => {
+    onStopsChange?.(stopLatLng);
+  }, [stopLatLng, onStopsChange]);
+
+  useEffect(() => {
     onPoisChange?.(selectedPois);
   }, [selectedPois, onPoisChange]);
 
-  useEffect(() => () => onCropChange?.(null), [onCropChange]);
+  useEffect(
+    () => () => {
+      onCropChange?.(null);
+      onStopsChange?.([]);
+    },
+    [onCropChange, onStopsChange],
+  );
 
   useEffect(() => {
     if (croppedLatLng.length < 2 || !displayBbox) {
@@ -354,6 +376,16 @@ export function PosterPanel({
   const croppedKm = trackDistanceM(croppedLatLng);
   const busy = planning || generating;
 
+  function applyCrop(nextStart: number, nextEnd: number) {
+    if (!context) return;
+    const radius = snapRadius(context.latlng.length);
+    const lo = nextStart === cropStart ? nextStart : snapIndex(nextStart, stopIndexes, radius);
+    const hi = nextEnd === cropEnd ? nextEnd : snapIndex(nextEnd, stopIndexes, radius);
+    const [start, end] = clampCrop(context.latlng.length, lo, hi);
+    setCropStart(start);
+    setCropEnd(end);
+  }
+
   return (
     <aside className="panel poster-panel">
       <div className="panel-block poster-head">
@@ -385,12 +417,9 @@ export function PosterPanel({
                 type="range"
                 min={0}
                 max={lastIndex - 1}
+                list="poster-crop-stops"
                 value={cropStart}
-                onChange={(event) => {
-                  const [lo, hi] = clampCrop(context.latlng.length, Number(event.target.value), cropEnd);
-                  setCropStart(lo);
-                  setCropEnd(hi);
-                }}
+                onChange={(event) => applyCrop(Number(event.target.value), cropEnd)}
               />
             </label>
             <label className="poster-crop-row">
@@ -399,15 +428,22 @@ export function PosterPanel({
                 type="range"
                 min={1}
                 max={lastIndex}
+                list="poster-crop-stops"
                 value={cropEnd}
-                onChange={(event) => {
-                  const [lo, hi] = clampCrop(context.latlng.length, cropStart, Number(event.target.value));
-                  setCropStart(lo);
-                  setCropEnd(hi);
-                }}
+                onChange={(event) => applyCrop(cropStart, Number(event.target.value))}
               />
             </label>
-            <p className="muted">{formatKm(croppedKm)}</p>
+            <datalist id="poster-crop-stops">
+              {stopIndexes.map((index) => (
+                <option key={index} value={index} />
+              ))}
+            </datalist>
+            <p className="muted">
+              {formatKm(croppedKm)}
+              {stopIndexes.length
+                ? ` · snaps to ${stopIndexes.length} pause${stopIndexes.length === 1 ? "" : "s"}`
+                : ""}
+            </p>
           </div>
 
           <div className="panel-block">

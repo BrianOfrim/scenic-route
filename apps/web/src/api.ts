@@ -76,6 +76,7 @@ export type PosterContext = {
   };
   bbox: [[number, number], [number, number]];
   latlng: [number, number][];
+  stops: number[];
   ways: PosterWays;
   pois: PosterPoi[];
   stats: FormattedStat[];

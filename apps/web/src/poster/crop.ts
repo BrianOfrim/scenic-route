@@ -1,3 +1,22 @@
+export function snapRadius(length: number): number {
+  return Math.max(4, Math.min(16, Math.round(Math.max(1, length - 1) * 0.012)));
+}
+
+export function snapIndex(value: number, targets: number[], radius: number): number {
+  const rounded = Math.round(value);
+  if (!targets.length || radius < 0) return rounded;
+  let best = rounded;
+  let bestDist = radius + 1;
+  for (const target of targets) {
+    const dist = Math.abs(target - rounded);
+    if (dist < bestDist) {
+      best = target;
+      bestDist = dist;
+    }
+  }
+  return bestDist <= radius ? best : rounded;
+}
+
 export function clampCrop(length: number, start: number, end: number): [number, number] {
   if (length < 2) return [0, Math.max(0, length - 1)];
   const lo = Math.max(0, Math.min(length - 2, Math.round(start)));
