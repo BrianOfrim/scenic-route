@@ -97,6 +97,16 @@ export function parseLatLng(raw: string | null): [number, number][] {
   }
 }
 
+export function parseNumberArray(raw: string | null): number[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.map((value) => Number(value)) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function activityToFeatureCollection(row: ActivityRow): FeatureCollection<LineString> {
   const points = parseLatLng(row.latlng);
   if (points.length < 2) {

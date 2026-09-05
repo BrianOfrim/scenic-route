@@ -264,6 +264,22 @@ textarea {
   color: var(--muted);
 }
 
+.poster-crop-rail {
+  position: relative;
+  height: 10px;
+  margin: 0 0 2px 48px;
+}
+
+.poster-crop-tick {
+  position: absolute;
+  top: 2px;
+  width: 2px;
+  height: 6px;
+  margin-left: -1px;
+  background: var(--accent-2);
+  border-radius: 1px;
+}
+
 .poster-ref,
 .poster-result,
 .gallery-card img,

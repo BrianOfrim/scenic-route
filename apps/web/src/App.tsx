@@ -31,6 +31,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedLatLng, setSelectedLatLng] = useState<[number, number][] | null>(null);
   const [cropLatLng, setCropLatLng] = useState<[number, number][] | null>(null);
+  const [cropStops, setCropStops] = useState<[number, number][]>([]);
   const [pois, setPois] = useState<PosterPoi[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -200,6 +201,7 @@ export function App() {
           <MapView
             selectedLatLng={selectedLatLng}
             cropLatLng={posterOpen ? cropLatLng : null}
+            cropStops={posterOpen ? cropStops : []}
             pois={posterOpen ? pois : EMPTY_POIS}
             basemap={basemap}
             viewNonce={viewNonce}
@@ -213,10 +215,12 @@ export function App() {
             onClose={() => {
               setPosterOpen(false);
               setCropLatLng(null);
+              setCropStops([]);
               setPois([]);
               setRefineFrom(null);
             }}
             onCropChange={setCropLatLng}
+            onStopsChange={setCropStops}
             onPoisChange={setPois}
           />
         )}
