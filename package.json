@@ -1,0 +1,19 @@
+{
+  "name": "scenic-route",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev -w @scenic-route/api\" \"npm run dev -w @scenic-route/web\"",
+    "dev:api": "npm run dev -w @scenic-route/api",
+    "dev:web": "npm run dev -w @scenic-route/web",
+    "test": "npm test -w @scenic-route/api && npm test -w @scenic-route/web",
+    "test:api": "npm test -w @scenic-route/api",
+    "test:web": "npm test -w @scenic-route/web",
+    "build": "npm run build -w @scenic-route/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

@@ -1,0 +1,234 @@
+export type FeatureGroup = "geography" | "landmarks";
+
+export type FeatureDef = {
+  id: string;
+  label: string;
+  group: FeatureGroup;
+  bucket: string;
+  selectors: string[];
+  defaultOn?: boolean;
+  weight?: number;
+  amenityMaxM?: number;
+};
+
+export const FEATURE_CATALOG: FeatureDef[] = [
+  {
+    id: "major-roads",
+    label: "Major roads",
+    group: "geography",
+    bucket: "roads",
+    selectors: ['way[highway~"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link)$"]'],
+    defaultOn: true,
+  },
+  {
+    id: "streets",
+    label: "Residential streets",
+    group: "geography",
+    bucket: "streets",
+    selectors: ['way[highway~"^(tertiary|tertiary_link|unclassified|residential|living_street|service)$"]'],
+  },
+  {
+    id: "paths",
+    label: "Paths & trails",
+    group: "geography",
+    bucket: "paths",
+    selectors: ['way[highway~"^(cycleway|track|footway|path|bridleway|pedestrian)$"]'],
+    defaultOn: true,
+  },
+  {
+    id: "rail",
+    label: "Railways",
+    group: "geography",
+    bucket: "rail",
+    selectors: ["way[railway=rail]"],
+  },
+  {
+    id: "lakes",
+    label: "Lakes & ponds",
+    group: "geography",
+    bucket: "water",
+    selectors: ["nwr[natural=water]", "nwr[water]"],
+    defaultOn: true,
+  },
+  {
+    id: "rivers",
+    label: "Rivers & streams",
+    group: "geography",
+    bucket: "waterways",
+    selectors: ['way[waterway~"^(river|stream|canal)$"]'],
+    defaultOn: true,
+  },
+  {
+    id: "forest",
+    label: "Forest",
+    group: "geography",
+    bucket: "forest",
+    selectors: ["nwr[landuse=forest]", "nwr[natural=wood]"],
+    defaultOn: true,
+  },
+  {
+    id: "parks",
+    label: "Parks & green space",
+    group: "geography",
+    bucket: "parks",
+    selectors: ['nwr[leisure~"^(park|nature_reserve|garden)$"]', "nwr[landuse=recreation_ground]"],
+  },
+  {
+    id: "farmland",
+    label: "Farmland",
+    group: "geography",
+    bucket: "farmland",
+    selectors: ['nwr[landuse~"^(farmland|meadow|orchard|vineyard)$"]'],
+  },
+  {
+    id: "peaks",
+    label: "Peaks",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: ["nwr[natural=peak][name]"],
+    defaultOn: true,
+    weight: 100,
+  },
+  {
+    id: "towns",
+    label: "Towns & villages",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: ['nwr[place~"^(city|town|village|hamlet|suburb|locality)$"][name]'],
+    defaultOn: true,
+    weight: 88,
+  },
+  {
+    id: "named-water",
+    label: "Named water",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: [
+      'nwr[natural~"^(water|bay|beach)$"][name]',
+      'nwr[waterway~"^(river|waterfall)$"][name]',
+    ],
+    defaultOn: true,
+    weight: 85,
+  },
+  {
+    id: "viewpoints",
+    label: "Viewpoints & attractions",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: ['nwr[tourism~"^(viewpoint|attraction|castle)$"][name]'],
+    defaultOn: true,
+    weight: 75,
+  },
+  {
+    id: "historic",
+    label: "Historic places",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: ["nwr[historic][name]"],
+    weight: 76,
+  },
+  {
+    id: "named-parks",
+    label: "Named parks & reserves",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: ['nwr[leisure~"^(park|nature_reserve)$"][name]'],
+    weight: 62,
+  },
+  {
+    id: "structures",
+    label: "Bridges, towers, lighthouses",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: ['nwr[man_made~"^(lighthouse|tower|bridge|windmill)$"][name]'],
+    weight: 52,
+  },
+  {
+    id: "food",
+    label: "Cafes, pubs & restaurants",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: ['nwr[amenity~"^(cafe|pub|restaurant)$"][name]'],
+    weight: 32,
+    amenityMaxM: 300,
+  },
+  {
+    id: "worship",
+    label: "Places of worship",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: ["nwr[amenity=place_of_worship][name]"],
+    weight: 30,
+    amenityMaxM: 300,
+  },
+  {
+    id: "lodging",
+    label: "Campsites & huts",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: ['nwr[tourism~"^(alpine_hut|camp_site|wilderness_hut)$"][name]'],
+    weight: 56,
+  },
+  {
+    id: "playgrounds",
+    label: "Playgrounds",
+    group: "landmarks",
+    bucket: "poi",
+    selectors: ["nwr[leisure=playground][name]"],
+    weight: 28,
+    amenityMaxM: 400,
+  },
+];
+
+export const KIND_WEIGHTS: Record<string, number> = {
+  peak: 100,
+  glacier: 95,
+  city: 90,
+  town: 88,
+  water: 85,
+  bay: 84,
+  beach: 82,
+  river: 82,
+  waterfall: 80,
+  castle: 78,
+  historic: 76,
+  viewpoint: 75,
+  attraction: 74,
+  village: 70,
+  hamlet: 65,
+  cliff: 65,
+  park: 62,
+  nature_reserve: 62,
+  wood: 58,
+  alpine_hut: 56,
+  camp_site: 54,
+  lighthouse: 55,
+  tower: 52,
+  windmill: 52,
+  bridge: 50,
+  suburb: 48,
+  locality: 45,
+  cafe: 32,
+  pub: 32,
+  restaurant: 32,
+  place_of_worship: 30,
+  playground: 28,
+};
+
+export const DEFAULT_FEATURE_IDS = FEATURE_CATALOG.filter((item) => item.defaultOn).map(
+  (item) => item.id,
+);
+
+export function catalogPublic() {
+  return FEATURE_CATALOG.map((item) => ({
+    id: item.id,
+    label: item.label,
+    group: item.group,
+    defaultOn: Boolean(item.defaultOn),
+  }));
+}
+
+export function resolveFeatures(ids?: string[]): FeatureDef[] {
+  const wanted = ids?.length ? new Set(ids) : new Set(DEFAULT_FEATURE_IDS);
+  return FEATURE_CATALOG.filter((item) => wanted.has(item.id));
+}
