@@ -411,13 +411,6 @@ export function PosterPanel({
         <div className="poster-body">
           <div className="panel-block">
             <div className="eyebrow">Crop track</div>
-            {stopIndexes.length > 0 && (
-              <div className="poster-crop-rail" aria-hidden>
-                {stopIndexes.map((index) => (
-                  <span key={index} className="poster-crop-tick" style={{ left: `${(index / lastIndex) * 100}%` }} />
-                ))}
-              </div>
-            )}
             <label className="poster-crop-row">
               <span>Start</span>
               <input
