@@ -40,7 +40,7 @@ export const POSTER_SPEC_SHAPE = {
   composition: { aspectRatio: "2:3", routePlacement: "", titleBlock: "", border: "", decorations: [""] },
   route: { treatment: "", color: "", startMarker: "", finishMarker: "", shapeNotes: "" },
   geography: [{ kind: "", name: "", placement: "", treatment: "" }],
-  landmarks: [{ name: "", kind: "", placement: "", icon: "" }],
+  landmarks: [{ name: "", kind: "", placement: "", icon: "", pin: 1 }],
   text: { title: "", subtitle: "", stats: [{ label: "", value: "" }], rules: "" },
   grounding: { images: [{ index: 1, role: "", legend: "" }], rules: [""] },
   negative: [""],
@@ -57,7 +57,8 @@ export function proximityWord(distToRouteM: number): string {
 export function buildPlannerMessages(input: PlannerInput) {
   // Coarse verbal placement only: image models place labels by region, and the
   // planner tends to echo whatever phrase it is given straight into the prompt.
-  const landmarks = input.pois.map((poi) => ({
+  const landmarks = input.pois.map((poi, index) => ({
+    pin: index + 1,
     name: poi.name,
     kind: poi.kind,
     placement: `${poi.xy.region}, ${poi.bearing} of the route`,
@@ -88,7 +89,7 @@ export function buildPlannerMessages(input: PlannerInput) {
         `Every value must follow this exact shape (nested objects and arrays, never a prose string in place of an object): ${JSON.stringify(POSTER_SPEC_SHAPE)}`,
         "Fill style.name, style.medium, style.palette, style.typography, composition.routePlacement, composition.titleBlock, route.treatment, and route.color with concrete choices; do not leave them blank.",
         "Copy title, subtitle, stats, and groundingImages from the input into text and grounding verbatim.",
-        "Landmarks: one entry per supplied landmark, exact spelling, placement copied as the short phrase given (e.g. 'upper-left, west of the route'); do not add distances or percentages.",
+        "Landmarks: one entry per supplied landmark, exact spelling, pin copied from the list so the image prompt can look up locations. The schematic uses numbered discs as a private index only. The finished poster must write each landmark name on the map at that disc and must never copy the numbers or add a number-to-name legend. Do not describe numbered discs as a poster feature. Do not forbid printed landmark names. placement copied as the short phrase given (e.g. 'upper-left, west of the route'); do not add distances or percentages.",
         "Keep field values concise. Skip or keep finalPrompt short; a complete image prompt is assembled from the structured fields.",
         "The attached grounding images (described by index and role) are the geographic source of truth.",
         "Keep the route shape, orientation, and relative placement of water, roads, and landmarks truthful.",
@@ -126,10 +127,19 @@ function splitList(value: unknown): string[] {
 }
 
 /** "Castle Mountain — peak, upper-right" | "Castle Mountain (upper-right)" | "Castle Mountain: upper-right" */
-function landmarkFromText(text: string): { name: string; kind: string; placement: string; icon: string } {
-  const match = /^(.*?)\s*(?:[—–:-]\s*|\()(.*?)\)?$/.exec(text.trim());
-  if (!match || !match[2]) return { name: text.trim(), kind: "", placement: "", icon: "" };
-  return { name: match[1].trim(), kind: "", placement: match[2].trim(), icon: "" };
+function assignLandmarkPins(landmarks: unknown[], pois: PlannerInput["pois"]) {
+  const rows = landmarks.filter(isRecord);
+  const pinByName = new Map(pois.map((poi, index) => [poi.name.trim().toLowerCase(), index + 1]));
+  return rows.map((item, index) => ({
+    ...item,
+    pin: pinByName.get(str(item.name).toLowerCase()) ?? (Number(item.pin) > 0 ? Math.round(Number(item.pin)) : index + 1),
+  }));
+}
+
+function landmarkFromText(text: string): { name: string; kind: string; placement: string; icon: string; pin: number } {
+  const match = /^(?:\d+[\.)]\s*)?(.*?)\s*(?:[—–:-]\s*|\()(.*?)\)?$/.exec(text.trim());
+  if (!match || !match[2]) return { name: text.trim(), kind: "", placement: "", icon: "", pin: 0 };
+  return { name: match[1].trim(), kind: "", placement: match[2].trim(), icon: "", pin: 0 };
 }
 
 /**
@@ -187,6 +197,10 @@ export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<s
   } else {
     record.landmarks = record.landmarks.map((item) => (typeof item === "string" ? landmarkFromText(item) : item));
   }
+  record.landmarks = assignLandmarkPins(
+    Array.isArray(record.landmarks) ? record.landmarks : [],
+    input.pois,
+  );
 
   const text: Record<string, unknown> = isRecord(record.text) ? { ...record.text } : { rules: str(record.text) };
   if (!str(text.title)) text.title = input.title;

@@ -35,6 +35,8 @@ export type PosterSpecLandmark = {
   kind: string;
   placement: string;
   icon: string;
+  /** 1-based disc on the schematic; 0 means "use array order". */
+  pin: number;
 };
 
 export type PosterSpecText = {
@@ -132,12 +134,13 @@ export const POSTER_SPEC_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "kind", "placement", "icon"],
+        required: ["name", "kind", "placement", "icon", "pin"],
         properties: {
           name: { type: "string" },
           kind: { type: "string" },
           placement: { type: "string" },
           icon: { type: "string" },
+          pin: { type: "integer" },
         },
       },
     },
@@ -241,11 +244,12 @@ export function validatePosterSpec(raw: unknown): PosterSpec {
         }))
       : [],
     landmarks: Array.isArray(raw.landmarks)
-      ? raw.landmarks.filter(isRecord).map((item) => ({
+      ? raw.landmarks.filter(isRecord).map((item, index) => ({
           name: asString(item.name),
           kind: asString(item.kind),
           placement: asString(item.placement),
           icon: asString(item.icon),
+          pin: Number(item.pin) > 0 ? Math.round(Number(item.pin)) : index + 1,
         }))
       : [],
     text: {
@@ -282,6 +286,8 @@ export function validatePosterSpec(raw: unknown): PosterSpec {
 /** Things the reference schematic contains that must never be copied into the poster. */
 export const PROMPT_EXCLUSIONS = [
   "no legend strip or color key",
+  "no number-to-name legend or index",
+  "no numbered landmark discs, pin numbers, or numbered callouts",
   "no latitude/longitude numbers, coordinates, or grid lines",
   "no watermark",
   "no text other than the title block and the listed landmark names",
@@ -297,6 +303,23 @@ const labeled = (label: string, value: string) => (t(value) ? `${label}: ${t(val
 const list = (values: string[]) => values.map(t).filter(Boolean);
 const paragraph = (parts: string[]) => parts.filter(Boolean).join(" ");
 
+/** Planner copy that tells the image model to keep index numbers or hide names. */
+const INDEX_AS_ART =
+  /numbered[^.]*discs mark landmarks|represented solely by numbered|numbered circular discs matching|printed landmark text labels/i;
+
+function keepAsPosterInstruction(text: string) {
+  return !INDEX_AS_ART.test(text);
+}
+
+function scrubIndexLanguage(text: string) {
+  return text
+    .replace(/Numbered[^.!?\n]*discs mark landmarks\.?/gi, "")
+    .replace(/Landmarks are represented solely by numbered[^.!?\n]*\.?/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+\./g, ".")
+    .trim();
+}
+
 /**
  * Render a spec as plain prose for the image model. Blank fields and empty
  * arrays are omitted entirely so the model never sees `"palette": []`.
@@ -304,7 +327,7 @@ const paragraph = (parts: string[]) => parts.filter(Boolean).join(" ");
 export function specToImagePrompt(spec: PosterSpec): string {
   const sections: string[] = [];
 
-  const lead = t(spec.finalPrompt) || fallbackPrompt(spec);
+  const lead = scrubIndexLanguage(t(spec.finalPrompt) || fallbackPrompt(spec));
   sections.push(sentence(lead));
 
   const palette = list(spec.style.palette);
@@ -350,12 +373,11 @@ export function specToImagePrompt(spec: PosterSpec): string {
 
   const landmarks = spec.landmarks
     .filter((item) => t(item.name))
-    .map((item) => {
-      const notes = [t(item.placement), t(item.icon) ? `icon: ${t(item.icon)}` : ""].filter(Boolean).join("; ");
-      return notes ? `"${t(item.name)}" (${notes})` : `"${t(item.name)}"`;
-    });
+    .map((item, index) => formatLandmarkKeyEntry(item, index));
   if (landmarks.length) {
-    sections.push(`Label these landmarks with exact spelling, each once, near its position in the reference: ${landmarks.join("; ")}.`);
+    sections.push(
+      `Landmarks: the numbered discs on the schematic are a private location index. Look up where each place sits, then discard the number. Write each name once, in the poster lettering, directly on the map at that spot. Place any illustration or icon at the same spot as the name. Do not draw the numbers. Do not add a legend, key, or numbered callouts. ${landmarks.join("; ")}.`,
+    );
   }
 
   const stats = spec.text.stats
@@ -373,19 +395,37 @@ export function specToImagePrompt(spec: PosterSpec): string {
   const images = spec.grounding.images
     .filter((item) => t(item.role) || t(item.legend))
     .map((item) => `image ${item.index} is the ${t(item.role) || "reference"}${t(item.legend) ? ` (${t(item.legend)})` : ""}`);
-  const groundingRules = list(spec.grounding.rules);
+  const groundingRules = list(spec.grounding.rules).filter(keepAsPosterInstruction);
   sections.push(
     paragraph([
       images.length ? `Reference images: ${images.join("; ")}.` : "",
       "Treat the references as the geographic source of truth: keep the route shape, orientation, and the relative position of water, roads, and landmarks; north is up.",
+      landmarks.length
+        ? "The schematic's numbered discs are scaffolding, not artwork. Copy geography and route from the reference; replace every disc with the written name from the landmark list."
+        : "",
       groundingRules.length ? `${groundingRules.map(sentence).join(" ")}` : "",
     ]),
   );
 
-  const avoid = Array.from(new Set([...list(spec.negative), ...PROMPT_EXCLUSIONS]));
+  const avoid = Array.from(new Set([...list(spec.negative).filter(keepAsPosterInstruction), ...PROMPT_EXCLUSIONS]));
   sections.push(`Avoid: ${avoid.join("; ")}.`);
 
   return sections.filter(Boolean).join("\n\n");
+}
+
+export function landmarkPin(item: { pin?: number; name?: string }, index: number) {
+  return item.pin && item.pin > 0 ? item.pin : index + 1;
+}
+
+function formatLandmarkKeyEntry(
+  item: { name: string; kind?: string; placement?: string; icon?: string; pin?: number },
+  index: number,
+) {
+  const pin = landmarkPin(item, index);
+  const notes = [t(item.placement ?? ""), t(item.icon ?? "") ? `icon: ${t(item.icon ?? "")}` : ""]
+    .filter(Boolean)
+    .join("; ");
+  return notes ? `${pin} "${t(item.name)}" (${notes})` : `${pin} "${t(item.name)}"`;
 }
 
 function routeLine(treatment: string, color: string) {
@@ -413,7 +453,7 @@ function markerPrompt(start: string, finish: string) {
 function fallbackPrompt(spec: PosterSpec): string {
   const landmarks = spec.landmarks
     .filter((item) => t(item.name))
-    .map((item) => (t(item.placement) ? `${t(item.name)} (${t(item.placement)})` : t(item.name)))
+    .map((item, index) => formatLandmarkKeyEntry(item, index))
     .join("; ");
   const palette = list(spec.style.palette);
   return [
@@ -422,7 +462,9 @@ function fallbackPrompt(spec: PosterSpec): string {
     palette.length ? `Palette: ${palette.join(", ")}.` : "",
     routeLine(spec.route.treatment, spec.route.color),
     markerPrompt(spec.route.startMarker, spec.route.finishMarker),
-    landmarks ? `Label: ${landmarks}.` : "",
+    landmarks
+      ? `Landmarks: ${landmarks}. Write each name on the map at its index location; do not draw the numbers or a legend.`
+      : "",
     `Title exactly "${t(spec.text.title)}".`,
     t(spec.text.subtitle) ? `Subtitle exactly "${t(spec.text.subtitle)}".` : "",
     "North is up. Follow the grounding images for geography. Do not invent a different path.",

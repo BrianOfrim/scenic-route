@@ -29,14 +29,25 @@ import {
   writeStoredImageModels,
 } from "./imageModels";
 
-type ModelRun = {
+import { DEFAULT_POSTER_STYLE, POSTER_STYLES, styleById, styleLabel } from "./styles";
+
+type GenerationRun = {
+  key: string;
+  styleId: string;
+  styleLabel: string;
   model: string;
   label: string;
   startedAt: number;
   finishedAt?: number;
   error?: string;
 };
-import { DEFAULT_POSTER_STYLE, POSTER_STYLES } from "./styles";
+
+function initialStyleId(record?: PosterRecord | null) {
+  const id = record?.styleId;
+  if (id && POSTER_STYLES.some((item) => item.id === id)) return id;
+  if (record?.stylePrompt) return "custom";
+  return DEFAULT_POSTER_STYLE.id;
+}
 
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
 
@@ -51,7 +62,7 @@ const TILE_SOURCE: Partial<Record<GroundingKey, "topo" | "osm" | "satellite">> =
 };
 
 const GROUNDING_LEGEND: Record<GroundingKey, string> = {
-  schematic: "red = route; grey = roads; blue = water; green = forest",
+  schematic: "red = route; grey = roads; blue = water; green = forest; numbered discs = private location index, do not copy",
   silhouette: "route only, north up",
   terrain: "OpenTopoMap terrain with route overlay",
   streets: "OSM streets with route overlay",
@@ -108,8 +119,9 @@ export function PosterPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [featureIds, setFeatureIds] = useState<string[]>(DEFAULT_FEATURE_IDS);
-  const [styleId, setStyleId] = useState(refineFrom?.styleId || DEFAULT_POSTER_STYLE.id);
+  const [styleIds, setStyleIds] = useState<string[]>(() => [initialStyleId(refineFrom)]);
   const [stylePrompt, setStylePrompt] = useState(refineFrom?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
+  const [activeStyleId, setActiveStyleId] = useState(() => initialStyleId(refineFrom));
   const [title, setTitle] = useState("");
   const [statIds, setStatIds] = useState<string[]>(["title", "date", "distance", "movingTime"]);
   const [labels, setLabels] = useState<string[]>([]);
@@ -141,11 +153,15 @@ export function PosterPanel({
       ? [...stored, refineFrom.model]
       : stored;
   });
-  const [spec, setSpec] = useState<PosterSpec | null>(refineFrom?.spec ?? null);
+  const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => {
+    const id = initialStyleId(refineFrom);
+    return refineFrom?.spec ? { [id]: refineFrom.spec } : {};
+  });
   const [planning, setPlanning] = useState(false);
+  const [planProgress, setPlanProgress] = useState({ done: 0, total: 0 });
   const [generating, setGenerating] = useState(false);
   const [generateProgress, setGenerateProgress] = useState({ done: 0, total: 0 });
-  const [modelRuns, setModelRuns] = useState<ModelRun[]>([]);
+  const [modelRuns, setModelRuns] = useState<GenerationRun[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [result, setResult] = useState<PosterRecord | null>(null);
   const [batchResults, setBatchResults] = useState<PosterRecord[]>([]);
@@ -449,13 +465,15 @@ export function PosterPanel({
 
   async function handlePlan() {
     if (!context) return;
+    const selectedStyles = styleIds.map((id) => styleById(id));
+    if (!selectedStyles.length) return;
     setPlanning(true);
     setError(null);
+    setPlanProgress({ done: 0, total: selectedStyles.length });
     try {
       const layers = await buildGrounding();
       const packed = planContactSheets(layers, maxRefs);
-      const style = POSTER_STYLES.find((item) => item.id === styleId) ?? DEFAULT_POSTER_STYLE;
-      const planned = await planPoster({
+      const base = {
         activity: {
           name: context.activity.name,
           sportType: context.activity.sportType,
@@ -463,13 +481,11 @@ export function PosterPanel({
         },
         routeMarkers: {
           enabled: showRouteMarkers,
-          mode: isClosedLoop(croppedLatLng) ? "loop" : "start-finish",
+          mode: isClosedLoop(croppedLatLng) ? "loop" as const : "start-finish" as const,
         },
         title,
         subtitle,
         stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
-        style,
-        customStylePrompt: styleId === "custom" || stylePrompt !== style.prompt ? stylePrompt : undefined,
         aspectRatio,
         geography: catalog
           .filter(
@@ -484,9 +500,45 @@ export function PosterPanel({
           legend: sheet.legend,
         })),
         refineNotes: refineNotes || undefined,
-        previousSpec: spec ?? undefined,
+      };
+      const settled = await Promise.all(
+        selectedStyles.map(async (style) => {
+          try {
+            const planned = await planPoster({
+              ...base,
+              style,
+              customStylePrompt: style.id === "custom" ? stylePrompt : undefined,
+              previousSpec:
+                specs[style.id] ??
+                (refineFrom && refineFrom.styleId === style.id ? refineFrom.spec : undefined),
+            });
+            return { styleId: style.id, spec: planned.spec };
+          } catch (err) {
+            return {
+              styleId: style.id,
+              error: err instanceof Error ? err.message : "Planner failed",
+            };
+          } finally {
+            setPlanProgress((current) => ({ ...current, done: current.done + 1 }));
+          }
+        }),
+      );
+      const planned = settled.flatMap((item) => (item.spec ? [{ styleId: item.styleId, spec: item.spec }] : []));
+      const failures = settled.flatMap((item) =>
+        item.error ? [`${styleLabel(item.styleId)}: ${item.error}`] : [],
+      );
+      if (!planned.length) throw new Error(failures.join(" · ") || "Planner failed");
+      setSpecs((current) => {
+        const next = { ...current };
+        for (const item of planned) next[item.styleId] = item.spec;
+        return next;
       });
-      setSpec(planned.spec);
+      if (!planned.some((item) => item.styleId === activeStyleId)) {
+        setActiveStyleId(planned[0].styleId);
+      }
+      if (failures.length) {
+        setError(`${failures.length} theme${failures.length === 1 ? "" : "s"} failed to plan. ${failures.join(" · ")}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Planner failed");
     } finally {
@@ -495,76 +547,91 @@ export function PosterPanel({
   }
 
   async function handleGenerate() {
-    if (!context || !spec) return;
+    if (!context) return;
+    const jobs = styleIds.flatMap((styleId) => {
+      const planned = specs[styleId];
+      if (!planned) return [];
+      const style = styleById(styleId);
+      return imageModelIds.map((model) => ({
+        key: `${styleId}\0${model}`,
+        styleId,
+        style,
+        spec: planned,
+        model,
+      }));
+    });
+    if (!jobs.length) return;
     setGenerating(true);
     setError(null);
     try {
       const layers = await buildGrounding();
       const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
-      const previousUrl = result?.url ?? refineFrom?.url;
-      const sent: ModelRef[] = packed.map((item) => ({ role: item.role, legend: item.legend, dataUrl: item.dataUrl }));
-      if (previousUrl && sent.length < maxRefs) {
-        sent.push({ role: "previous poster", dataUrl: previousUrl });
-      }
-      setSentRefs(sent);
-      const models = imageModelIds.length ? imageModelIds : [];
-      if (!models.length) throw new Error("Select at least one image model");
-      const batchId = models.length > 1 ? crypto.randomUUID() : undefined;
-      const body = {
-        activityId,
-        spec,
-        references: packed.map((item) => item.dataUrl),
-        previousPosterId: result?.posterId ?? refineFrom?.posterId,
-        refineNotes: refineNotes || undefined,
-        featureIds,
-        labels: selectedPois.map((poi) => poi.name),
-        stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
-        styleId,
-        stylePrompt,
-        aspectRatio,
-        batchId,
-      };
-      setGenerateProgress({ done: 0, total: models.length });
+      setSentRefs(packed.map((item) => ({ role: item.role, legend: item.legend, dataUrl: item.dataUrl })));
+      if (!imageModelIds.length) throw new Error("Select at least one image model");
+      const batchId = jobs.length > 1 ? crypto.randomUUID() : undefined;
+      setGenerateProgress({ done: 0, total: jobs.length });
       const startedAt = Date.now();
       setModelRuns(
-        models.map((model) => ({
-          model,
-          label: shortModelLabel(model, imageModels.find((item) => item.id === model)?.name),
+        jobs.map((job) => ({
+          key: job.key,
+          styleId: job.styleId,
+          styleLabel: job.style.label,
+          model: job.model,
+          label: shortModelLabel(job.model, imageModels.find((item) => item.id === job.model)?.name),
           startedAt,
         })),
       );
       const settled = await Promise.all(
-        models.map(async (model): Promise<{ model: string; record?: PosterRecord; error?: string }> => {
+        jobs.map(async (job) => {
           try {
-            const record = await generatePoster({ ...body, model });
+            const record = await generatePoster({
+              activityId,
+              spec: job.spec,
+              references: packed.map((item) => item.dataUrl),
+              refineNotes: refineNotes || undefined,
+              featureIds,
+              labels: selectedPois.map((poi) => poi.name),
+              stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
+              styleId: job.styleId,
+              stylePrompt: job.style.id === "custom" ? stylePrompt : job.style.prompt,
+              aspectRatio,
+              batchId,
+              model: job.model,
+            });
             setModelRuns((current) =>
               current.map((run) =>
-                run.model === model ? { ...run, finishedAt: Date.now() } : run,
+                run.key === job.key ? { ...run, finishedAt: Date.now() } : run,
               ),
             );
-            return { model, record };
+            return { key: job.key, styleId: job.styleId, model: job.model, record };
           } catch (err) {
             const error = err instanceof Error ? err.message : "Poster generation failed";
             setModelRuns((current) =>
               current.map((run) =>
-                run.model === model ? { ...run, finishedAt: Date.now(), error } : run,
+                run.key === job.key ? { ...run, finishedAt: Date.now(), error } : run,
               ),
             );
-            return { model, error };
+            return { key: job.key, styleId: job.styleId, model: job.model, error };
           } finally {
             setGenerateProgress((current) => ({ ...current, done: current.done + 1 }));
           }
         }),
       );
       const records = settled.flatMap((item) => (item.record ? [item.record] : []));
-      const failures = settled.flatMap((item) =>
-        item.error ? [`${shortModelLabel(item.model)}: ${item.error}`] : [],
-      );
+      const failures = settled.flatMap((item) => {
+        if (!item.error) return [];
+        const theme = styleLabel(item.styleId);
+        const model = shortModelLabel(item.model);
+        return [`${styleIds.length > 1 ? `${theme} · ` : ""}${model}: ${item.error}`];
+      });
       if (!records.length) throw new Error(failures.join(" · ") || "Poster generation failed");
       setBatchResults(records);
       setResult(records[0]);
+      setActiveStyleId(records[0].styleId || activeStyleId);
       setRefineNotes("");
-      if (failures.length) setError(`${failures.length} model${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
+      if (failures.length) {
+        setError(`${failures.length} poster${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Poster generation failed");
     } finally {
@@ -617,10 +684,21 @@ export function PosterPanel({
     );
   }
 
-  function applyStyle(id: string) {
-    const preset = POSTER_STYLES.find((item) => item.id === id) ?? DEFAULT_POSTER_STYLE;
-    setStyleId(preset.id);
-    if (preset.id !== "custom") setStylePrompt(preset.prompt);
+  function toggleStyle(id: string) {
+    setStyleIds((current) => {
+      if (current.includes(id)) {
+        if (current.length === 1) return current;
+        const next = current.filter((item) => item !== id);
+        setActiveStyleId((active) => (active === id ? next[0] : active));
+        return next;
+      }
+      setActiveStyleId(id);
+      if (id === "custom" && !stylePrompt) {
+        const from = styleById(activeStyleId);
+        if (from.prompt) setStylePrompt(from.prompt);
+      }
+      return [...current, id];
+    });
   }
 
   function applyImageModels(ids: string[]) {
@@ -643,7 +721,10 @@ export function PosterPanel({
 
   function selectResult(record: PosterRecord) {
     setResult(record);
-    setSpec(record.spec);
+    if (record.styleId) {
+      setActiveStyleId(record.styleId);
+      setSpecs((current) => ({ ...current, [record.styleId]: record.spec }));
+    }
     setSentRefs(savedModelRefs(record));
   }
 
@@ -654,11 +735,18 @@ export function PosterPanel({
       .map((id) => ({ id, name: id, maxReferences: maxRefs })),
   ];
 
-  const previousRef =
-    modelRefs.length < maxRefs ? (result?.url ?? refineFrom?.url ?? null) : null;
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
   const croppedKm = trackDistanceM(croppedLatLng);
   const busy = planning || generating;
+  const plannedStyleIds = styleIds.filter((id) => specs[id]);
+  const specStyleId = specs[activeStyleId] ? activeStyleId : plannedStyleIds[0];
+  const spec = specStyleId ? specs[specStyleId] ?? null : null;
+  const allThemesPlanned = styleIds.length > 0 && styleIds.every((id) => specs[id]);
+  const generateCount = plannedStyleIds.length * imageModelIds.length;
+  const editingCustom = styleIds.includes("custom");
+  const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
+  const compareStyles = new Set(batchResults.map((item) => item.styleId)).size > 1;
+  const compareModels = new Set(batchResults.map((item) => item.model)).size > 1;
 
   function applyCrop(nextStart: number, nextEnd: number) {
     if (!context) return;
@@ -776,20 +864,23 @@ export function PosterPanel({
                 </label>
               ))}
             <div className="chip-row">
-              {selectedPois.map((poi) => (
+              {selectedPois.map((poi, index) => (
                 <button
                   key={`${poi.name}-${poi.lat}`}
                   type="button"
                   className="chip on"
-                  title="Labeled on the poster"
+                  title={`Disc ${index + 1} on the schematic`}
                   onClick={() => removePoi(poi.name)}
                 >
-                  {poi.name} ×
+                  {index + 1} {poi.name} ×
                 </button>
               ))}
             </div>
             {selectedPois.length > 0 && (
-              <p className="muted">Hover a map label and click × to remove it, or use a chip here.</p>
+              <p className="muted">
+                Numbered discs are a location index for the image model only. The poster should show
+                the place names on the map, not the numbers or a legend.
+              </p>
             )}
             {selectedPois.length > MAX_LABELS && (
               <p className="warn">
@@ -818,29 +909,43 @@ export function PosterPanel({
           </div>
 
           <div className="panel-block">
-            <div className="eyebrow">Style</div>
+            <div className="eyebrow">Themes</div>
             <div className="chip-row">
               {POSTER_STYLES.map((style) => (
                 <button
                   key={style.id}
                   type="button"
-                  className={`chip ${style.id === styleId ? "on" : ""}`}
-                  onClick={() => applyStyle(style.id)}
+                  className={`chip ${styleIds.includes(style.id) ? "on" : ""}`}
+                  onClick={() => toggleStyle(style.id)}
                 >
                   {style.label}
                 </button>
               ))}
             </div>
-            <textarea
-              className="poster-prompt"
-              rows={5}
-              value={stylePrompt}
-              onChange={(event) => {
-                setStyleId("custom");
-                setStylePrompt(event.target.value);
-              }}
-              placeholder="Custom style prompt"
-            />
+            <p className="muted">
+              {styleIds.length > 1
+                ? `${styleIds.length} themes will each get their own prompt`
+                : "Select more than one to compare themes"}
+            </p>
+            {(editingCustom || singlePreset) && (
+              <textarea
+                className="poster-prompt"
+                rows={5}
+                value={editingCustom ? stylePrompt : styleById(styleIds[0]).prompt}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (singlePreset) {
+                    setStyleIds(["custom"]);
+                    setActiveStyleId("custom");
+                  }
+                  setStylePrompt(value);
+                }}
+                placeholder="Custom style prompt"
+              />
+            )}
+            {styleIds.length > 1 && editingCustom && (
+              <p className="muted">Custom uses this prompt; other themes use their presets.</p>
+            )}
           </div>
 
           <div className="panel-block">
@@ -922,12 +1027,6 @@ export function PosterPanel({
                   <figcaption>{key}</figcaption>
                 </figure>
               ))}
-              {previousRef ? (
-                <figure className="poster-ref-card">
-                  <img className="poster-ref" src={previousRef} alt="Previous poster" />
-                  <figcaption>previous poster</figcaption>
-                </figure>
-              ) : null}
             </div>
             {modelRefs.length > 0 && modelRefs.some((item) => item.role.startsWith("contact-sheet")) ? (
               <>
@@ -944,34 +1043,70 @@ export function PosterPanel({
             ) : null}
             {tileLoading ? <p className="muted">Loading map tiles…</p> : null}
             <p className="muted">
-              {modelRefs.length + (previousRef ? 1 : 0)} reference
-              {modelRefs.length + (previousRef ? 1 : 0) === 1 ? "" : "s"} will be sent
+              {modelRefs.length} reference
+              {modelRefs.length === 1 ? "" : "s"} will be sent
               {modelRefs.length > maxRefs ? "" : ` · max ${maxRefs}`}
             </p>
             {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
           </div>
 
           <div className="panel-block">
-            <button className="button" type="button" disabled={busy || !title.trim()} onClick={() => void handlePlan()}>
-              {planning ? `Planning… ${elapsed}s` : spec ? "Re-plan" : "Plan prompt"}
+            <button className="button" type="button" disabled={busy || !title.trim() || !styleIds.length} onClick={() => void handlePlan()}>
+              {planning
+                ? planProgress.total > 1
+                  ? `Planning ${planProgress.done}/${planProgress.total}… ${elapsed}s`
+                  : `Planning… ${elapsed}s`
+                : plannedStyleIds.length
+                  ? styleIds.length > 1
+                    ? "Re-plan prompts"
+                    : "Re-plan"
+                  : styleIds.length > 1
+                    ? "Plan prompts"
+                    : "Plan prompt"}
             </button>
+            {plannedStyleIds.length > 0 && !allThemesPlanned && (
+              <p className="muted">Plan prompts for the newly selected themes before generating.</p>
+            )}
           </div>
 
           {spec && (
             <div className="panel-block">
-              <SpecEditor spec={spec} onChange={setSpec} />
+              {plannedStyleIds.length > 1 && (
+                <div className="chip-row">
+                  {plannedStyleIds.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`chip ${id === specStyleId ? "on" : ""}`}
+                      onClick={() => setActiveStyleId(id)}
+                    >
+                      {styleLabel(id, specs[id]?.style.name)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <SpecEditor
+                spec={spec}
+                onChange={(next) =>
+                  setSpecs((current) => ({ ...current, [specStyleId ?? activeStyleId]: next }))
+                }
+              />
               <button
                 className="button"
                 type="button"
-                disabled={busy || !imageModelIds.length}
+                disabled={busy || !imageModelIds.length || !allThemesPlanned}
                 onClick={() => void handleGenerate()}
               >
                 {generating
                   ? generateProgress.total > 1
                     ? `Generating ${generateProgress.done}/${generateProgress.total}… ${elapsed}s`
                     : `Generating… ${elapsed}s`
-                  : imageModelIds.length > 1
-                    ? `Generate with ${imageModelIds.length} models`
+                  : generateCount > 1
+                    ? styleIds.length > 1 && imageModelIds.length > 1
+                      ? `Generate ${styleIds.length} themes × ${imageModelIds.length} models`
+                      : styleIds.length > 1
+                        ? `Generate ${styleIds.length} themes`
+                        : `Generate with ${imageModelIds.length} models`
                     : "Generate poster"}
               </button>
               {modelRuns.length > 0 && (
@@ -980,9 +1115,15 @@ export function PosterPanel({
                     const ms = (run.finishedAt ?? Date.now()) - run.startedAt;
                     const time = formatDurationMs(ms);
                     const status = run.error ? "failed" : run.finishedAt ? "done" : "running";
+                    const showStyle = styleIds.length > 1;
+                    const showModel = imageModelIds.length > 1 || !showStyle;
                     return (
-                      <li key={run.model} className={`model-time ${status}`}>
-                        <span>{run.label}</span>
+                      <li key={run.key} className={`model-time ${status}`}>
+                        <span>
+                          {[showStyle ? run.styleLabel : null, showModel ? run.label : null]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
                         <span>
                           {time}
                           {run.finishedAt ? "" : "…"}
@@ -1009,7 +1150,16 @@ export function PosterPanel({
                       onClick={() => selectResult(item)}
                     >
                       <img src={item.url} alt={item.title} />
-                      <span>{shortModelLabel(item.model, item.modelName)}</span>
+                      <span>
+                        {[
+                          compareStyles ? styleLabel(item.styleId, item.spec.style.name) : null,
+                          compareModels || !compareStyles
+                            ? shortModelLabel(item.model, item.modelName)
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
                       {item.durationMs != null && <span>{formatDurationMs(item.durationMs)}</span>}
                     </button>
                   ))}
@@ -1026,7 +1176,8 @@ export function PosterPanel({
                 </a>
               </div>
               <p className="muted">
-                {shortModelLabel(result.model, result.modelName)}
+                {styleLabel(result.styleId, result.spec.style.name)}
+                {` · ${shortModelLabel(result.model, result.modelName)}`}
                 {result.durationMs != null ? ` · ${formatDurationMs(result.durationMs)}` : ""}
                 {result.cost != null ? ` · $${result.cost.toFixed(3)}` : ""}
               </p>

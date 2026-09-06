@@ -82,10 +82,6 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
 
   const maxRefs = await maxImageReferences(model);
   const references = incoming.slice(0, maxRefs);
-  if (body.previousPosterId && isSafePosterId(body.previousPosterId) && references.length < maxRefs) {
-    const previous = readPosterPng(body.previousPosterId);
-    references.push(`data:image/png;base64,${previous.toString("base64")}`);
-  }
 
   const decoded = references.map(decodeDataUrl);
   const prompt = specToImagePrompt(spec);

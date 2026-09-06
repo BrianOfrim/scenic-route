@@ -108,7 +108,7 @@ export type PosterSpec = {
     shapeNotes: string;
   };
   geography: Array<{ kind: string; name: string; placement: string; treatment: string }>;
-  landmarks: Array<{ name: string; kind: string; placement: string; icon: string }>;
+  landmarks: Array<{ name: string; kind: string; placement: string; icon: string; pin?: number }>;
   text: {
     title: string;
     subtitle: string;

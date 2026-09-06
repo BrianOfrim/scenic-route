@@ -41,6 +41,8 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.match(String(messages[0].content), /optional finalPrompt/);
   assert.match(String(messages[0].content), /combined start\/finish marker/);
   assert.match(String(messages[0].content), /never a prose string in place of an object/);
+  assert.match(String(messages[0].content), /private index/);
+  assert.match(String(messages[0].content), /never copy the numbers/);
   assert.match(String(messages[0].content), /"landmarks":\[\{"name":""/);
   const user = JSON.parse(String(messages[1].content)) as {
     landmarks: Array<Record<string, unknown>>;
@@ -49,6 +51,7 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
     routeMarkers: { enabled: boolean; mode: string };
   };
   assert.equal(user.landmarks[0].name, "Norsemen Inn");
+  assert.equal(user.landmarks[0].pin, 1);
   assert.equal(user.landmarks[0].placement, "upper-left, west of the route");
   assert.equal(user.landmarks[0].proximity, "on the route");
   assert.equal(user.landmarks[0].routeProgressPct, 12);
@@ -85,10 +88,10 @@ test("repairPlannerOutput coerces prose fields into the nested shape", () => {
     ["flat blue lakes", "pale grey roads"],
   );
   assert.deepEqual(
-    spec.landmarks.map((item) => [item.name, item.placement]),
+    spec.landmarks.map((item) => [item.pin, item.name, item.placement]),
     [
-      ["Norsemen Inn", "pub, upper-left"],
-      ["Camrose", "center"],
+      [1, "Norsemen Inn", "pub, upper-left"],
+      [2, "Camrose", "center"],
     ],
   );
   assert.equal(spec.text.title, "Lunch ride");
@@ -120,6 +123,46 @@ test("repairPlannerOutput leaves well-formed output alone and forces markers off
   assert.equal(spec.text.title, "T");
   assert.equal(spec.route.startMarker, "none");
   assert.equal(spec.route.finishMarker, "none");
+});
+
+test("repairPlannerOutput stamps schematic pin numbers by landmark name", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: [], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [
+        { name: "Augustana", kind: "college", placement: "center", icon: "campus" },
+        { name: "Norsemen Inn", kind: "pub", placement: "upper-left", icon: "" },
+      ],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "x",
+    },
+    {
+      ...input,
+      pois: [
+        input.pois[0],
+        {
+          ...input.pois[0],
+          name: "Augustana",
+          kind: "college",
+          routeFrac: 0.5,
+          xy: { x: 0.5, y: 0.5, region: "center" },
+        },
+      ],
+    },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.deepEqual(
+    spec.landmarks.map((item) => [item.pin, item.name]),
+    [
+      [2, "Augustana"],
+      [1, "Norsemen Inn"],
+    ],
+  );
 });
 
 test("assertUsableSpec rejects a spec with no style or route direction", () => {

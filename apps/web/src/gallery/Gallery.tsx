@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { deletePoster, fetchPosters, type PosterRecord } from "../api";
 import { formatDurationMs, shortModelLabel } from "../poster/imageModels";
+import { styleLabel } from "../poster/styles";
 
 type Props = {
   onBack: () => void;
@@ -48,6 +49,8 @@ export function Gallery({ onBack, onRefine }: Props) {
     : active
       ? [active]
       : [];
+  const compareStyles = new Set(batchSiblings.map((item) => item.styleId)).size > 1;
+  const compareModels = new Set(batchSiblings.map((item) => item.model)).size > 1;
 
   useEffect(() => {
     if (!active) return;
@@ -119,7 +122,8 @@ export function Gallery({ onBack, onRefine }: Props) {
             <span>
               <strong>{poster.title}</strong>
               <em className="gallery-model">
-                {shortModelLabel(poster.model, poster.modelName)}
+                {styleLabel(poster.styleId, poster.spec?.style?.name)}
+                {` · ${shortModelLabel(poster.model, poster.modelName)}`}
                 {poster.durationMs != null ? ` · ${formatDurationMs(poster.durationMs)}` : ""}
               </em>
               <em>{new Date(poster.createdAt).toLocaleString()}</em>
@@ -145,8 +149,15 @@ export function Gallery({ onBack, onRefine }: Props) {
                   >
                     <img src={item.url} alt={shortModelLabel(item.model, item.modelName)} />
                     <span>
-                      {shortModelLabel(item.model, item.modelName)}
-                      {item.durationMs != null ? ` · ${formatDurationMs(item.durationMs)}` : ""}
+                      {[
+                        compareStyles ? styleLabel(item.styleId, item.spec?.style?.name) : null,
+                        compareModels || !compareStyles
+                          ? shortModelLabel(item.model, item.modelName)
+                          : null,
+                        item.durationMs != null ? formatDurationMs(item.durationMs) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </span>
                   </button>
                 ))}
@@ -155,7 +166,10 @@ export function Gallery({ onBack, onRefine }: Props) {
             <div className="lightbox-bar">
               <strong>{active.title}</strong>
               <span className="muted">{active.subtitle}</span>
-              <span className="gallery-model">{shortModelLabel(active.model, active.modelName)}</span>
+              <span className="gallery-model">
+                {styleLabel(active.styleId, active.spec?.style?.name)}
+                {` · ${shortModelLabel(active.model, active.modelName)}`}
+              </span>
               <div className="poster-actions">
                 {active.batchId && (
                   <button

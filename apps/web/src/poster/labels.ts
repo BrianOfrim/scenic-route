@@ -1,7 +1,7 @@
 /**
- * Recommended number of landmark names on the schematic and in the image
- * prompt. Past roughly a dozen, image models start dropping, merging, or
- * misspelling names. The UI warns when this is exceeded but does not cap.
+ * Recommended number of landmark names in the image prompt (schematic discs
+ * stay numbered). Past roughly a dozen, image models start dropping, merging,
+ * or misspelling names. The UI warns when this is exceeded but does not cap.
  */
 export const MAX_LABELS = 12;
 

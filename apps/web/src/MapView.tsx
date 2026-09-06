@@ -225,7 +225,7 @@ function syncPoiMarkers(
 ) {
   clearMarkers(markersRef);
   const items = Array.isArray(pois) ? pois : [];
-  markersRef.current = items.map((poi) => {
+  markersRef.current = items.map((poi, index) => {
     const root = document.createElement("div");
     root.className = "map-poi";
     const dot = document.createElement("span");
@@ -234,7 +234,7 @@ function syncPoiMarkers(
     label.className = "map-poi-label";
     const name = document.createElement("span");
     name.className = "map-poi-name";
-    name.textContent = poi.name;
+    name.textContent = `${index + 1} ${poi.name}`;
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "map-poi-remove";

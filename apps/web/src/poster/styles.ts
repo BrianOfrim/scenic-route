@@ -145,3 +145,14 @@ export const POSTER_STYLES: PosterStyle[] = [
 ];
 
 export const DEFAULT_POSTER_STYLE = POSTER_STYLES[0];
+
+export function styleById(id: string): PosterStyle {
+  return POSTER_STYLES.find((item) => item.id === id) ?? DEFAULT_POSTER_STYLE;
+}
+
+export function styleLabel(id: string, fallback?: string): string {
+  const match = POSTER_STYLES.find((item) => item.id === id);
+  if (match) return match.label;
+  const trimmed = fallback?.trim();
+  return trimmed || id || "Unknown theme";
+}

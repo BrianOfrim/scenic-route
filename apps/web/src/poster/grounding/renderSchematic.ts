@@ -1,5 +1,4 @@
 import type { Geometry } from "geojson";
-import { placeLabels, type LabelBox } from "./labelLayout";
 
 export type AspectRatio = "2:3" | "3:4" | "1:1" | "4:3" | "16:9";
 
@@ -12,7 +11,7 @@ export type RenderSchematicOptions = {
   latlng: [number, number][];
   bbox: [[number, number], [number, number]];
   ways?: Record<string, { features?: WayFeature[] }>;
-  /** Landmarks drawn with a dot and a name, most important first. */
+  /** Landmarks drawn as numbered discs, most important first. Names live in the prompt key. */
   pois?: Array<{ name: string; lat: number; lng: number }>;
   /** Landmarks drawn as a dot only, so the image model sees the place without a label to garble. */
   unlabeledPois?: Array<{ name: string; lat: number; lng: number }>;
@@ -36,8 +35,7 @@ export type RenderSchematicOptions = {
 
 const SHORT_SIDE = 1024;
 const MARGIN = 0.08;
-const LABEL_FONT = "600 18px IBM Plex Sans, Helvetica Neue, Arial, sans-serif";
-const LABEL_HEIGHT = 22;
+const PIN_FONT = "700 14px IBM Plex Sans, Helvetica Neue, Arial, sans-serif";
 
 const ROAD_WIDTH: Record<string, number> = {
   motorway: 2.6,
@@ -151,12 +149,8 @@ export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchema
       const [x, y] = project(poi.lng, poi.lat);
       poiDot(ctx, x, y, 3);
     }
-    const northBox = drawNorthArrow(ctx, width - 40, 40);
-    const markerBoxes: LabelBox[] =
-      markers && route.length >= 2
-        ? [route[0], route[route.length - 1]].map(([x, y]) => ({ x: x - 12, y: y - 12, w: 24, h: 24 }))
-        : [];
-    drawLabels(ctx, options.pois ?? [], project, { width, height }, [northBox, ...markerBoxes]);
+    drawNorthArrow(ctx, width - 40, 40);
+    drawNumberedPins(ctx, options.pois ?? [], project);
   }
 
   return canvas.toDataURL("image/png");
@@ -173,46 +167,31 @@ function poiDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) 
 }
 
 /**
- * Large, haloed labels placed by `placeLabels` so names never overlap each
- * other, the north arrow, or the start/finish markers. Crowded labels get a
- * thin leader line back to their dot.
+ * Numbered discs sit on the geographic point. Names are not drawn here so the
+ * image model cannot treat offset label text as the landmark's location.
  */
-function drawLabels(
+function drawNumberedPins(
   ctx: CanvasRenderingContext2D,
   pois: Array<{ name: string; lat: number; lng: number }>,
   project: (lng: number, lat: number) => [number, number],
-  bounds: { width: number; height: number },
-  obstacles: LabelBox[],
 ) {
   if (!pois.length) return;
-  ctx.font = LABEL_FONT;
+  ctx.font = PIN_FONT;
+  ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.textAlign = "start";
-  const anchors = pois.map((poi) => {
+  pois.forEach((poi, index) => {
     const [x, y] = project(poi.lng, poi.lat);
-    return { x, y, w: ctx.measureText(poi.name).width, h: LABEL_HEIGHT };
-  });
-  const placed = placeLabels(anchors, bounds, obstacles);
-  anchors.forEach((anchor, index) => {
-    const { box, leader } = placed[index];
-    if (leader) {
-      ctx.strokeStyle = "rgba(29, 26, 22, 0.75)";
-      ctx.lineWidth = 1.2;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(anchor.x, anchor.y);
-      ctx.lineTo(leader.x, leader.y);
-      ctx.stroke();
-    }
-    poiDot(ctx, anchor.x, anchor.y, 4);
-    const tx = box.x + 2;
-    const ty = box.y + box.h / 2;
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
-    ctx.lineWidth = 5;
-    ctx.strokeText(pois[index].name, tx, ty);
+    const label = String(index + 1);
+    const r = label.length > 1 ? 12 : 10;
     ctx.fillStyle = "#1d1a16";
-    ctx.fillText(pois[index].name, tx, ty);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(label, x, y + 0.5);
   });
 }
 
@@ -355,8 +334,7 @@ function strokePoints(ctx: CanvasRenderingContext2D, points: [number, number][])
   ctx.stroke();
 }
 
-/** Draws a small north arrow and returns its footprint so labels avoid it. */
-function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number): LabelBox {
+function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.fillStyle = "#111";
   ctx.beginPath();
   ctx.moveTo(x, y - 16);
@@ -370,7 +348,6 @@ function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number): La
   ctx.textBaseline = "top";
   ctx.fillText("N", x, y + 11);
   ctx.textAlign = "start";
-  return { x: x - 14, y: y - 20, w: 28, h: 46 };
 }
 
 function simplify(latlng: [number, number][], maxPoints: number) {
