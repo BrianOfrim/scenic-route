@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { FeatureCollection } from "geojson";
-import { Map, NavigationControl } from "./maplibre";
+import { Map, Marker, NavigationControl } from "./maplibre";
 import type { PosterPoi } from "./api";
 
 type Basemap = "osm" | "topo";
@@ -12,6 +12,7 @@ type Props = {
   pois?: PosterPoi[];
   basemap: Basemap;
   viewNonce?: number;
+  onRemovePoi?: (name: string) => void;
 };
 
 const DEFAULT_CENTER: [number, number] = [-112.83, 53.02];
@@ -20,22 +21,33 @@ const TILES: Record<Basemap, string> = {
   topo: "/api/tiles/topo/{z}/{x}/{y}.png",
 };
 
-export function MapView({ selectedLatLng, cropLatLng, cropStops, pois, basemap, viewNonce = 0 }: Props) {
+export function MapView({
+  selectedLatLng,
+  cropLatLng,
+  cropStops,
+  pois,
+  basemap,
+  viewNonce = 0,
+  onRemovePoi,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
+  const markersRef = useRef<Marker[]>([]);
   const trackRef = useRef(selectedLatLng);
   const cropRef = useRef(cropLatLng);
   const stopsRef = useRef(cropStops);
   const poisRef = useRef(pois);
+  const onRemovePoiRef = useRef(onRemovePoi);
   trackRef.current = selectedLatLng;
   cropRef.current = cropLatLng;
   stopsRef.current = cropStops;
   poisRef.current = pois;
+  onRemovePoiRef.current = onRemovePoi;
 
   const basemapRef = useRef(basemap);
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    if (!containerRef.current) return;
     const map = new Map({
       container: containerRef.current,
       style: styleFor(basemap),
@@ -46,7 +58,8 @@ export function MapView({ selectedLatLng, cropLatLng, cropStops, pois, basemap, 
     mapRef.current = map;
     const paint = () => {
       map.resize();
-      if (!drawOverlays(map, trackRef.current, cropRef.current, stopsRef.current, poisRef.current)) return;
+      if (!drawOverlays(map, trackRef.current, cropRef.current, stopsRef.current)) return;
+      syncPoiMarkers(map, markersRef, poisRef.current, onRemovePoiRef);
       fit(map, cropRef.current ?? trackRef.current, 0);
     };
     map.on("load", paint);
@@ -54,8 +67,9 @@ export function MapView({ selectedLatLng, cropLatLng, cropStops, pois, basemap, 
     return () => {
       map.off("load", paint);
       map.off("style.load", paint);
+      clearMarkers(markersRef);
       map.remove();
-      mapRef.current = null;
+      if (mapRef.current === map) mapRef.current = null;
     };
   }, []);
 
@@ -70,7 +84,7 @@ export function MapView({ selectedLatLng, cropLatLng, cropStops, pois, basemap, 
     const map = mapRef.current;
     if (!map) return;
     const apply = () => {
-      if (!drawOverlays(map, selectedLatLng, cropLatLng, cropStops, pois)) {
+      if (!drawOverlays(map, selectedLatLng, cropLatLng, cropStops)) {
         map.once("style.load", apply);
         return;
       }
@@ -80,7 +94,18 @@ export function MapView({ selectedLatLng, cropLatLng, cropStops, pois, basemap, 
     return () => {
       map.off("style.load", apply);
     };
-  }, [selectedLatLng, cropLatLng, cropStops, pois, viewNonce]);
+  }, [selectedLatLng, cropLatLng, cropStops, viewNonce]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => syncPoiMarkers(map, markersRef, pois, onRemovePoiRef);
+    apply();
+    if (!map.loaded()) map.once("load", apply);
+    return () => {
+      map.off("load", apply);
+    };
+  }, [pois]);
 
   return <div ref={containerRef} className="map" />;
 }
@@ -118,17 +143,6 @@ function lineCollection(latlng: [number, number][] | null | undefined): FeatureC
   };
 }
 
-function pointCollection(pois: PosterPoi[] | undefined): FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: (pois ?? []).map((poi) => ({
-      type: "Feature" as const,
-      properties: { name: poi.name },
-      geometry: { type: "Point" as const, coordinates: [poi.lng, poi.lat] },
-    })),
-  };
-}
-
 function stopsCollection(stops: [number, number][] | undefined): FeatureCollection {
   return {
     type: "FeatureCollection",
@@ -156,19 +170,16 @@ function drawOverlays(
   selectedLatLng: [number, number][] | null,
   cropLatLng: [number, number][] | null | undefined,
   cropStops: [number, number][] | undefined,
-  pois: PosterPoi[] | undefined,
 ) {
   if (!map.getStyle()) return false;
   try {
     ensureSource(map, "full-track", lineCollection(selectedLatLng));
     ensureSource(map, "crop-track", lineCollection(cropLatLng ?? selectedLatLng));
     ensureSource(map, "crop-stops", stopsCollection(cropStops));
-    ensureSource(map, "pois", pointCollection(pois));
     addLine(map, "full-track-line", "full-track", "#52525b", 3, 0.4);
     addLine(map, "crop-track-casing", "crop-track", "#111111", 8, 0.9);
     addLine(map, "crop-track-line", "crop-track", "#e11d48", 4.5, 1);
     addStopLayer(map);
-    if ((pois?.length ?? 0) > 0) addPoiLayers(map);
     return Boolean(map.getLayer("crop-track-line"));
   } catch {
     return false;
@@ -190,28 +201,6 @@ function addStopLayer(map: Map) {
   });
 }
 
-function addPoiLayers(map: Map) {
-  if (map.getLayer("poi-dots")) return;
-  map.addLayer({
-    id: "poi-dots",
-    type: "circle",
-    source: "pois",
-    paint: { "circle-radius": 4, "circle-color": "#f4efe4", "circle-stroke-width": 1.5, "circle-stroke-color": "#111" },
-  });
-  map.addLayer({
-    id: "poi-labels",
-    type: "symbol",
-    source: "pois",
-    layout: {
-      "text-field": ["get", "name"],
-      "text-size": 11,
-      "text-offset": [0, 1],
-      "text-anchor": "top",
-    },
-    paint: { "text-color": "#f4efe4", "text-halo-color": "#111", "text-halo-width": 1 },
-  });
-}
-
 function addLine(map: Map, id: string, source: string, color: string, width: number, opacity: number) {
   if (map.getLayer(id)) return;
   map.addLayer({
@@ -220,6 +209,46 @@ function addLine(map: Map, id: string, source: string, color: string, width: num
     source,
     layout: { "line-join": "round", "line-cap": "round" },
     paint: { "line-color": color, "line-width": width, "line-opacity": opacity },
+  });
+}
+
+function clearMarkers(markersRef: { current: Marker[] }) {
+  for (const marker of markersRef.current) marker.remove();
+  markersRef.current = [];
+}
+
+function syncPoiMarkers(
+  map: Map,
+  markersRef: { current: Marker[] },
+  pois: PosterPoi[] | undefined,
+  onRemovePoiRef: { current?: (name: string) => void },
+) {
+  clearMarkers(markersRef);
+  const items = Array.isArray(pois) ? pois : [];
+  markersRef.current = items.map((poi) => {
+    const root = document.createElement("div");
+    root.className = "map-poi";
+    const dot = document.createElement("span");
+    dot.className = "map-poi-dot";
+    const label = document.createElement("span");
+    label.className = "map-poi-label";
+    const name = document.createElement("span");
+    name.className = "map-poi-name";
+    name.textContent = poi.name;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "map-poi-remove";
+    remove.setAttribute("aria-label", `Remove ${poi.name}`);
+    remove.title = `Remove ${poi.name}`;
+    remove.textContent = "×";
+    remove.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onRemovePoiRef.current?.(poi.name);
+    });
+    label.append(name, remove);
+    root.append(dot, label);
+    return new Marker({ element: root, anchor: "top" }).setLngLat([poi.lng, poi.lat]).addTo(map);
   });
 }
 

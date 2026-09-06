@@ -71,8 +71,43 @@ test("validatePosterSpec rejects a missing title", () => {
   );
 });
 
-test("specToImagePrompt embeds JSON", () => {
-  const prompt = specToImagePrompt(validatePosterSpec(sample));
-  assert.match(prompt, /SPEC \(JSON\)/);
-  assert.match(prompt, /"name": "Swiss minimal"/);
+test("validatePosterSpec fallback never emits blank fragments", () => {
+  const spec = validatePosterSpec({
+    ...sample,
+    style: { ...sample.style, name: "", medium: "", palette: [] },
+    route: { ...sample.route, treatment: "", color: "" },
+    text: { ...sample.text, subtitle: "" },
+    finalPrompt: "",
+  });
+  assert.doesNotMatch(spec.finalPrompt, /Palette: \./);
+  assert.doesNotMatch(spec.finalPrompt, /Route:\s+in\s+\./);
+  assert.doesNotMatch(spec.finalPrompt, /Subtitle exactly ""/);
+  assert.match(spec.finalPrompt, /Create a stylized map poster/);
+});
+
+test("specToImagePrompt renders prose without JSON or empty fields", () => {
+  const spec = validatePosterSpec({
+    ...sample,
+    style: { ...sample.style, references: "", texture: "" },
+    composition: { ...sample.composition, decorations: [], border: "" },
+    grounding: { images: [], rules: [] },
+  });
+  const prompt = specToImagePrompt(spec);
+  assert.doesNotMatch(prompt, /SPEC \(JSON\)/);
+  assert.doesNotMatch(prompt, /[{}\[\]]/);
+  assert.doesNotMatch(prompt, /References:|Texture:|Border:|Decorations:|Reference images:/);
+  assert.match(prompt, /Style: Swiss minimal\./);
+  assert.match(prompt, /Palette: off-white, red\./);
+  assert.match(prompt, /Route: single accent line, in red\./);
+  assert.match(prompt, /Start marker: green dot\. Finish marker: black dot\./);
+  assert.match(prompt, /"Castle Mountain" \(upper-right; icon: peak\)/);
+  assert.match(prompt, /Title, exactly: "Bow Valley"\./);
+  assert.match(prompt, /Stats to typeset: Distance 42\.0 km\./);
+});
+
+test("specToImagePrompt appends explicit exclusions once", () => {
+  const prompt = specToImagePrompt(validatePosterSpec({ ...sample, negative: ["photorealism", "no watermark"] }));
+  assert.match(prompt, /Avoid: photorealism; no watermark; no legend strip or color key;/);
+  assert.equal(prompt.match(/no watermark/g)?.length, 1);
+  assert.match(prompt, /no text other than the title block and the listed landmark names/);
 });

@@ -279,8 +279,122 @@ export function validatePosterSpec(raw: unknown): PosterSpec {
   return spec;
 }
 
+/** Things the reference schematic contains that must never be copied into the poster. */
+export const PROMPT_EXCLUSIONS = [
+  "no legend strip or color key",
+  "no latitude/longitude numbers, coordinates, or grid lines",
+  "no watermark",
+  "no text other than the title block and the listed landmark names",
+];
+
+const t = (value: string) => value.trim();
+const sentence = (value: string) => {
+  const text = t(value);
+  if (!text) return "";
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+};
+const labeled = (label: string, value: string) => (t(value) ? `${label}: ${t(value)}.` : "");
+const list = (values: string[]) => values.map(t).filter(Boolean);
+const paragraph = (parts: string[]) => parts.filter(Boolean).join(" ");
+
+/**
+ * Render a spec as plain prose for the image model. Blank fields and empty
+ * arrays are omitted entirely so the model never sees `"palette": []`.
+ */
 export function specToImagePrompt(spec: PosterSpec): string {
-  return `${spec.finalPrompt.trim()}\n\nSPEC (JSON):\n${JSON.stringify(spec, null, 2)}`;
+  const sections: string[] = [];
+
+  const lead = t(spec.finalPrompt) || fallbackPrompt(spec);
+  sections.push(sentence(lead));
+
+  const palette = list(spec.style.palette);
+  sections.push(
+    paragraph([
+      labeled("Style", spec.style.name),
+      labeled("Medium", spec.style.medium),
+      palette.length ? `Palette: ${palette.join(", ")}.` : "",
+      labeled("Typography", spec.style.typography),
+      labeled("Texture", spec.style.texture),
+      labeled("References", spec.style.references),
+    ]),
+  );
+
+  const decorations = list(spec.composition.decorations);
+  sections.push(
+    paragraph([
+      labeled("Aspect ratio", spec.composition.aspectRatio),
+      labeled("Route placement", spec.composition.routePlacement),
+      labeled("Title block", spec.composition.titleBlock),
+      labeled("Border", spec.composition.border),
+      decorations.length ? `Decorations: ${decorations.join(", ")}.` : "",
+    ]),
+  );
+
+  sections.push(
+    paragraph([
+      routeLine(spec.route.treatment, spec.route.color),
+      markerPrompt(spec.route.startMarker, spec.route.finishMarker),
+      labeled("Route shape", spec.route.shapeNotes),
+    ]),
+  );
+
+  const geography = spec.geography
+    .map((item) => {
+      const head = [t(item.kind), t(item.name)].filter(Boolean).join(" ");
+      const tail = [t(item.placement), t(item.treatment)].filter(Boolean).join("; ");
+      if (!head && !tail) return "";
+      return tail ? `${head || "feature"} (${tail})` : head;
+    })
+    .filter(Boolean);
+  if (geography.length) sections.push(`Geography: ${geography.join("; ")}.`);
+
+  const landmarks = spec.landmarks
+    .filter((item) => t(item.name))
+    .map((item) => {
+      const notes = [t(item.placement), t(item.icon) ? `icon: ${t(item.icon)}` : ""].filter(Boolean).join("; ");
+      return notes ? `"${t(item.name)}" (${notes})` : `"${t(item.name)}"`;
+    });
+  if (landmarks.length) {
+    sections.push(`Label these landmarks with exact spelling, each once, near its position in the reference: ${landmarks.join("; ")}.`);
+  }
+
+  const stats = spec.text.stats
+    .filter((item) => t(item.value))
+    .map((item) => (t(item.label) ? `${t(item.label)} ${t(item.value)}` : t(item.value)));
+  sections.push(
+    paragraph([
+      `Title, exactly: "${t(spec.text.title)}".`,
+      t(spec.text.subtitle) ? `Subtitle, exactly: "${t(spec.text.subtitle)}".` : "",
+      stats.length ? `Stats to typeset: ${stats.join(" · ")}.` : "",
+      labeled("Text rules", spec.text.rules),
+    ]),
+  );
+
+  const images = spec.grounding.images
+    .filter((item) => t(item.role) || t(item.legend))
+    .map((item) => `image ${item.index} is the ${t(item.role) || "reference"}${t(item.legend) ? ` (${t(item.legend)})` : ""}`);
+  const groundingRules = list(spec.grounding.rules);
+  sections.push(
+    paragraph([
+      images.length ? `Reference images: ${images.join("; ")}.` : "",
+      "Treat the references as the geographic source of truth: keep the route shape, orientation, and the relative position of water, roads, and landmarks; north is up.",
+      groundingRules.length ? `${groundingRules.map(sentence).join(" ")}` : "",
+    ]),
+  );
+
+  const avoid = Array.from(new Set([...list(spec.negative), ...PROMPT_EXCLUSIONS]));
+  sections.push(`Avoid: ${avoid.join("; ")}.`);
+
+  return sections.filter(Boolean).join("\n\n");
+}
+
+function routeLine(treatment: string, color: string) {
+  const a = t(treatment);
+  const b = t(color);
+  if (a && b) return `Route: ${a}, in ${b}.`;
+  if (a) return `Route: ${a}.`;
+  if (b) return `Route color: ${b}.`;
+  return "";
 }
 
 function markerPrompt(start: string, finish: string) {
@@ -297,15 +411,20 @@ function markerPrompt(start: string, finish: string) {
 }
 
 function fallbackPrompt(spec: PosterSpec): string {
-  const landmarks = spec.landmarks.map((item) => `${item.name} (${item.placement})`).join("; ");
+  const landmarks = spec.landmarks
+    .filter((item) => t(item.name))
+    .map((item) => (t(item.placement) ? `${t(item.name)} (${t(item.placement)})` : t(item.name)))
+    .join("; ");
+  const palette = list(spec.style.palette);
   return [
-    `Create a ${spec.style.name || "stylized"} map poster.`,
-    spec.style.medium,
-    `Palette: ${spec.style.palette.join(", ")}.`,
-    `Route: ${spec.route.treatment} in ${spec.route.color}.`,
+    `Create a ${t(spec.style.name) || "stylized"} map poster.`,
+    sentence(spec.style.medium),
+    palette.length ? `Palette: ${palette.join(", ")}.` : "",
+    routeLine(spec.route.treatment, spec.route.color),
     markerPrompt(spec.route.startMarker, spec.route.finishMarker),
     landmarks ? `Label: ${landmarks}.` : "",
-    `Title exactly "${spec.text.title}". Subtitle exactly "${spec.text.subtitle}".`,
+    `Title exactly "${t(spec.text.title)}".`,
+    t(spec.text.subtitle) ? `Subtitle exactly "${t(spec.text.subtitle)}".` : "",
     "North is up. Follow the grounding images for geography. Do not invent a different path.",
   ]
     .filter(Boolean)

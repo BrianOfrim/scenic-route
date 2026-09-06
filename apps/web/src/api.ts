@@ -135,6 +135,7 @@ export type PosterRecord = {
   batchId?: string;
   aspectRatio: string;
   cost: number | null;
+  durationMs?: number;
   createdAt: string;
   previousPosterId?: string;
   refineNotes?: string;

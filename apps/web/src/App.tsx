@@ -33,6 +33,7 @@ export function App() {
   const [cropLatLng, setCropLatLng] = useState<[number, number][] | null>(null);
   const [cropStops, setCropStops] = useState<[number, number][]>([]);
   const [pois, setPois] = useState<PosterPoi[]>([]);
+  const [dismissPoi, setDismissPoi] = useState<{ name: string; nonce: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posterOpen, setPosterOpen] = useState(false);
@@ -211,6 +212,7 @@ export function App() {
             pois={posterOpen ? pois : EMPTY_POIS}
             basemap={basemap}
             viewNonce={viewNonce}
+            onRemovePoi={(name) => setDismissPoi({ name, nonce: Date.now() })}
           />
         </main>
         {posterOpen && selectedId != null && (
@@ -223,11 +225,13 @@ export function App() {
               setCropLatLng(null);
               setCropStops([]);
               setPois([]);
+              setDismissPoi(null);
               setRefineFrom(null);
             }}
             onCropChange={setCropLatLng}
             onStopsChange={setCropStops}
             onPoisChange={setPois}
+            dismissPoi={dismissPoi}
           />
         )}
       </div>

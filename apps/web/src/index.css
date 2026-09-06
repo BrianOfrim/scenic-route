@@ -124,6 +124,11 @@ h1 {
   color: #f0a09a;
 }
 
+.warn {
+  color: var(--accent-2);
+  font-size: 13px;
+}
+
 .banner {
   margin: 0;
   display: flex;
@@ -233,6 +238,65 @@ textarea {
   inset: 0;
 }
 
+.map-poi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.map-poi-dot {
+  pointer-events: auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #f4efe4;
+  border: 1.5px solid #111;
+  box-shadow: 0 0 0 1px rgba(244, 239, 228, 0.35);
+}
+
+.map-poi-label {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  max-width: 180px;
+  padding: 1px 2px;
+}
+
+.map-poi-name {
+  color: #f4efe4;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 0 3px #111, 0 1px 2px #111, 0 -1px 2px #111;
+}
+
+.map-poi-remove {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #c9a227;
+  border-radius: 999px;
+  background: #1b1812;
+  color: #f4efe4;
+  font-size: 12px;
+  line-height: 14px;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.map-poi:hover .map-poi-remove,
+.map-poi:focus-within .map-poi-remove {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .check {
   display: flex;
   gap: 8px;
@@ -334,6 +398,30 @@ textarea {
 
 .result-compare-card.on {
   border-color: var(--accent-2);
+}
+
+.model-times {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.model-time {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.model-time.running span:last-child {
+  color: var(--accent-2);
+}
+
+.model-time.failed span:last-child {
+  color: #c45c4a;
 }
 
 .poster-ref,

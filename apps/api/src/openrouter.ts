@@ -69,17 +69,41 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+export type JsonResponseFormat =
+  | { type: "json_object" }
+  | { type: "json_schema"; json_schema: { name: string; strict: true; schema: unknown } };
+
+export function jsonResponseFormat(schemaName: string | undefined, schema: unknown | undefined): JsonResponseFormat {
+  if (schema && schemaName) {
+    return { type: "json_schema", json_schema: { name: schemaName, strict: true, schema } };
+  }
+  return { type: "json_object" };
+}
+
+/**
+ * True when a provider rejected the request because of the structured-output
+ * contract itself (unsupported `json_schema`, schema too strict, etc.), as
+ * opposed to auth, quota, or transport problems.
+ */
+export function isSchemaRejection(status: number, payload: unknown): boolean {
+  if (status !== 400 && status !== 404 && status !== 422) return false;
+  const message = errorMessage(payload, "").toLowerCase();
+  return /response_format|json_schema|structured output|schema/.test(message);
+}
+
 export async function chatJson<T>(options: {
   messages: unknown[];
   schemaName?: string;
+  schema?: unknown;
   label?: string;
 }): Promise<{ value: T; cost: number | null }> {
   const key = requireKey();
   const model = chatModel();
-  const request = {
+  const strict = jsonResponseFormat(options.schemaName, options.schema);
+  const request: { model: string; messages: unknown[]; response_format: JsonResponseFormat } = {
     model,
     messages: options.messages,
-    response_format: { type: "json_object" as const },
+    response_format: strict,
   };
   return withLlmTrace(
     {
@@ -92,14 +116,25 @@ export async function chatJson<T>(options: {
     async (capture) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), PLAN_TIMEOUT_MS);
-      try {
-        const response = await fetch(OPENROUTER_CHAT_URL, {
+      const send = () =>
+        fetch(OPENROUTER_CHAT_URL, {
           method: "POST",
           headers: headers(key),
           body: JSON.stringify(request),
           signal: controller.signal,
         });
-        const parsed = await readJson(response);
+      try {
+        let response = await send();
+        let parsed = await readJson(response);
+        if (!response.ok && strict.type === "json_schema" && isSchemaRejection(response.status, parsed)) {
+          // The provider does not honor strict schemas for this model; fall back to
+          // plain JSON mode and rely on the repair pass downstream. The trace keeps
+          // the request object by reference, so it records the format actually used.
+          console.warn(`[llm:${options.label ?? "chat"}] ${model} rejected json_schema; retrying with json_object`);
+          request.response_format = { type: "json_object" };
+          response = await send();
+          parsed = await readJson(response);
+        }
         const record = asRecord(parsed);
         capture({ status: response.status, response: parsed, cost: usageCost(record) });
         if (!response.ok) {

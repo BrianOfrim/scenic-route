@@ -37,6 +37,15 @@ export function uniqueIds(ids: string[]) {
   return next;
 }
 
+export function formatDurationMs(ms: number) {
+  const seconds = Math.max(0, ms) / 1000;
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+}
+
 export function shortModelLabel(id: string, name?: string | null) {
   const trimmed = name?.trim();
   if (trimmed && trimmed !== id) return trimmed;

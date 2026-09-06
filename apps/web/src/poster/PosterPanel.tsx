@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   fetchMaxReferences,
   fetchPosterCapabilities,
@@ -19,13 +19,23 @@ import { FEATURE_CATALOG, DEFAULT_FEATURE_IDS, type FeatureOption } from "./feat
 import { planContactSheets, renderContactSheets, type GroundingLayer } from "./grounding/contactSheet";
 import { renderSchematicDataUrl, type AspectRatio } from "./grounding/renderSchematic";
 import { snapshotTiles } from "./grounding/snapshotTiles";
+import { MAX_LABELS, prioritizeLabels } from "./labels";
 import { SpecEditor } from "./SpecEditor";
 import {
+  formatDurationMs,
   minMaxReferences,
   readStoredImageModels,
   shortModelLabel,
   writeStoredImageModels,
 } from "./imageModels";
+
+type ModelRun = {
+  model: string;
+  label: string;
+  startedAt: number;
+  finishedAt?: number;
+  error?: string;
+};
 import { DEFAULT_POSTER_STYLE, POSTER_STYLES } from "./styles";
 
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
@@ -78,6 +88,7 @@ type Props = {
   onStopsChange?: (stops: [number, number][]) => void;
   onPoisChange?: (pois: PosterPoi[]) => void;
   refineFrom?: PosterRecord | null;
+  dismissPoi?: { name: string; nonce: number } | null;
 };
 
 export function PosterPanel({
@@ -88,6 +99,7 @@ export function PosterPanel({
   onStopsChange,
   onPoisChange,
   refineFrom,
+  dismissPoi,
 }: Props) {
   const catalog = FEATURE_CATALOG.map(
     (item) => features.find((feature) => feature.id === item.id) ?? item,
@@ -133,6 +145,7 @@ export function PosterPanel({
   const [planning, setPlanning] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generateProgress, setGenerateProgress] = useState({ done: 0, total: 0 });
+  const [modelRuns, setModelRuns] = useState<ModelRun[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [result, setResult] = useState<PosterRecord | null>(null);
   const [batchResults, setBatchResults] = useState<PosterRecord[]>([]);
@@ -226,10 +239,11 @@ export function PosterPanel({
     return stopIndexes.map((index) => context.latlng[index]).filter(Boolean);
   }, [context, stopIndexes]);
 
+  // context.pois arrive ranked by the API (kind weight minus distance);
+  // user-added landmarks go first so they stay prominent in the prompt.
   const selectedPois = useMemo(() => {
     const suggested = (context?.pois ?? []).filter((poi) => labels.includes(poi.name));
-    const seen = new Set(suggested.map((poi) => poi.name.toLowerCase()));
-    return [...suggested, ...customPois.filter((poi) => !seen.has(poi.name.toLowerCase()))];
+    return prioritizeLabels(suggested, customPois);
   }, [context, labels, customPois]);
 
   const displayBbox = useMemo(() => {
@@ -263,6 +277,16 @@ export function PosterPanel({
   useEffect(() => {
     onPoisChange?.(selectedPois);
   }, [selectedPois, onPoisChange]);
+
+  const removePoi = useCallback((name: string) => {
+    setCustomPois((current) => current.filter((item) => item.name !== name));
+    setLabels((current) => current.filter((item) => item !== name));
+  }, []);
+
+  useEffect(() => {
+    if (!dismissPoi?.name) return;
+    removePoi(dismissPoi.name);
+  }, [dismissPoi, removePoi]);
 
   useEffect(
     () => () => {
@@ -382,6 +406,10 @@ export function PosterPanel({
   }, [previews, groundingOn, maxRefs, aspectRatio, showRouteMarkers, croppedLatLng]);
 
   useEffect(() => {
+    setModelRuns([]);
+  }, [activityId]);
+
+  useEffect(() => {
     if (!generating && !planning) {
       setElapsed(0);
       return;
@@ -497,16 +525,32 @@ export function PosterPanel({
         batchId,
       };
       setGenerateProgress({ done: 0, total: models.length });
+      const startedAt = Date.now();
+      setModelRuns(
+        models.map((model) => ({
+          model,
+          label: shortModelLabel(model, imageModels.find((item) => item.id === model)?.name),
+          startedAt,
+        })),
+      );
       const settled = await Promise.all(
         models.map(async (model): Promise<{ model: string; record?: PosterRecord; error?: string }> => {
           try {
             const record = await generatePoster({ ...body, model });
+            setModelRuns((current) =>
+              current.map((run) =>
+                run.model === model ? { ...run, finishedAt: Date.now() } : run,
+              ),
+            );
             return { model, record };
           } catch (err) {
-            return {
-              model,
-              error: err instanceof Error ? err.message : "Poster generation failed",
-            };
+            const error = err instanceof Error ? err.message : "Poster generation failed";
+            setModelRuns((current) =>
+              current.map((run) =>
+                run.model === model ? { ...run, finishedAt: Date.now(), error } : run,
+              ),
+            );
+            return { model, error };
           } finally {
             setGenerateProgress((current) => ({ ...current, done: current.done + 1 }));
           }
@@ -737,15 +781,22 @@ export function PosterPanel({
                   key={`${poi.name}-${poi.lat}`}
                   type="button"
                   className="chip on"
-                  onClick={() => {
-                    setCustomPois((current) => current.filter((item) => item.name !== poi.name));
-                    setLabels((current) => current.filter((name) => name !== poi.name));
-                  }}
+                  title="Labeled on the poster"
+                  onClick={() => removePoi(poi.name)}
                 >
                   {poi.name} ×
                 </button>
               ))}
             </div>
+            {selectedPois.length > 0 && (
+              <p className="muted">Hover a map label and click × to remove it, or use a chip here.</p>
+            )}
+            {selectedPois.length > MAX_LABELS && (
+              <p className="warn">
+                {selectedPois.length} labels selected. Image models often drop, merge, or misspell
+                names past {MAX_LABELS}.
+              </p>
+            )}
             <form className="poster-lookup" onSubmit={(event) => void handleLookup(event)}>
               <input
                 className="search"
@@ -923,6 +974,25 @@ export function PosterPanel({
                     ? `Generate with ${imageModelIds.length} models`
                     : "Generate poster"}
               </button>
+              {modelRuns.length > 0 && (
+                <ul className="model-times">
+                  {modelRuns.map((run) => {
+                    const ms = (run.finishedAt ?? Date.now()) - run.startedAt;
+                    const time = formatDurationMs(ms);
+                    const status = run.error ? "failed" : run.finishedAt ? "done" : "running";
+                    return (
+                      <li key={run.model} className={`model-time ${status}`}>
+                        <span>{run.label}</span>
+                        <span>
+                          {time}
+                          {run.finishedAt ? "" : "…"}
+                          {run.error ? " · failed" : ""}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           )}
 
@@ -940,6 +1010,7 @@ export function PosterPanel({
                     >
                       <img src={item.url} alt={item.title} />
                       <span>{shortModelLabel(item.model, item.modelName)}</span>
+                      {item.durationMs != null && <span>{formatDurationMs(item.durationMs)}</span>}
                     </button>
                   ))}
                 </div>
@@ -956,6 +1027,7 @@ export function PosterPanel({
               </div>
               <p className="muted">
                 {shortModelLabel(result.model, result.modelName)}
+                {result.durationMs != null ? ` · ${formatDurationMs(result.durationMs)}` : ""}
                 {result.cost != null ? ` · $${result.cost.toFixed(3)}` : ""}
               </p>
               {sentRefs.length > 0 && (

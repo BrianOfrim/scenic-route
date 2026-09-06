@@ -1,4 +1,5 @@
 import type { Geometry } from "geojson";
+import { placeLabels, type LabelBox } from "./labelLayout";
 
 export type AspectRatio = "2:3" | "3:4" | "1:1" | "4:3" | "16:9";
 
@@ -11,7 +12,10 @@ export type RenderSchematicOptions = {
   latlng: [number, number][];
   bbox: [[number, number], [number, number]];
   ways?: Record<string, { features?: WayFeature[] }>;
+  /** Landmarks drawn with a dot and a name, most important first. */
   pois?: Array<{ name: string; lat: number; lng: number }>;
+  /** Landmarks drawn as a dot only, so the image model sees the place without a label to garble. */
+  unlabeledPois?: Array<{ name: string; lat: number; lng: number }>;
   layers?: {
     roads?: boolean;
     streets?: boolean;
@@ -32,7 +36,8 @@ export type RenderSchematicOptions = {
 
 const SHORT_SIDE = 1024;
 const MARGIN = 0.08;
-const LEGEND_H = 36;
+const LABEL_FONT = "600 18px IBM Plex Sans, Helvetica Neue, Arial, sans-serif";
+const LABEL_HEIGHT = 22;
 
 const ROAD_WIDTH: Record<string, number> = {
   motorway: 2.6,
@@ -88,8 +93,7 @@ export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchema
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Could not create a 2D canvas context");
-  const mapH = options.silhouette ? height : height - LEGEND_H;
-  const project = projector(options.bbox, width, mapH);
+  const project = projector(options.bbox, width, height);
 
   ctx.fillStyle = options.silhouette ? "#f4efe4" : "#f7f4ec";
   ctx.fillRect(0, 0, width, height);
@@ -143,22 +147,73 @@ export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchema
   }
 
   if (!options.silhouette && layers.labels !== false) {
-    ctx.font = "11px IBM Plex Sans, sans-serif";
-    ctx.textBaseline = "bottom";
-    for (const poi of options.pois ?? []) {
+    for (const poi of options.unlabeledPois ?? []) {
       const [x, y] = project(poi.lng, poi.lat);
-      ctx.fillStyle = "#222";
-      ctx.beginPath();
-      ctx.arc(x, y, 2.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillText(poi.name, x + 4, y - 3);
+      poiDot(ctx, x, y, 3);
     }
-    drawNorthArrow(ctx, width - 36, 36);
-    drawScaleBar(ctx, options.bbox, width, mapH, project);
-    drawLegend(ctx, width, height, markers);
+    const northBox = drawNorthArrow(ctx, width - 40, 40);
+    const markerBoxes: LabelBox[] =
+      markers && route.length >= 2
+        ? [route[0], route[route.length - 1]].map(([x, y]) => ({ x: x - 12, y: y - 12, w: 24, h: 24 }))
+        : [];
+    drawLabels(ctx, options.pois ?? [], project, { width, height }, [northBox, ...markerBoxes]);
   }
 
   return canvas.toDataURL("image/png");
+}
+
+function poiDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+  ctx.fillStyle = "#1d1a16";
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+/**
+ * Large, haloed labels placed by `placeLabels` so names never overlap each
+ * other, the north arrow, or the start/finish markers. Crowded labels get a
+ * thin leader line back to their dot.
+ */
+function drawLabels(
+  ctx: CanvasRenderingContext2D,
+  pois: Array<{ name: string; lat: number; lng: number }>,
+  project: (lng: number, lat: number) => [number, number],
+  bounds: { width: number; height: number },
+  obstacles: LabelBox[],
+) {
+  if (!pois.length) return;
+  ctx.font = LABEL_FONT;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "start";
+  const anchors = pois.map((poi) => {
+    const [x, y] = project(poi.lng, poi.lat);
+    return { x, y, w: ctx.measureText(poi.name).width, h: LABEL_HEIGHT };
+  });
+  const placed = placeLabels(anchors, bounds, obstacles);
+  anchors.forEach((anchor, index) => {
+    const { box, leader } = placed[index];
+    if (leader) {
+      ctx.strokeStyle = "rgba(29, 26, 22, 0.75)";
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(anchor.x, anchor.y);
+      ctx.lineTo(leader.x, leader.y);
+      ctx.stroke();
+    }
+    poiDot(ctx, anchor.x, anchor.y, 4);
+    const tx = box.x + 2;
+    const ty = box.y + box.h / 2;
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.lineWidth = 5;
+    ctx.strokeText(pois[index].name, tx, ty);
+    ctx.fillStyle = "#1d1a16";
+    ctx.fillText(pois[index].name, tx, ty);
+  });
 }
 
 function fillBucket(
@@ -300,83 +355,22 @@ function strokePoints(ctx: CanvasRenderingContext2D, points: [number, number][])
   ctx.stroke();
 }
 
-function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number) {
+/** Draws a small north arrow and returns its footprint so labels avoid it. */
+function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number): LabelBox {
   ctx.fillStyle = "#111";
   ctx.beginPath();
-  ctx.moveTo(x, y - 14);
-  ctx.lineTo(x + 5, y + 8);
+  ctx.moveTo(x, y - 16);
+  ctx.lineTo(x + 6, y + 8);
   ctx.lineTo(x, y + 3);
-  ctx.lineTo(x - 5, y + 8);
+  ctx.lineTo(x - 6, y + 8);
   ctx.closePath();
   ctx.fill();
-  ctx.font = "10px IBM Plex Sans, sans-serif";
+  ctx.font = "600 13px IBM Plex Sans, Helvetica Neue, Arial, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.fillText("N", x, y + 10);
+  ctx.fillText("N", x, y + 11);
   ctx.textAlign = "start";
-}
-
-function drawScaleBar(
-  ctx: CanvasRenderingContext2D,
-  bbox: [[number, number], [number, number]],
-  width: number,
-  height: number,
-  project: (lng: number, lat: number) => [number, number],
-) {
-  const midLat = (bbox[0][1] + bbox[1][1]) / 2;
-  const left = project(bbox[0][0], midLat);
-  const right = project(bbox[1][0], midLat);
-  const spanPx = Math.abs(right[0] - left[0]);
-  const spanM = Math.abs(bbox[1][0] - bbox[0][0]) * 111_320 * Math.cos((midLat * Math.PI) / 180);
-  if (spanPx < 8 || spanM <= 0) return;
-  const meters = niceLength((Math.min(120, width * 0.22) / spanPx) * spanM);
-  const barW = (meters / spanM) * spanPx;
-  const x = 28;
-  const y = height - 16;
-  ctx.strokeStyle = "#111";
-  ctx.fillStyle = "#111";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x + barW, y);
-  ctx.moveTo(x, y - 4);
-  ctx.lineTo(x, y + 4);
-  ctx.moveTo(x + barW, y - 4);
-  ctx.lineTo(x + barW, y + 4);
-  ctx.stroke();
-  ctx.font = "10px IBM Plex Sans, sans-serif";
-  ctx.textBaseline = "bottom";
-  ctx.fillText(meters >= 1000 ? `${meters / 1000} km` : `${Math.round(meters)} m`, x, y - 6);
-}
-
-function drawLegend(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  markers: false | "ends" | "loop",
-) {
-  ctx.fillStyle = "#efe8d8";
-  ctx.fillRect(0, height - LEGEND_H, width, LEGEND_H);
-  ctx.fillStyle = "#2c261c";
-  ctx.font = "11px IBM Plex Sans, sans-serif";
-  ctx.textBaseline = "middle";
-  const markerNote =
-    markers === "loop"
-      ? "gold/green = start/finish"
-      : markers === "ends"
-        ? "green/black dots = start/finish"
-        : "";
-  ctx.fillText(
-    ["red = route", "grey = roads", "blue = water", "green = forest", markerNote].filter(Boolean).join("   "),
-    16,
-    height - LEGEND_H / 2,
-  );
-}
-
-function niceLength(meters: number) {
-  const pow = 10 ** Math.floor(Math.log10(Math.max(meters, 1)));
-  const n = meters / pow;
-  return (n >= 5 ? 5 : n >= 2 ? 2 : 1) * pow;
+  return { x: x - 14, y: y - 20, w: 28, h: 46 };
 }
 
 function simplify(latlng: [number, number][], maxPoints: number) {

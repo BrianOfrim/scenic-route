@@ -17,6 +17,7 @@ export const FEATURE_CATALOG: FeatureOption[] = [
   { id: "farmland", label: "Farmland", group: "geography", defaultOn: true },
   { id: "peaks", label: "Peaks", group: "landmarks", defaultOn: true },
   { id: "towns", label: "Towns & villages", group: "landmarks", defaultOn: true },
+  { id: "neighbourhoods", label: "Neighbourhoods", group: "landmarks", defaultOn: true },
   { id: "named-water", label: "Named water", group: "landmarks", defaultOn: true },
   { id: "viewpoints", label: "Viewpoints & attractions", group: "landmarks", defaultOn: true },
   { id: "historic", label: "Historic places", group: "landmarks", defaultOn: false },

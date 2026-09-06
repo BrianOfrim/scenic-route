@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { deletePoster, fetchPosters, type PosterRecord } from "../api";
-import { shortModelLabel } from "../poster/imageModels";
+import { formatDurationMs, shortModelLabel } from "../poster/imageModels";
 
 type Props = {
   onBack: () => void;
@@ -118,7 +118,10 @@ export function Gallery({ onBack, onRefine }: Props) {
             <img src={poster.url} alt={poster.title} />
             <span>
               <strong>{poster.title}</strong>
-              <em className="gallery-model">{shortModelLabel(poster.model, poster.modelName)}</em>
+              <em className="gallery-model">
+                {shortModelLabel(poster.model, poster.modelName)}
+                {poster.durationMs != null ? ` · ${formatDurationMs(poster.durationMs)}` : ""}
+              </em>
               <em>{new Date(poster.createdAt).toLocaleString()}</em>
             </span>
           </button>
@@ -141,7 +144,10 @@ export function Gallery({ onBack, onRefine }: Props) {
                     onClick={() => setActive(item)}
                   >
                     <img src={item.url} alt={shortModelLabel(item.model, item.modelName)} />
-                    <span>{shortModelLabel(item.model, item.modelName)}</span>
+                    <span>
+                      {shortModelLabel(item.model, item.modelName)}
+                      {item.durationMs != null ? ` · ${formatDurationMs(item.durationMs)}` : ""}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -181,6 +187,7 @@ export function Gallery({ onBack, onRefine }: Props) {
               <aside className="meta-drawer">
                 <p className="muted">
                   {active.model}
+                  {active.durationMs != null ? ` · ${formatDurationMs(active.durationMs)}` : ""}
                   {active.cost != null ? ` · $${active.cost.toFixed(3)}` : ""} · {active.referenceCount} refs
                 </p>
                 <pre>{active.prompt}</pre>

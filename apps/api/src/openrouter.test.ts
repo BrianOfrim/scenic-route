@@ -4,10 +4,28 @@ import {
   DEFAULT_IMAGE_MODEL,
   extractMaxRefs,
   isImageModelId,
+  isSchemaRejection,
+  jsonResponseFormat,
   parseImageModels,
   parseImageResponse,
   resolveImageModel,
 } from "./openrouter";
+
+test("jsonResponseFormat prefers strict json_schema when a schema is supplied", () => {
+  assert.deepEqual(jsonResponseFormat("poster_spec", { type: "object" }), {
+    type: "json_schema",
+    json_schema: { name: "poster_spec", strict: true, schema: { type: "object" } },
+  });
+  assert.deepEqual(jsonResponseFormat(undefined, undefined), { type: "json_object" });
+});
+
+test("isSchemaRejection only matches structured-output complaints", () => {
+  assert.equal(isSchemaRejection(400, { error: { message: "response_format json_schema is not supported" } }), true);
+  assert.equal(isSchemaRejection(400, { error: { message: "Invalid schema for response_format" } }), true);
+  assert.equal(isSchemaRejection(400, { error: { message: "context length exceeded" } }), false);
+  assert.equal(isSchemaRejection(401, { error: { message: "json_schema" } }), false);
+  assert.equal(isSchemaRejection(500, { error: { message: "json_schema" } }), false);
+});
 
 test("parseImageResponse reads b64 and cost", () => {
   const parsed = parseImageResponse({

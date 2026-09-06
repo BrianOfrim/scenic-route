@@ -25,6 +25,7 @@ export type PosterRecord = {
   batchId?: string;
   aspectRatio: string;
   cost: number | null;
+  durationMs?: number;
   createdAt: string;
   previousPosterId?: string;
   refineNotes?: string;
@@ -88,7 +89,9 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
 
   const decoded = references.map(decodeDataUrl);
   const prompt = specToImagePrompt(spec);
+  const startedAt = Date.now();
   const image = await createImage({ prompt, aspectRatio, references, model, label: "generate" });
+  const durationMs = Date.now() - startedAt;
   const posterId = newPosterId();
   fs.mkdirSync(POSTERS_DIR, { recursive: true });
   fs.writeFileSync(posterPath(posterId, "png"), Buffer.from(image.b64, "base64"));
@@ -107,6 +110,7 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
     batchId,
     aspectRatio,
     cost: image.cost,
+    durationMs,
     createdAt: new Date().toISOString(),
     previousPosterId: body.previousPosterId,
     refineNotes: body.refineNotes?.trim() || undefined,

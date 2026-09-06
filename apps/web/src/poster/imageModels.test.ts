@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { minMaxReferences, shortModelLabel, uniqueIds } from "./imageModels";
+import { formatDurationMs, minMaxReferences, shortModelLabel, uniqueIds } from "./imageModels";
+
+test("formatDurationMs uses compact units", () => {
+  assert.equal(formatDurationMs(4200), "4.2s");
+  assert.equal(formatDurationMs(52_000), "52s");
+  assert.equal(formatDurationMs(72_000), "1m 12s");
+  assert.equal(formatDurationMs(120_000), "2m");
+});
 
 test("shortModelLabel prefers a distinct display name", () => {
   assert.equal(shortModelLabel("google/gemini-2.5-flash-image", "Gemini 2.5 Flash Image"), "Gemini 2.5 Flash Image");

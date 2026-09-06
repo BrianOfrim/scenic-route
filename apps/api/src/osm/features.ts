@@ -287,7 +287,7 @@ function avg(values: number[]) {
 
 function nearestPlace(pois: PosterPoi[], point: LatLng): string {
   const places = pois.filter((poi) =>
-    ["city", "town", "village", "hamlet", "suburb", "locality"].includes(poi.kind),
+    ["city", "town", "village", "hamlet", "suburb", "quarter", "neighbourhood", "locality"].includes(poi.kind),
   );
   if (!places.length) return "";
   let best = places[0];
