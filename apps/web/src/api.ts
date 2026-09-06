@@ -131,6 +131,8 @@ export type PosterRecord = {
   spec: PosterSpec;
   prompt: string;
   model: string;
+  modelName?: string;
+  batchId?: string;
   aspectRatio: string;
   cost: number | null;
   createdAt: string;
@@ -146,7 +148,15 @@ export type PosterRecord = {
 };
 
 async function readJson<T>(response: Response): Promise<T> {
-  const body = (await response.json()) as T & { error?: string };
+  const text = await response.text();
+  let body: T & { error?: string };
+  try {
+    body = JSON.parse(text) as T & { error?: string };
+  } catch {
+    throw new Error(
+      response.ok ? "Server returned an invalid response" : `Request failed (${response.status})`,
+    );
+  }
   if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
   return body;
 }

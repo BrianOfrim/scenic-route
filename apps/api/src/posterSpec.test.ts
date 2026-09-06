@@ -51,6 +51,17 @@ test("validatePosterSpec fills a missing finalPrompt", () => {
   const spec = validatePosterSpec({ ...sample, finalPrompt: "" });
   assert.match(spec.finalPrompt, /Castle Mountain/);
   assert.match(spec.finalPrompt, /Bow Valley/);
+  assert.match(spec.finalPrompt, /Start marker: green dot/);
+  assert.match(spec.finalPrompt, /Finish marker: black dot/);
+});
+
+test("validatePosterSpec fallback uses one marker when start and finish match", () => {
+  const spec = validatePosterSpec({
+    ...sample,
+    route: { ...sample.route, startMarker: "combined gold/green disc", finishMarker: "combined gold/green disc" },
+    finalPrompt: "",
+  });
+  assert.match(spec.finalPrompt, /Marker: combined gold\/green disc/);
 });
 
 test("validatePosterSpec rejects a missing title", () => {

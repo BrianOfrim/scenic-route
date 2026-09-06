@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
-import { createImage, maxImageReferences, resolveImageModel } from "./openrouter";
+import { createImage, listImageModels, maxImageReferences, resolveImageModel } from "./openrouter";
 import { POSTERS_DIR, isSafePosterId, posterPath } from "./paths";
 import { specToImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
 
@@ -21,6 +21,8 @@ export type PosterRecord = {
   spec: PosterSpec;
   prompt: string;
   model: string;
+  modelName?: string;
+  batchId?: string;
   aspectRatio: string;
   cost: number | null;
   createdAt: string;
@@ -48,6 +50,7 @@ export type GeneratePosterBody = {
   stylePrompt?: string;
   aspectRatio?: string;
   model?: string;
+  batchId?: string;
 };
 
 export function decodeDataUrl(url: string): { mime: string; bytes: Buffer } {
@@ -69,6 +72,9 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
   }
   const spec = validatePosterSpec(body.spec);
   const model = resolveImageModel(body.model);
+  const listed = await listImageModels();
+  const modelName = listed.find((item) => item.id === model)?.name || model;
+  const batchId = sanitizeBatchId(body.batchId);
   const aspectRatio = (body.aspectRatio || spec.composition.aspectRatio || "2:3").trim();
   const incoming = (body.references ?? []).filter((item) => typeof item === "string" && item.trim());
   if (!incoming.length) throw new PosterError("at least one grounding image is required");
@@ -97,6 +103,8 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
     spec,
     prompt,
     model,
+    modelName,
+    batchId,
     aspectRatio,
     cost: image.cost,
     createdAt: new Date().toISOString(),
@@ -156,6 +164,12 @@ export function readPosterRef(posterId: string, index: number): Buffer {
   const file = posterPath(posterId, `ref-${index}.png`);
   if (!fs.existsSync(file)) throw new PosterError("reference not found", 404);
   return fs.readFileSync(file);
+}
+
+function sanitizeBatchId(value?: string) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed || trimmed.length > 80 || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return undefined;
+  return trimmed;
 }
 
 export function deletePoster(posterId: string) {

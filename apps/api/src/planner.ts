@@ -8,6 +8,10 @@ export type PlannerInput = {
     sportType?: string;
     isLoop?: boolean;
   };
+  routeMarkers?: {
+    enabled: boolean;
+    mode: "loop" | "start-finish";
+  };
   title: string;
   subtitle: string;
   stats: Array<{ label: string; value: string }>;
@@ -40,6 +44,7 @@ export function buildPlannerMessages(input: PlannerInput) {
     subtitle: input.subtitle,
     stats: input.stats,
     activity: input.activity,
+    routeMarkers: input.routeMarkers ?? null,
     stylePreset: input.style,
     customStylePrompt: input.customStylePrompt?.trim() || null,
     aspectRatio: input.aspectRatio,
@@ -54,11 +59,15 @@ export function buildPlannerMessages(input: PlannerInput) {
       role: "system",
       content: [
         "You write structured prompts for a map-poster image model.",
+        "Reply with a single JSON object using keys style, composition, route, geography, landmarks, text, grounding, negative, and optional finalPrompt.",
+        "Keep field values concise. Skip or keep finalPrompt short; a complete image prompt is assembled from the structured fields.",
         "The attached grounding images (described by index and role) are the geographic source of truth.",
         "Keep the route shape, orientation, and relative placement of water, roads, and landmarks truthful.",
         "Do not invent place names. Use exact spelling from the supplied landmarks and stats.",
         "North is up. The route is the hero. Leave a title block for the supplied text.",
-        "finalPrompt should be a complete image-generation prompt that restates style, geography, landmarks, text, and grounding rules.",
+        "Honor routeMarkers. If enabled is false, startMarker and finishMarker must be none — do not draw start or finish symbols.",
+        "If routeMarkers.mode is loop, start and finish are the same place: use one combined start/finish marker, not two.",
+        "If routeMarkers.mode is start-finish, use distinct start and finish markers.",
         "If refineNotes or previousSpec are present, evolve that spec rather than starting over.",
       ].join(" "),
     },
@@ -75,5 +84,10 @@ export async function planPoster(input: PlannerInput): Promise<{ spec: PosterSpe
     schemaName: "poster_spec",
     label: "plan",
   });
-  return { spec: validatePosterSpec(value), cost };
+  const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const text = record.text && typeof record.text === "object" && !Array.isArray(record.text)
+    ? (record.text as Record<string, unknown>)
+    : {};
+  const title = typeof text.title === "string" && text.title.trim() ? text.title : input.title;
+  return { spec: validatePosterSpec({ ...record, text: { ...text, title } }), cost };
 }

@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import {
   formatDate,
-  formatDuration,
   formatKm,
   type ActivitySummary,
   type StatusPayload,
@@ -14,7 +13,6 @@ type Props = {
   busy: boolean;
   onSelect: (id: number) => void;
   onSync: () => void;
-  onCreatePoster: () => void;
 };
 
 export function ActivityList({
@@ -24,7 +22,6 @@ export function ActivityList({
   busy,
   onSelect,
   onSync,
-  onCreatePoster,
 }: Props) {
   const [query, setQuery] = useState("");
   const [sport, setSport] = useState("all");
@@ -40,7 +37,6 @@ export function ActivityList({
       return item.name.toLowerCase().includes(needle) || item.sportType.toLowerCase().includes(needle);
     });
   }, [activities, query, sport]);
-  const selected = activities.find((item) => item.id === selectedId) ?? null;
   const strava = status?.strava;
 
   return (
@@ -103,22 +99,6 @@ export function ActivityList({
         ))}
         {!filtered.length && <p className="muted">No matching activities.</p>}
       </div>
-      {selected && (
-        <div className="panel-block activity-footer">
-          <p className="muted">
-            {formatKm(selected.distance)}
-            {selected.movingTime != null ? ` · ${formatDuration(selected.movingTime)}` : ""}
-          </p>
-          <button
-            type="button"
-            className="button"
-            disabled={!selected.hasGps || !selected.streamsSynced}
-            onClick={onCreatePoster}
-          >
-            Make poster
-          </button>
-        </div>
-      )}
     </aside>
   );
 }

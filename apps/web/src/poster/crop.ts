@@ -29,6 +29,12 @@ export function sliceTrack(latlng: [number, number][], start: number, end: numbe
   return latlng.slice(lo, hi + 1);
 }
 
+export function isClosedLoop(latlng: [number, number][]): boolean {
+  if (latlng.length < 2) return false;
+  const closeM = Math.max(150, 0.02 * trackDistanceM(latlng));
+  return haversineM(latlng[0], latlng[latlng.length - 1]) <= closeM;
+}
+
 export function trackDistanceM(latlng: [number, number][]): number {
   let total = 0;
   for (let i = 1; i < latlng.length; i += 1) {

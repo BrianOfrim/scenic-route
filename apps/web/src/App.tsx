@@ -186,15 +186,21 @@ export function App() {
           selectedId={selectedId}
           busy={busy}
           onSelect={(id) => {
+            const activity = activities.find((item) => item.id === id);
             setSelectedId(id);
             setRefineFrom(null);
+            if (activity?.hasGps && activity.streamsSynced) {
+              setPosterOpen(true);
+              setViewNonce((value) => value + 1);
+            } else {
+              setPosterOpen(false);
+              setCropLatLng(null);
+              setCropStops([]);
+              setPois([]);
+            }
           }}
           onSync={() => {
             void handleSync();
-          }}
-          onCreatePoster={() => {
-            setPosterOpen(true);
-            setViewNonce((value) => value + 1);
           }}
         />
         <main className="stage">

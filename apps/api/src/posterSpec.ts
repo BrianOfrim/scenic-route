@@ -283,6 +283,19 @@ export function specToImagePrompt(spec: PosterSpec): string {
   return `${spec.finalPrompt.trim()}\n\nSPEC (JSON):\n${JSON.stringify(spec, null, 2)}`;
 }
 
+function markerPrompt(start: string, finish: string) {
+  const startMark = start.trim();
+  const finishMark = finish.trim();
+  const blank = (value: string) => !value || /^none$/i.test(value);
+  if (blank(startMark) && blank(finishMark)) return "";
+  if (startMark && finishMark && startMark.toLowerCase() === finishMark.toLowerCase()) {
+    return `Marker: ${startMark}.`;
+  }
+  return [startMark && `Start marker: ${startMark}.`, finishMark && `Finish marker: ${finishMark}.`]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function fallbackPrompt(spec: PosterSpec): string {
   const landmarks = spec.landmarks.map((item) => `${item.name} (${item.placement})`).join("; ");
   return [
@@ -290,6 +303,7 @@ function fallbackPrompt(spec: PosterSpec): string {
     spec.style.medium,
     `Palette: ${spec.style.palette.join(", ")}.`,
     `Route: ${spec.route.treatment} in ${spec.route.color}.`,
+    markerPrompt(spec.route.startMarker, spec.route.finishMarker),
     landmarks ? `Label: ${landmarks}.` : "",
     `Title exactly "${spec.text.title}". Subtitle exactly "${spec.text.subtitle}".`,
     "North is up. Follow the grounding images for geography. Do not invent a different path.",

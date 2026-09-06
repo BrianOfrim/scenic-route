@@ -1,5 +1,4 @@
 import { withLlmTrace } from "./llmTrace";
-import { POSTER_SPEC_SCHEMA } from "./posterSpec";
 
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
@@ -9,7 +8,7 @@ export const KEY_HINT =
   "Set OPENROUTER_API_KEY in .env.local, then restart the API.";
 
 const GENERATE_TIMEOUT_MS = 120_000;
-const PLAN_TIMEOUT_MS = 90_000;
+const PLAN_TIMEOUT_MS = 180_000;
 
 export class OpenRouterError extends Error {
   readonly status: 400 | 401 | 502 | 504;
@@ -80,14 +79,7 @@ export async function chatJson<T>(options: {
   const request = {
     model,
     messages: options.messages,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: options.schemaName ?? "poster_spec",
-        strict: true,
-        schema: POSTER_SPEC_SCHEMA,
-      },
-    },
+    response_format: { type: "json_object" as const },
   };
   return withLlmTrace(
     {

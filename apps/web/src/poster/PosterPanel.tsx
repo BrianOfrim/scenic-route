@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   fetchMaxReferences,
   fetchPosterCapabilities,
   fetchPosterContext,
-  fetchPosters,
   formatKm,
   generatePoster,
   lookupPosterLandmark,
@@ -15,33 +14,21 @@ import {
   type PosterRecord,
   type PosterSpec,
 } from "../api";
-import { clampCrop, paddedBbox, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
+import { clampCrop, isClosedLoop, paddedBbox, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
 import { FEATURE_CATALOG, DEFAULT_FEATURE_IDS, type FeatureOption } from "./featureCatalog";
 import { planContactSheets, renderContactSheets, type GroundingLayer } from "./grounding/contactSheet";
 import { renderSchematicDataUrl, type AspectRatio } from "./grounding/renderSchematic";
 import { snapshotTiles } from "./grounding/snapshotTiles";
 import { SpecEditor } from "./SpecEditor";
+import {
+  minMaxReferences,
+  readStoredImageModels,
+  shortModelLabel,
+  writeStoredImageModels,
+} from "./imageModels";
 import { DEFAULT_POSTER_STYLE, POSTER_STYLES } from "./styles";
 
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
-
-const IMAGE_MODEL_KEY = "scenic-route.image-model";
-
-function readStoredImageModel() {
-  try {
-    return localStorage.getItem(IMAGE_MODEL_KEY)?.trim() || "";
-  } catch {
-    return "";
-  }
-}
-
-function writeStoredImageModel(id: string) {
-  try {
-    localStorage.setItem(IMAGE_MODEL_KEY, id);
-  } catch {
-    /* ignore quota / private mode */
-  }
-}
 
 type GroundingKey = "schematic" | "terrain" | "streets" | "satellite" | "silhouette";
 
@@ -54,12 +41,25 @@ const TILE_SOURCE: Partial<Record<GroundingKey, "topo" | "osm" | "satellite">> =
 };
 
 const GROUNDING_LEGEND: Record<GroundingKey, string> = {
-  schematic: "red = route; grey = roads; blue = water; green = forest; green/black dots = start/finish",
+  schematic: "red = route; grey = roads; blue = water; green = forest",
   silhouette: "route only, north up",
   terrain: "OpenTopoMap terrain with route overlay",
   streets: "OSM streets with route overlay",
   satellite: "satellite imagery with route overlay",
 };
+
+function routeMarkerMode(show: boolean, latlng: [number, number][]): false | "ends" | "loop" {
+  if (!show) return false;
+  return isClosedLoop(latlng) ? "loop" : "ends";
+}
+
+function groundingLegend(key: GroundingKey, markers: false | "ends" | "loop") {
+  const base = GROUNDING_LEGEND[key];
+  if (key === "silhouette") return base;
+  if (markers === "loop") return `${base}; gold/green = combined start/finish`;
+  if (markers === "ends") return `${base}; green/black dots = start/finish`;
+  return base;
+}
 
 type ModelRef = { role: string; legend?: string; dataUrl: string };
 
@@ -89,9 +89,10 @@ export function PosterPanel({
   onPoisChange,
   refineFrom,
 }: Props) {
-  const catalog = features.length ? features : FEATURE_CATALOG;
+  const catalog = FEATURE_CATALOG.map(
+    (item) => features.find((feature) => feature.id === item.id) ?? item,
+  );
   const [context, setContext] = useState<PosterContext | null>(null);
-  const [history, setHistory] = useState<PosterRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [featureIds, setFeatureIds] = useState<string[]>(DEFAULT_FEATURE_IDS);
@@ -103,6 +104,7 @@ export function PosterPanel({
   const [customPois, setCustomPois] = useState<PosterPoi[]>([]);
   const [cropStart, setCropStart] = useState(0);
   const [cropEnd, setCropEnd] = useState(1);
+  const [showRouteMarkers, setShowRouteMarkers] = useState(true);
   const [landmarkQuery, setLandmarkQuery] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
   const [landmarkChoices, setLandmarkChoices] = useState<PosterPoi[] | null>(null);
@@ -121,22 +123,35 @@ export function PosterPanel({
   const [sentRefs, setSentRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
-  const [imageModelId, setImageModelId] = useState(
-    refineFrom?.model || readStoredImageModel(),
-  );
+  const [imageModelIds, setImageModelIds] = useState(() => {
+    const stored = readStoredImageModels();
+    return refineFrom?.model && !stored.includes(refineFrom.model)
+      ? [...stored, refineFrom.model]
+      : stored;
+  });
   const [spec, setSpec] = useState<PosterSpec | null>(refineFrom?.spec ?? null);
   const [planning, setPlanning] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generateProgress, setGenerateProgress] = useState({ done: 0, total: 0 });
   const [elapsed, setElapsed] = useState(0);
   const [result, setResult] = useState<PosterRecord | null>(null);
+  const [batchResults, setBatchResults] = useState<PosterRecord[]>([]);
   const [refineNotes, setRefineNotes] = useState("");
+  const cropActivityId = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void fetchPosterCapabilities().then((caps) => {
       if (cancelled) return;
       setImageModels(caps.models);
-      setImageModelId((current) => current || caps.defaultModel || caps.models[0]?.id || "");
+      setImageModelIds((current) => {
+        const known = current.filter(
+          (id) => id === refineFrom?.model || caps.models.some((item) => item.id === id),
+        );
+        if (known.length) return known;
+        const fallback = caps.defaultModel || caps.models[0]?.id || "";
+        return fallback ? [fallback] : [];
+      });
     });
     return () => {
       cancelled = true;
@@ -144,35 +159,45 @@ export function PosterPanel({
   }, []);
 
   useEffect(() => {
-    if (!imageModelId) return;
+    if (!imageModelIds.length) return;
+    if (imageModelIds.length > 1) {
+      setMaxRefs(minMaxReferences(imageModelIds, imageModels));
+      return;
+    }
     let cancelled = false;
-    void fetchMaxReferences(imageModelId).then((value) => {
+    void fetchMaxReferences(imageModelIds[0]).then((value) => {
       if (!cancelled) setMaxRefs(value);
     });
     return () => {
       cancelled = true;
     };
-  }, [imageModelId]);
+  }, [imageModelIds.join("\0"), imageModels]);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    Promise.all([
-      fetchPosterContext(activityId, featureIds),
-      fetchPosters(activityId).catch(() => []),
-    ])
-      .then(([next, posters]) => {
+    const activityChanged = cropActivityId.current !== activityId;
+    if (activityChanged) {
+      setLoading(true);
+      setError(null);
+    }
+    fetchPosterContext(activityId, featureIds)
+      .then((next) => {
         if (cancelled) return;
         setContext(next);
-        setHistory(posters);
-        setTitle(next.activity.name || "Ride");
         setLabels(next.pois.map((poi) => poi.name));
-        setCropStart(0);
-        setCropEnd(Math.max(1, next.latlng.length - 1));
-        if (refineFrom) {
-          setStatIds(refineFrom.stats.map((item) => item.label.toLowerCase().replace(/\s+/g, "")));
-          setSentRefs(savedModelRefs(refineFrom));
+        if (activityChanged) {
+          cropActivityId.current = activityId;
+          setTitle(next.activity.name || "Ride");
+          setCropStart(0);
+          setCropEnd(Math.max(1, next.latlng.length - 1));
+          if (refineFrom) {
+            setStatIds(refineFrom.stats.map((item) => item.label.toLowerCase().replace(/\s+/g, "")));
+            setSentRefs(savedModelRefs(refineFrom));
+          }
+        } else {
+          const last = Math.max(1, next.latlng.length - 1);
+          setCropStart((start) => Math.min(start, last - 1));
+          setCropEnd((end) => Math.min(Math.max(end, 1), last));
         }
       })
       .catch((err: unknown) => {
@@ -268,7 +293,9 @@ export function PosterPanel({
           forest: featureIds.includes("forest"),
           parks: featureIds.includes("parks"),
           farmland: featureIds.includes("farmland"),
+          cemeteries: featureIds.includes("cemeteries"),
           labels: true,
+          routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
         },
       });
       const silhouette = renderSchematicDataUrl({
@@ -287,7 +314,7 @@ export function PosterPanel({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not render schematic");
     }
-  }, [context, croppedLatLng, displayBbox, selectedPois, aspectRatio, featureIds.join(",")]);
+  }, [context, croppedLatLng, displayBbox, selectedPois, aspectRatio, featureIds.join(","), showRouteMarkers]);
 
   useEffect(() => {
     if (!displayBbox || croppedLatLng.length < 2) return;
@@ -308,6 +335,7 @@ export function PosterPanel({
             bbox: displayBbox,
             latlng: croppedLatLng,
             aspectRatio,
+            routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
           });
           if (cancelled) return;
           setPreviews((current) => ({ ...current, [key]: dataUrl }));
@@ -320,7 +348,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [displayBbox, croppedLatLng, aspectRatio, groundingOn.terrain, groundingOn.streets, groundingOn.satellite]);
+  }, [displayBbox, croppedLatLng, aspectRatio, groundingOn.terrain, groundingOn.streets, groundingOn.satellite, showRouteMarkers]);
 
   useEffect(() => {
     setPreviews((current) => ({
@@ -338,7 +366,11 @@ export function PosterPanel({
         setModelRefs([]);
         return;
       }
-      layers.push({ role: key, legend: GROUNDING_LEGEND[key], dataUrl });
+      layers.push({
+        role: key,
+        legend: groundingLegend(key, routeMarkerMode(showRouteMarkers, croppedLatLng)),
+        dataUrl,
+      });
     }
     let cancelled = false;
     void renderContactSheets(layers, maxRefs, aspectRatio).then((packed) => {
@@ -347,7 +379,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [previews, groundingOn, maxRefs, aspectRatio]);
+  }, [previews, groundingOn, maxRefs, aspectRatio, showRouteMarkers, croppedLatLng]);
 
   useEffect(() => {
     if (!generating && !planning) {
@@ -373,11 +405,16 @@ export function PosterPanel({
               bbox: displayBbox,
               latlng: croppedLatLng,
               aspectRatio,
+              routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
             })
           : undefined);
       if (!dataUrl) continue;
       if (source) setPreviews((current) => ({ ...current, [key]: dataUrl }));
-      layers.push({ role: key, legend: GROUNDING_LEGEND[key], dataUrl });
+      layers.push({
+        role: key,
+        legend: groundingLegend(key, routeMarkerMode(showRouteMarkers, croppedLatLng)),
+        dataUrl,
+      });
     }
     return layers;
   }
@@ -394,7 +431,11 @@ export function PosterPanel({
         activity: {
           name: context.activity.name,
           sportType: context.activity.sportType,
-          isLoop: context.activity.isLoop,
+          isLoop: isClosedLoop(croppedLatLng),
+        },
+        routeMarkers: {
+          enabled: showRouteMarkers,
+          mode: isClosedLoop(croppedLatLng) ? "loop" : "start-finish",
         },
         title,
         subtitle,
@@ -402,7 +443,12 @@ export function PosterPanel({
         style,
         customStylePrompt: styleId === "custom" || stylePrompt !== style.prompt ? stylePrompt : undefined,
         aspectRatio,
-        geography: catalog.filter((item) => item.group === "geography" && featureIds.includes(item.id)),
+        geography: catalog
+          .filter(
+            (item) =>
+              (item.group === "geography" || item.id === "cemeteries") && featureIds.includes(item.id),
+          )
+          .map((item) => ({ id: item.id, label: item.label })),
         pois: selectedPois,
         grounding: packed.map((sheet, index) => ({
           index: index + 1,
@@ -433,7 +479,10 @@ export function PosterPanel({
         sent.push({ role: "previous poster", dataUrl: previousUrl });
       }
       setSentRefs(sent);
-      const record = await generatePoster({
+      const models = imageModelIds.length ? imageModelIds : [];
+      if (!models.length) throw new Error("Select at least one image model");
+      const batchId = models.length > 1 ? crypto.randomUUID() : undefined;
+      const body = {
         activityId,
         spec,
         references: packed.map((item) => item.dataUrl),
@@ -445,11 +494,33 @@ export function PosterPanel({
         styleId,
         stylePrompt,
         aspectRatio,
-        model: imageModelId || undefined,
-      });
-      setResult(record);
-      setHistory((current) => [record, ...current.filter((item) => item.posterId !== record.posterId)]);
+        batchId,
+      };
+      setGenerateProgress({ done: 0, total: models.length });
+      const settled = await Promise.all(
+        models.map(async (model): Promise<{ model: string; record?: PosterRecord; error?: string }> => {
+          try {
+            const record = await generatePoster({ ...body, model });
+            return { model, record };
+          } catch (err) {
+            return {
+              model,
+              error: err instanceof Error ? err.message : "Poster generation failed",
+            };
+          } finally {
+            setGenerateProgress((current) => ({ ...current, done: current.done + 1 }));
+          }
+        }),
+      );
+      const records = settled.flatMap((item) => (item.record ? [item.record] : []));
+      const failures = settled.flatMap((item) =>
+        item.error ? [`${shortModelLabel(item.model)}: ${item.error}`] : [],
+      );
+      if (!records.length) throw new Error(failures.join(" · ") || "Poster generation failed");
+      setBatchResults(records);
+      setResult(records[0]);
       setRefineNotes("");
+      if (failures.length) setError(`${failures.length} model${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Poster generation failed");
     } finally {
@@ -508,16 +579,36 @@ export function PosterPanel({
     if (preset.id !== "custom") setStylePrompt(preset.prompt);
   }
 
-  function applyImageModel(id: string) {
-    setImageModelId(id);
-    writeStoredImageModel(id);
-    const known = imageModels.find((item) => item.id === id);
-    if (known?.maxReferences) setMaxRefs(known.maxReferences);
+  function applyImageModels(ids: string[]) {
+    const next = ids.filter(Boolean);
+    if (!next.length) return;
+    setImageModelIds(next);
+    writeStoredImageModels(next);
+    setMaxRefs(next.length === 1
+      ? imageModels.find((item) => item.id === next[0])?.maxReferences || maxRefs
+      : minMaxReferences(next, imageModels));
   }
 
-  const modelOptions = imageModels.some((item) => item.id === imageModelId) || !imageModelId
-    ? imageModels
-    : [{ id: imageModelId, name: imageModelId, maxReferences: maxRefs }, ...imageModels];
+  function toggleImageModel(id: string) {
+    const next = imageModelIds.includes(id)
+      ? imageModelIds.filter((item) => item !== id)
+      : [...imageModelIds, id];
+    if (!next.length) return;
+    applyImageModels(next);
+  }
+
+  function selectResult(record: PosterRecord) {
+    setResult(record);
+    setSpec(record.spec);
+    setSentRefs(savedModelRefs(record));
+  }
+
+  const modelOptions = [
+    ...imageModels,
+    ...imageModelIds
+      .filter((id) => !imageModels.some((item) => item.id === id))
+      .map((id) => ({ id, name: id, maxReferences: maxRefs })),
+  ];
 
   const previousRef =
     modelRefs.length < maxRefs ? (result?.url ?? refineFrom?.url ?? null) : null;
@@ -593,6 +684,21 @@ export function PosterPanel({
                 ? ` · snaps to ${stopIndexes.length} pause${stopIndexes.length === 1 ? "" : "s"}`
                 : ""}
             </p>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={showRouteMarkers}
+                onChange={(event) => setShowRouteMarkers(event.target.checked)}
+              />
+              Start / finish markers
+            </label>
+            {showRouteMarkers && (
+              <p className="muted">
+                {isClosedLoop(croppedLatLng)
+                  ? "Start and finish are the same place — one combined marker"
+                  : "Green start · black finish"}
+              </p>
+            )}
           </div>
 
           <div className="panel-block">
@@ -734,20 +840,30 @@ export function PosterPanel({
                 ))}
               </select>
             </label>
-            <label className="poster-field">
-              Image model
-              <select
-                value={imageModelId}
-                onChange={(event) => applyImageModel(event.target.value)}
-                disabled={!modelOptions.length}
-              >
+            <div className="poster-field">
+              Image models
+              <div className="model-list">
                 {modelOptions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
+                  <label key={item.id} className="check">
+                    <input
+                      type="checkbox"
+                      checked={imageModelIds.includes(item.id)}
+                      onChange={() => toggleImageModel(item.id)}
+                      disabled={!modelOptions.length}
+                    />
+                    <span>
+                      {item.name}
+                      <em>{item.id !== item.name ? item.id : ""}</em>
+                    </span>
+                  </label>
                 ))}
-              </select>
-            </label>
+              </div>
+              <p className="muted">
+                {imageModelIds.length > 1
+                  ? `${imageModelIds.length} models will generate in parallel`
+                  : "Select more than one to compare outputs"}
+              </p>
+            </div>
             <div className="preview-grid">
               {GROUNDING_KEYS.filter((key) => groundingOn[key] && previews[key]).map((key) => (
                 <figure key={key} className="poster-ref-card">
@@ -793,16 +909,43 @@ export function PosterPanel({
           {spec && (
             <div className="panel-block">
               <SpecEditor spec={spec} onChange={setSpec} />
-              <button className="button" type="button" disabled={busy} onClick={() => void handleGenerate()}>
-                {generating ? `Generating… ${elapsed}s` : "Generate poster"}
+              <button
+                className="button"
+                type="button"
+                disabled={busy || !imageModelIds.length}
+                onClick={() => void handleGenerate()}
+              >
+                {generating
+                  ? generateProgress.total > 1
+                    ? `Generating ${generateProgress.done}/${generateProgress.total}… ${elapsed}s`
+                    : `Generating… ${elapsed}s`
+                  : imageModelIds.length > 1
+                    ? `Generate with ${imageModelIds.length} models`
+                    : "Generate poster"}
               </button>
             </div>
           )}
 
           {result && (
             <div className="panel-block">
-              <div className="eyebrow">Result</div>
-              <img className="poster-result" src={result.url} alt={result.title} />
+              <div className="eyebrow">{batchResults.length > 1 ? "Compare results" : "Result"}</div>
+              {batchResults.length > 1 ? (
+                <div className="result-compare">
+                  {batchResults.map((item) => (
+                    <button
+                      key={item.posterId}
+                      type="button"
+                      className={`result-compare-card ${item.posterId === result.posterId ? "on" : ""}`}
+                      onClick={() => selectResult(item)}
+                    >
+                      <img src={item.url} alt={item.title} />
+                      <span>{shortModelLabel(item.model, item.modelName)}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <img className="poster-result" src={result.url} alt={result.title} />
+              )}
               <div className="poster-actions">
                 <a className="button" href={result.url} download={`${result.posterId}.png`}>
                   Download
@@ -812,7 +955,7 @@ export function PosterPanel({
                 </a>
               </div>
               <p className="muted">
-                {result.model}
+                {shortModelLabel(result.model, result.modelName)}
                 {result.cost != null ? ` · $${result.cost.toFixed(3)}` : ""}
               </p>
               {sentRefs.length > 0 && (
@@ -843,29 +986,6 @@ export function PosterPanel({
               >
                 Re-plan with notes
               </button>
-            </div>
-          )}
-
-          {history.length > 0 && (
-            <div className="panel-block">
-              <div className="eyebrow">Earlier posters</div>
-              <div className="poster-thumbs">
-                {history.map((item) => (
-                  <button
-                    key={item.posterId}
-                    type="button"
-                    className={item.posterId === result?.posterId ? "on" : ""}
-                    onClick={() => {
-                      setResult(item);
-                      setSpec(item.spec);
-                      setSentRefs(savedModelRefs(item));
-                      if (item.model) applyImageModel(item.model);
-                    }}
-                  >
-                    <img src={item.url} alt={item.title} />
-                  </button>
-                ))}
-              </div>
             </div>
           )}
         </div>

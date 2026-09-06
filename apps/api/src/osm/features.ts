@@ -21,7 +21,18 @@ import { KIND_WEIGHTS, resolveFeatures, type FeatureDef } from "./catalog";
 import { collection, emptyCollection, queryOverpass, unionQuery } from "./overpass";
 
 const MAX_POIS = 25;
-const AMENITY_KINDS = new Set(["cafe", "pub", "restaurant", "place_of_worship", "playground"]);
+const AMENITY_KINDS = new Set([
+  "cafe",
+  "pub",
+  "restaurant",
+  "place_of_worship",
+  "playground",
+  "school",
+  "college",
+  "university",
+  "cemetery",
+  "grave_yard",
+]);
 
 export type PosterPoi = {
   name: string;
@@ -78,6 +89,7 @@ const WAY_BUCKETS = [
   "forest",
   "parks",
   "farmland",
+  "cemeteries",
 ] as const;
 
 export async function loadRouteFeatures(activityId: number, featureIds?: string[]): Promise<PosterContext> {
@@ -99,8 +111,8 @@ export async function loadRouteFeatures(activityId: number, featureIds?: string[
   const loop = isLoop(latlng, trackDiagonal);
   const warnings: string[] = [];
 
-  const geoFeatures = features.filter((item) => item.group === "geography");
-  const poiFeatures = features.filter((item) => item.group === "landmarks");
+  const geoFeatures = features.filter((item) => item.bucket !== "poi");
+  const poiFeatures = features.filter((item) => item.bucket === "poi");
 
   const [waysFc, poisFc] = await Promise.all([
     geoFeatures.length
@@ -112,7 +124,16 @@ export async function loadRouteFeatures(activityId: number, featureIds?: string[
   ]);
 
   const ways = splitWays(waysFc, geoFeatures);
-  const pois = rankPois(poisFc, latlng, padded, poiFeatures);
+  const cemetery = features.find((item) => item.id === "cemeteries");
+  const pois = rankPois(
+    {
+      type: "FeatureCollection",
+      features: [...poisFc.features, ...(ways.cemeteries?.features ?? [])],
+    },
+    latlng,
+    padded,
+    cemetery ? [...poiFeatures, cemetery] : poiFeatures,
+  );
   const startPlace = nearestPlace(pois, latlng[0]);
   const finishPlace = nearestPlace(pois, latlng[latlng.length - 1]);
 
@@ -161,6 +182,8 @@ export function splitWays(geojson: FeatureCollection, selected: FeatureDef[]): P
       bucket = "parks";
     } else if (/^(farmland|meadow|orchard|vineyard)$/.test(tags.landuse ?? "")) {
       bucket = "farmland";
+    } else if (tags.landuse === "cemetery" || tags.amenity === "grave_yard") {
+      bucket = "cemeteries";
     } else if (geom === "Polygon" || geom === "MultiPolygon") {
       bucket = "forest";
     } else if (geom === "LineString" || geom === "MultiLineString") {
@@ -216,6 +239,7 @@ export function rankPois(
 }
 
 export function classifyPoi(tags: Record<string, string>): string {
+  if (tags.landuse === "cemetery" || tags.amenity === "grave_yard") return "cemetery";
   for (const key of ["natural", "waterway", "place", "tourism", "leisure", "man_made", "amenity"]) {
     const value = tags[key];
     if (value) return value;

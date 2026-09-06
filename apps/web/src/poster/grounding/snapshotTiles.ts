@@ -1,5 +1,5 @@
 import { Map } from "../../maplibre";
-import { canvasSize } from "./renderSchematic";
+import { canvasSize, drawRouteEndMarkers } from "./renderSchematic";
 
 export type TileSource = "osm" | "topo" | "satellite";
 
@@ -14,6 +14,7 @@ export async function snapshotTiles(options: {
   bbox: [[number, number], [number, number]];
   latlng: [number, number][];
   aspectRatio: string;
+  routeMarkers?: false | "ends" | "loop";
 }): Promise<string> {
   const { width, height } = canvasSize(options.aspectRatio);
   const container = document.createElement("div");
@@ -52,7 +53,7 @@ export async function snapshotTiles(options: {
     map.resize();
     map.fitBounds(bounds, { padding: 24, animate: false });
     await waitFor(map, "idle");
-    overlayRoute(map.getCanvas(), map, options.latlng);
+    overlayRoute(map.getCanvas(), map, options.latlng, options.routeMarkers ?? "ends");
     return map.getCanvas().toDataURL("image/png");
   } finally {
     map.remove();
@@ -64,6 +65,7 @@ function overlayRoute(
   canvas: HTMLCanvasElement,
   map: Map,
   latlng: [number, number][],
+  markers: false | "ends" | "loop",
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx || latlng.length < 2) return;
@@ -79,6 +81,7 @@ function overlayRoute(
   ctx.strokeStyle = "#e11d48";
   ctx.lineWidth = 3.5;
   stroke(ctx, points);
+  if (markers) drawRouteEndMarkers(ctx, points[0], points[points.length - 1], markers);
 }
 
 function stroke(ctx: CanvasRenderingContext2D, points: [number, number][]) {

@@ -21,8 +21,10 @@ export type RenderSchematicOptions = {
     forest?: boolean;
     parks?: boolean;
     farmland?: boolean;
+    cemeteries?: boolean;
     labels?: boolean;
     route?: boolean;
+    routeMarkers?: false | "ends" | "loop";
   };
   aspectRatio?: AspectRatio | string;
   silhouette?: boolean;
@@ -38,6 +40,35 @@ const ROAD_WIDTH: Record<string, number> = {
   primary: 2,
   secondary: 1.5,
 };
+
+export function drawRouteEndMarkers(
+  ctx: CanvasRenderingContext2D,
+  start: [number, number],
+  end: [number, number],
+  mode: "ends" | "loop",
+) {
+  if (mode === "loop") {
+    loopDot(ctx, start[0], start[1]);
+    return;
+  }
+  dot(ctx, start[0], start[1], "#2f9e44", 6);
+  dot(ctx, end[0], end[1], "#111111", 6);
+}
+
+function loopDot(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  dot(ctx, x, y, "#c9a227", 9);
+  dot(ctx, x, y, "#2f9e44", 5);
+}
+
+function dot(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, r: number) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
 
 export function canvasSize(aspectRatio: string): { width: number; height: number } {
   const [w, h] = parseAspect(aspectRatio);
@@ -68,6 +99,7 @@ export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchema
 
   if (!options.silhouette) {
     if (layers.farmland !== false) fillBucket(ctx, ways.farmland, project, "rgba(214, 196, 140, 0.45)");
+    if (layers.cemeteries !== false) fillBucket(ctx, ways.cemeteries, project, "rgba(186, 178, 162, 0.55)");
     if (layers.parks !== false) fillBucket(ctx, ways.parks, project, "rgba(164, 196, 148, 0.5)");
     if (layers.forest !== false) fillBucket(ctx, ways.forest, project, "rgba(176, 201, 156, 0.55)");
     if (layers.water !== false) {
@@ -95,6 +127,7 @@ export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchema
   }
 
   const route = simplify(options.latlng, 2000).map(([lat, lng]) => project(lng, lat));
+  const markers = options.silhouette ? false : (layers.routeMarkers ?? "ends");
   if ((layers.route !== false || options.silhouette) && route.length >= 2) {
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
@@ -106,10 +139,7 @@ export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchema
       ctx.lineWidth = 4;
       strokePoints(ctx, route);
     }
-    if (route.length) {
-      dot(ctx, route[0][0], route[0][1], "#2f9e44", 6);
-      dot(ctx, route[route.length - 1][0], route[route.length - 1][1], "#111111", 6);
-    }
+    if (markers) drawRouteEndMarkers(ctx, route[0], route[route.length - 1], markers);
   }
 
   if (!options.silhouette && layers.labels !== false) {
@@ -125,7 +155,7 @@ export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchema
     }
     drawNorthArrow(ctx, width - 36, 36);
     drawScaleBar(ctx, options.bbox, width, mapH, project);
-    drawLegend(ctx, width, height);
+    drawLegend(ctx, width, height, markers);
   }
 
   return canvas.toDataURL("image/png");
@@ -270,16 +300,6 @@ function strokePoints(ctx: CanvasRenderingContext2D, points: [number, number][])
   ctx.stroke();
 }
 
-function dot(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, r: number) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = "#ffffff";
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-}
-
 function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.fillStyle = "#111";
   ctx.beginPath();
@@ -329,13 +349,28 @@ function drawScaleBar(
   ctx.fillText(meters >= 1000 ? `${meters / 1000} km` : `${Math.round(meters)} m`, x, y - 6);
 }
 
-function drawLegend(ctx: CanvasRenderingContext2D, width: number, height: number) {
+function drawLegend(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  markers: false | "ends" | "loop",
+) {
   ctx.fillStyle = "#efe8d8";
   ctx.fillRect(0, height - LEGEND_H, width, LEGEND_H);
   ctx.fillStyle = "#2c261c";
   ctx.font = "11px IBM Plex Sans, sans-serif";
   ctx.textBaseline = "middle";
-  ctx.fillText("red = route   grey = roads   blue = water   green = forest   green/black dots = start/finish", 16, height - LEGEND_H / 2);
+  const markerNote =
+    markers === "loop"
+      ? "gold/green = start/finish"
+      : markers === "ends"
+        ? "green/black dots = start/finish"
+        : "";
+  ctx.fillText(
+    ["red = route", "grey = roads", "blue = water", "green = forest", markerNote].filter(Boolean).join("   "),
+    16,
+    height - LEGEND_H / 2,
+  );
 }
 
 function niceLength(meters: number) {

@@ -5,6 +5,7 @@ import { buildPlannerMessages } from "./planner";
 test("buildPlannerMessages includes landmarks and grounding roles", () => {
   const messages = buildPlannerMessages({
     activity: { name: "Lunch ride", sportType: "Ride", isLoop: true },
+    routeMarkers: { enabled: true, mode: "loop" },
     title: "Lunch ride",
     subtitle: "12.4 km · 41 min",
     stats: [{ label: "Distance", value: "12.4 km" }],
@@ -34,13 +35,17 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   });
   assert.equal(messages.length, 2);
   assert.match(String(messages[0].content), /geographic source of truth/);
+  assert.match(String(messages[0].content), /optional finalPrompt/);
+  assert.match(String(messages[0].content), /combined start\/finish marker/);
   const user = JSON.parse(String(messages[1].content)) as {
     landmarks: Array<{ name: string; placement: string }>;
     customStylePrompt: string;
     groundingImages: Array<{ role: string }>;
+    routeMarkers: { enabled: boolean; mode: string };
   };
   assert.equal(user.landmarks[0].name, "Norsemen Inn");
   assert.match(user.landmarks[0].placement, /upper-left/);
   assert.equal(user.customStylePrompt, "more negative space");
   assert.equal(user.groundingImages[0].role, "schematic");
+  assert.deepEqual(user.routeMarkers, { enabled: true, mode: "loop" });
 });

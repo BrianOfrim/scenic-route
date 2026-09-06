@@ -63,6 +63,19 @@ function summarizeDataUrl(value: string): string | null {
   return `[data-url ${match[1]} ${bytes} bytes]`;
 }
 
+export function formatLlmTraceConsole(trace: LlmTrace): string {
+  const cost = trace.cost == null ? "n/a" : `$${trace.cost}`;
+  const status = trace.status == null ? "—" : String(trace.status);
+  const result = trace.ok ? "ok" : "error";
+  const lines = [
+    `[llm:${trace.label}] ${result} ${trace.id}`,
+    `[llm:${trace.label}] ${trace.kind} ${trace.model} ${status} ${trace.durationMs}ms cost=${cost}`,
+  ];
+  if (trace.error) lines.push(`[llm:${trace.label}] error ${trace.error}`);
+  if (trace.file) lines.push(`[llm:${trace.label}] wrote ${trace.file}`);
+  return lines.join("\n");
+}
+
 export function formatLlmTrace(trace: LlmTrace): string {
   const cost = trace.cost == null ? "n/a" : `$${trace.cost}`;
   const status = trace.status == null ? "—" : String(trace.status);
@@ -130,7 +143,7 @@ function persistAndPrint(trace: LlmTrace) {
     const file = path.join(LLM_TRACES_DIR, `${trace.id}-${safeLabel(trace.label)}.json`);
     const written: LlmTrace = { ...trace, file };
     fs.writeFileSync(file, `${stringify(written)}\n`);
-    console.log(formatLlmTrace(written));
+    console.log(formatLlmTraceConsole(written));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[llm:${trace.label}] failed to write trace: ${message}`);

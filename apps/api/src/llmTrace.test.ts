@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatLlmTrace, sanitizeForTrace, type LlmTrace } from "./llmTrace";
+import { formatLlmTrace, formatLlmTraceConsole, sanitizeForTrace, type LlmTrace } from "./llmTrace";
 
 test("sanitizeForTrace leaves planner messages intact", () => {
   const messages = [
@@ -56,4 +56,25 @@ test("formatLlmTrace includes request, response, and cost", () => {
   assert.match(text, /"content": "hello"/);
   assert.match(text, /Lunch ride/);
   assert.match(text, /wrote \/tmp\/trace\.json/);
+});
+
+test("formatLlmTraceConsole stays short", () => {
+  const text = formatLlmTraceConsole({
+    id: "20260905T191200Z-abc",
+    kind: "chat",
+    label: "plan",
+    model: "anthropic/claude-sonnet-4",
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    startedAt: "2026-09-05T19:12:00.000Z",
+    durationMs: 1234,
+    ok: false,
+    status: null,
+    cost: null,
+    request: { messages: [{ role: "user", content: "hello" }] },
+    response: null,
+    error: "Planner timed out",
+    file: "/tmp/trace.json",
+  });
+  assert.match(text, /error Planner timed out/);
+  assert.doesNotMatch(text, /hello/);
 });
