@@ -226,9 +226,10 @@ app.get("/api/posters/:id/image.png", (c) => {
   }
 });
 
-app.get("/api/posters/:id/ref-:n.png", (c) => {
+app.get("/api/posters/:id/ref-:n", (c) => {
   try {
-    return png(readPosterRef(c.req.param("id"), Number(c.req.param("n"))));
+    const index = Number(String(c.req.param("n")).replace(/\.png$/i, ""));
+    return png(readPosterRef(c.req.param("id"), index));
   } catch (error) {
     return fail(c, error);
   }

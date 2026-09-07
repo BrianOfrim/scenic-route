@@ -43,9 +43,17 @@ export function trackDistanceM(latlng: [number, number][]): number {
   return total;
 }
 
+type BboxPad = {
+  padFrac?: number;
+  minPadM?: number;
+  maxPadM?: number;
+};
+
+/** Wider box for map/search. Schematic rendering uses `schematicBbox`. */
 export function paddedBbox(
   latlng: [number, number][],
   extras: Array<{ lat: number; lng: number }> = [],
+  pad: BboxPad = {},
 ): [[number, number], [number, number]] {
   const lats = latlng.map((point) => point[0]);
   const lngs = latlng.map((point) => point[1]);
@@ -58,7 +66,7 @@ export function paddedBbox(
   const minLng = Math.min(...lngs);
   const maxLng = Math.max(...lngs);
   const diagonal = haversineM([minLat, minLng], [maxLat, maxLng]);
-  const padM = Math.min(5_000, Math.max(400, 0.15 * diagonal));
+  const padM = Math.min(pad.maxPadM ?? 5_000, Math.max(pad.minPadM ?? 400, (pad.padFrac ?? 0.15) * diagonal));
   const midLat = (minLat + maxLat) / 2;
   const dlat = padM / 111_320;
   const dlng = padM / (111_320 * Math.max(0.2, Math.abs(Math.cos((midLat * Math.PI) / 180))));
@@ -66,6 +74,33 @@ export function paddedBbox(
     [minLng - dlng, minLat - dlat],
     [maxLng + dlng, maxLat + dlat],
   ];
+}
+
+const SCHEMATIC_NEAR_ROUTE_M = 600;
+
+/** Tight frame for grounding images: small pad, only landmarks near the track. */
+export function schematicBbox(
+  latlng: [number, number][],
+  extras: Array<{ lat: number; lng: number; distToRouteM?: number }> = [],
+): [[number, number], [number, number]] {
+  const near = extras.filter((item) => isNearTrack(latlng, item, SCHEMATIC_NEAR_ROUTE_M));
+  return paddedBbox(latlng, near, { padFrac: 0.06, minPadM: 200, maxPadM: 1_200 });
+}
+
+function isNearTrack(
+  latlng: [number, number][],
+  extra: { lat: number; lng: number; distToRouteM?: number },
+  maxM: number,
+) {
+  if (typeof extra.distToRouteM === "number") return extra.distToRouteM <= maxM;
+  const point: [number, number] = [extra.lat, extra.lng];
+  let best = Infinity;
+  for (const vertex of latlng) {
+    const dist = haversineM(vertex, point);
+    if (dist < best) best = dist;
+    if (best <= maxM) return true;
+  }
+  return best <= maxM;
 }
 
 function haversineM(a: [number, number], b: [number, number]) {

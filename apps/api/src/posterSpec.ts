@@ -291,7 +291,14 @@ export const PROMPT_EXCLUSIONS = [
   "no latitude/longitude numbers, coordinates, or grid lines",
   "no watermark",
   "no text other than the title block and the listed landmark names",
+  "no different route than the red line on the schematic",
+  "no smoothed, straightened, shortcut, or invented path",
+  "no omitted out-and-backs, spurs, or crossings",
 ];
+
+/** Locked at the front of every image prompt. The route is the product. */
+export const ROUTE_TRACE_RULE =
+  "CRITICAL route fidelity: the red line on the schematic is the exact GPS track. Trace it exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and landmarks. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Do not snap the path onto a nearby road unless the schematic already shows that. A prettier wrong path is a failed poster. North is up.";
 
 const t = (value: string) => value.trim();
 const sentence = (value: string) => {
@@ -329,6 +336,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
 
   const lead = scrubIndexLanguage(t(spec.finalPrompt) || fallbackPrompt(spec));
   sections.push(sentence(lead));
+  sections.push(ROUTE_TRACE_RULE);
 
   const palette = list(spec.style.palette);
   sections.push(
@@ -395,13 +403,17 @@ export function specToImagePrompt(spec: PosterSpec): string {
   const images = spec.grounding.images
     .filter((item) => t(item.role) || t(item.legend))
     .map((item) => `image ${item.index} is the ${t(item.role) || "reference"}${t(item.legend) ? ` (${t(item.legend)})` : ""}`);
+  const hasRouteOnly = spec.grounding.images.some((item) => /route-only|silhouette/i.test(item.role));
   const groundingRules = list(spec.grounding.rules).filter(keepAsPosterInstruction);
   sections.push(
     paragraph([
       images.length ? `Reference images: ${images.join("; ")}.` : "",
-      "Treat the references as the geographic source of truth: keep the route shape, orientation, and the relative position of water, roads, and landmarks; north is up.",
+      "The schematic is the geographic source of truth. Copy the red route as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and landmarks; north is up.",
+      hasRouteOnly
+        ? "The route-only image is the same red GPS track as the schematic, with geography removed. Every separate red stroke on it is a required segment — including lines that run parallel, hug a shore, or almost touch. Do not drop a stroke because water or another part of the route is nearby."
+        : "",
       landmarks.length
-        ? "The schematic's numbered discs are scaffolding, not artwork. Copy geography and route from the reference; replace every disc with the written name from the landmark list."
+        ? "The schematic's numbered discs are scaffolding, not artwork. Copy geography and the exact route from the reference; replace every disc with the written name from the landmark list."
         : "",
       groundingRules.length ? `${groundingRules.map(sentence).join(" ")}` : "",
     ]),
@@ -467,7 +479,7 @@ function fallbackPrompt(spec: PosterSpec): string {
       : "",
     `Title exactly "${t(spec.text.title)}".`,
     t(spec.text.subtitle) ? `Subtitle exactly "${t(spec.text.subtitle)}".` : "",
-    "North is up. Follow the grounding images for geography. Do not invent a different path.",
+    "North is up. Trace the schematic route exactly. Do not invent, omit, or simplify any part of the path.",
   ]
     .filter(Boolean)
     .join(" ");

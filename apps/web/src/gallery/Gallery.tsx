@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { deletePoster, fetchPosters, type PosterRecord } from "../api";
+import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
 import { formatDurationMs, shortModelLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 
@@ -7,6 +8,24 @@ type Props = {
   onBack: () => void;
   onRefine: (poster: PosterRecord) => void;
 };
+
+type Side = "left" | "right";
+
+function posterLabel(
+  item: PosterRecord,
+  compareStyles: boolean,
+  compareModels: boolean,
+) {
+  return (
+    [
+      compareStyles ? styleLabel(item.styleId, item.spec?.style?.name) : null,
+      compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
+      item.durationMs != null ? formatDurationMs(item.durationMs) : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "result"
+  );
+}
 
 export function Gallery({ onBack, onRefine }: Props) {
   const [posters, setPosters] = useState<PosterRecord[]>([]);
@@ -16,6 +35,9 @@ export function Gallery({ onBack, onRefine }: Props) {
   const [batchId, setBatchId] = useState<string>("all");
   const [active, setActive] = useState<PosterRecord | null>(null);
   const [showMeta, setShowMeta] = useState(false);
+  const [leftId, setLeftId] = useState("");
+  const [rightId, setRightId] = useState("");
+  const [focus, setFocus] = useState<Side>("right");
 
   useEffect(() => {
     fetchPosters()
@@ -43,29 +65,86 @@ export function Gallery({ onBack, onRefine }: Props) {
     if (batchId !== "all" && item.batchId !== batchId) return false;
     return true;
   });
-  const index = active ? visible.findIndex((item) => item.posterId === active.posterId) : -1;
-  const batchSiblings = active?.batchId
-    ? posters.filter((item) => item.batchId === active.batchId)
-    : active
-      ? [active]
-      : [];
+  const batchSiblings = useMemo(() => {
+    if (!active) return [];
+    return active.batchId ? posters.filter((item) => item.batchId === active.batchId) : [active];
+  }, [active, posters]);
   const compareStyles = new Set(batchSiblings.map((item) => item.styleId)).size > 1;
   const compareModels = new Set(batchSiblings.map((item) => item.model)).size > 1;
+  const compareImages = useMemo<CompareImage[]>(() => {
+    if (!active) return [];
+    const schematic =
+      active.referenceCount > 0
+        ? [
+            {
+              id: "schematic",
+              src: `/api/posters/${active.posterId}/ref-1.png`,
+              label: "schematic",
+            },
+          ]
+        : [];
+    return [
+      ...schematic,
+      ...batchSiblings.map((item) => ({
+        id: item.posterId,
+        src: item.url,
+        label: posterLabel(item, compareStyles, compareModels),
+      })),
+    ];
+  }, [active, batchSiblings, compareModels, compareStyles]);
 
   useEffect(() => {
     if (!active) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setActive(null);
-      if (event.key === "ArrowRight" && index >= 0 && index < visible.length - 1) {
-        setActive(visible[index + 1]);
+      if (event.key === "Escape") {
+        setActive(null);
+        return;
       }
-      if (event.key === "ArrowLeft" && index > 0) {
-        setActive(visible[index - 1]);
+      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+      const ids = compareImages.map((item) => item.id);
+      const current = focus === "left" ? leftId : rightId;
+      const index = ids.indexOf(current);
+      if (index < 0 || ids.length < 2) return;
+      const next =
+        event.key === "ArrowRight"
+          ? ids[(index + 1) % ids.length]
+          : ids[(index - 1 + ids.length) % ids.length];
+      if (focus === "left") setLeftId(next);
+      else setRightId(next);
+      if (next !== "schematic") {
+        const poster = batchSiblings.find((item) => item.posterId === next);
+        if (poster) setActive(poster);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, index, visible]);
+  }, [active, batchSiblings, compareImages, focus, leftId, rightId]);
+
+  function openPoster(poster: PosterRecord) {
+    const siblings = poster.batchId
+      ? posters.filter((item) => item.batchId === poster.batchId)
+      : [poster];
+    const images: CompareImage[] = [
+      ...(poster.referenceCount > 0
+        ? [{ id: "schematic", src: `/api/posters/${poster.posterId}/ref-1.png`, label: "schematic" }]
+        : []),
+      ...siblings.map((item) => ({ id: item.posterId, src: item.url, label: item.posterId })),
+    ];
+    const pair = defaultComparePair(images, poster.posterId);
+    setLeftId(pair.leftId);
+    setRightId(pair.rightId);
+    setFocus("right");
+    setShowMeta(false);
+    setActive(poster);
+  }
+
+  function assignCompare(id: string) {
+    if (focus === "left") setLeftId(id);
+    else setRightId(id);
+    if (id === "schematic") return;
+    const poster = batchSiblings.find((item) => item.posterId === id);
+    if (poster) setActive(poster);
+  }
 
   async function handleDelete(poster: PosterRecord) {
     if (!window.confirm(`Delete “${poster.title}”?`)) return;
@@ -73,6 +152,11 @@ export function Gallery({ onBack, onRefine }: Props) {
     setPosters((current) => current.filter((item) => item.posterId !== poster.posterId));
     setActive((current) => (current?.posterId === poster.posterId ? null : current));
   }
+
+  const focusedId = focus === "left" ? leftId : rightId;
+  const focusedImage = compareImages.find((item) => item.id === focusedId);
+  const focusedPoster =
+    focusedId === "schematic" ? active : (batchSiblings.find((item) => item.posterId === focusedId) ?? active);
 
   return (
     <div className="gallery">
@@ -117,7 +201,12 @@ export function Gallery({ onBack, onRefine }: Props) {
       {error && <p className="error banner">{error}</p>}
       <div className="gallery-grid">
         {visible.map((poster) => (
-          <button key={poster.posterId} type="button" className="gallery-card" onClick={() => setActive(poster)}>
+          <button
+            key={poster.posterId}
+            type="button"
+            className="gallery-card"
+            onClick={() => openPoster(poster)}
+          >
             <img src={poster.url} alt={poster.title} />
             <span>
               <strong>{poster.title}</strong>
@@ -135,34 +224,18 @@ export function Gallery({ onBack, onRefine }: Props) {
       {active && (
         <div className="lightbox" onClick={() => setActive(null)}>
           <div className="lightbox-inner" onClick={(event) => event.stopPropagation()}>
-            <div className="lightbox-stage">
-              <img className="lightbox-hero" src={active.url} alt={active.title} />
-            </div>
-            {batchSiblings.length > 1 && (
-              <div className="lightbox-thumbs">
-                {batchSiblings.map((item) => (
-                  <button
-                    key={item.posterId}
-                    type="button"
-                    className={item.posterId === active.posterId ? "on" : ""}
-                    onClick={() => setActive(item)}
-                  >
-                    <img src={item.url} alt={shortModelLabel(item.model, item.modelName)} />
-                    <span>
-                      {[
-                        compareStyles ? styleLabel(item.styleId, item.spec?.style?.name) : null,
-                        compareModels || !compareStyles
-                          ? shortModelLabel(item.model, item.modelName)
-                          : null,
-                        item.durationMs != null ? formatDurationMs(item.durationMs) : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+            <BatchCompare
+              images={compareImages}
+              leftId={leftId}
+              rightId={rightId}
+              focus={focus}
+              onFocus={setFocus}
+              onSelect={assignCompare}
+              onSwap={() => {
+                setLeftId(rightId);
+                setRightId(leftId);
+              }}
+            />
             <div className="lightbox-bar">
               <strong>{active.title}</strong>
               <span className="muted">{active.subtitle}</span>
@@ -186,15 +259,25 @@ export function Gallery({ onBack, onRefine }: Props) {
                 <button type="button" className="text-btn" onClick={() => setShowMeta((value) => !value)}>
                   {showMeta ? "Hide details" : "Details"}
                 </button>
-                <a className="button" href={active.url} download={`${active.posterId}.png`}>
-                  Download
-                </a>
-                <button type="button" className="text-btn" onClick={() => onRefine(active)}>
-                  Refine this
-                </button>
-                <button type="button" className="text-btn" onClick={() => void handleDelete(active)}>
-                  Delete
-                </button>
+                {focusedImage && (
+                  <a
+                    className="button"
+                    href={focusedImage.src}
+                    download={`${focusedId === "schematic" ? `${active.posterId}-schematic` : focusedId}.png`}
+                  >
+                    Download {focus === "left" ? "left" : "right"}
+                  </a>
+                )}
+                {focusedPoster && (
+                  <button type="button" className="text-btn" onClick={() => onRefine(focusedPoster)}>
+                    Refine this
+                  </button>
+                )}
+                {focusedPoster && focusedId !== "schematic" && (
+                  <button type="button" className="text-btn" onClick={() => void handleDelete(focusedPoster)}>
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
             {showMeta && (

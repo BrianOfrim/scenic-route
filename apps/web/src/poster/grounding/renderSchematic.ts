@@ -34,7 +34,7 @@ export type RenderSchematicOptions = {
 };
 
 const SHORT_SIDE = 1024;
-const MARGIN = 0.08;
+const MARGIN = 0.03;
 const PIN_FONT = "700 14px IBM Plex Sans, Helvetica Neue, Arial, sans-serif";
 
 const ROAD_WIDTH: Record<string, number> = {
@@ -133,14 +133,12 @@ export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchema
   if ((layers.route !== false || options.silhouette) && route.length >= 2) {
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    ctx.strokeStyle = options.silhouette ? "#1a1a1a" : "#3f1d1d";
-    ctx.lineWidth = options.silhouette ? 10 : 7;
+    ctx.strokeStyle = "#7f0000";
+    ctx.lineWidth = 3;
     strokePoints(ctx, route);
-    if (!options.silhouette) {
-      ctx.strokeStyle = "#c41e1e";
-      ctx.lineWidth = 4;
-      strokePoints(ctx, route);
-    }
+    ctx.strokeStyle = "#ff0000";
+    ctx.lineWidth = 2;
+    strokePoints(ctx, route);
     if (markers) drawRouteEndMarkers(ctx, route[0], route[route.length - 1], markers);
   }
 

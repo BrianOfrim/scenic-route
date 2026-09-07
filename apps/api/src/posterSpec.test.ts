@@ -100,6 +100,9 @@ test("specToImagePrompt renders prose without JSON or empty fields", () => {
   assert.doesNotMatch(prompt, /References:|Texture:|Border:|Decorations:|Reference images:/);
   assert.match(prompt, /Style: Swiss minimal\./);
   assert.match(prompt, /Palette: off-white, red\./);
+  assert.match(prompt, /CRITICAL route fidelity/);
+  assert.match(prompt, /Trace it exactly/);
+  assert.match(prompt, /A prettier wrong path is a failed poster/);
   assert.match(prompt, /Route: single accent line, in red\./);
   assert.match(prompt, /Start marker: green dot\. Finish marker: black dot\./);
   assert.match(prompt, /1 "Castle Mountain" \(upper-right; icon: peak\)/);
@@ -118,6 +121,8 @@ test("specToImagePrompt appends explicit exclusions once", () => {
   assert.match(prompt, /no number-to-name legend or index/);
   assert.match(prompt, /no numbered landmark discs, pin numbers, or numbered callouts/);
   assert.match(prompt, /no text other than the title block and the listed landmark names/);
+  assert.match(prompt, /no different route than the red line on the schematic/);
+  assert.match(prompt, /no smoothed, straightened, shortcut, or invented path/);
 });
 
 test("specToImagePrompt drops planner copy that treats numbers as artwork", () => {
@@ -138,4 +143,24 @@ test("specToImagePrompt drops planner copy that treats numbers as artwork", () =
   assert.doesNotMatch(prompt, /printed landmark text labels/);
   assert.match(prompt, /Lower cartouche for the title/);
   assert.match(prompt, /Write each name once/);
+  assert.match(prompt, /Copy the red route as a traced original/);
+});
+
+test("specToImagePrompt explains a route-only reference when present", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      grounding: {
+        images: [
+          { index: 1, role: "schematic", legend: "red = route" },
+          { index: 2, role: "route-only", legend: "same red line as the schematic" },
+        ],
+        rules: [],
+      },
+    }),
+  );
+  assert.match(prompt, /image 2 is the route-only/);
+  assert.match(prompt, /every separate red stroke on it is a required segment/i);
+  assert.match(prompt, /same red GPS track/);
+  assert.match(prompt, /Do not drop a stroke/);
 });

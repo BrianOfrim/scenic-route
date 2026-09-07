@@ -14,11 +14,10 @@ import {
   type PosterRecord,
   type PosterSpec,
 } from "../api";
-import { clampCrop, isClosedLoop, paddedBbox, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
+import { clampCrop, isClosedLoop, paddedBbox, schematicBbox, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
 import { FEATURE_CATALOG, DEFAULT_FEATURE_IDS, type FeatureOption } from "./featureCatalog";
 import { planContactSheets, renderContactSheets, type GroundingLayer } from "./grounding/contactSheet";
 import { renderSchematicDataUrl, type AspectRatio } from "./grounding/renderSchematic";
-import { snapshotTiles } from "./grounding/snapshotTiles";
 import { MAX_LABELS, prioritizeLabels } from "./labels";
 import { SpecEditor } from "./SpecEditor";
 import {
@@ -29,6 +28,7 @@ import {
   writeStoredImageModels,
 } from "./imageModels";
 
+import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
 import { DEFAULT_POSTER_STYLE, POSTER_STYLES, styleById, styleLabel } from "./styles";
 
 type GenerationRun = {
@@ -51,35 +51,46 @@ function initialStyleId(record?: PosterRecord | null) {
 
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
 
-type GroundingKey = "schematic" | "terrain" | "streets" | "satellite" | "silhouette";
+const SCHEMATIC_LEGEND =
+  "red = route; grey = roads; blue = water; green = forest; numbered discs = private location index, do not copy";
 
-const GROUNDING_KEYS: GroundingKey[] = ["schematic", "terrain", "streets", "satellite", "silhouette"];
-
-const TILE_SOURCE: Partial<Record<GroundingKey, "topo" | "osm" | "satellite">> = {
-  terrain: "topo",
-  streets: "osm",
-  satellite: "satellite",
-};
-
-const GROUNDING_LEGEND: Record<GroundingKey, string> = {
-  schematic: "red = route; grey = roads; blue = water; green = forest; numbered discs = private location index, do not copy",
-  silhouette: "route only, north up",
-  terrain: "OpenTopoMap terrain with route overlay",
-  streets: "OSM streets with route overlay",
-  satellite: "satellite imagery with route overlay",
-};
+const ROUTE_ONLY_LEGEND =
+  "same red line as the schematic, geography removed; every separate stroke is a required segment, including parallels and shore hugs";
 
 function routeMarkerMode(show: boolean, latlng: [number, number][]): false | "ends" | "loop" {
   if (!show) return false;
   return isClosedLoop(latlng) ? "loop" : "ends";
 }
 
-function groundingLegend(key: GroundingKey, markers: false | "ends" | "loop") {
-  const base = GROUNDING_LEGEND[key];
-  if (key === "silhouette") return base;
-  if (markers === "loop") return `${base}; gold/green = combined start/finish`;
-  if (markers === "ends") return `${base}; green/black dots = start/finish`;
-  return base;
+function schematicLegend(markers: false | "ends" | "loop") {
+  if (markers === "loop") return `${SCHEMATIC_LEGEND}; gold/green = combined start/finish`;
+  if (markers === "ends") return `${SCHEMATIC_LEGEND}; green/black dots = start/finish`;
+  return SCHEMATIC_LEGEND;
+}
+
+function groundingLayers(
+  schematicUrl: string | null,
+  routeOnlyUrl: string | null,
+  maxRefs: number,
+  latlng: [number, number][],
+  showMarkers: boolean,
+): GroundingLayer[] {
+  if (!schematicUrl) return [];
+  const layers: GroundingLayer[] = [
+    {
+      role: "schematic",
+      legend: schematicLegend(routeMarkerMode(showMarkers, latlng)),
+      dataUrl: schematicUrl,
+    },
+  ];
+  if (maxRefs >= 2 && routeOnlyUrl) {
+    layers.push({
+      role: "route-only",
+      legend: ROUTE_ONLY_LEGEND,
+      dataUrl: routeOnlyUrl,
+    });
+  }
+  return layers;
 }
 
 type ModelRef = { role: string; legend?: string; dataUrl: string };
@@ -134,15 +145,8 @@ export function PosterPanel({
   const [landmarkChoices, setLandmarkChoices] = useState<PosterPoi[] | null>(null);
   const [landmarkHint, setLandmarkHint] = useState<string | null>(null);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("2:3");
-  const [groundingOn, setGroundingOn] = useState<Record<GroundingKey, boolean>>({
-    schematic: true,
-    terrain: true,
-    streets: false,
-    satellite: false,
-    silhouette: false,
-  });
-  const [previews, setPreviews] = useState<Partial<Record<GroundingKey, string>>>({});
-  const [tileLoading, setTileLoading] = useState(false);
+  const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
+  const [routeOnlyUrl, setRouteOnlyUrl] = useState<string | null>(null);
   const [modelRefs, setModelRefs] = useState<ModelRef[]>([]);
   const [sentRefs, setSentRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
@@ -166,6 +170,10 @@ export function PosterPanel({
   const [result, setResult] = useState<PosterRecord | null>(null);
   const [batchResults, setBatchResults] = useState<PosterRecord[]>([]);
   const [refineNotes, setRefineNotes] = useState("");
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareLeftId, setCompareLeftId] = useState("");
+  const [compareRightId, setCompareRightId] = useState("");
+  const [compareFocus, setCompareFocus] = useState<"left" | "right">("right");
   const cropActivityId = useRef<number | null>(null);
 
   useEffect(() => {
@@ -266,6 +274,10 @@ export function PosterPanel({
     if (croppedLatLng.length < 2) return context?.bbox ?? null;
     return paddedBbox(croppedLatLng, selectedPois);
   }, [context, croppedLatLng, selectedPois]);
+  const groundingBbox = useMemo(() => {
+    if (croppedLatLng.length < 2) return displayBbox;
+    return schematicBbox(croppedLatLng, selectedPois);
+  }, [croppedLatLng, selectedPois, displayBbox]);
 
   const selectedStats = useMemo(() => {
     const available = context?.stats ?? [];
@@ -313,104 +325,52 @@ export function PosterPanel({
   );
 
   useEffect(() => {
-    if (croppedLatLng.length < 2 || !displayBbox) {
-      setPreviews({});
+    if (croppedLatLng.length < 2 || !groundingBbox) {
+      setSchematicUrl(null);
+      setRouteOnlyUrl(null);
       return;
     }
     try {
-      const schematic = renderSchematicDataUrl({
-        latlng: croppedLatLng,
-        bbox: displayBbox,
-        ways: context?.ways,
-        pois: selectedPois,
-        aspectRatio,
-        layers: {
-          roads: featureIds.includes("major-roads"),
-          streets: featureIds.includes("streets"),
-          paths: featureIds.includes("paths"),
-          rail: featureIds.includes("rail"),
-          water: featureIds.includes("lakes") || featureIds.includes("rivers"),
-          forest: featureIds.includes("forest"),
-          parks: featureIds.includes("parks"),
-          farmland: featureIds.includes("farmland"),
-          cemeteries: featureIds.includes("cemeteries"),
-          labels: true,
-          routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
-        },
-      });
-      const silhouette = renderSchematicDataUrl({
-        latlng: croppedLatLng,
-        bbox: displayBbox,
-        aspectRatio,
-        silhouette: true,
-      });
-      setPreviews((current) => ({
-        terrain: current.terrain,
-        streets: current.streets,
-        satellite: current.satellite,
-        schematic,
-        silhouette,
-      }));
+      setSchematicUrl(
+        renderSchematicDataUrl({
+          latlng: croppedLatLng,
+          bbox: groundingBbox,
+          ways: context?.ways,
+          pois: selectedPois,
+          aspectRatio,
+          layers: {
+            roads: featureIds.includes("major-roads"),
+            streets: featureIds.includes("streets"),
+            paths: featureIds.includes("paths"),
+            rail: featureIds.includes("rail"),
+            water: featureIds.includes("lakes") || featureIds.includes("rivers"),
+            forest: featureIds.includes("forest"),
+            parks: featureIds.includes("parks"),
+            farmland: featureIds.includes("farmland"),
+            cemeteries: featureIds.includes("cemeteries"),
+            labels: true,
+            routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
+          },
+        }),
+      );
+      setRouteOnlyUrl(
+        renderSchematicDataUrl({
+          latlng: croppedLatLng,
+          bbox: groundingBbox,
+          aspectRatio,
+          silhouette: true,
+        }),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not render schematic");
     }
-  }, [context, croppedLatLng, displayBbox, selectedPois, aspectRatio, featureIds.join(","), showRouteMarkers]);
+  }, [context, croppedLatLng, groundingBbox, selectedPois, aspectRatio, featureIds.join(","), showRouteMarkers]);
 
   useEffect(() => {
-    if (!displayBbox || croppedLatLng.length < 2) return;
-    const jobs = GROUNDING_KEYS.filter((key) => groundingOn[key] && TILE_SOURCE[key]);
-    if (!jobs.length) {
-      setTileLoading(false);
+    const layers = groundingLayers(schematicUrl, routeOnlyUrl, maxRefs, croppedLatLng, showRouteMarkers);
+    if (!layers.length) {
+      setModelRefs([]);
       return;
-    }
-    let cancelled = false;
-    setTileLoading(true);
-    void (async () => {
-      for (const key of jobs) {
-        const source = TILE_SOURCE[key];
-        if (!source) continue;
-        try {
-          const dataUrl = await snapshotTiles({
-            source,
-            bbox: displayBbox,
-            latlng: croppedLatLng,
-            aspectRatio,
-            routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
-          });
-          if (cancelled) return;
-          setPreviews((current) => ({ ...current, [key]: dataUrl }));
-        } catch (err) {
-          if (!cancelled) setError(err instanceof Error ? err.message : "Could not snapshot tiles");
-        }
-      }
-      if (!cancelled) setTileLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [displayBbox, croppedLatLng, aspectRatio, groundingOn.terrain, groundingOn.streets, groundingOn.satellite, showRouteMarkers]);
-
-  useEffect(() => {
-    setPreviews((current) => ({
-      schematic: current.schematic,
-      silhouette: current.silhouette,
-    }));
-  }, [displayBbox, croppedLatLng, aspectRatio]);
-
-  useEffect(() => {
-    const layers: GroundingLayer[] = [];
-    for (const key of GROUNDING_KEYS) {
-      if (!groundingOn[key]) continue;
-      const dataUrl = previews[key];
-      if (!dataUrl) {
-        setModelRefs([]);
-        return;
-      }
-      layers.push({
-        role: key,
-        legend: groundingLegend(key, routeMarkerMode(showRouteMarkers, croppedLatLng)),
-        dataUrl,
-      });
     }
     let cancelled = false;
     void renderContactSheets(layers, maxRefs, aspectRatio).then((packed) => {
@@ -419,7 +379,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [previews, groundingOn, maxRefs, aspectRatio, showRouteMarkers, croppedLatLng]);
+  }, [schematicUrl, routeOnlyUrl, maxRefs, aspectRatio, showRouteMarkers, croppedLatLng]);
 
   useEffect(() => {
     setModelRuns([]);
@@ -436,31 +396,7 @@ export function PosterPanel({
   }, [generating, planning]);
 
   async function buildGrounding(): Promise<GroundingLayer[]> {
-    if (!displayBbox || croppedLatLng.length < 2) return [];
-    const layers: GroundingLayer[] = [];
-    for (const key of GROUNDING_KEYS) {
-      if (!groundingOn[key]) continue;
-      const source = TILE_SOURCE[key];
-      const dataUrl =
-        previews[key] ??
-        (source
-          ? await snapshotTiles({
-              source,
-              bbox: displayBbox,
-              latlng: croppedLatLng,
-              aspectRatio,
-              routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
-            })
-          : undefined);
-      if (!dataUrl) continue;
-      if (source) setPreviews((current) => ({ ...current, [key]: dataUrl }));
-      layers.push({
-        role: key,
-        legend: groundingLegend(key, routeMarkerMode(showRouteMarkers, croppedLatLng)),
-        dataUrl,
-      });
-    }
-    return layers;
+    return groundingLayers(schematicUrl, routeOnlyUrl, maxRefs, croppedLatLng, showRouteMarkers);
   }
 
   async function handlePlan() {
@@ -747,6 +683,25 @@ export function PosterPanel({
   const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
   const compareStyles = new Set(batchResults.map((item) => item.styleId)).size > 1;
   const compareModels = new Set(batchResults.map((item) => item.model)).size > 1;
+  const compareItems = batchResults.length ? batchResults : result ? [result] : [];
+  const schematicSrc =
+    sentRefs.find((item) => item.role === "schematic")?.dataUrl ??
+    (result ? `/api/posters/${result.posterId}/ref-1.png` : null);
+  const compareImages: CompareImage[] = [
+    ...(schematicSrc ? [{ id: "schematic", src: schematicSrc, label: "schematic" }] : []),
+    ...compareItems.map((item) => ({
+      id: item.posterId,
+      src: item.url,
+      label:
+        [
+          compareStyles ? styleLabel(item.styleId, item.spec.style.name) : null,
+          compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
+          item.durationMs != null ? formatDurationMs(item.durationMs) : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "result",
+    })),
+  ];
 
   function applyCrop(nextStart: number, nextEnd: number) {
     if (!context) return;
@@ -758,7 +713,17 @@ export function PosterPanel({
     setCropEnd(end);
   }
 
+  useEffect(() => {
+    if (!compareOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setCompareOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [compareOpen]);
+
   return (
+    <>
     <aside className="panel poster-panel">
       <div className="panel-block poster-head">
         <div>
@@ -975,17 +940,6 @@ export function PosterPanel({
           </div>
 
           <div className="panel-block">
-            <div className="eyebrow">Grounding images</div>
-            {(["schematic", "terrain", "streets", "satellite", "silhouette"] as GroundingKey[]).map((key) => (
-              <label key={key} className="check">
-                <input
-                  type="checkbox"
-                  checked={groundingOn[key]}
-                  onChange={(event) => setGroundingOn((current) => ({ ...current, [key]: event.target.checked }))}
-                />
-                {key}
-              </label>
-            ))}
             <label className="poster-field">
               Aspect
               <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value as AspectRatio)}>
@@ -1020,32 +974,24 @@ export function PosterPanel({
                   : "Select more than one to compare outputs"}
               </p>
             </div>
-            <div className="preview-grid">
-              {GROUNDING_KEYS.filter((key) => groundingOn[key] && previews[key]).map((key) => (
-                <figure key={key} className="poster-ref-card">
-                  <img className="poster-ref" src={previews[key]} alt={`${key} grounding`} />
-                  <figcaption>{key}</figcaption>
+            {schematicUrl ? (
+              <div className="preview-grid">
+                <figure className="poster-ref-card">
+                  <img className="poster-ref" src={schematicUrl} alt="schematic grounding" />
+                  <figcaption>schematic</figcaption>
                 </figure>
-              ))}
-            </div>
-            {modelRefs.length > 0 && modelRefs.some((item) => item.role.startsWith("contact-sheet")) ? (
-              <>
-                <div className="eyebrow">Packed for the model</div>
-                <div className="preview-grid">
-                  {modelRefs.map((item) => (
-                    <figure key={item.role} className="poster-ref-card">
-                      <img className="poster-ref" src={item.dataUrl} alt={item.role} />
-                      <figcaption>{item.role}</figcaption>
-                    </figure>
-                  ))}
-                </div>
-              </>
+                {maxRefs >= 2 && routeOnlyUrl && (
+                  <figure className="poster-ref-card">
+                    <img className="poster-ref" src={routeOnlyUrl} alt="route-only grounding" />
+                    <figcaption>route-only</figcaption>
+                  </figure>
+                )}
+              </div>
             ) : null}
-            {tileLoading ? <p className="muted">Loading map tiles…</p> : null}
             <p className="muted">
-              {modelRefs.length} reference
-              {modelRefs.length === 1 ? "" : "s"} will be sent
-              {modelRefs.length > maxRefs ? "" : ` · max ${maxRefs}`}
+              {maxRefs >= 2 && routeOnlyUrl
+                ? "2 references will be sent: schematic + route-only"
+                : "1 schematic reference will be sent"}
             </p>
             {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
           </div>
@@ -1140,34 +1086,51 @@ export function PosterPanel({
           {result && (
             <div className="panel-block">
               <div className="eyebrow">{batchResults.length > 1 ? "Compare results" : "Result"}</div>
-              {batchResults.length > 1 ? (
-                <div className="result-compare">
-                  {batchResults.map((item) => (
-                    <button
-                      key={item.posterId}
-                      type="button"
-                      className={`result-compare-card ${item.posterId === result.posterId ? "on" : ""}`}
-                      onClick={() => selectResult(item)}
-                    >
-                      <img src={item.url} alt={item.title} />
-                      <span>
-                        {[
-                          compareStyles ? styleLabel(item.styleId, item.spec.style.name) : null,
-                          compareModels || !compareStyles
-                            ? shortModelLabel(item.model, item.modelName)
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </span>
-                      {item.durationMs != null && <span>{formatDurationMs(item.durationMs)}</span>}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <img className="poster-result" src={result.url} alt={result.title} />
-              )}
+              <div className="result-compare">
+                {schematicSrc && (
+                  <figure className="result-compare-card">
+                    <img src={schematicSrc} alt="Reference schematic" />
+                    <span>schematic</span>
+                  </figure>
+                )}
+                {compareItems.map((item) => (
+                  <button
+                    key={item.posterId}
+                    type="button"
+                    className={`result-compare-card ${item.posterId === result.posterId ? "on" : ""}`}
+                    onClick={() => selectResult(item)}
+                  >
+                    <img src={item.url} alt={item.title} />
+                    <span>
+                      {[
+                        compareStyles ? styleLabel(item.styleId, item.spec.style.name) : null,
+                        compareModels || !compareStyles
+                          ? shortModelLabel(item.model, item.modelName)
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "result"}
+                    </span>
+                    {item.durationMs != null && <span>{formatDurationMs(item.durationMs)}</span>}
+                  </button>
+                ))}
+              </div>
               <div className="poster-actions">
+                {compareImages.length > 1 && (
+                  <button
+                    type="button"
+                    className="text-btn"
+                    onClick={() => {
+                      const pair = defaultComparePair(compareImages, result.posterId);
+                      setCompareLeftId(pair.leftId);
+                      setCompareRightId(pair.rightId);
+                      setCompareFocus("right");
+                      setCompareOpen(true);
+                    }}
+                  >
+                    Compare side by side
+                  </button>
+                )}
                 <a className="button" href={result.url} download={`${result.posterId}.png`}>
                   Download
                 </a>
@@ -1214,5 +1177,42 @@ export function PosterPanel({
         </div>
       )}
     </aside>
+    {compareOpen && result && compareImages.length > 1 && (
+      <div className="lightbox" onClick={() => setCompareOpen(false)}>
+        <div className="lightbox-inner" onClick={(event) => event.stopPropagation()}>
+          <BatchCompare
+            images={compareImages}
+            leftId={compareLeftId}
+            rightId={compareRightId}
+            focus={compareFocus}
+            onFocus={setCompareFocus}
+            onSelect={(id) => {
+              if (compareFocus === "left") setCompareLeftId(id);
+              else setCompareRightId(id);
+              if (id === "schematic") return;
+              const poster = compareItems.find((item) => item.posterId === id);
+              if (poster) selectResult(poster);
+            }}
+            onSwap={() => {
+              setCompareLeftId(compareRightId);
+              setCompareRightId(compareLeftId);
+            }}
+          />
+          <div className="lightbox-bar">
+            <strong>{result.title}</strong>
+            <span className="muted">{result.subtitle}</span>
+            <div className="poster-actions">
+              <button type="button" className="text-btn" onClick={() => setCompareOpen(false)}>
+                Close
+              </button>
+              <a className="button" href={result.url} download={`${result.posterId}.png`}>
+                Download selected
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
