@@ -39,11 +39,18 @@ export type PosterRecord = {
   url: string;
 };
 
-export const VARIANTS_PER_PROMPT = 4;
+export const DEFAULT_VARIANTS = 4;
+export const MAX_VARIANTS = 10;
 
-export function variantCount(maxImages: number) {
+export function clampVariants(value?: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_VARIANTS;
+  return Math.min(MAX_VARIANTS, Math.max(1, Math.round(n)));
+}
+
+export function variantCount(requested: number | undefined, maxImages: number) {
   const allowed = Number.isFinite(maxImages) ? Math.max(1, Math.round(maxImages)) : 1;
-  return Math.min(VARIANTS_PER_PROMPT, allowed);
+  return Math.min(clampVariants(requested), allowed);
 }
 
 export type GeneratePosterBody = {
@@ -60,6 +67,7 @@ export type GeneratePosterBody = {
   aspectRatio?: string;
   model?: string;
   batchId?: string;
+  variants?: number;
 };
 
 export function decodeDataUrl(url: string): { mime: string; bytes: Buffer } {
@@ -83,7 +91,7 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
   const model = resolveImageModel(body.model);
   const listed = await listImageModels();
   const modelName = listed.find((item) => item.id === model)?.name || model;
-  const count = variantCount(await maxImageOutputs(model));
+  const count = variantCount(body.variants, await maxImageOutputs(model));
   const batchId = sanitizeBatchId(body.batchId) ?? (count > 1 ? newBatchId() : undefined);
   const aspectRatio = (body.aspectRatio || spec.composition.aspectRatio || "2:3").trim();
   const incoming = (body.references ?? []).filter((item) => typeof item === "string" && item.trim());

@@ -58,11 +58,37 @@ export function minMaxReferences(ids: string[], models: Array<{ id: string; maxR
   return values.length ? Math.min(...values) : 3;
 }
 
-export const VARIANTS_PER_PROMPT = 4;
+const VARIANTS_KEY = "scenic-route.variants";
+export const DEFAULT_VARIANTS = 4;
+export const MAX_VARIANTS = 10;
 
-export function variantCount(maxImages?: number) {
+export function clampVariants(value?: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_VARIANTS;
+  return Math.min(MAX_VARIANTS, Math.max(1, Math.round(n)));
+}
+
+export function readStoredVariants() {
+  try {
+    const raw = localStorage.getItem(VARIANTS_KEY);
+    if (raw == null) return DEFAULT_VARIANTS;
+    return clampVariants(Number(raw));
+  } catch {
+    return DEFAULT_VARIANTS;
+  }
+}
+
+export function writeStoredVariants(value: number) {
+  try {
+    localStorage.setItem(VARIANTS_KEY, String(clampVariants(value)));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+export function variantCount(requested: number, maxImages?: number) {
   const allowed = Number.isFinite(maxImages) && maxImages ? Math.max(1, Math.round(maxImages)) : 1;
-  return Math.min(VARIANTS_PER_PROMPT, allowed);
+  return Math.min(clampVariants(requested), allowed);
 }
 
 export function posterVariantLabel(

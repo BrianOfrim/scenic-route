@@ -31,13 +31,16 @@ import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import { SpecEditor } from "./SpecEditor";
 import {
+  MAX_VARIANTS,
   formatDurationMs,
   minMaxReferences,
   posterVariantLabel,
   readStoredImageModels,
+  readStoredVariants,
   shortModelLabel,
   variantCount,
   writeStoredImageModels,
+  writeStoredVariants,
 } from "./imageModels";
 
 import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
@@ -212,6 +215,7 @@ export function PosterPanel({
       ? [...stored, refineFrom.model]
       : stored;
   });
+  const [variants, setVariants] = useState(() => readStoredVariants());
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => {
     const id = initialStyleId(refineFrom);
     return refineFrom?.spec ? { [id]: refineFrom.spec } : {};
@@ -692,6 +696,7 @@ export function PosterPanel({
               aspectRatio,
               batchId,
               model: job.model,
+              variants,
             });
             setModelRuns((current) =>
               current.map((run) =>
@@ -814,6 +819,11 @@ export function PosterPanel({
     applyImageModels(next);
   }
 
+  function applyVariants(value: number) {
+    setVariants(value);
+    writeStoredVariants(value);
+  }
+
   function selectResult(record: PosterRecord) {
     setResult(record);
     if (record.styleId) {
@@ -838,9 +848,17 @@ export function PosterPanel({
   const spec = specStyleId ? specs[specStyleId] ?? null : null;
   const allThemesPlanned = styleIds.length > 0 && styleIds.every((id) => specs[id]);
   const generateCount = plannedStyleIds.length * imageModelIds.reduce(
-    (sum, id) => sum + variantCount(imageModels.find((item) => item.id === id)?.maxImages),
+    (sum, id) => sum + variantCount(variants, imageModels.find((item) => item.id === id)?.maxImages),
     0,
   );
+  const variantCaps = imageModelIds
+    .map((id) => {
+      const model = imageModels.find((item) => item.id === id);
+      const allowed = variantCount(variants, model?.maxImages);
+      if (allowed >= variants) return null;
+      return `${shortModelLabel(id, model?.name)} max is ${allowed}`;
+    })
+    .filter((item): item is string => Boolean(item));
   const editingCustom = styleIds.includes("custom");
   const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
   const compareStyles = new Set(batchResults.map((item) => item.styleId)).size > 1;
@@ -1165,16 +1183,31 @@ export function PosterPanel({
           </div>
 
           <div className="panel-block">
-            <label className="poster-field">
-              Aspect
-              <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value as AspectRatio)}>
-                {ASPECTS.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="poster-option-row">
+              <label className="poster-field">
+                Aspect
+                <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value as AspectRatio)}>
+                  {ASPECTS.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="poster-field">
+                Variants
+                <select
+                  value={variants}
+                  onChange={(event) => applyVariants(Number(event.target.value))}
+                >
+                  {Array.from({ length: MAX_VARIANTS }, (_, index) => index + 1).map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <div className="poster-field">
               Image models
               <div className="model-list">
@@ -1197,6 +1230,11 @@ export function PosterPanel({
                 {imageModelIds.length > 1
                   ? `${imageModelIds.length} models will generate in parallel`
                   : "Select more than one to compare outputs"}
+                {variantCaps.length
+                  ? ` · ${variantCaps.join(" · ")}`
+                  : variants > 1
+                    ? ` · ${variants} images per prompt, one request`
+                    : ""}
               </p>
             </div>
             {schematicUrl ? (

@@ -414,6 +414,16 @@ textarea {
   color: var(--muted);
 }
 
+.poster-option-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.poster-option-row .poster-field {
+  margin-top: 10px;
+}
+
 .poster-field {
   display: grid;
   gap: 6px;

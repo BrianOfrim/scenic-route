@@ -6,6 +6,7 @@ import {
   posterVariantLabel,
   shortModelLabel,
   uniqueIds,
+  clampVariants,
   variantCount,
 } from "./imageModels";
 
@@ -37,10 +38,17 @@ test("minMaxReferences uses the most restrictive selected model", () => {
   assert.equal(minMaxReferences([], models), 3);
 });
 
-test("variantCount is 4 or the model's max", () => {
-  assert.equal(variantCount(10), 4);
-  assert.equal(variantCount(1), 1);
-  assert.equal(variantCount(undefined), 1);
+test("clampVariants keeps requests in 1–10 and defaults to 4", () => {
+  assert.equal(clampVariants(undefined), 4);
+  assert.equal(clampVariants(0), 1);
+  assert.equal(clampVariants(99), 10);
+});
+
+test("variantCount is the request or the model's max", () => {
+  assert.equal(variantCount(4, 10), 4);
+  assert.equal(variantCount(8, 10), 8);
+  assert.equal(variantCount(4, 1), 1);
+  assert.equal(variantCount(4, undefined), 1);
 });
 
 test("posterVariantLabel numbers siblings of the same model and theme", () => {
