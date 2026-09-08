@@ -57,3 +57,21 @@ export function minMaxReferences(ids: string[], models: Array<{ id: string; maxR
   const values = ids.map((id) => models.find((item) => item.id === id)?.maxReferences || 3);
   return values.length ? Math.min(...values) : 3;
 }
+
+export const VARIANTS_PER_PROMPT = 4;
+
+export function variantCount(maxImages?: number) {
+  const allowed = Number.isFinite(maxImages) && maxImages ? Math.max(1, Math.round(maxImages)) : 1;
+  return Math.min(VARIANTS_PER_PROMPT, allowed);
+}
+
+export function posterVariantLabel(
+  item: { posterId: string; model?: string; styleId?: string; variant?: number },
+  group: Array<{ posterId: string; model?: string; styleId?: string; variant?: number }>,
+) {
+  const peers = group.filter((row) => row.model === item.model && row.styleId === item.styleId);
+  if (peers.length <= 1) return null;
+  if (item.variant != null) return String(item.variant);
+  const index = peers.findIndex((row) => row.posterId === item.posterId);
+  return index >= 0 ? String(index + 1) : null;
+}

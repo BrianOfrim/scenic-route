@@ -171,7 +171,7 @@ app.post("/api/poster/plan", async (c) => {
 
 app.post("/api/poster/generate", async (c) => {
   try {
-    return c.json(await generatePoster(await c.req.json()));
+    return c.json({ posters: await generatePoster(await c.req.json()) });
   } catch (error) {
     return fail(c, error);
   }
@@ -198,7 +198,7 @@ app.get("/api/poster/capabilities", async (c) => {
     return c.json({
       defaultModel: fallback,
       maxReferences: 3,
-      models: [{ id: fallback, name: fallback, maxReferences: 3 }],
+      models: [{ id: fallback, name: fallback, maxReferences: 3, maxImages: 1 }],
     });
   }
 });

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
-import { createImage, listImageModels, maxImageReferences, resolveImageModel } from "./openrouter";
+import { createImage, listImageModels, maxImageOutputs, maxImageReferences, resolveImageModel } from "./openrouter";
 import { POSTERS_DIR, isSafePosterId, posterPath } from "./paths";
 import { specToImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
 
@@ -35,8 +35,16 @@ export type PosterRecord = {
   styleId: string;
   stylePrompt: string;
   referenceCount: number;
+  variant?: number;
   url: string;
 };
+
+export const VARIANTS_PER_PROMPT = 4;
+
+export function variantCount(maxImages: number) {
+  const allowed = Number.isFinite(maxImages) ? Math.max(1, Math.round(maxImages)) : 1;
+  return Math.min(VARIANTS_PER_PROMPT, allowed);
+}
 
 export type GeneratePosterBody = {
   activityId: number;
@@ -66,7 +74,7 @@ export function newPosterId() {
   return `${stamp}-${randomBytes(3).toString("hex")}`;
 }
 
-export async function generatePoster(body: GeneratePosterBody): Promise<PosterRecord> {
+export async function generatePoster(body: GeneratePosterBody): Promise<PosterRecord[]> {
   const activityId = Number(body.activityId);
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new PosterError("activityId is required");
@@ -75,7 +83,8 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
   const model = resolveImageModel(body.model);
   const listed = await listImageModels();
   const modelName = listed.find((item) => item.id === model)?.name || model;
-  const batchId = sanitizeBatchId(body.batchId);
+  const count = variantCount(await maxImageOutputs(model));
+  const batchId = sanitizeBatchId(body.batchId) ?? (count > 1 ? newBatchId() : undefined);
   const aspectRatio = (body.aspectRatio || spec.composition.aspectRatio || "2:3").trim();
   const incoming = (body.references ?? []).filter((item) => typeof item === "string" && item.trim());
   if (!incoming.length) throw new PosterError("at least one grounding image is required");
@@ -86,40 +95,55 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
   const decoded = references.map(decodeDataUrl);
   const prompt = specToImagePrompt(spec);
   const startedAt = Date.now();
-  const image = await createImage({ prompt, aspectRatio, references, model, label: "generate" });
+  const result = await createImage({ prompt, aspectRatio, references, model, n: count, label: "generate" });
   const durationMs = Date.now() - startedAt;
-  const posterId = newPosterId();
-  fs.mkdirSync(POSTERS_DIR, { recursive: true });
-  fs.writeFileSync(posterPath(posterId, "png"), Buffer.from(image.b64, "base64"));
-  decoded.forEach((ref, index) => {
-    fs.writeFileSync(posterPath(posterId, `ref-${index + 1}.png`), ref.bytes);
-  });
-  const record: PosterRecord = {
-    posterId,
-    activityId,
-    title: spec.text.title,
-    subtitle: spec.text.subtitle,
-    spec,
-    prompt,
-    model,
-    modelName,
-    batchId,
-    aspectRatio,
-    cost: image.cost,
+  const share = result.images.length;
+  const images = result.images.map((image) => ({
+    ...image,
+    cost: result.cost == null || !share ? null : result.cost / share,
     durationMs,
-    createdAt: new Date().toISOString(),
-    previousPosterId: body.previousPosterId,
-    refineNotes: body.refineNotes?.trim() || undefined,
-    featureIds: body.featureIds ?? [],
-    labels: body.labels ?? [],
-    stats: body.stats ?? spec.text.stats,
-    styleId: body.styleId ?? "",
-    stylePrompt: body.stylePrompt ?? spec.style.medium,
-    referenceCount: decoded.length,
-    url: `/api/posters/${posterId}/image.png`,
-  };
-  fs.writeFileSync(posterPath(posterId, "json"), JSON.stringify(record, null, 2));
-  return record;
+  }));
+  if (!images.length) throw new PosterError("OpenRouter did not return image bytes", 502);
+
+  fs.mkdirSync(POSTERS_DIR, { recursive: true });
+  return images.map((image, index) => {
+    const posterId = newPosterId();
+    fs.writeFileSync(posterPath(posterId, "png"), Buffer.from(image.b64, "base64"));
+    decoded.forEach((ref, refIndex) => {
+      fs.writeFileSync(posterPath(posterId, `ref-${refIndex + 1}.png`), ref.bytes);
+    });
+    const record: PosterRecord = {
+      posterId,
+      activityId,
+      title: spec.text.title,
+      subtitle: spec.text.subtitle,
+      spec,
+      prompt,
+      model,
+      modelName,
+      batchId,
+      aspectRatio,
+      cost: image.cost,
+      durationMs: image.durationMs,
+      createdAt: new Date().toISOString(),
+      previousPosterId: body.previousPosterId,
+      refineNotes: body.refineNotes?.trim() || undefined,
+      featureIds: body.featureIds ?? [],
+      labels: body.labels ?? [],
+      stats: body.stats ?? spec.text.stats,
+      styleId: body.styleId ?? "",
+      stylePrompt: body.stylePrompt ?? spec.style.medium,
+      referenceCount: decoded.length,
+      variant: index + 1,
+      url: `/api/posters/${posterId}/image.png`,
+    };
+    fs.writeFileSync(posterPath(posterId, "json"), JSON.stringify(record, null, 2));
+    return record;
+  });
+}
+
+function newBatchId() {
+  return randomBytes(8).toString("hex");
 }
 
 export function listPosters(activityId?: number): PosterRecord[] {

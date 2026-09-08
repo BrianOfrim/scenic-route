@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { deletePoster, fetchPosters, type PosterRecord } from "../api";
 import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
-import { formatDurationMs, shortModelLabel } from "../poster/imageModels";
+import { formatDurationMs, posterVariantLabel, shortModelLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 
 type Props = {
@@ -13,6 +13,7 @@ type Side = "left" | "right";
 
 function posterLabel(
   item: PosterRecord,
+  siblings: PosterRecord[],
   compareStyles: boolean,
   compareModels: boolean,
 ) {
@@ -20,6 +21,7 @@ function posterLabel(
     [
       compareStyles ? styleLabel(item.styleId, item.spec?.style?.name) : null,
       compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
+      posterVariantLabel(item, siblings),
       item.durationMs != null ? formatDurationMs(item.durationMs) : null,
     ]
       .filter(Boolean)
@@ -88,7 +90,7 @@ export function Gallery({ onBack, onRefine }: Props) {
       ...batchSiblings.map((item) => ({
         id: item.posterId,
         src: item.url,
-        label: posterLabel(item, compareStyles, compareModels),
+        label: posterLabel(item, batchSiblings, compareStyles, compareModels),
       })),
     ];
   }, [active, batchSiblings, compareModels, compareStyles]);
@@ -213,6 +215,7 @@ export function Gallery({ onBack, onRefine }: Props) {
               <em className="gallery-model">
                 {styleLabel(poster.styleId, poster.spec?.style?.name)}
                 {` · ${shortModelLabel(poster.model, poster.modelName)}`}
+                {poster.variant != null ? ` · ${poster.variant}` : ""}
                 {poster.durationMs != null ? ` · ${formatDurationMs(poster.durationMs)}` : ""}
               </em>
               <em>{new Date(poster.createdAt).toLocaleString()}</em>

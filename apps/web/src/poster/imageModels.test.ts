@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatDurationMs, minMaxReferences, shortModelLabel, uniqueIds } from "./imageModels";
+import {
+  formatDurationMs,
+  minMaxReferences,
+  posterVariantLabel,
+  shortModelLabel,
+  uniqueIds,
+  variantCount,
+} from "./imageModels";
 
 test("formatDurationMs uses compact units", () => {
   assert.equal(formatDurationMs(4200), "4.2s");
@@ -28,4 +35,20 @@ test("minMaxReferences uses the most restrictive selected model", () => {
   assert.equal(minMaxReferences(["one", "two"], models), 3);
   assert.equal(minMaxReferences(["one"], models), 8);
   assert.equal(minMaxReferences([], models), 3);
+});
+
+test("variantCount is 4 or the model's max", () => {
+  assert.equal(variantCount(10), 4);
+  assert.equal(variantCount(1), 1);
+  assert.equal(variantCount(undefined), 1);
+});
+
+test("posterVariantLabel numbers siblings of the same model and theme", () => {
+  const group = [
+    { posterId: "a", model: "one", styleId: "ink", variant: 1 },
+    { posterId: "b", model: "one", styleId: "ink", variant: 2 },
+    { posterId: "c", model: "two", styleId: "ink", variant: 1 },
+  ];
+  assert.equal(posterVariantLabel(group[0], group), "1");
+  assert.equal(posterVariantLabel(group[2], group), null);
 });

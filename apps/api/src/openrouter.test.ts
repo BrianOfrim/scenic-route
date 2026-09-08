@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   DEFAULT_IMAGE_MODEL,
+  extractMaxImages,
   extractMaxRefs,
   isImageModelId,
   isSchemaRejection,
@@ -27,13 +28,22 @@ test("isSchemaRejection only matches structured-output complaints", () => {
   assert.equal(isSchemaRejection(500, { error: { message: "json_schema" } }), false);
 });
 
-test("parseImageResponse reads b64 and cost", () => {
+test("parseImageResponse reads every image and cost", () => {
   const parsed = parseImageResponse({
-    data: [{ b64_json: "aaaa", media_type: "image/png" }],
-    usage: { cost: 0.04 },
+    data: [
+      { b64_json: "aaaa", media_type: "image/png" },
+      { b64_json: "bbbb", media_type: "image/jpeg" },
+    ],
+    usage: { cost: 0.16 },
   });
-  assert.equal(parsed.b64, "aaaa");
-  assert.equal(parsed.cost, 0.04);
+  assert.deepEqual(
+    parsed.images.map((item) => ({ b64: item.b64, mediaType: item.mediaType })),
+    [
+      { b64: "aaaa", mediaType: "image/png" },
+      { b64: "bbbb", mediaType: "image/jpeg" },
+    ],
+  );
+  assert.equal(parsed.cost, 0.16);
 });
 
 test("extractMaxRefs reads endpoint metadata", () => {
@@ -47,19 +57,36 @@ test("extractMaxRefs reads endpoint metadata", () => {
   assert.equal(extractMaxRefs({}), null);
 });
 
+test("extractMaxImages reads n from endpoints", () => {
+  assert.equal(
+    extractMaxImages({
+      data: { endpoints: [{ supported_parameters: { n: { type: "range", min: 1, max: 10 } } }] },
+    }),
+    10,
+  );
+  assert.equal(extractMaxImages({ data: { endpoints: [{ supported_parameters: { n: { max: 1 } } }] } }), 1);
+  assert.equal(extractMaxImages({}), null);
+});
+
 test("parseImageModels reads discovery listing", () => {
   const models = parseImageModels({
     data: [
       { id: "google/gemini-2.5-flash-image", name: "Gemini 2.5 Flash Image", supported_parameters: {} },
+      {
+        id: "openai/gpt-image-2",
+        name: "GPT Image 2",
+        supported_parameters: { n: { type: "range", min: 1, max: 10 }, input_references: { max: 16 } },
+      },
       { id: "black-forest-labs/flux.2-pro", name: "FLUX.2 Pro", supported_parameters: { input_references: { max: 8 } } },
       { id: "not-a-model", name: "Skip" },
     ],
   });
   assert.deepEqual(
-    models.map((item) => ({ id: item.id, maxReferences: item.maxReferences })),
+    models.map((item) => ({ id: item.id, maxReferences: item.maxReferences, maxImages: item.maxImages })),
     [
-      { id: "black-forest-labs/flux.2-pro", maxReferences: 8 },
-      { id: "google/gemini-2.5-flash-image", maxReferences: 3 },
+      { id: "black-forest-labs/flux.2-pro", maxReferences: 8, maxImages: 1 },
+      { id: "google/gemini-2.5-flash-image", maxReferences: 3, maxImages: 1 },
+      { id: "openai/gpt-image-2", maxReferences: 16, maxImages: 10 },
     ],
   );
 });

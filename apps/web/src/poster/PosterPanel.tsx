@@ -33,8 +33,10 @@ import { SpecEditor } from "./SpecEditor";
 import {
   formatDurationMs,
   minMaxReferences,
+  posterVariantLabel,
   readStoredImageModels,
   shortModelLabel,
+  variantCount,
   writeStoredImageModels,
 } from "./imageModels";
 
@@ -661,7 +663,7 @@ export function PosterPanel({
       const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
       setSentRefs(packed.map((item) => ({ role: item.role, legend: item.legend, dataUrl: item.dataUrl })));
       if (!imageModelIds.length) throw new Error("Select at least one image model");
-      const batchId = jobs.length > 1 ? crypto.randomUUID() : undefined;
+      const batchId = crypto.randomUUID();
       setGenerateProgress({ done: 0, total: jobs.length });
       const startedAt = Date.now();
       setModelRuns(
@@ -677,7 +679,7 @@ export function PosterPanel({
       const settled = await Promise.all(
         jobs.map(async (job) => {
           try {
-            const record = await generatePoster({
+            const records = await generatePoster({
               activityId,
               spec: job.spec,
               references: packed.map((item) => item.dataUrl),
@@ -696,7 +698,7 @@ export function PosterPanel({
                 run.key === job.key ? { ...run, finishedAt: Date.now() } : run,
               ),
             );
-            return { key: job.key, styleId: job.styleId, model: job.model, record };
+            return { key: job.key, styleId: job.styleId, model: job.model, records };
           } catch (err) {
             const error = err instanceof Error ? err.message : "Poster generation failed";
             setModelRuns((current) =>
@@ -710,7 +712,7 @@ export function PosterPanel({
           }
         }),
       );
-      const records = settled.flatMap((item) => (item.record ? [item.record] : []));
+      const records = settled.flatMap((item) => item.records ?? []);
       const failures = settled.flatMap((item) => {
         if (!item.error) return [];
         const theme = styleLabel(item.styleId);
@@ -835,7 +837,10 @@ export function PosterPanel({
   const specStyleId = specs[activeStyleId] ? activeStyleId : plannedStyleIds[0];
   const spec = specStyleId ? specs[specStyleId] ?? null : null;
   const allThemesPlanned = styleIds.length > 0 && styleIds.every((id) => specs[id]);
-  const generateCount = plannedStyleIds.length * imageModelIds.length;
+  const generateCount = plannedStyleIds.length * imageModelIds.reduce(
+    (sum, id) => sum + variantCount(imageModels.find((item) => item.id === id)?.maxImages),
+    0,
+  );
   const editingCustom = styleIds.includes("custom");
   const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
   const compareStyles = new Set(batchResults.map((item) => item.styleId)).size > 1;
@@ -853,6 +858,7 @@ export function PosterPanel({
         [
           compareStyles ? styleLabel(item.styleId, item.spec.style.name) : null,
           compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
+          posterVariantLabel(item, compareItems),
           item.durationMs != null ? formatDurationMs(item.durationMs) : null,
         ]
           .filter(Boolean)
@@ -1267,13 +1273,18 @@ export function PosterPanel({
                 {generating
                   ? generateProgress.total > 1
                     ? `Generating ${generateProgress.done}/${generateProgress.total}… ${elapsed}s`
-                    : `Generating… ${elapsed}s`
+                    : generateCount > 1
+                      ? `Generating ${generateCount} variants… ${elapsed}s`
+                      : `Generating… ${elapsed}s`
                   : generateCount > 1
-                    ? styleIds.length > 1 && imageModelIds.length > 1
-                      ? `Generate ${styleIds.length} themes × ${imageModelIds.length} models`
-                      : styleIds.length > 1
-                        ? `Generate ${styleIds.length} themes`
-                        : `Generate with ${imageModelIds.length} models`
+                    ? styleIds.length > 1 || imageModelIds.length > 1
+                      ? `Generate ${[
+                          styleIds.length > 1 ? `${styleIds.length} themes` : null,
+                          imageModelIds.length > 1 ? `${imageModelIds.length} models` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" × ")} (${generateCount} variants)`
+                      : `Generate ${generateCount} variants`
                     : "Generate poster"}
               </button>
               {modelRuns.length > 0 && (
@@ -1328,6 +1339,7 @@ export function PosterPanel({
                         compareModels || !compareStyles
                           ? shortModelLabel(item.model, item.modelName)
                           : null,
+                        posterVariantLabel(item, compareItems),
                       ]
                         .filter(Boolean)
                         .join(" · ") || "result"}

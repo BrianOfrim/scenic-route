@@ -48,6 +48,12 @@ export type ImageModelInfo = {
   id: string;
   name: string;
   maxReferences: number;
+  maxImages: number;
+};
+
+export type GeneratedImage = {
+  b64: string;
+  mediaType: string;
 };
 
 export function referer() {
@@ -167,14 +173,17 @@ export async function createImage(options: {
   aspectRatio: string;
   references: string[];
   model?: string;
+  n?: number;
   label?: string;
-}): Promise<{ b64: string; mediaType: string; cost: number | null }> {
+}): Promise<{ images: GeneratedImage[]; cost: number | null }> {
   const key = requireKey();
   const model = resolveImageModel(options.model);
+  const n = clampImageCount(options.n);
   const request = {
     model,
     prompt: options.prompt,
     aspect_ratio: options.aspectRatio,
+    n,
     input_references: options.references.map((url) => ({
       type: "image_url",
       image_url: { url },
@@ -190,7 +199,7 @@ export async function createImage(options: {
     },
     async (capture) => {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), GENERATE_TIMEOUT_MS);
+      const timer = setTimeout(() => controller.abort(), GENERATE_TIMEOUT_MS * n);
       try {
         const response = await fetch(OPENROUTER_IMAGES_URL, {
           method: "POST",
@@ -223,23 +232,32 @@ export async function createImage(options: {
   );
 }
 
+export function clampImageCount(value?: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(10, Math.max(1, Math.round(n)));
+}
+
 export function parseImageResponse(payload: unknown): {
-  b64: string;
-  mediaType: string;
+  images: GeneratedImage[];
   cost: number | null;
 } {
   const record = asRecord(payload);
   if (!record) throw new OpenRouterError("OpenRouter returned an unexpected image payload");
   if (record.error) throw new OpenRouterError(errorMessage(record, "OpenRouter image error"), 502);
   const data = Array.isArray(record.data) ? record.data : [];
-  const first = asRecord(data[0]);
-  const b64 = first && typeof first.b64_json === "string" ? first.b64_json : "";
-  if (!b64) throw new OpenRouterError("OpenRouter did not return image bytes", 502);
-  const mediaType =
-    first && typeof first.media_type === "string" && first.media_type
-      ? first.media_type
-      : "image/png";
-  return { b64, mediaType, cost: usageCost(record) };
+  const images: GeneratedImage[] = [];
+  for (const item of data) {
+    const row = asRecord(item);
+    const b64 = row && typeof row.b64_json === "string" ? row.b64_json : "";
+    if (!b64) continue;
+    images.push({
+      b64,
+      mediaType: row && typeof row.media_type === "string" && row.media_type ? row.media_type : "image/png",
+    });
+  }
+  if (!images.length) throw new OpenRouterError("OpenRouter did not return image bytes", 502);
+  return { images, cost: usageCost(record) };
 }
 
 let cachedMaxRefs: { model: string; value: number; at: number } | null = null;
@@ -249,7 +267,7 @@ export async function listImageModels(): Promise<ImageModelInfo[]> {
   if (cachedModels && Date.now() - cachedModels.at < 6 * 60 * 60 * 1000) {
     return cachedModels.value;
   }
-  const fallback: ImageModelInfo[] = [{ id: imageModel(), name: imageModel(), maxReferences: 3 }];
+  const fallback: ImageModelInfo[] = [{ id: imageModel(), name: imageModel(), maxReferences: 3, maxImages: 1 }];
   try {
     const key = requireKey();
     const response = await fetch("https://openrouter.ai/api/v1/images/models", {
@@ -276,7 +294,12 @@ export function parseImageModels(payload: unknown): ImageModelInfo[] {
     if (!isImageModelId(id) || seen.has(id)) continue;
     seen.add(id);
     const name = typeof row?.name === "string" && row.name.trim() ? row.name.trim() : id;
-    models.push({ id, name, maxReferences: maxRefsFromModel(row) ?? 3 });
+    models.push({
+      id,
+      name,
+      maxReferences: maxRefsFromModel(row) ?? 3,
+      maxImages: maxImagesFromModel(row) ?? 1,
+    });
   }
   models.sort((a, b) => a.name.localeCompare(b.name));
   return models;
@@ -307,6 +330,13 @@ export async function maxImageReferences(requested?: string | null): Promise<num
   }
 }
 
+export async function maxImageOutputs(requested?: string | null): Promise<number> {
+  const model = resolveImageModel(requested);
+  if (!cachedModels) await listImageModels();
+  const listed = listedMaxImages(model);
+  return listed && listed > 0 ? listed : 1;
+}
+
 export function extractMaxRefs(payload: unknown): number | null {
   const record = asRecord(payload);
   const data = asRecord(record?.data) ?? record;
@@ -321,6 +351,20 @@ export function extractMaxRefs(payload: unknown): number | null {
   }
   if (typeof data?.max_input_references === "number") {
     max = Math.max(max ?? 0, data.max_input_references);
+  }
+  return max && max > 0 ? max : null;
+}
+
+export function extractMaxImages(payload: unknown): number | null {
+  const record = asRecord(payload);
+  const data = asRecord(record?.data) ?? record;
+  const endpoints = Array.isArray(data?.endpoints) ? data.endpoints : Array.isArray(record?.data) ? record.data : [];
+  let max: number | null = null;
+  for (const item of endpoints) {
+    const endpoint = asRecord(item);
+    const params = asRecord(endpoint?.supported_parameters) ?? asRecord(endpoint?.parameters);
+    const candidate = maxImagesFromParams(params);
+    if (candidate) max = Math.max(max ?? 0, candidate);
   }
   return max && max > 0 ? max : null;
 }
@@ -342,14 +386,34 @@ function maxRefsFromParams(params: Record<string, unknown> | null): number | nul
   return candidate > 0 ? candidate : null;
 }
 
+function maxImagesFromModel(row: Record<string, unknown> | null): number | null {
+  return maxImagesFromParams(asRecord(row?.supported_parameters));
+}
+
+function maxImagesFromParams(params: Record<string, unknown> | null): number | null {
+  if (!params) return null;
+  const n = asRecord(params.n);
+  if (n) {
+    const candidate = Number(n.max ?? n.maximum ?? 0) || 0;
+    return candidate > 0 ? candidate : null;
+  }
+  const raw = Number(params.n ?? 0) || 0;
+  return raw > 0 ? raw : null;
+}
+
 function withDefaultModel(models: ImageModelInfo[]): ImageModelInfo[] {
   const fallback = imageModel();
   if (models.some((item) => item.id === fallback)) return models;
-  return [{ id: fallback, name: fallback, maxReferences: 3 }, ...models];
+  return [{ id: fallback, name: fallback, maxReferences: 3, maxImages: 1 }, ...models];
 }
 
 function listedMaxRefs(model: string): number | null {
   const listed = cachedModels?.value.find((item) => item.id === model)?.maxReferences;
+  return listed && listed > 0 ? listed : null;
+}
+
+function listedMaxImages(model: string): number | null {
+  const listed = cachedModels?.value.find((item) => item.id === model)?.maxImages;
   return listed && listed > 0 ? listed : null;
 }
 

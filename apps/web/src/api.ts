@@ -185,6 +185,7 @@ export type PosterRecord = {
   styleId: string;
   stylePrompt: string;
   referenceCount: number;
+  variant?: number;
   url: string;
 };
 
@@ -266,14 +267,17 @@ export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cos
   );
 }
 
-export async function generatePoster(body: unknown): Promise<PosterRecord> {
-  return readJson(
+export async function generatePoster(body: unknown): Promise<PosterRecord[]> {
+  const payload = await readJson<{ posters?: PosterRecord[] } & Partial<PosterRecord>>(
     await fetch("/api/poster/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
   );
+  if (Array.isArray(payload.posters) && payload.posters.length) return payload.posters;
+  if (payload.posterId) return [payload as PosterRecord];
+  return [];
 }
 
 export async function fetchPosters(activityId?: number): Promise<PosterRecord[]> {
@@ -294,6 +298,7 @@ export type ImageModelOption = {
   id: string;
   name: string;
   maxReferences: number;
+  maxImages?: number;
 };
 
 export type PosterCapabilities = {
