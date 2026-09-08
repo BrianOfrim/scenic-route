@@ -304,6 +304,8 @@ export const PROMPT_EXCLUSIONS = [
   "no color-to-name legend or trail color key",
   "no letter-to-name region key",
   "no A/B/C wash letters on the finished poster",
+  "no schematic ochre or brown wash color on named regions",
+  "no named region drawn away from its lettered wash",
   "no schematic route colors on the finished path",
   "no multi-colored GPS track copied from the schematic",
   "no numbered landmark discs, pin numbers, or numbered callouts",
@@ -406,7 +408,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
     .filter(Boolean);
   if (geography.length) {
     const regionNote = spec.geography.some(isNamedRegion)
-      ? " Named regions on the schematic are pale washes with a letter, not numbered discs. Look up each letter, write that name across the wash, then discard the letter. Do not draw the letters, a pin, a building icon, or a key."
+      ? " CRITICAL region fidelity: each lettered wash on the schematic is the exact footprint of that named district. Draw and write the name across that same area — same place, same extent. Do not drift, slide, shrink, or invent a different region. The ochre is a private index only: look up the letter, then discard both the letter and the ochre. Paint parks and green space green; paint campuses, neighbourhoods, and other districts in the poster palette. Never copy the schematic's brown or ochre wash. Do not draw the letters, a pin, a building icon, or a key."
       : "";
     const trailKey = trailColorKey(spec.geography);
     const regionKey = regionLetterKey(spec.geography);
@@ -450,7 +452,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
         ? "The schematic's numbered discs are scaffolding, not artwork. Copy geography and the exact route from the reference; replace every disc with a small on-route marker plus the written name from the landmark list, kept off the path so the route stays visible and continuous."
         : "",
       spec.geography.some(isNamedRegion)
-        ? "The schematic's wash letters are scaffolding, not artwork. Replace every letter with the written district name from the geography list."
+        ? "The schematic's lettered washes are scaffolding, not artwork. Copy each district from that wash: same place, same extent, written name from the geography list. Replace the letter; discard the ochre. Parks stay green; do not paint campuses or neighbourhoods brown because the schematic wash is brown."
         : "",
       groundingRules.length ? `${groundingRules.map(sentence).join(" ")}` : "",
     ]),
@@ -501,7 +503,7 @@ function posterTrailTreatment() {
 }
 
 function posterRegionTreatment() {
-  return "write the name across the wash; do not draw the letter";
+  return "write the name across that same lettered wash; paint for what it is, not schematic ochre; do not draw the letter";
 }
 
 function regionLetterKey(items: PosterSpecGeography[]) {
@@ -514,7 +516,7 @@ function regionLetterKey(items: PosterSpecGeography[]) {
     })
     .filter(Boolean);
   if (!map.length) return "";
-  return ` Letters in the ochre washes are a private region index, like the numbered discs. Look up each letter, write that name across the wash, then discard the letter. Do not draw the letters or a key. ${map.join("; ")}.`;
+  return ` Letters in the ochre washes are a private region index, like the numbered discs. The wash is the exact area to label — do not move it. Look up each letter, write that name across that same wash, then discard the letter and the ochre color. Do not draw the letters or a key. Do not copy the schematic's brown wash. Parks stay green; other districts use the poster palette. ${map.join("; ")}.`;
 }
 
 function isColoredTrail(item: PosterSpecGeography) {

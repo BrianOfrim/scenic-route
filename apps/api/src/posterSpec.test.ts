@@ -157,6 +157,8 @@ test("specToImagePrompt appends explicit exclusions once", () => {
   assert.match(prompt, /no different route than the GPS track on the schematic/);
   assert.match(prompt, /no color-to-name legend or trail color key/);
   assert.match(prompt, /no schematic route colors on the finished path/);
+  assert.match(prompt, /no schematic ochre or brown wash color on named regions/);
+  assert.match(prompt, /no named region drawn away from its lettered wash/);
   assert.match(prompt, /no multi-colored GPS track copied from the schematic/);
   assert.match(prompt, /no smoothed, straightened, shortcut, or invented path/);
   assert.match(prompt, /no labels or landmark illustrations covering, breaking, or replacing the route/);
@@ -240,10 +242,16 @@ test("specToImagePrompt tells the model named regions are washes not pins", () =
     }),
   );
   assert.match(prompt, /neighbourhood Old Strathcona/);
-  assert.match(prompt, /pale washes with a letter/);
-  assert.match(prompt, /discard the letter/);
+  assert.match(prompt, /CRITICAL region fidelity/);
+  assert.match(prompt, /exact footprint/);
+  assert.match(prompt, /same place, same extent/);
+  assert.match(prompt, /discard both the letter and the ochre/);
+  assert.match(prompt, /Paint parks and green space green/);
+  assert.match(prompt, /Never copy the schematic's brown or ochre wash/);
   assert.match(prompt, /A = Old Strathcona/);
   assert.match(prompt, /do not draw the letter/i);
+  assert.match(prompt, /paint for what it is, not schematic ochre/);
+  assert.match(prompt, /do not paint campuses or neighbourhoods brown/);
   assert.doesNotMatch(prompt, /[{}\[\]]/);
 });
 

@@ -67,7 +67,7 @@ function initialStyleId(record?: PosterRecord | null) {
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
 
 const SCHEMATIC_LEGEND =
-  "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; blue = water; green = forest; ochre wash + letter = named district, private region index, do not copy; numbered discs = private location index, do not copy";
+  "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; blue = water; green = forest; ochre wash + letter = named district, private region index, copy the footprint not the ochre or letter; numbered discs = private location index, do not copy";
 
 const ROUTE_ONLY_LEGEND =
   "same red line as the schematic, geography removed; every separate stroke is a required segment, including parallels and shore hugs";
@@ -1087,10 +1087,12 @@ export function PosterPanel({
             {(selectedPois.length > 0 || selectedNamedWays.length > 0 || selectedNamedAreas.length > 0) && (
               <p className="muted">
                 Neighbourhoods, campuses, and large named parks are ochre washes with a letter,
-                not pins. Letters and trail colors are a private index — look up the name, then
-                discard the letter and the schematic colors. Numbered discs are a location index.
-                The poster should show the names, not the letters, numbers, schematic colors, or
-                a legend.
+                not pins. The wash is the exact area to label on the poster. Letters and trail
+                colors are a private index — look up the name, then discard the letter and the
+                schematic colors. Parks stay green; other districts should not be brown just
+                because the schematic wash is ochre. Numbered discs are a location index. The
+                poster should show the names, not the letters, numbers, schematic colors, or a
+                legend.
               </p>
             )}
             {selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length > MAX_LABELS && (

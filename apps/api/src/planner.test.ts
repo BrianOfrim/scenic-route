@@ -73,6 +73,10 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.match(String(messages[0].content), /Named trails recolor stretches/);
   assert.match(String(messages[0].content), /Named regions are pale ochre washes/);
   assert.match(String(messages[0].content), /letter as a private name index/);
+  assert.match(String(messages[0].content), /lettered wash is the exact footprint/);
+  assert.match(String(messages[0].content), /same place and extent as the wash/);
+  assert.match(String(messages[0].content), /Never copy the schematic's brown or ochre wash/);
+  assert.match(String(messages[0].content), /parks and green space as green/);
   assert.match(String(messages[0].content), /never copy the letters/);
   assert.equal(user.customStylePrompt, "more negative space");
   assert.equal(user.groundingImages[0].role, "schematic");
@@ -312,7 +316,8 @@ test("buildPlannerMessages sends named regions and one-level inside clauses", ()
   assert.equal(user.namedRegions[0].name, "Augustana");
   assert.equal(user.namedRegions[0].kind, "university");
   assert.equal(user.namedRegions[0].letter, "A");
-  assert.match(String(user.namedRegions[0].treatment), /pale wash/);
+  assert.match(String(user.namedRegions[0].treatment), /same place as the schematic letter/);
+  assert.match(String(user.namedRegions[0].treatment), /not schematic ochre/);
   assert.equal("geometry" in user.namedRegions[0], false);
 });
 
@@ -339,7 +344,8 @@ test("repairPlannerOutput injects named regions and drops them from landmarks", 
     spec.geography.map((item) => item.name),
     ["lake", "Augustana"],
   );
-  assert.match(spec.geography[1].treatment, /pale wash/);
+  assert.match(spec.geography[1].treatment, /same place as the schematic letter/);
+  assert.match(spec.geography[1].treatment, /not schematic ochre/);
   assert.equal(spec.geography[1].letter, "A");
   assert.deepEqual(
     spec.landmarks.map((item) => item.name),
