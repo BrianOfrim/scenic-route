@@ -38,6 +38,18 @@ export type StravaActivitySummary = {
   map?: { summary_polyline?: string | null };
 };
 
+export type StravaSegmentEffort = {
+  name?: string;
+  hidden?: boolean;
+  distance?: number;
+  start_index?: number;
+  end_index?: number;
+  segment?: {
+    name?: string;
+    activity_type?: string;
+  };
+};
+
 type RateLimit = {
   shortLimit: number;
   dailyLimit: number;
@@ -192,6 +204,16 @@ export async function stravaFetch<T>(
   }
   assertBudget(rateLimit);
   return { data: (await response.json()) as T, rateLimit };
+}
+
+export async function getActivitySegmentEfforts(
+  activityId: number,
+): Promise<StravaSegmentEffort[] | null> {
+  if (!getTokens()) return null;
+  const { data } = await stravaFetch<{ segment_efforts?: StravaSegmentEffort[] }>(
+    `/activities/${activityId}?include_all_efforts=true`,
+  );
+  return data.segment_efforts ?? [];
 }
 
 export function activityHasGps(activity: StravaActivitySummary) {

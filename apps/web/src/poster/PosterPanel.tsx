@@ -9,16 +9,26 @@ import {
   planPoster,
   type FormattedStat,
   type ImageModelOption,
+  type NamedArea,
+  type NamedWay,
   type PosterContext,
   type PosterPoi,
   type PosterRecord,
   type PosterSpec,
+  type PosterWays,
 } from "../api";
-import { clampCrop, isClosedLoop, paddedBbox, schematicBbox, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
+import { clampCrop, isClosedLoop, isNearCroppedRoute, paddedBbox, schematicBbox, shiftRouteSpans, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
 import { FEATURE_CATALOG, DEFAULT_FEATURE_IDS, type FeatureOption } from "./featureCatalog";
 import { planContactSheets, renderContactSheets, type GroundingLayer } from "./grounding/contactSheet";
-import { renderSchematicDataUrl, type AspectRatio } from "./grounding/renderSchematic";
+import {
+  renderSchematicDataUrl,
+  schematicLayersFromFeatureIds,
+  type AspectRatio,
+} from "./grounding/renderSchematic";
 import { MAX_LABELS, prioritizeLabels } from "./labels";
+import { nearestPlaceName } from "./places";
+import { assignAreaLetters } from "./areaLetters";
+import { assignTrailColors } from "./trailColors";
 import { SpecEditor } from "./SpecEditor";
 import {
   formatDurationMs,
@@ -52,10 +62,36 @@ function initialStyleId(record?: PosterRecord | null) {
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
 
 const SCHEMATIC_LEGEND =
-  "red = route; grey = roads; blue = water; green = forest; numbered discs = private location index, do not copy";
+  "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; blue = water; green = forest; ochre wash + letter = named district, private region index, do not copy; numbered discs = private location index, do not copy";
 
 const ROUTE_ONLY_LEGEND =
   "same red line as the schematic, geography removed; every separate stroke is a required segment, including parallels and shore hugs";
+
+function statIdFromLabel(label: string) {
+  const key = label.trim().toLowerCase();
+  if (key.startsWith("start")) return "startPlace";
+  if (key.startsWith("finish")) return "finishPlace";
+  return key.replace(/\s+/g, "");
+}
+
+function GroundingThumb({
+  src,
+  label,
+  onOpen,
+}: {
+  src: string;
+  label: string;
+  onOpen: () => void;
+}) {
+  return (
+    <figure className="poster-ref-card">
+      <button type="button" className="poster-ref-open" onClick={onOpen} aria-label={`Enlarge ${label}`}>
+        <img className="poster-ref" src={src} alt={`${label} grounding`} />
+      </button>
+      <figcaption>{label}</figcaption>
+    </figure>
+  );
+}
 
 function routeMarkerMode(show: boolean, latlng: [number, number][]): false | "ends" | "loop" {
   if (!show) return false;
@@ -109,8 +145,14 @@ type Props = {
   onCropChange?: (crop: [number, number][] | null) => void;
   onStopsChange?: (stops: [number, number][]) => void;
   onPoisChange?: (pois: PosterPoi[]) => void;
+  onNamedWaysChange?: (trails: NamedWay[]) => void;
+  onNamedAreasChange?: (areas: NamedArea[]) => void;
+  onWaysChange?: (ways: PosterWays | null) => void;
+  onSchematicLayersChange?: (layers: ReturnType<typeof schematicLayersFromFeatureIds> | null) => void;
   refineFrom?: PosterRecord | null;
   dismissPoi?: { name: string; nonce: number } | null;
+  dismissArea?: { name: string; nonce: number } | null;
+  dismissTrail?: { name: string; nonce: number } | null;
 };
 
 export function PosterPanel({
@@ -120,8 +162,14 @@ export function PosterPanel({
   onCropChange,
   onStopsChange,
   onPoisChange,
+  onNamedWaysChange,
+  onNamedAreasChange,
+  onWaysChange,
+  onSchematicLayersChange,
   refineFrom,
   dismissPoi,
+  dismissArea,
+  dismissTrail,
 }: Props) {
   const catalog = FEATURE_CATALOG.map(
     (item) => features.find((feature) => feature.id === item.id) ?? item,
@@ -134,8 +182,13 @@ export function PosterPanel({
   const [stylePrompt, setStylePrompt] = useState(refineFrom?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
   const [activeStyleId, setActiveStyleId] = useState(() => initialStyleId(refineFrom));
   const [title, setTitle] = useState("");
+  const [startPlace, setStartPlace] = useState("");
+  const [finishPlace, setFinishPlace] = useState("");
+  const [placesEdited, setPlacesEdited] = useState(false);
   const [statIds, setStatIds] = useState<string[]>(["title", "date", "distance", "movingTime"]);
   const [labels, setLabels] = useState<string[]>([]);
+  const [trailNames, setTrailNames] = useState<string[]>([]);
+  const [areaNames, setAreaNames] = useState<string[]>([]);
   const [customPois, setCustomPois] = useState<PosterPoi[]>([]);
   const [cropStart, setCropStart] = useState(0);
   const [cropEnd, setCropEnd] = useState(1);
@@ -170,6 +223,7 @@ export function PosterPanel({
   const [result, setResult] = useState<PosterRecord | null>(null);
   const [batchResults, setBatchResults] = useState<PosterRecord[]>([]);
   const [refineNotes, setRefineNotes] = useState("");
+  const [preview, setPreview] = useState<{ src: string; label: string } | null>(null);
   const [compareOpen, setCompareOpen] = useState(false);
   const [compareLeftId, setCompareLeftId] = useState("");
   const [compareRightId, setCompareRightId] = useState("");
@@ -217,19 +271,42 @@ export function PosterPanel({
       setLoading(true);
       setError(null);
     }
-    fetchPosterContext(activityId, featureIds)
+    fetchPosterContext(
+      activityId,
+      featureIds.filter((id) => id !== "named-trails"),
+    )
       .then((next) => {
         if (cancelled) return;
         setContext(next);
         setLabels(next.pois.map((poi) => poi.name));
+        setTrailNames((next.namedWays ?? []).map((trail) => trail.name));
+        setAreaNames((next.namedAreas ?? []).map((area) => area.name));
         if (activityChanged) {
           cropActivityId.current = activityId;
           setTitle(next.activity.name || "Ride");
           setCropStart(0);
           setCropEnd(Math.max(1, next.latlng.length - 1));
+          setPlacesEdited(false);
+          setStartPlace("");
+          setFinishPlace("");
           if (refineFrom) {
-            setStatIds(refineFrom.stats.map((item) => item.label.toLowerCase().replace(/\s+/g, "")));
+            setStatIds(
+              refineFrom.stats
+                .map((item) => statIdFromLabel(item.label))
+                .filter((id) => id !== "startPlace" && id !== "finishPlace"),
+            );
             setSentRefs(savedModelRefs(refineFrom));
+            const specStart = refineFrom.spec?.route.startName?.trim() ?? "";
+            const specFinish = refineFrom.spec?.route.finishName?.trim() ?? "";
+            const savedStart =
+              specStart || refineFrom.stats.find((item) => /^start/i.test(item.label))?.value || "";
+            const savedFinish =
+              specFinish || refineFrom.stats.find((item) => /^finish$/i.test(item.label))?.value || "";
+            if (savedStart || savedFinish) {
+              setStartPlace(savedStart || savedFinish);
+              setFinishPlace(savedFinish || savedStart);
+              setPlacesEdited(true);
+            }
           }
         } else {
           const last = Math.max(1, next.latlng.length - 1);
@@ -267,25 +344,75 @@ export function PosterPanel({
   // user-added landmarks go first so they stay prominent in the prompt.
   const selectedPois = useMemo(() => {
     const suggested = (context?.pois ?? []).filter((poi) => labels.includes(poi.name));
-    return prioritizeLabels(suggested, customPois);
-  }, [context, labels, customPois]);
+    const ranked = prioritizeLabels(suggested, customPois);
+    if (croppedLatLng.length < 2) return ranked;
+    const customNames = new Set(customPois.map((poi) => poi.name.trim().toLowerCase()));
+    return ranked.filter(
+      (poi) => customNames.has(poi.name.trim().toLowerCase()) || isNearCroppedRoute(poi, croppedLatLng),
+    );
+  }, [context, labels, customPois, croppedLatLng]);
+
+  const selectedNamedWays = useMemo(() => {
+    const colored = assignTrailColors((context?.namedWays ?? []).filter((trail) => trailNames.includes(trail.name)));
+    if (!context?.latlng?.length) return colored;
+    const [lo, hi] = clampCrop(context.latlng.length, cropStart, cropEnd);
+    return colored
+      .map((trail) => ({
+        ...trail,
+        routeSpans: shiftRouteSpans(trail.routeSpans, lo, hi),
+      }))
+      .filter((trail) => trail.routeSpans === undefined || trail.routeSpans.length > 0);
+  }, [context, trailNames, cropStart, cropEnd]);
+
+  const selectedNamedAreas = useMemo(() => {
+    const areas = (context?.namedAreas ?? []).filter((area) => areaNames.includes(area.name));
+    const nearRoute =
+      croppedLatLng.length < 2 ? areas : areas.filter((area) => isNearCroppedRoute(area, croppedLatLng));
+    return assignAreaLetters(nearRoute);
+  }, [context, areaNames, croppedLatLng]);
+
+  const schematicLayers = useMemo(
+    () => schematicLayersFromFeatureIds(featureIds, routeMarkerMode(showRouteMarkers, croppedLatLng)),
+    [featureIds, showRouteMarkers, croppedLatLng],
+  );
 
   const displayBbox = useMemo(() => {
     if (croppedLatLng.length < 2) return context?.bbox ?? null;
-    return paddedBbox(croppedLatLng, selectedPois);
-  }, [context, croppedLatLng, selectedPois]);
+    return paddedBbox(croppedLatLng, [...selectedPois, ...selectedNamedWays, ...selectedNamedAreas]);
+  }, [context, croppedLatLng, selectedPois, selectedNamedWays, selectedNamedAreas]);
   const groundingBbox = useMemo(() => {
     if (croppedLatLng.length < 2) return displayBbox;
-    return schematicBbox(croppedLatLng, selectedPois);
-  }, [croppedLatLng, selectedPois, displayBbox]);
+    return schematicBbox(croppedLatLng, [...selectedPois, ...selectedNamedWays, ...selectedNamedAreas]);
+  }, [croppedLatLng, selectedPois, selectedNamedWays, selectedNamedAreas, displayBbox]);
+
+  const loopRide = useMemo(() => isClosedLoop(croppedLatLng), [croppedLatLng]);
+
+  const suggestedPlaces = useMemo(() => {
+    if (croppedLatLng.length < 2) return { start: "", finish: "" };
+    return {
+      start: nearestPlaceName(selectedPois, selectedNamedAreas, croppedLatLng[0]),
+      finish: nearestPlaceName(selectedPois, selectedNamedAreas, croppedLatLng[croppedLatLng.length - 1]),
+    };
+  }, [croppedLatLng, selectedPois, selectedNamedAreas]);
+
+  useEffect(() => {
+    if (placesEdited) return;
+    setStartPlace(suggestedPlaces.start);
+    setFinishPlace(loopRide ? suggestedPlaces.start : suggestedPlaces.finish);
+  }, [suggestedPlaces, loopRide, placesEdited]);
+
+  const samePlace =
+    loopRide ||
+    (Boolean(startPlace.trim()) && startPlace.trim().toLowerCase() === finishPlace.trim().toLowerCase());
+
+  const listedStats = useMemo((): FormattedStat[] => {
+    const available = (context?.stats ?? []).filter((item) => item.id !== "title");
+    return [{ id: "title", label: "Title", value: title }, ...available];
+  }, [context, title]);
 
   const selectedStats = useMemo(() => {
-    const available = context?.stats ?? [];
-    const extras: FormattedStat[] = title
-      ? [{ id: "title", label: "Title", value: title }, ...available.filter((item) => item.id !== "title")]
-      : available;
-    return extras.filter((item) => statIds.includes(item.id) || (item.id === "title" && statIds.includes("title")));
-  }, [context, statIds, title]);
+    return listedStats.filter((item) => statIds.includes(item.id) && (item.id === "title" || item.value));
+  }, [listedStats, statIds]);
 
   const subtitle = useMemo(() => {
     return selectedStats
@@ -306,9 +433,33 @@ export function PosterPanel({
     onPoisChange?.(selectedPois);
   }, [selectedPois, onPoisChange]);
 
+  useEffect(() => {
+    onNamedWaysChange?.(selectedNamedWays);
+  }, [selectedNamedWays, onNamedWaysChange]);
+
+  useEffect(() => {
+    onNamedAreasChange?.(selectedNamedAreas);
+  }, [selectedNamedAreas, onNamedAreasChange]);
+
+  useEffect(() => {
+    onWaysChange?.(context?.ways ?? null);
+  }, [context, onWaysChange]);
+
+  useEffect(() => {
+    onSchematicLayersChange?.(schematicLayers);
+  }, [schematicLayers, onSchematicLayersChange]);
+
   const removePoi = useCallback((name: string) => {
     setCustomPois((current) => current.filter((item) => item.name !== name));
     setLabels((current) => current.filter((item) => item !== name));
+  }, []);
+
+  const removeArea = useCallback((name: string) => {
+    setAreaNames((current) => current.filter((item) => item !== name));
+  }, []);
+
+  const removeTrail = useCallback((name: string) => {
+    setTrailNames((current) => current.filter((item) => item !== name));
   }, []);
 
   useEffect(() => {
@@ -316,12 +467,24 @@ export function PosterPanel({
     removePoi(dismissPoi.name);
   }, [dismissPoi, removePoi]);
 
+  useEffect(() => {
+    if (!dismissArea?.name) return;
+    removeArea(dismissArea.name);
+  }, [dismissArea, removeArea]);
+
+  useEffect(() => {
+    if (!dismissTrail?.name) return;
+    removeTrail(dismissTrail.name);
+  }, [dismissTrail, removeTrail]);
+
   useEffect(
     () => () => {
       onCropChange?.(null);
       onStopsChange?.([]);
+      onWaysChange?.(null);
+      onSchematicLayersChange?.(null);
     },
-    [onCropChange, onStopsChange],
+    [onCropChange, onStopsChange, onWaysChange, onSchematicLayersChange],
   );
 
   useEffect(() => {
@@ -337,20 +500,10 @@ export function PosterPanel({
           bbox: groundingBbox,
           ways: context?.ways,
           pois: selectedPois,
+          namedWays: selectedNamedWays,
+          namedAreas: selectedNamedAreas,
           aspectRatio,
-          layers: {
-            roads: featureIds.includes("major-roads"),
-            streets: featureIds.includes("streets"),
-            paths: featureIds.includes("paths"),
-            rail: featureIds.includes("rail"),
-            water: featureIds.includes("lakes") || featureIds.includes("rivers"),
-            forest: featureIds.includes("forest"),
-            parks: featureIds.includes("parks"),
-            farmland: featureIds.includes("farmland"),
-            cemeteries: featureIds.includes("cemeteries"),
-            labels: true,
-            routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
-          },
+          layers: schematicLayers,
         }),
       );
       setRouteOnlyUrl(
@@ -364,7 +517,7 @@ export function PosterPanel({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not render schematic");
     }
-  }, [context, croppedLatLng, groundingBbox, selectedPois, aspectRatio, featureIds.join(","), showRouteMarkers]);
+  }, [context, croppedLatLng, groundingBbox, selectedPois, selectedNamedWays, selectedNamedAreas, aspectRatio, schematicLayers]);
 
   useEffect(() => {
     const layers = groundingLayers(schematicUrl, routeOnlyUrl, maxRefs, croppedLatLng, showRouteMarkers);
@@ -418,6 +571,8 @@ export function PosterPanel({
         routeMarkers: {
           enabled: showRouteMarkers,
           mode: isClosedLoop(croppedLatLng) ? "loop" as const : "start-finish" as const,
+          startName: startPlace.trim() || undefined,
+          finishName: (samePlace ? startPlace : finishPlace).trim() || undefined,
         },
         title,
         subtitle,
@@ -430,6 +585,8 @@ export function PosterPanel({
           )
           .map((item) => ({ id: item.id, label: item.label })),
         pois: selectedPois,
+        namedWays: selectedNamedWays,
+        namedAreas: selectedNamedAreas,
         grounding: packed.map((sheet, index) => ({
           index: index + 1,
           role: sheet.role,
@@ -714,13 +871,15 @@ export function PosterPanel({
   }
 
   useEffect(() => {
-    if (!compareOpen) return;
+    if (!compareOpen && !preview) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setCompareOpen(false);
+      if (event.key !== "Escape") return;
+      if (preview) setPreview(null);
+      else setCompareOpen(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [compareOpen]);
+  }, [compareOpen, preview]);
 
   return (
     <>
@@ -789,13 +948,50 @@ export function PosterPanel({
               />
               Start / finish markers
             </label>
-            {showRouteMarkers && (
-              <p className="muted">
-                {isClosedLoop(croppedLatLng)
-                  ? "Start and finish are the same place — one combined marker"
-                  : "Green start · black finish"}
-              </p>
-            )}
+            <div className="poster-place-fields">
+              {samePlace ? (
+                <input
+                  className="search"
+                  value={startPlace}
+                  placeholder="Start / finish location"
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setPlacesEdited(true);
+                    setStartPlace(value);
+                    setFinishPlace(value);
+                  }}
+                />
+              ) : (
+                <>
+                  <input
+                    className="search"
+                    value={startPlace}
+                    placeholder="Start location"
+                    onChange={(event) => {
+                      setPlacesEdited(true);
+                      setStartPlace(event.target.value);
+                    }}
+                  />
+                  <input
+                    className="search"
+                    value={finishPlace}
+                    placeholder="Finish location"
+                    onChange={(event) => {
+                      setPlacesEdited(true);
+                      setFinishPlace(event.target.value);
+                    }}
+                  />
+                </>
+              )}
+            </div>
+            <p className="muted">
+              {showRouteMarkers
+                ? isClosedLoop(croppedLatLng)
+                  ? "Start and finish are the same place — one combined marker. "
+                  : "Green start · black finish. "
+                : ""}
+              The finished poster writes this name at the start/finish marker.
+            </p>
           </div>
 
           <div className="panel-block">
@@ -829,6 +1025,29 @@ export function PosterPanel({
                 </label>
               ))}
             <div className="chip-row">
+              {selectedNamedAreas.map((area) => (
+                <button
+                  key={`area-${area.name}`}
+                  type="button"
+                  className="chip on"
+                  title={`Wash ${area.letter} on the schematic`}
+                  onClick={() => setAreaNames((current) => current.filter((name) => name !== area.name))}
+                >
+                  {area.letter} {area.name} ×
+                </button>
+              ))}
+              {selectedNamedWays.map((trail) => (
+                <button
+                  key={`trail-${trail.name}`}
+                  type="button"
+                  className="chip on"
+                  title="Named trail on the schematic"
+                  onClick={() => setTrailNames((current) => current.filter((name) => name !== trail.name))}
+                >
+                  <span className="chip-swatch" style={{ background: trail.color }} aria-hidden />
+                  {trail.name} ×
+                </button>
+              ))}
               {selectedPois.map((poi, index) => (
                 <button
                   key={`${poi.name}-${poi.lat}`}
@@ -841,16 +1060,19 @@ export function PosterPanel({
                 </button>
               ))}
             </div>
-            {selectedPois.length > 0 && (
+            {(selectedPois.length > 0 || selectedNamedWays.length > 0 || selectedNamedAreas.length > 0) && (
               <p className="muted">
-                Numbered discs are a location index for the image model only. The poster should show
-                the place names on the map, not the numbers or a legend.
+                Neighbourhoods, campuses, and large named parks are ochre washes with a letter,
+                not pins. Letters and trail colors are a private index — look up the name, then
+                discard the letter and the schematic colors. Numbered discs are a location index.
+                The poster should show the names, not the letters, numbers, schematic colors, or
+                a legend.
               </p>
             )}
-            {selectedPois.length > MAX_LABELS && (
+            {selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length > MAX_LABELS && (
               <p className="warn">
-                {selectedPois.length} labels selected. Image models often drop, merge, or misspell
-                names past {MAX_LABELS}.
+                {selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length} labels
+                selected. Image models often drop, merge, or misspell names past {MAX_LABELS}.
               </p>
             )}
             <form className="poster-lookup" onSubmit={(event) => void handleLookup(event)}>
@@ -915,10 +1137,7 @@ export function PosterPanel({
 
           <div className="panel-block">
             <div className="eyebrow">Stats on poster</div>
-            {(context.stats.length
-              ? [{ id: "title", label: "Title", value: title }, ...context.stats.filter((item) => item.id !== "title")]
-              : [{ id: "title", label: "Title", value: title }]
-            ).map((stat) => (
+            {listedStats.map((stat) => (
               <label key={stat.id} className="check">
                 <input
                   type="checkbox"
@@ -976,22 +1195,24 @@ export function PosterPanel({
             </div>
             {schematicUrl ? (
               <div className="preview-grid">
-                <figure className="poster-ref-card">
-                  <img className="poster-ref" src={schematicUrl} alt="schematic grounding" />
-                  <figcaption>schematic</figcaption>
-                </figure>
+                <GroundingThumb
+                  src={schematicUrl}
+                  label="schematic"
+                  onOpen={() => setPreview({ src: schematicUrl, label: "schematic" })}
+                />
                 {maxRefs >= 2 && routeOnlyUrl && (
-                  <figure className="poster-ref-card">
-                    <img className="poster-ref" src={routeOnlyUrl} alt="route-only grounding" />
-                    <figcaption>route-only</figcaption>
-                  </figure>
+                  <GroundingThumb
+                    src={routeOnlyUrl}
+                    label="route-only"
+                    onOpen={() => setPreview({ src: routeOnlyUrl, label: "route-only" })}
+                  />
                 )}
               </div>
             ) : null}
             <p className="muted">
               {maxRefs >= 2 && routeOnlyUrl
-                ? "2 references will be sent: schematic + route-only"
-                : "1 schematic reference will be sent"}
+                ? "2 references will be sent: schematic + route-only. Click a preview to enlarge."
+                : "1 schematic reference will be sent. Click the preview to enlarge."}
             </p>
             {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
           </div>
@@ -1149,10 +1370,12 @@ export function PosterPanel({
                   <div className="eyebrow">Sent to the model</div>
                   <div className="preview-grid">
                     {sentRefs.map((item, index) => (
-                      <figure key={`${item.role}-${index}`} className="poster-ref-card">
-                        <img className="poster-ref" src={item.dataUrl} alt={item.role} />
-                        <figcaption>{item.role}</figcaption>
-                      </figure>
+                      <GroundingThumb
+                        key={`${item.role}-${index}`}
+                        src={item.dataUrl}
+                        label={item.role}
+                        onOpen={() => setPreview({ src: item.dataUrl, label: item.role })}
+                      />
                     ))}
                   </div>
                 </>
@@ -1177,6 +1400,21 @@ export function PosterPanel({
         </div>
       )}
     </aside>
+    {preview && (
+      <div className="lightbox" onClick={() => setPreview(null)}>
+        <div className="lightbox-inner lightbox-preview" onClick={(event) => event.stopPropagation()}>
+          <img className="lightbox-preview-img" src={preview.src} alt={preview.label} />
+          <div className="lightbox-bar">
+            <strong>{preview.label}</strong>
+            <div className="poster-actions">
+              <button type="button" className="text-btn" onClick={() => setPreview(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     {compareOpen && result && compareImages.length > 1 && (
       <div className="lightbox" onClick={() => setCompareOpen(false)}>
         <div className="lightbox-inner" onClick={(event) => event.stopPropagation()}>

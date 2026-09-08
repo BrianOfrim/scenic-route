@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clampCrop, isClosedLoop, paddedBbox, schematicBbox, snapIndex, snapRadius } from "./crop";
+import { clampCrop, distToTrackM, isClosedLoop, isNearCroppedRoute, paddedBbox, schematicBbox, shiftRouteSpans, snapIndex, snapRadius } from "./crop";
 
 test("snapIndex pulls nearby values onto a stop", () => {
   assert.equal(snapIndex(48, [10, 50, 90], 4), 50);
@@ -16,6 +16,24 @@ test("snapRadius stays in a usable band", () => {
 test("clampCrop keeps a usable slice", () => {
   assert.deepEqual(clampCrop(100, 20, 80), [20, 80]);
   assert.deepEqual(clampCrop(100, 90, 20), [90, 91]);
+});
+
+test("isNearCroppedRoute drops landmarks the cropped track no longer passes", () => {
+  const full: [number, number][] = [
+    [53.0, -113.0],
+    [53.01, -113.0],
+    [53.02, -113.0],
+  ];
+  const landmark = { lat: 53.0, lng: -113.0 };
+  assert.equal(isNearCroppedRoute(landmark, full), true);
+  assert.equal(isNearCroppedRoute(landmark, full.slice(2)), false);
+  assert.ok(distToTrackM([53.0, -113.0], full.slice(2)) > 100);
+});
+
+test("shiftRouteSpans remaps Strava indexes into a crop", () => {
+  assert.deepEqual(shiftRouteSpans([{ start: 5, end: 10 }], 3, 8), [{ start: 2, end: 5 }]);
+  assert.deepEqual(shiftRouteSpans([{ start: 5, end: 10 }], 0, 2), []);
+  assert.equal(shiftRouteSpans(undefined, 0, 10), undefined);
 });
 
 test("schematicBbox is tighter than the map bbox and ignores distant landmarks", () => {

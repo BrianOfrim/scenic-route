@@ -8,16 +8,22 @@ import {
   syncStrava,
   type ActivitySummary,
   type FeatureOption,
+  type NamedArea,
+  type NamedWay,
   type PosterPoi,
   type PosterRecord,
+  type PosterWays,
   type StatusPayload,
 } from "./api";
 import { ActivityList } from "./ActivityList";
 import { Gallery } from "./gallery/Gallery";
 import { MapView } from "./MapView";
 import { PosterPanel } from "./poster/PosterPanel";
+import type { SchematicLayers } from "./poster/grounding/renderSchematic";
 
 const EMPTY_POIS: PosterPoi[] = [];
+const EMPTY_WAYS: NamedWay[] = [];
+const EMPTY_AREAS: NamedArea[] = [];
 
 function currentPath() {
   return window.location.pathname;
@@ -33,12 +39,18 @@ export function App() {
   const [cropLatLng, setCropLatLng] = useState<[number, number][] | null>(null);
   const [cropStops, setCropStops] = useState<[number, number][]>([]);
   const [pois, setPois] = useState<PosterPoi[]>([]);
+  const [namedWays, setNamedWays] = useState<NamedWay[]>([]);
+  const [namedAreas, setNamedAreas] = useState<NamedArea[]>([]);
+  const [ways, setWays] = useState<PosterWays | null>(null);
+  const [schematicLayers, setSchematicLayers] = useState<SchematicLayers | null>(null);
   const [dismissPoi, setDismissPoi] = useState<{ name: string; nonce: number } | null>(null);
+  const [dismissArea, setDismissArea] = useState<{ name: string; nonce: number } | null>(null);
+  const [dismissTrail, setDismissTrail] = useState<{ name: string; nonce: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posterOpen, setPosterOpen] = useState(false);
   const [refineFrom, setRefineFrom] = useState<PosterRecord | null>(null);
-  const [basemap, setBasemap] = useState<"osm" | "topo">("osm");
+  const [basemap, setBasemap] = useState<"osm" | "schematic">("osm");
   const [viewNonce, setViewNonce] = useState(0);
 
   const go = useCallback((next: string) => {
@@ -170,9 +182,9 @@ export function App() {
           )}
           <label className="filter">
             Basemap
-            <select value={basemap} onChange={(event) => setBasemap(event.target.value as "osm" | "topo")}>
+            <select value={basemap} onChange={(event) => setBasemap(event.target.value as "osm" | "schematic")}>
               <option value="osm">Streets</option>
-              <option value="topo">Terrain</option>
+              <option value="schematic">Schematic</option>
             </select>
           </label>
           <button type="button" className="text-btn" onClick={() => go("/gallery")}>
@@ -198,6 +210,10 @@ export function App() {
               setCropLatLng(null);
               setCropStops([]);
               setPois([]);
+              setNamedWays([]);
+              setNamedAreas([]);
+              setWays(null);
+              setSchematicLayers(null);
             }
           }}
           onSync={() => {
@@ -210,9 +226,15 @@ export function App() {
             cropLatLng={posterOpen ? cropLatLng : null}
             cropStops={posterOpen ? cropStops : []}
             pois={posterOpen ? pois : EMPTY_POIS}
+            namedWays={posterOpen ? namedWays : EMPTY_WAYS}
+            namedAreas={posterOpen ? namedAreas : EMPTY_AREAS}
+            ways={posterOpen ? ways : null}
+            schematicLayers={posterOpen ? schematicLayers : null}
             basemap={basemap}
             viewNonce={viewNonce}
             onRemovePoi={(name) => setDismissPoi({ name, nonce: Date.now() })}
+            onRemoveArea={(name) => setDismissArea({ name, nonce: Date.now() })}
+            onRemoveTrail={(name) => setDismissTrail({ name, nonce: Date.now() })}
           />
         </main>
         {posterOpen && selectedId != null && (
@@ -225,13 +247,25 @@ export function App() {
               setCropLatLng(null);
               setCropStops([]);
               setPois([]);
+              setNamedWays([]);
+              setNamedAreas([]);
+              setWays(null);
+              setSchematicLayers(null);
               setDismissPoi(null);
+              setDismissArea(null);
+              setDismissTrail(null);
               setRefineFrom(null);
             }}
             onCropChange={setCropLatLng}
             onStopsChange={setCropStops}
             onPoisChange={setPois}
+            onNamedWaysChange={setNamedWays}
+            onNamedAreasChange={setNamedAreas}
+            onWaysChange={setWays}
+            onSchematicLayersChange={setSchematicLayers}
             dismissPoi={dismissPoi}
+            dismissArea={dismissArea}
+            dismissTrail={dismissTrail}
           />
         )}
       </div>

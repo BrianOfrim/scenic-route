@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { assertUsableSpec, buildPlannerMessages, repairPlannerOutput, type PlannerInput } from "./planner";
-import { validatePosterSpec } from "./posterSpec";
+import { specToImagePrompt, validatePosterSpec } from "./posterSpec";
 
 const input: PlannerInput = {
   activity: { name: "Lunch ride", sportType: "Ride", isLoop: true },
@@ -38,18 +38,26 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   const messages = buildPlannerMessages(input);
   assert.equal(messages.length, 2);
   assert.match(String(messages[0].content), /geographic source of truth/);
-  assert.match(String(messages[0].content), /exact GPS track/);
+  assert.match(String(messages[0].content), /GPS track on the schematic is exact/);
   assert.match(String(messages[0].content), /route-only image/);
   assert.match(String(messages[0].content), /every separate stroke/);
   assert.match(String(messages[0].content), /do not redesign it/i);
   assert.match(String(messages[0].content), /optional finalPrompt/);
   assert.match(String(messages[0].content), /combined start\/finish marker/);
+  assert.match(String(messages[0].content), /write those names at the schematic start\/finish marker/);
+  assert.match(String(messages[0].content), /not title-block stats/);
   assert.match(String(messages[0].content), /never a prose string in place of an object/);
   assert.match(String(messages[0].content), /private index/);
   assert.match(String(messages[0].content), /never copy the numbers/);
+  assert.match(String(messages[0].content), /small marker on the route/);
+  assert.match(String(messages[0].content), /never occlude, break, or replace the route/);
+  assert.match(String(messages[0].content), /one line in route.color/);
+  assert.match(String(messages[0].content), /do not copy the schematic's route colors/);
   assert.match(String(messages[0].content), /"landmarks":\[\{"name":""/);
   const user = JSON.parse(String(messages[1].content)) as {
     landmarks: Array<Record<string, unknown>>;
+    namedTrails: Array<Record<string, unknown>>;
+    namedRegions: Array<Record<string, unknown>>;
     customStylePrompt: string;
     groundingImages: Array<{ role: string }>;
     routeMarkers: { enabled: boolean; mode: string };
@@ -60,6 +68,12 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.equal(user.landmarks[0].proximity, "on the route");
   assert.equal(user.landmarks[0].routeProgressPct, 12);
   assert.equal("lat" in user.landmarks[0], false, "planner payload should not carry coordinates");
+  assert.deepEqual(user.namedTrails, []);
+  assert.deepEqual(user.namedRegions, []);
+  assert.match(String(messages[0].content), /Named trails recolor stretches/);
+  assert.match(String(messages[0].content), /Named regions are pale ochre washes/);
+  assert.match(String(messages[0].content), /letter as a private name index/);
+  assert.match(String(messages[0].content), /never copy the letters/);
   assert.equal(user.customStylePrompt, "more negative space");
   assert.equal(user.groundingImages[0].role, "schematic");
   assert.deepEqual(user.routeMarkers, { enabled: true, mode: "loop" });
@@ -129,6 +143,30 @@ test("repairPlannerOutput leaves well-formed output alone and forces markers off
   assert.equal(spec.route.finishMarker, "none");
 });
 
+test("repairPlannerOutput stamps start and finish place names from routeMarkers", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Blueprint", medium: "cyanotype", palette: ["navy"], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "green dot", finishMarker: "black dot", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    {
+      ...input,
+      routeMarkers: { enabled: true, mode: "start-finish", startName: "Camrose", finishName: "Edmonton" },
+    },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.route.startName, "Camrose");
+  assert.equal(spec.route.finishName, "Edmonton");
+  assert.match(specToImagePrompt(spec), /Write "Camrose" at the start marker and "Edmonton" at the finish marker/);
+});
+
 test("repairPlannerOutput stamps schematic pin numbers by landmark name", () => {
   const repaired = repairPlannerOutput(
     {
@@ -166,6 +204,146 @@ test("repairPlannerOutput stamps schematic pin numbers by landmark name", () => 
       [2, "Augustana"],
       [1, "Norsemen Inn"],
     ],
+  );
+});
+
+const augustanaArea = {
+  name: "Augustana",
+  kind: "university",
+  geometry: {
+    type: "Polygon" as const,
+    coordinates: [[[-112.84, 53.01], [-112.82, 53.01], [-112.82, 53.03], [-112.84, 53.03], [-112.84, 53.01]]],
+  },
+  lat: 53.02,
+  lng: -112.83,
+  distToRouteM: 30,
+  routeFrac: 0.5,
+  bearing: "east",
+  xy: { x: 0.6, y: 0.5, region: "middle-right" },
+};
+
+const porcupineTrail = {
+  name: "Porcupine Rim",
+  kind: "trail",
+  geometry: { type: "MultiLineString" as const, coordinates: [[[-109.5, 38.6], [-109.49, 38.599]]] },
+  lat: 38.6,
+  lng: -109.5,
+  distToRouteM: 20,
+  routeFrac: 0.3,
+  bearing: "east",
+  xy: { x: 0.7, y: 0.4, region: "upper-right" },
+  colorName: "teal",
+};
+
+test("buildPlannerMessages sends named trail colors without geometry", () => {
+  const messages = buildPlannerMessages({ ...input, namedWays: [porcupineTrail] });
+  const user = JSON.parse(String(messages[1].content)) as {
+    namedTrails: Array<Record<string, unknown>>;
+  };
+  assert.equal(user.namedTrails[0].name, "Porcupine Rim");
+  assert.equal(user.namedTrails[0].color, "teal");
+  assert.equal(user.namedTrails[0].treatment, "write the name along that stretch");
+  assert.doesNotMatch(String(user.namedTrails[0].treatment), /teal stretch/);
+  assert.equal("geometry" in user.namedTrails[0], false);
+  assert.equal("lat" in user.namedTrails[0], false);
+});
+
+test("repairPlannerOutput injects named trails into geography", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: [], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [{ kind: "water", name: "lake", placement: "left", treatment: "flat blue" }],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "x",
+    },
+    { ...input, namedWays: [porcupineTrail] },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.geography[1].name, "Porcupine Rim");
+  assert.equal(spec.geography[1].color, "teal");
+  assert.equal(spec.geography[1].treatment, "write the name along that stretch");
+  assert.doesNotMatch(spec.geography[1].treatment, /teal stretch/);
+});
+
+test("repairPlannerOutput strips legacy teal-stretch treatments", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: [], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [
+        {
+          kind: "trail",
+          name: "Porcupine Rim",
+          placement: "upper-right",
+          treatment: "teal stretch of the GPS track, write the name along that stretch",
+        },
+      ],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "Paint the teal stretch of the GPS track.",
+    },
+    { ...input, namedWays: [porcupineTrail] },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.geography[0].color, "teal");
+  assert.equal(spec.geography[0].treatment, "write the name along that stretch");
+  assert.doesNotMatch(specToImagePrompt(spec), /teal stretch of the GPS track/);
+});
+
+test("buildPlannerMessages sends named regions and one-level inside clauses", () => {
+  const messages = buildPlannerMessages({
+    ...input,
+    pois: [{ ...input.pois[0], inside: "Augustana" }],
+    namedAreas: [augustanaArea],
+  });
+  const user = JSON.parse(String(messages[1].content)) as {
+    landmarks: Array<Record<string, unknown>>;
+    namedRegions: Array<Record<string, unknown>>;
+  };
+  assert.equal(user.landmarks[0].placement, "upper-left, west of the route, inside Augustana");
+  assert.equal(user.namedRegions[0].name, "Augustana");
+  assert.equal(user.namedRegions[0].kind, "university");
+  assert.equal(user.namedRegions[0].letter, "A");
+  assert.match(String(user.namedRegions[0].treatment), /pale wash/);
+  assert.equal("geometry" in user.namedRegions[0], false);
+});
+
+test("repairPlannerOutput injects named regions and drops them from landmarks", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: [], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [{ kind: "water", name: "lake", placement: "left", treatment: "flat blue" }],
+      landmarks: [
+        { name: "Augustana", kind: "university", placement: "center", icon: "campus" },
+        { name: "Norsemen Inn", kind: "pub", placement: "upper-left", icon: "" },
+      ],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "x",
+    },
+    { ...input, namedAreas: [augustanaArea] },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.deepEqual(
+    spec.geography.map((item) => item.name),
+    ["lake", "Augustana"],
+  );
+  assert.match(spec.geography[1].treatment, /pale wash/);
+  assert.equal(spec.geography[1].letter, "A");
+  assert.deepEqual(
+    spec.landmarks.map((item) => item.name),
+    ["Norsemen Inn"],
   );
 });
 

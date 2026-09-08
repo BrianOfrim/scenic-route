@@ -1,4 +1,5 @@
 import type { Geometry } from "geojson";
+import { routeVertexColors } from "../trailColors";
 
 export type AspectRatio = "2:3" | "3:4" | "1:1" | "4:3" | "16:9";
 
@@ -9,12 +10,29 @@ type WayFeature = {
 
 export type RenderSchematicOptions = {
   latlng: [number, number][];
-  bbox: [[number, number], [number, number]];
+  bbox?: [[number, number], [number, number]];
   ways?: Record<string, { features?: WayFeature[] }>;
   /** Landmarks drawn as numbered discs, most important first. Names live in the prompt key. */
   pois?: Array<{ name: string; lat: number; lng: number }>;
   /** Landmarks drawn as a dot only, so the image model sees the place without a label to garble. */
   unlabeledPois?: Array<{ name: string; lat: number; lng: number }>;
+  /** Named trails recolor the GPS track. Names live in the prompt color key. */
+  namedWays?: Array<{
+    name: string;
+    color?: string;
+    geometry: { type: "MultiLineString"; coordinates: number[][][] };
+    routeSpans?: Array<{ start: number; end: number }>;
+  }>;
+  /** Named districts drawn as washes. Letters are a private index; names live in the prompt. */
+  namedAreas?: Array<{
+    name: string;
+    letter?: string;
+    lat?: number;
+    lng?: number;
+    geometry:
+      | { type: "Polygon"; coordinates: number[][][] }
+      | { type: "MultiPolygon"; coordinates: number[][][][] };
+  }>;
   layers?: {
     roads?: boolean;
     streets?: boolean;
@@ -33,9 +51,36 @@ export type RenderSchematicOptions = {
   silhouette?: boolean;
 };
 
+export type SchematicLayers = NonNullable<RenderSchematicOptions["layers"]>;
+
+export function schematicLayersFromFeatureIds(
+  featureIds: readonly string[],
+  routeMarkers: false | "ends" | "loop" = "ends",
+): SchematicLayers {
+  return {
+    roads: featureIds.includes("major-roads"),
+    streets: featureIds.includes("streets"),
+    paths: featureIds.includes("paths"),
+    rail: featureIds.includes("rail"),
+    water: featureIds.includes("lakes") || featureIds.includes("rivers"),
+    forest: featureIds.includes("forest"),
+    parks: featureIds.includes("parks"),
+    farmland: featureIds.includes("farmland"),
+    cemeteries: featureIds.includes("cemeteries"),
+    labels: true,
+    route: true,
+    routeMarkers,
+  };
+}
+
+/** Keep strokes readable as the map zooms in or out of a fitted route. */
+export function schematicLineScale(zoom: number) {
+  return Math.min(5, Math.max(0.75, 2 ** (zoom - 13)));
+}
+
 const SHORT_SIDE = 1024;
 const MARGIN = 0.03;
-const PIN_FONT = "700 14px IBM Plex Sans, Helvetica Neue, Arial, sans-serif";
+const ROUTE_COLOR = "#ff0000";
 
 const ROAD_WIDTH: Record<string, number> = {
   motorway: 2.6,
@@ -49,18 +94,42 @@ export function drawRouteEndMarkers(
   start: [number, number],
   end: [number, number],
   mode: "ends" | "loop",
+  scale = 1,
 ) {
   if (mode === "loop") {
-    loopDot(ctx, start[0], start[1]);
+    loopDot(ctx, start[0], start[1], scale);
     return;
   }
-  dot(ctx, start[0], start[1], "#2f9e44", 6);
-  dot(ctx, end[0], end[1], "#111111", 6);
+  dot(ctx, start[0], start[1], "#2f9e44", 8 * scale);
+  dot(ctx, end[0], end[1], "#111111", 8 * scale);
 }
 
-function loopDot(ctx: CanvasRenderingContext2D, x: number, y: number) {
-  dot(ctx, x, y, "#c9a227", 9);
-  dot(ctx, x, y, "#2f9e44", 5);
+function drawGpsTrack(
+  ctx: CanvasRenderingContext2D,
+  points: [number, number][],
+  vertexColors: Array<string | null>,
+  scale = 1,
+) {
+  if (points.length < 2) return;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  const runs: Array<{ color: string | null; start: number; end: number }> = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const color = vertexColors[i] ?? vertexColors[i + 1] ?? null;
+    const last = runs[runs.length - 1];
+    if (last && last.color === color && last.end === i) last.end = i + 1;
+    else runs.push({ color, start: i, end: i + 1 });
+  }
+  ctx.lineWidth = 6 * scale;
+  for (const run of runs) {
+    ctx.strokeStyle = run.color ?? ROUTE_COLOR;
+    strokePoints(ctx, points.slice(run.start, run.end + 1));
+  }
+}
+
+function loopDot(ctx: CanvasRenderingContext2D, x: number, y: number, scale = 1) {
+  dot(ctx, x, y, "#c9a227", 11 * scale);
+  dot(ctx, x, y, "#2f9e44", 6 * scale);
 }
 
 function dot(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, r: number) {
@@ -91,67 +160,81 @@ export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchema
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Could not create a 2D canvas context");
+  if (!options.bbox) throw new Error("Schematic bbox is required");
   const project = projector(options.bbox, width, height);
+  drawSchematicScene(ctx, options, project, { width, height });
+  return canvas.toDataURL("image/png");
+}
 
-  ctx.fillStyle = options.silhouette ? "#f4efe4" : "#f7f4ec";
-  ctx.fillRect(0, 0, width, height);
-
+export function drawSchematicScene(
+  ctx: CanvasRenderingContext2D,
+  options: RenderSchematicOptions,
+  project: (lng: number, lat: number) => [number, number],
+  view: { width: number; height: number; lineScale?: number; northArrow?: boolean },
+) {
+  const scale = view.lineScale ?? 1;
   const layers = options.layers ?? {};
   const ways = options.ways ?? {};
+
+  ctx.fillStyle = options.silhouette ? "#f4efe4" : "#f7f4ec";
+  ctx.fillRect(0, 0, view.width, view.height);
 
   if (!options.silhouette) {
     if (layers.farmland !== false) fillBucket(ctx, ways.farmland, project, "rgba(214, 196, 140, 0.45)");
     if (layers.cemeteries !== false) fillBucket(ctx, ways.cemeteries, project, "rgba(186, 178, 162, 0.55)");
+    drawNamedAreaFills(ctx, options.namedAreas ?? [], project);
     if (layers.parks !== false) fillBucket(ctx, ways.parks, project, "rgba(164, 196, 148, 0.5)");
     if (layers.forest !== false) fillBucket(ctx, ways.forest, project, "rgba(176, 201, 156, 0.55)");
     if (layers.water !== false) {
       fillBucket(ctx, ways.water, project, "rgba(154, 196, 214, 0.7)");
       ctx.strokeStyle = "rgba(90, 150, 180, 0.85)";
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = 1.4 * scale;
       strokeBucket(ctx, ways.waterways, project);
     }
-    if (layers.roads !== false) strokeRoads(ctx, ways.roads, project, "#9a958c");
-    if (layers.streets !== false) strokeRoads(ctx, ways.streets, project, "#b4afa6");
+    drawNamedAreaOutlines(ctx, options.namedAreas ?? [], project, scale);
+    if (layers.roads !== false) strokeRoads(ctx, ways.roads, project, "#9a958c", scale);
+    if (layers.streets !== false) strokeRoads(ctx, ways.streets, project, "#b4afa6", scale);
     if (layers.paths !== false) {
-      ctx.setLineDash([4, 3]);
+      ctx.setLineDash([4 * scale, 3 * scale]);
       ctx.strokeStyle = "#7a6f5f";
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1 * scale;
       strokeBucket(ctx, ways.paths, project);
       ctx.setLineDash([]);
     }
     if (layers.rail !== false) {
-      ctx.setLineDash([3, 3]);
+      ctx.setLineDash([3 * scale, 3 * scale]);
       ctx.strokeStyle = "#6b6560";
-      ctx.lineWidth = 1.1;
+      ctx.lineWidth = 1.1 * scale;
       strokeBucket(ctx, ways.rail, project);
       ctx.setLineDash([]);
     }
   }
 
-  const route = simplify(options.latlng, 2000).map(([lat, lng]) => project(lng, lat));
+  const trails = (options.namedWays ?? []).flatMap((trail) =>
+    trail.color ? [{ color: trail.color, geometry: trail.geometry, routeSpans: trail.routeSpans }] : [],
+  );
+  const sampled = simplifyColored(
+    options.latlng,
+    options.silhouette || !trails.length ? null : routeVertexColors(options.latlng, trails),
+    2000,
+  );
+  const route = sampled.latlng.map(([lat, lng]) => project(lng, lat));
   const markers = options.silhouette ? false : (layers.routeMarkers ?? "ends");
   if ((layers.route !== false || options.silhouette) && route.length >= 2) {
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "#7f0000";
-    ctx.lineWidth = 3;
-    strokePoints(ctx, route);
-    ctx.strokeStyle = "#ff0000";
-    ctx.lineWidth = 2;
-    strokePoints(ctx, route);
-    if (markers) drawRouteEndMarkers(ctx, route[0], route[route.length - 1], markers);
+    const vertexColors = sampled.colors ?? route.map(() => null);
+    drawGpsTrack(ctx, route, vertexColors, scale);
+    if (markers) drawRouteEndMarkers(ctx, route[0], route[route.length - 1], markers, scale);
   }
 
   if (!options.silhouette && layers.labels !== false) {
     for (const poi of options.unlabeledPois ?? []) {
       const [x, y] = project(poi.lng, poi.lat);
-      poiDot(ctx, x, y, 3);
+      poiDot(ctx, x, y, 3 * scale);
     }
-    drawNorthArrow(ctx, width - 40, 40);
-    drawNumberedPins(ctx, options.pois ?? [], project);
+    if (view.northArrow !== false) drawNorthArrow(ctx, view.width - 40, 40, scale);
+    drawAreaLetters(ctx, options.namedAreas ?? [], project, scale);
+    drawNumberedPins(ctx, options.pois ?? [], project, scale);
   }
-
-  return canvas.toDataURL("image/png");
 }
 
 function poiDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
@@ -168,28 +251,128 @@ function poiDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) 
  * Numbered discs sit on the geographic point. Names are not drawn here so the
  * image model cannot treat offset label text as the landmark's location.
  */
+type SchematicArea = {
+  letter?: string;
+  lat?: number;
+  lng?: number;
+  geometry:
+    | { type: "Polygon"; coordinates: number[][][] }
+    | { type: "MultiPolygon"; coordinates: number[][][][] };
+};
+
+/** Ochre sits under park/forest/water so land cover stays readable. */
+function drawNamedAreaFills(
+  ctx: CanvasRenderingContext2D,
+  areas: SchematicArea[],
+  project: (lng: number, lat: number) => [number, number],
+) {
+  if (!areas.length) return;
+  ctx.fillStyle = "rgba(196, 148, 88, 0.22)";
+  for (const area of areas) fillGeometry(ctx, area.geometry, project);
+}
+
+function drawNamedAreaOutlines(
+  ctx: CanvasRenderingContext2D,
+  areas: SchematicArea[],
+  project: (lng: number, lat: number) => [number, number],
+  scale = 1,
+) {
+  if (!areas.length) return;
+  ctx.setLineDash([5 * scale, 3 * scale]);
+  ctx.strokeStyle = "rgba(150, 96, 48, 0.75)";
+  ctx.lineWidth = 1.4 * scale;
+  ctx.lineJoin = "round";
+  for (const area of areas) strokeAreaGeometry(ctx, area.geometry, project);
+  ctx.setLineDash([]);
+}
+
+/** Letter in the wash — no disc. Names live in the prompt. */
+function drawAreaLetters(
+  ctx: CanvasRenderingContext2D,
+  areas: SchematicArea[],
+  project: (lng: number, lat: number) => [number, number],
+  scale = 1,
+) {
+  if (!areas.length) return;
+  ctx.font = `700 ${Math.round(16 * scale)}px IBM Plex Sans, Helvetica Neue, Arial, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const area of areas) {
+    if (!area.letter) continue;
+    const [x, y] = project(...areaLetterPoint(area));
+    ctx.lineWidth = 3.2 * scale;
+    ctx.strokeStyle = "rgba(255, 248, 236, 0.92)";
+    ctx.strokeText(area.letter, x, y);
+    ctx.fillStyle = "#6b3f1a";
+    ctx.fillText(area.letter, x, y);
+  }
+}
+
+function areaLetterPoint(area: SchematicArea): [number, number] {
+  const ring =
+    area.geometry.type === "Polygon" ? area.geometry.coordinates[0] : area.geometry.coordinates[0]?.[0];
+  if (ring?.length) {
+    const pts =
+      ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]
+        ? ring.slice(0, -1)
+        : ring;
+    if (pts.length) {
+      let lng = 0;
+      let lat = 0;
+      for (const [x, y] of pts) {
+        lng += x;
+        lat += y;
+      }
+      return [lng / pts.length, lat / pts.length];
+    }
+  }
+  if (area.lng != null && area.lat != null) return [area.lng, area.lat];
+  return [0, 0];
+}
+
+function strokeAreaGeometry(
+  ctx: CanvasRenderingContext2D,
+  geometry:
+    | { type: "Polygon"; coordinates: number[][][] }
+    | { type: "MultiPolygon"; coordinates: number[][][][] },
+  project: (lng: number, lat: number) => [number, number],
+) {
+  if (geometry.type === "Polygon") {
+    for (const ring of geometry.coordinates) {
+      strokePoints(ctx, ring.map(([lng, lat]) => project(lng, lat)));
+    }
+    return;
+  }
+  for (const polygon of geometry.coordinates) {
+    for (const ring of polygon) {
+      strokePoints(ctx, ring.map(([lng, lat]) => project(lng, lat)));
+    }
+  }
+}
+
 function drawNumberedPins(
   ctx: CanvasRenderingContext2D,
   pois: Array<{ name: string; lat: number; lng: number }>,
   project: (lng: number, lat: number) => [number, number],
+  scale = 1,
 ) {
   if (!pois.length) return;
-  ctx.font = PIN_FONT;
+  ctx.font = `700 ${Math.round(14 * scale)}px IBM Plex Sans, Helvetica Neue, Arial, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   pois.forEach((poi, index) => {
     const [x, y] = project(poi.lng, poi.lat);
     const label = String(index + 1);
-    const r = label.length > 1 ? 12 : 10;
+    const r = (label.length > 1 ? 12 : 10) * scale;
     ctx.fillStyle = "#1d1a16";
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 1.8;
+    ctx.lineWidth = 1.8 * scale;
     ctx.stroke();
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(label, x, y + 0.5);
+    ctx.fillText(label, x, y + 0.5 * scale);
   });
 }
 
@@ -218,12 +401,13 @@ function strokeRoads(
   bucket: { features?: WayFeature[] } | undefined,
   project: (lng: number, lat: number) => [number, number],
   color: string,
+  scale = 1,
 ) {
   ctx.strokeStyle = color;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   for (const feature of bucket?.features ?? []) {
-    ctx.lineWidth = ROAD_WIDTH[feature.properties?.class ?? ""] ?? 0.9;
+    ctx.lineWidth = (ROAD_WIDTH[feature.properties?.class ?? ""] ?? 0.9) * scale;
     strokeGeometry(ctx, feature.geometry, project);
   }
 }
@@ -332,24 +516,35 @@ function strokePoints(ctx: CanvasRenderingContext2D, points: [number, number][])
   ctx.stroke();
 }
 
-function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number) {
+function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number, scale = 1) {
   ctx.fillStyle = "#111";
   ctx.beginPath();
-  ctx.moveTo(x, y - 16);
-  ctx.lineTo(x + 6, y + 8);
-  ctx.lineTo(x, y + 3);
-  ctx.lineTo(x - 6, y + 8);
+  ctx.moveTo(x, y - 16 * scale);
+  ctx.lineTo(x + 6 * scale, y + 8 * scale);
+  ctx.lineTo(x, y + 3 * scale);
+  ctx.lineTo(x - 6 * scale, y + 8 * scale);
   ctx.closePath();
   ctx.fill();
-  ctx.font = "600 13px IBM Plex Sans, Helvetica Neue, Arial, sans-serif";
+  ctx.font = `600 ${Math.round(13 * scale)}px IBM Plex Sans, Helvetica Neue, Arial, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.fillText("N", x, y + 11);
+  ctx.fillText("N", x, y + 11 * scale);
   ctx.textAlign = "start";
 }
 
-function simplify(latlng: [number, number][], maxPoints: number) {
-  if (latlng.length <= maxPoints) return latlng;
+function simplifyColored(
+  latlng: [number, number][],
+  colors: Array<string | null> | null,
+  maxPoints: number,
+): { latlng: [number, number][]; colors: Array<string | null> | null } {
+  if (latlng.length <= maxPoints) return { latlng, colors };
   const step = (latlng.length - 1) / (maxPoints - 1);
-  return Array.from({ length: maxPoints }, (_, index) => latlng[Math.round(index * step)]);
+  const nextLat: [number, number][] = [];
+  const nextColors: Array<string | null> | null = colors ? [] : null;
+  for (let index = 0; index < maxPoints; index += 1) {
+    const i = Math.round(index * step);
+    nextLat.push(latlng[i]);
+    nextColors?.push(colors[i] ?? null);
+  }
+  return { latlng: nextLat, colors: nextColors };
 }

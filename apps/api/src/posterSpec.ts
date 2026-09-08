@@ -20,6 +20,8 @@ export type PosterSpecRoute = {
   color: string;
   startMarker: string;
   finishMarker: string;
+  startName?: string;
+  finishName?: string;
   shapeNotes: string;
 };
 
@@ -28,6 +30,10 @@ export type PosterSpecGeography = {
   name: string;
   placement: string;
   treatment: string;
+  /** Schematic index color only. Never a poster paint instruction. */
+  color?: string;
+  /** Schematic wash letter only. Never a poster paint instruction. */
+  letter?: string;
 };
 
 export type PosterSpecLandmark = {
@@ -112,6 +118,8 @@ export const POSTER_SPEC_SCHEMA = {
         color: { type: "string" },
         startMarker: { type: "string" },
         finishMarker: { type: "string" },
+        startName: { type: "string" },
+        finishName: { type: "string" },
         shapeNotes: { type: "string" },
       },
     },
@@ -126,6 +134,8 @@ export const POSTER_SPEC_SCHEMA = {
           name: { type: "string" },
           placement: { type: "string" },
           treatment: { type: "string" },
+          color: { type: "string" },
+          letter: { type: "string" },
         },
       },
     },
@@ -233,6 +243,8 @@ export function validatePosterSpec(raw: unknown): PosterSpec {
       color: asString(route.color),
       startMarker: asString(route.startMarker),
       finishMarker: asString(route.finishMarker),
+      startName: asString(route.startName),
+      finishName: asString(route.finishName),
       shapeNotes: asString(route.shapeNotes),
     },
     geography: Array.isArray(raw.geography)
@@ -241,6 +253,8 @@ export function validatePosterSpec(raw: unknown): PosterSpec {
           name: asString(item.name),
           placement: asString(item.placement),
           treatment: asString(item.treatment),
+          color: asString(item.color) || undefined,
+          letter: asString(item.letter) || undefined,
         }))
       : [],
     landmarks: Array.isArray(raw.landmarks)
@@ -287,20 +301,27 @@ export function validatePosterSpec(raw: unknown): PosterSpec {
 export const PROMPT_EXCLUSIONS = [
   "no legend strip or color key",
   "no number-to-name legend or index",
+  "no color-to-name legend or trail color key",
+  "no letter-to-name region key",
+  "no A/B/C wash letters on the finished poster",
+  "no schematic route colors on the finished path",
+  "no multi-colored GPS track copied from the schematic",
   "no numbered landmark discs, pin numbers, or numbered callouts",
   "no latitude/longitude numbers, coordinates, or grid lines",
   "no watermark",
-  "no text other than the title block and the listed landmark names",
-  "no different route than the red line on the schematic",
+  "no text other than the title block and the listed landmark, trail, region, and start/finish names",
+  "no different route than the GPS track on the schematic",
   "no smoothed, straightened, shortcut, or invented path",
   "no omitted out-and-backs, spurs, or crossings",
+  "no labels or landmark illustrations covering, breaking, or replacing the route",
+  "no landmark icon used as a destination or gap in the path",
 ];
 
 /** Locked at the front of every image prompt. The route is the product. */
 export const ROUTE_TRACE_RULE =
-  "CRITICAL route fidelity: the red line on the schematic is the exact GPS track. Trace it exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and landmarks. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Do not snap the path onto a nearby road unless the schematic already shows that. A prettier wrong path is a failed poster. North is up.";
+  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and landmarks. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Do not snap the path onto a nearby road unless the schematic already shows that. Colored stretches on the schematic are a private name index only: look up the trail name, then discard the color. Paint the whole path as one styled route of even thickness. Do not copy the schematic's red or named-trail colors, and do not draw a colored stretch thinner or fainter than the rest. Never interrupt the line for a label, icon, or decoration: the route stays continuous and unoccluded; landmarks annotate it, they do not replace it. A prettier wrong path is a failed poster. North is up.";
 
-const t = (value: string) => value.trim();
+const t = (value?: string) => (value ?? "").trim();
 const sentence = (value: string) => {
   const text = t(value);
   if (!text) return "";
@@ -322,6 +343,7 @@ function scrubIndexLanguage(text: string) {
   return text
     .replace(/Numbered[^.!?\n]*discs mark landmarks\.?/gi, "")
     .replace(/Landmarks are represented solely by numbered[^.!?\n]*\.?/gi, "")
+    .replace(/\b(teal|amber|violet|sky|magenta|olive|coral|indigo)\s+stretch of the GPS track[,;]?\s*/gi, "")
     .replace(/\s{2,}/g, " ")
     .replace(/\s+\./g, ".")
     .trim();
@@ -364,7 +386,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
   sections.push(
     paragraph([
       routeLine(spec.route.treatment, spec.route.color),
-      markerPrompt(spec.route.startMarker, spec.route.finishMarker),
+      markerPrompt(spec.route.startMarker, spec.route.finishMarker, spec.route.startName, spec.route.finishName),
       labeled("Route shape", spec.route.shapeNotes),
     ]),
   );
@@ -372,19 +394,31 @@ export function specToImagePrompt(spec: PosterSpec): string {
   const geography = spec.geography
     .map((item) => {
       const head = [t(item.kind), t(item.name)].filter(Boolean).join(" ");
-      const tail = [t(item.placement), t(item.treatment)].filter(Boolean).join("; ");
+      const treatment = isColoredTrail(item)
+        ? posterTrailTreatment()
+        : isNamedRegion(item)
+          ? posterRegionTreatment()
+          : t(item.treatment);
+      const tail = [t(item.placement), treatment].filter(Boolean).join("; ");
       if (!head && !tail) return "";
       return tail ? `${head || "feature"} (${tail})` : head;
     })
     .filter(Boolean);
-  if (geography.length) sections.push(`Geography: ${geography.join("; ")}.`);
+  if (geography.length) {
+    const regionNote = spec.geography.some(isNamedRegion)
+      ? " Named regions on the schematic are pale washes with a letter, not numbered discs. Look up each letter, write that name across the wash, then discard the letter. Do not draw the letters, a pin, a building icon, or a key."
+      : "";
+    const trailKey = trailColorKey(spec.geography);
+    const regionKey = regionLetterKey(spec.geography);
+    sections.push(`Geography: ${geography.join("; ")}.${regionNote}${trailKey}${regionKey}`);
+  }
 
   const landmarks = spec.landmarks
     .filter((item) => t(item.name))
     .map((item, index) => formatLandmarkKeyEntry(item, index));
   if (landmarks.length) {
     sections.push(
-      `Landmarks: the numbered discs on the schematic are a private location index. Look up where each place sits, then discard the number. Write each name once, in the poster lettering, directly on the map at that spot. Place any illustration or icon at the same spot as the name. Do not draw the numbers. Do not add a legend, key, or numbered callouts. ${landmarks.join("; ")}.`,
+      `Landmarks: the numbered discs on the schematic are a private location index. Look up where each place sits, then discard the number. A small marker may sit on the route at that spot. Write each name once, in the poster lettering, beside the marker — offset off the path so the label occludes the route as little as possible. Any icon or illustration sits with the name, off the path, and must stay small. Never cover, break, gap, or replace the route with a label or icon, and never treat an icon as a destination. Do not draw the numbers. Do not add a legend, key, or numbered callouts. ${landmarks.join("; ")}.`,
     );
   }
 
@@ -408,12 +442,15 @@ export function specToImagePrompt(spec: PosterSpec): string {
   sections.push(
     paragraph([
       images.length ? `Reference images: ${images.join("; ")}.` : "",
-      "The schematic is the geographic source of truth. Copy the red route as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and landmarks; north is up.",
+      "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and landmarks; north is up. Paint that path as one styled line. Do not copy the schematic's route colors.",
       hasRouteOnly
         ? "The route-only image is the same red GPS track as the schematic, with geography removed. Every separate red stroke on it is a required segment — including lines that run parallel, hug a shore, or almost touch. Do not drop a stroke because water or another part of the route is nearby."
         : "",
       landmarks.length
-        ? "The schematic's numbered discs are scaffolding, not artwork. Copy geography and the exact route from the reference; replace every disc with the written name from the landmark list."
+        ? "The schematic's numbered discs are scaffolding, not artwork. Copy geography and the exact route from the reference; replace every disc with a small on-route marker plus the written name from the landmark list, kept off the path so the route stays visible and continuous."
+        : "",
+      spec.geography.some(isNamedRegion)
+        ? "The schematic's wash letters are scaffolding, not artwork. Replace every letter with the written district name from the geography list."
         : "",
       groundingRules.length ? `${groundingRules.map(sentence).join(" ")}` : "",
     ]),
@@ -427,6 +464,69 @@ export function specToImagePrompt(spec: PosterSpec): string {
 
 export function landmarkPin(item: { pin?: number; name?: string }, index: number) {
   return item.pin && item.pin > 0 ? item.pin : index + 1;
+}
+
+const NAMED_REGION_KINDS = new Set([
+  "neighbourhood",
+  "neighborhood",
+  "quarter",
+  "university",
+  "college",
+  "campus",
+  "park",
+  "nature_reserve",
+]);
+
+function isNamedRegion(item: PosterSpecGeography) {
+  const kind = t(item.kind).toLowerCase();
+  if (NAMED_REGION_KINDS.has(kind)) return true;
+  return /pale wash|across the (region|district)|not a pin/i.test(item.treatment);
+}
+
+function trailColorKey(items: PosterSpecGeography[]) {
+  const trails = items.filter(isColoredTrail);
+  if (!trails.length) return "";
+  const map = trails
+    .map((item) => {
+      const color = trailColorWord(item);
+      return color && t(item.name) ? `${color} = ${t(item.name)}` : "";
+    })
+    .filter(Boolean);
+  if (!map.length) return "";
+  return ` Colored stretches of the GPS track are a private trail index, like the numbered discs. Red is unnamed track. Named and unnamed stretches are the same line weight. Look up each color, write that trail name along that stretch, then discard the color. Paint the entire GPS track as one continuous line in the poster route color, same thickness throughout. Never keep the schematic's red, teal, amber, violet, or any other index color. Do not draw a color key. ${map.join("; ")}.`;
+}
+
+function posterTrailTreatment() {
+  return "write the name along that stretch; paint with the poster route color, not the schematic color";
+}
+
+function posterRegionTreatment() {
+  return "write the name across the wash; do not draw the letter";
+}
+
+function regionLetterKey(items: PosterSpecGeography[]) {
+  const regions = items.filter(isNamedRegion);
+  if (!regions.length) return "";
+  const map = regions
+    .map((item) => {
+      const letter = t(item.letter);
+      return letter && t(item.name) ? `${letter} = ${t(item.name)}` : "";
+    })
+    .filter(Boolean);
+  if (!map.length) return "";
+  return ` Letters in the ochre washes are a private region index, like the numbered discs. Look up each letter, write that name across the wash, then discard the letter. Do not draw the letters or a key. ${map.join("; ")}.`;
+}
+
+function isColoredTrail(item: PosterSpecGeography) {
+  if (/^trail$/i.test(t(item.kind))) return true;
+  return Boolean(t(item.color ?? "")) || /stretch of the GPS track/i.test(item.treatment);
+}
+
+function trailColorWord(item: PosterSpecGeography) {
+  const explicit = t(item.color ?? "").toLowerCase();
+  if (explicit) return explicit;
+  const match = /^([a-z]+)\s+stretch of the GPS track/i.exec(t(item.treatment));
+  return match?.[1]?.toLowerCase() ?? "";
 }
 
 function formatLandmarkKeyEntry(
@@ -449,17 +549,32 @@ function routeLine(treatment: string, color: string) {
   return "";
 }
 
-function markerPrompt(start: string, finish: string) {
+function placeNamePrompt(startName?: string, finishName?: string) {
+  const start = (startName ?? "").trim();
+  const finish = (finishName ?? "").trim();
+  if (!start && !finish) return "";
+  if (start && (!finish || start.toLowerCase() === finish.toLowerCase())) {
+    return `Write "${start}" at the start/finish marker. That marker is a private location index; the schematic has no start/finish text. Do not put this name in the title block.`;
+  }
+  if (start && finish) {
+    return `Write "${start}" at the start marker and "${finish}" at the finish marker. Those markers are a private location index; the schematic has no start/finish text. These names sit on the map, not in the title block.`;
+  }
+  return `Write "${finish}" at the finish marker. That marker is a private location index; the schematic has no start/finish text. Do not put this name in the title block.`;
+}
+
+function markerPrompt(start: string, finish: string, startName?: string, finishName?: string) {
   const startMark = start.trim();
   const finishMark = finish.trim();
   const blank = (value: string) => !value || /^none$/i.test(value);
-  if (blank(startMark) && blank(finishMark)) return "";
-  if (startMark && finishMark && startMark.toLowerCase() === finishMark.toLowerCase()) {
-    return `Marker: ${startMark}.`;
-  }
-  return [startMark && `Start marker: ${startMark}.`, finishMark && `Finish marker: ${finishMark}.`]
-    .filter(Boolean)
-    .join(" ");
+  const marks =
+    blank(startMark) && blank(finishMark)
+      ? ""
+      : startMark && finishMark && startMark.toLowerCase() === finishMark.toLowerCase()
+        ? `Marker: ${startMark}.`
+        : [startMark && `Start marker: ${startMark}.`, finishMark && `Finish marker: ${finishMark}.`]
+            .filter(Boolean)
+            .join(" ");
+  return [marks, placeNamePrompt(startName, finishName)].filter(Boolean).join(" ");
 }
 
 function fallbackPrompt(spec: PosterSpec): string {
@@ -473,9 +588,9 @@ function fallbackPrompt(spec: PosterSpec): string {
     sentence(spec.style.medium),
     palette.length ? `Palette: ${palette.join(", ")}.` : "",
     routeLine(spec.route.treatment, spec.route.color),
-    markerPrompt(spec.route.startMarker, spec.route.finishMarker),
+    markerPrompt(spec.route.startMarker, spec.route.finishMarker, spec.route.startName, spec.route.finishName),
     landmarks
-      ? `Landmarks: ${landmarks}. Write each name on the map at its index location; do not draw the numbers or a legend.`
+      ? `Landmarks: ${landmarks}. A small marker may sit on the route at each index location; write each name and any icon beside the path so they occlude it as little as possible. Do not draw the numbers or a legend.`
       : "",
     `Title exactly "${t(spec.text.title)}".`,
     t(spec.text.subtitle) ? `Subtitle exactly "${t(spec.text.subtitle)}".` : "",

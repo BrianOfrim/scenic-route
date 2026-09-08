@@ -29,6 +29,45 @@ export function sliceTrack(latlng: [number, number][], start: number, end: numbe
   return latlng.slice(lo, hi + 1);
 }
 
+/** Same corridor the API uses when first picking landmarks. */
+export const LANDMARK_NEAR_ROUTE_M = 100;
+
+export function distToTrackM(point: [number, number], latlng: [number, number][]): number {
+  let best = Infinity;
+  for (const vertex of latlng) {
+    const dist = haversineM(vertex, point);
+    if (dist < best) best = dist;
+    if (best === 0) return 0;
+  }
+  return best;
+}
+
+export function isNearCroppedRoute(
+  extra: { lat: number; lng: number },
+  latlng: [number, number][],
+  maxM = LANDMARK_NEAR_ROUTE_M,
+): boolean {
+  if (latlng.length < 2) return false;
+  return distToTrackM([extra.lat, extra.lng], latlng) <= maxM;
+}
+
+/** Shift Strava stream indexes into a cropped track. Empty is still spanned. */
+export function shiftRouteSpans(
+  spans: Array<{ start: number; end: number }> | undefined,
+  cropStart: number,
+  cropEnd: number,
+): Array<{ start: number; end: number }> | undefined {
+  if (spans === undefined) return undefined;
+  const shifted: Array<{ start: number; end: number }> = [];
+  for (const span of spans) {
+    const start = Math.max(span.start, cropStart) - cropStart;
+    const end = Math.min(span.end, cropEnd) - cropStart;
+    if (end < start) continue;
+    shifted.push({ start, end });
+  }
+  return shifted;
+}
+
 export function isClosedLoop(latlng: [number, number][]): boolean {
   if (latlng.length < 2) return false;
   const closeM = Math.max(150, 0.02 * trackDistanceM(latlng));
@@ -93,14 +132,7 @@ function isNearTrack(
   maxM: number,
 ) {
   if (typeof extra.distToRouteM === "number") return extra.distToRouteM <= maxM;
-  const point: [number, number] = [extra.lat, extra.lng];
-  let best = Infinity;
-  for (const vertex of latlng) {
-    const dist = haversineM(vertex, point);
-    if (dist < best) best = dist;
-    if (best <= maxM) return true;
-  }
-  return best <= maxM;
+  return isNearCroppedRoute(extra, latlng, maxM);
 }
 
 function haversineM(a: [number, number], b: [number, number]) {

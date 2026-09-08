@@ -149,12 +149,12 @@ export function simplifyTrack(
   latlng: LatLng[],
   maxPoints = 1200,
   keep: number[] = [],
-): { points: LatLng[]; kept: number[] } {
+): { points: LatLng[]; kept: number[]; indexes: number[] } {
   const validKeep = [...new Set(keep.filter((index) => Number.isInteger(index) && index >= 0 && index < latlng.length))].sort(
     (a, b) => a - b,
   );
   if (latlng.length <= maxPoints) {
-    return { points: latlng, kept: validKeep };
+    return { points: latlng, kept: validKeep, indexes: latlng.map((_, index) => index) };
   }
   const step = (latlng.length - 1) / (maxPoints - 1);
   const indexSet = new Set<number>();
@@ -166,7 +166,31 @@ export function simplifyTrack(
   return {
     points: indexes.map((index) => latlng[index]),
     kept: validKeep.map((index) => indexes.indexOf(index)),
+    indexes,
   };
+}
+
+/** Map full-stream Strava indexes onto a simplified track. */
+export function remapRouteSpans(
+  spans: Array<{ start: number; end: number }> | undefined,
+  sourceIndexes: number[],
+): Array<{ start: number; end: number }> | undefined {
+  if (spans === undefined) return undefined;
+  const remapped: Array<{ start: number; end: number }> = [];
+  for (const span of spans) {
+    const lo = Math.min(span.start, span.end);
+    const hi = Math.max(span.start, span.end);
+    let first = -1;
+    let last = -1;
+    for (let i = 0; i < sourceIndexes.length; i += 1) {
+      const src = sourceIndexes[i];
+      if (src < lo || src > hi) continue;
+      if (first < 0) first = i;
+      last = i;
+    }
+    if (first >= 0) remapped.push({ start: first, end: last });
+  }
+  return remapped;
 }
 
 export function simplifyLatLng(latlng: LatLng[], maxPoints = 1200): LatLng[] {

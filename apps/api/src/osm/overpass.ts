@@ -11,12 +11,16 @@ import {
 } from "../geo";
 import { OSM_CACHE_DIR } from "../paths";
 
-const DEFAULT_ENDPOINT = "https://overpass-api.de/api/interpreter";
+const DEFAULT_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.openstreetmap.fr/api/interpreter",
+  "https://overpass.osm.ch/api/interpreter",
+];
 const USER_AGENT = "scenic-route/overpass (https://github.com/scenic-route)";
 const RETRYABLE = new Set([429, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const TAG_KEYS = [
   "highway",
   "natural",
@@ -30,6 +34,7 @@ const TAG_KEYS = [
   "historic",
   "leisure",
   "man_made",
+  "route",
 ] as const;
 const AREA_KEYS = new Set([
   "building",
@@ -88,9 +93,9 @@ export function buildQuery(body: string, bbox: BBox): string {
   return `[out:json][timeout:25][bbox:${bboxQl}];\n${filled.trim()}\n`;
 }
 
-export function unionQuery(selectors: string[]): string {
+export function unionQuery(selectors: string[], output: "geom" | "center" = "geom"): string {
   const lines = selectors.map((item) => `  ${item}({{bbox}});`).join("\n");
-  return `(\n${lines}\n);\nout geom;`;
+  return `(\n${lines}\n);\nout ${output};`;
 }
 
 export function elementsToFeatures(elements: unknown[]): OverpassFeature[] {
@@ -135,6 +140,23 @@ export function elementsToFeatures(elements: unknown[]): OverpassFeature[] {
       }
       continue;
     }
+    const memberLines = relationMemberLines(element.members);
+    if (memberLines.length === 1) {
+      features.push({
+        type: "Feature",
+        properties: props,
+        geometry: { type: "LineString", coordinates: memberLines[0] },
+      });
+      continue;
+    }
+    if (memberLines.length > 1) {
+      features.push({
+        type: "Feature",
+        properties: props,
+        geometry: { type: "MultiLineString", coordinates: memberLines },
+      });
+      continue;
+    }
     const center = isRecord(element.center) ? element.center : null;
     if (center && center.lat != null && center.lon != null) {
       features.push({
@@ -154,7 +176,7 @@ async function postOverpass(query: string): Promise<{ elements?: unknown[] }> {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     try {
       const payload = await postOnce(query);
-      writeCache(query, payload);
+      if (payload.elements?.length) writeCache(query, payload);
       return payload;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
@@ -169,7 +191,27 @@ async function postOverpass(query: string): Promise<{ elements?: unknown[] }> {
 }
 
 async function postOnce(query: string): Promise<{ elements?: unknown[] }> {
-  const endpoint = process.env.OVERPASS_URL?.trim() || DEFAULT_ENDPOINT;
+  const configured = process.env.OVERPASS_URL?.trim();
+  const endpoints = configured ? [configured] : DEFAULT_ENDPOINTS;
+  let lastError: Error | null = null;
+  let empty: { elements?: unknown[] } | null = null;
+  for (const endpoint of endpoints) {
+    try {
+      const payload = await postToEndpoint(endpoint, query);
+      if (payload.elements?.length) return payload;
+      empty = payload;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const status = (lastError as Error & { status?: number }).status;
+      if (status && status >= 400 && status < 500 && status !== 429) throw lastError;
+      if (lastError.message.includes("exceeded")) throw lastError;
+    }
+  }
+  if (empty) return empty;
+  throw lastError ?? new Error("Overpass request failed");
+}
+
+async function postToEndpoint(endpoint: string, query: string): Promise<{ elements?: unknown[] }> {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -224,7 +266,9 @@ function readCache(query: string): { elements?: unknown[] } | null {
   try {
     const stat = fs.statSync(file);
     if (Date.now() - stat.mtimeMs > CACHE_TTL_MS) return null;
-    return JSON.parse(fs.readFileSync(file, "utf8")) as { elements?: unknown[] };
+    const payload = JSON.parse(fs.readFileSync(file, "utf8")) as { elements?: unknown[] };
+    if (!payload.elements?.length) return null;
+    return payload;
   } catch {
     return null;
   }
@@ -246,6 +290,17 @@ function pickTags(tags: Record<string, string>) {
   }
   if (tags.name) slim.name = tags.name;
   return slim;
+}
+
+function relationMemberLines(members: unknown): number[][][] {
+  if (!Array.isArray(members)) return [];
+  const lines: number[][][] = [];
+  for (const member of members) {
+    if (!isRecord(member)) continue;
+    const coords = geomCoords(member.geometry);
+    if (coords.length >= 2) lines.push(coords);
+  }
+  return lines;
 }
 
 function geomCoords(geometry: unknown): number[][] {

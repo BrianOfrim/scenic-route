@@ -13,6 +13,7 @@ import {
   schematicXY,
   shouldTile,
   simplifyLatLng,
+  remapRouteSpans,
   simplifyTrack,
   tileBboxes,
 } from "./geo";
@@ -134,6 +135,19 @@ test("simplifyTrack keeps stop indexes", () => {
   const { points: slim, kept } = simplifyTrack(points, 100, [2500]);
   assert.ok(slim.length >= 100);
   assert.deepEqual(slim[kept[0]], points[2500]);
+});
+
+test("remapRouteSpans maps full-stream indexes onto a simplified track", () => {
+  const points = Array.from({ length: 5000 }, (_, i) => [53 + i / 10000, -113] as [number, number]);
+  const { indexes } = simplifyTrack(points, 100);
+  const remapped = remapRouteSpans([{ start: 2500, end: 2600 }], indexes);
+  assert.ok(remapped && remapped.length === 1);
+  assert.ok(remapped[0].start >= 0);
+  assert.ok(remapped[0].end >= remapped[0].start);
+  assert.ok(remapped[0].end < indexes.length);
+  assert.ok(indexes[remapped[0].start] >= 2500);
+  assert.ok(indexes[remapped[0].end] <= 2600);
+  assert.equal(remapRouteSpans(undefined, indexes), undefined);
 });
 
 test("schematicXY maps corners to regions", () => {

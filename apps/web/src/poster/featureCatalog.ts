@@ -19,17 +19,18 @@ export const FEATURE_CATALOG: FeatureOption[] = [
   { id: "towns", label: "Towns & villages", group: "landmarks", defaultOn: true },
   { id: "neighbourhoods", label: "Neighbourhoods", group: "landmarks", defaultOn: true },
   { id: "named-water", label: "Named water", group: "landmarks", defaultOn: true },
+  { id: "strava-segments", label: "Named trails", group: "landmarks", defaultOn: true },
   { id: "viewpoints", label: "Viewpoints & attractions", group: "landmarks", defaultOn: true },
-  { id: "historic", label: "Historic places", group: "landmarks", defaultOn: false },
-  { id: "named-parks", label: "Named parks & reserves", group: "landmarks", defaultOn: false },
-  { id: "structures", label: "Bridges, towers, lighthouses", group: "landmarks", defaultOn: false },
+  { id: "historic", label: "Historic places", group: "landmarks", defaultOn: true },
+  { id: "named-parks", label: "Named parks & reserves", group: "landmarks", defaultOn: true },
+  { id: "structures", label: "Bridges, towers, lighthouses", group: "landmarks", defaultOn: true },
   { id: "food", label: "Cafes, pubs & restaurants", group: "landmarks", defaultOn: false },
   { id: "worship", label: "Places of worship", group: "landmarks", defaultOn: false },
   { id: "lodging", label: "Campsites & huts", group: "landmarks", defaultOn: false },
   { id: "playgrounds", label: "Playgrounds", group: "landmarks", defaultOn: false },
-  { id: "schools", label: "Schools", group: "landmarks", defaultOn: true },
+  { id: "schools", label: "Schools", group: "landmarks", defaultOn: false },
   { id: "colleges", label: "Colleges & universities", group: "landmarks", defaultOn: true },
-  { id: "cemeteries", label: "Cemeteries", group: "landmarks", defaultOn: true },
+  { id: "cemeteries", label: "Cemeteries", group: "landmarks", defaultOn: false },
 ];
 
 export const DEFAULT_FEATURE_IDS = FEATURE_CATALOG.filter((item) => item.defaultOn).map((item) => item.id);

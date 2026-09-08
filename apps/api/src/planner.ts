@@ -1,6 +1,8 @@
-import type { PosterPoi } from "./osm/features";
+import { areaLetter } from "./areaLetters";
+import type { NamedArea, NamedWay, PosterPoi } from "./osm/features";
 import { chatJson } from "./openrouter";
 import { POSTER_SPEC_SCHEMA, validatePosterSpec, type PosterSpec } from "./posterSpec";
+import { TRAIL_TREATMENT, trailColorName } from "./trailColors";
 
 export type PlannerInput = {
   activity: {
@@ -11,6 +13,8 @@ export type PlannerInput = {
   routeMarkers?: {
     enabled: boolean;
     mode: "loop" | "start-finish";
+    startName?: string;
+    finishName?: string;
   };
   title: string;
   subtitle: string;
@@ -26,10 +30,14 @@ export type PlannerInput = {
   aspectRatio: string;
   geography: Array<{ id: string; label: string }>;
   pois: PosterPoi[];
+  namedWays?: NamedWay[];
+  namedAreas?: NamedArea[];
   grounding: Array<{ index: number; role: string; legend: string }>;
   refineNotes?: string;
   previousSpec?: PosterSpec;
 };
+
+const REGION_TREATMENT = "pale wash, write the name across the region, not a pin";
 
 /**
  * A compact skeleton of the required output. Models that ignore the strict
@@ -38,8 +46,8 @@ export type PlannerInput = {
 export const POSTER_SPEC_SHAPE = {
   style: { name: "", medium: "", palette: [""], typography: "", texture: "", references: "" },
   composition: { aspectRatio: "2:3", routePlacement: "", titleBlock: "", border: "", decorations: [""] },
-  route: { treatment: "", color: "", startMarker: "", finishMarker: "", shapeNotes: "" },
-  geography: [{ kind: "", name: "", placement: "", treatment: "" }],
+  route: { treatment: "", color: "", startMarker: "", finishMarker: "", startName: "", finishName: "", shapeNotes: "" },
+  geography: [{ kind: "", name: "", placement: "", treatment: "", color: "", letter: "" }],
   landmarks: [{ name: "", kind: "", placement: "", icon: "", pin: 1 }],
   text: { title: "", subtitle: "", stats: [{ label: "", value: "" }], rules: "" },
   grounding: { images: [{ index: 1, role: "", legend: "" }], rules: [""] },
@@ -61,9 +69,32 @@ export function buildPlannerMessages(input: PlannerInput) {
     pin: index + 1,
     name: poi.name,
     kind: poi.kind,
-    placement: `${poi.xy.region}, ${poi.bearing} of the route`,
+    placement: poi.inside
+      ? `${poi.xy.region}, ${poi.bearing} of the route, inside ${poi.inside}`
+      : `${poi.xy.region}, ${poi.bearing} of the route`,
     proximity: proximityWord(poi.distToRouteM),
     routeProgressPct: Math.round(poi.routeFrac * 100),
+  }));
+  const namedTrails = (input.namedWays ?? []).map((way, index) => {
+    const color = trailColorName(index, way.colorName);
+    return {
+      name: way.name,
+      kind: way.kind,
+      color,
+      placement: `${way.xy.region}, ${way.bearing} of the route`,
+      proximity: proximityWord(way.distToRouteM),
+      routeProgressPct: Math.round(way.routeFrac * 100),
+      treatment: TRAIL_TREATMENT,
+    };
+  });
+  const namedRegions = (input.namedAreas ?? []).map((area, index) => ({
+    name: area.name,
+    kind: area.kind,
+    letter: area.letter || areaLetter(index),
+    placement: `${area.xy.region}, ${area.bearing} of the route`,
+    proximity: proximityWord(area.distToRouteM),
+    routeProgressPct: Math.round(area.routeFrac * 100),
+    treatment: REGION_TREATMENT,
   }));
   const user = {
     title: input.title,
@@ -76,6 +107,8 @@ export function buildPlannerMessages(input: PlannerInput) {
     aspectRatio: input.aspectRatio,
     geographyLayers: input.geography,
     landmarks,
+    namedTrails,
+    namedRegions,
     groundingImages: input.grounding,
     refineNotes: input.refineNotes?.trim() || null,
     previousSpec: input.previousSpec ?? null,
@@ -89,16 +122,20 @@ export function buildPlannerMessages(input: PlannerInput) {
         `Every value must follow this exact shape (nested objects and arrays, never a prose string in place of an object): ${JSON.stringify(POSTER_SPEC_SHAPE)}`,
         "Fill style.name, style.medium, style.palette, style.typography, composition.routePlacement, composition.titleBlock, route.treatment, and route.color with concrete choices; do not leave them blank.",
         "Copy title, subtitle, stats, and groundingImages from the input into text and grounding verbatim.",
-        "Landmarks: one entry per supplied landmark, exact spelling, pin copied from the list so the image prompt can look up locations. The schematic uses numbered discs as a private index only. The finished poster must write each landmark name on the map at that disc and must never copy the numbers or add a number-to-name legend. Do not describe numbered discs as a poster feature. Do not forbid printed landmark names. placement copied as the short phrase given (e.g. 'upper-left, west of the route'); do not add distances or percentages.",
+        "Landmarks: one entry per supplied landmark, exact spelling, pin copied from the list so the image prompt can look up locations. The schematic uses numbered discs as a private index only. The finished poster may put a small marker on the route at that disc. Landmark names and icons sit beside the path, not on it, and must never occlude, break, or replace the route. Do not describe large pictorial icons as sitting on the GPS track. The finished poster must write each landmark name on the map near that disc and must never copy the numbers or add a number-to-name legend. Do not describe numbered discs as a poster feature. Do not forbid printed landmark names. placement copied as the short phrase given (e.g. 'upper-left, west of the route'); do not add distances or percentages.",
+        "Named trails recolor stretches of the GPS track on the schematic only, as a private name index. They are not separate lines and have no text on the schematic. Put each supplied namedTrails entry in geography as a named path. Copy color as the index word only. Treatment is write the name along that stretch — never 'teal stretch' or any colored-track phrase. The finished poster must write each trail name along that stretch and paint the whole GPS track as one line in route.color — never in the schematic trail colors. route.treatment and route.color describe one continuous poster path; do not describe a multi-colored track. Do not invent extra trails, treat trail names as point landmarks, or tell the image model to draw a color key.",
+        "Named regions are pale ochre washes on the schematic with a letter as a private name index, not discs. Put each supplied namedRegions entry in geography as a labeled district. Copy letter as the index character only. The finished poster must write each region name across that wash and must never copy the letters or add a letter-to-name key. Do not invent extra districts or treat region names as point landmarks.",
+        "If a landmark placement already says inside a region, keep that one clause. Do not nest further. Neighbourhood, campus, and park landmarks that are still in the landmark list have no region wash: write them as district labels, not building icons.",
         "Keep field values concise. Skip or keep finalPrompt short; a complete image prompt is assembled from the structured fields.",
         "The attached grounding images (described by index and role) are the geographic source of truth.",
-        "The red line on the schematic is the exact GPS track. If a route-only image is attached, it is that same red line with geography removed; every separate stroke on it is a required segment, including parallels and shore hugs. The finished poster must reproduce that path exactly: every bend, switchback, out-and-back, and crossing, in the same place relative to water, roads, and landmarks.",
-        "Never write route.shapeNotes or finalPrompt that describe a different, simpler, or idealized path. Style the line; do not redesign it.",
-        "Do not invent place names. Use exact spelling from the supplied landmarks and stats.",
+        "The GPS track on the schematic is exact. Colored stretches identify named trails for lookup only. If a route-only image is attached, it is that same track in red only, with geography removed; every separate stroke on it is a required segment, including parallels and shore hugs. The finished poster must reproduce that path shape exactly: every bend, switchback, out-and-back, and crossing, in the same place relative to water, roads, and landmarks. Style the line as one color; do not copy the schematic's route colors.",
+        "Never write route.shapeNotes or finalPrompt that describe a different, simpler, or idealized path, or that tell the image model to keep the schematic's route colors. Style the line; do not redesign it.",
+        "Do not invent place names. Use exact spelling from the supplied landmarks, stats, and routeMarkers names.",
         "North is up. The route is the hero. Leave a title block for the supplied text.",
         "Honor routeMarkers. If enabled is false, startMarker and finishMarker must be none — do not draw start or finish symbols.",
         "If routeMarkers.mode is loop, start and finish are the same place: use one combined start/finish marker, not two.",
         "If routeMarkers.mode is start-finish, use distinct start and finish markers.",
+        "If routeMarkers.startName or finishName are supplied, copy them onto route.startName and route.finishName. The finished poster must write those names at the schematic start/finish marker(s). The schematic has no start/finish text — the marker is the location index. If both names match or mode is loop, write one name at the combined marker. These names are map labels, not title-block stats.",
         "If refineNotes or previousSpec are present, evolve that spec rather than starting over.",
       ].join(" "),
     },
@@ -128,6 +165,79 @@ function splitList(value: unknown): string[] {
 }
 
 /** "Castle Mountain — peak, upper-right" | "Castle Mountain (upper-right)" | "Castle Mountain: upper-right" */
+function ensureNamedTrails(geography: unknown[], ways: NamedWay[]) {
+  if (!ways.length) return geography;
+  const byName = new Map(
+    ways.map((way, index) => [way.name.toLowerCase(), { way, color: trailColorName(index, way.colorName) }]),
+  );
+  const rows = geography.filter(isRecord).map((item) => {
+    const hit = byName.get(str(item.name).toLowerCase());
+    if (!hit) return item;
+    return {
+      ...item,
+      kind: str(item.kind) || hit.way.kind || "trail",
+      color: str(item.color) || hit.color,
+      treatment: stripLegacyTrailTreatment(str(item.treatment)),
+    };
+  });
+  const existing = new Set(rows.map((item) => str(item.name).toLowerCase()).filter(Boolean));
+  const extras = ways.flatMap((way, index) => {
+    if (existing.has(way.name.toLowerCase())) return [];
+    return [
+      {
+        kind: way.kind || "trail",
+        name: way.name,
+        placement: `${way.xy.region}, ${way.bearing} of the route`,
+        color: trailColorName(index, way.colorName),
+        treatment: TRAIL_TREATMENT,
+      },
+    ];
+  });
+  return extras.length ? [...rows, ...extras] : rows;
+}
+
+function stripLegacyTrailTreatment(treatment: string) {
+  if (/stretch of the GPS track/i.test(treatment)) return TRAIL_TREATMENT;
+  return treatment || TRAIL_TREATMENT;
+}
+
+function ensureNamedRegions(geography: unknown[], areas: NamedArea[]) {
+  if (!areas.length) return geography;
+  const byName = new Map(
+    areas.map((area, index) => [area.name.toLowerCase(), { area, letter: area.letter || areaLetter(index) }]),
+  );
+  const rows = geography.filter(isRecord).map((item) => {
+    const hit = byName.get(str(item.name).toLowerCase());
+    if (!hit) return item;
+    return {
+      ...item,
+      kind: str(item.kind) || hit.area.kind,
+      letter: str(item.letter) || hit.letter,
+      treatment: str(item.treatment) || REGION_TREATMENT,
+    };
+  });
+  const existing = new Set(rows.map((item) => str(item.name).toLowerCase()).filter(Boolean));
+  const extras = areas.flatMap((area, index) => {
+    if (existing.has(area.name.toLowerCase())) return [];
+    return [
+      {
+        kind: area.kind,
+        name: area.name,
+        placement: `${area.xy.region}, ${area.bearing} of the route`,
+        letter: area.letter || areaLetter(index),
+        treatment: REGION_TREATMENT,
+      },
+    ];
+  });
+  return extras.length ? [...rows, ...extras] : rows;
+}
+
+function dropRegionLandmarks(landmarks: unknown[], areas: NamedArea[]) {
+  if (!areas.length) return landmarks;
+  const names = new Set(areas.map((area) => area.name.toLowerCase()));
+  return landmarks.filter((item) => !names.has(str(isRecord(item) ? item.name : item).toLowerCase()));
+}
+
 function assignLandmarkPins(landmarks: unknown[], pois: PlannerInput["pois"]) {
   const rows = landmarks.filter(isRecord);
   const pinByName = new Map(pois.map((poi, index) => [poi.name.trim().toLowerCase(), index + 1]));
@@ -182,6 +292,10 @@ export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<s
     route.startMarker = "none";
     route.finishMarker = "none";
   }
+  if (input.routeMarkers) {
+    route.startName = (input.routeMarkers.startName ?? "").trim();
+    route.finishName = (input.routeMarkers.finishName ?? "").trim();
+  }
   record.route = route;
 
   if (!Array.isArray(record.geography)) {
@@ -192,6 +306,13 @@ export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<s
       treatment,
     }));
   }
+  record.geography = ensureNamedTrails(
+    ensureNamedRegions(
+      Array.isArray(record.geography) ? record.geography : [],
+      input.namedAreas ?? [],
+    ),
+    input.namedWays ?? [],
+  );
 
   if (!Array.isArray(record.landmarks)) {
     record.landmarks = splitList(record.landmarks).map(landmarkFromText);
@@ -199,7 +320,7 @@ export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<s
     record.landmarks = record.landmarks.map((item) => (typeof item === "string" ? landmarkFromText(item) : item));
   }
   record.landmarks = assignLandmarkPins(
-    Array.isArray(record.landmarks) ? record.landmarks : [],
+    dropRegionLandmarks(Array.isArray(record.landmarks) ? record.landmarks : [], input.namedAreas ?? []),
     input.pois,
   );
 

@@ -11,16 +11,39 @@ import {
   nearestOnRoute,
   padBbox,
   padMeters,
+  remapRouteSpans,
   schematicXY,
   simplifyTrack,
   type BBox,
   type LatLng,
 } from "../geo";
 import { formatDate, formatDuration, formatElevation, formatKm, formatSpeed } from "../format";
+import { loadActivitySegmentEfforts } from "../stravaSegments";
+import type { StravaSegmentEffort } from "../strava";
 import { KIND_WEIGHTS, resolveFeatures, type FeatureDef } from "./catalog";
 import { collection, emptyCollection, queryOverpass, unionQuery } from "./overpass";
 
+const MIN_STRAVA_SEGMENT_M = 200;
+
 const MAX_POIS = 25;
+const MAX_NAMED_WAYS = 16;
+const MAX_NAMED_AREAS = 3;
+const MAX_LINE_POINTS = 80;
+const AREA_MAX_OCCUPANCY = 0.45;
+const AREA_MIN_OCCUPANCY = 0.01;
+const AREA_ON_GROUNDS_M = 1500;
+/** Default landmarks: ride through them, or pass within this corridor. */
+const LANDMARK_NEAR_ROUTE_M = 100;
+const AREA_SPECIFICITY: Record<string, number> = {
+  university: 3,
+  college: 3,
+  school: 2,
+  park: 2,
+  nature_reserve: 2,
+  neighbourhood: 1,
+  quarter: 1,
+};
+const SPECIAL_BUCKETS = new Set(["poi", "named-ways", "strava-ways", "named-areas"]);
 const AMENITY_KINDS = new Set([
   "cafe",
   "pub",
@@ -44,6 +67,43 @@ export type PosterPoi = {
   bearing: string;
   xy: { x: number; y: number; region: string };
   source?: string;
+  /** Most specific named region containing this point, if any. */
+  inside?: string;
+};
+
+export type AreaGeometry =
+  | { type: "Polygon"; coordinates: number[][][] }
+  | { type: "MultiPolygon"; coordinates: number[][][][] };
+
+export type NamedArea = {
+  name: string;
+  kind: string;
+  geometry: AreaGeometry;
+  lat: number;
+  lng: number;
+  distToRouteM: number;
+  routeFrac: number;
+  bearing: string;
+  xy: { x: number; y: number; region: string };
+  /** Schematic wash letter (A, B, C…). Names live in the prompt. */
+  letter?: string;
+};
+
+export type NamedWay = {
+  name: string;
+  kind: string;
+  geometry: { type: "MultiLineString"; coordinates: number[][][] };
+  lat: number;
+  lng: number;
+  distToRouteM: number;
+  routeFrac: number;
+  bearing: string;
+  xy: { x: number; y: number; region: string };
+  source?: "osm" | "strava";
+  colorName?: string;
+  color?: string;
+  /** Inclusive GPS-stream indexes from Strava efforts. Prefer these over distance. */
+  routeSpans?: Array<{ start: number; end: number }>;
 };
 
 export type PosterWays = Record<string, FeatureCollection>;
@@ -73,6 +133,8 @@ export type PosterContext = {
   latlng: LatLng[];
   stops: number[];
   ways: PosterWays;
+  namedWays: NamedWay[];
+  namedAreas: NamedArea[];
   pois: PosterPoi[];
   stats: FormattedStat[];
   warnings: string[];
@@ -111,32 +173,47 @@ export async function loadRouteFeatures(activityId: number, featureIds?: string[
   const loop = isLoop(latlng, trackDiagonal);
   const warnings: string[] = [];
 
-  const geoFeatures = features.filter((item) => item.bucket !== "poi");
+  const geoFeatures = features.filter((item) => !SPECIAL_BUCKETS.has(item.bucket));
   const poiFeatures = features.filter((item) => item.bucket === "poi");
+  const namedAreaFeatures = features.filter((item) => item.bucket === "named-areas");
+  const wantStravaWays = features.some((item) => item.bucket === "strava-ways");
 
-  const [waysFc, poisFc] = await Promise.all([
+  const [waysFc, poisFc, namedAreaFc, stravaEfforts] = await Promise.all([
     geoFeatures.length
       ? queryOverpass(unionQuery(geoFeatures.flatMap((item) => item.selectors)), padded, warnings, "ways")
       : Promise.resolve(emptyCollection()),
     poiFeatures.length
-      ? queryOverpass(unionQuery(poiFeatures.flatMap((item) => item.selectors)), padded, warnings, "landmarks")
+      ? queryOverpass(unionQuery(poiFeatures.flatMap((item) => item.selectors), "center"), padded, warnings, "landmarks")
       : Promise.resolve(emptyCollection()),
+    namedAreaFeatures.length
+      ? queryOverpass(unionQuery(namedAreaFeatures.flatMap((item) => item.selectors)), padded, warnings, "named areas")
+      : Promise.resolve(emptyCollection()),
+    wantStravaWays ? loadActivitySegmentEfforts(activityId, warnings) : Promise.resolve([]),
   ]);
 
   const ways = splitWays(waysFc, geoFeatures);
   const cemetery = features.find((item) => item.id === "cemeteries");
-  const pois = rankPois(
-    {
-      type: "FeatureCollection",
-      features: [...poisFc.features, ...(ways.cemeteries?.features ?? [])],
-    },
+  const { areas: namedAreas, fallbacks: areaFallbacks } = collectNamedAreas(
+    namedAreaFc,
     latlng,
     padded,
-    cemetery ? [...poiFeatures, cemetery] : poiFeatures,
+    namedAreaFeatures,
   );
-  const startPlace = nearestPlace(pois, latlng[0]);
-  const finishPlace = nearestPlace(pois, latlng[latlng.length - 1]);
-
+  const pois = dropPoiNames(
+    annotatePoisInsideAreas(
+      rankPois(
+        {
+          type: "FeatureCollection",
+          features: [...poisFc.features, ...(ways.cemeteries?.features ?? []), ...areaFallbacks],
+        },
+        latlng,
+        padded,
+        cemetery ? [...poiFeatures, cemetery, ...namedAreaFeatures] : [...poiFeatures, ...namedAreaFeatures],
+      ),
+      namedAreas,
+    ),
+    namedAreas,
+  );
   return {
     activity: {
       id: row.id,
@@ -156,8 +233,13 @@ export async function loadRouteFeatures(activityId: number, featureIds?: string[
     latlng: simplified.points,
     stops: simplified.kept,
     ways,
+    namedWays: namedWaysFromSegmentEfforts(stravaEfforts, latlng, padded).map((way) => ({
+      ...way,
+      routeSpans: remapRouteSpans(way.routeSpans, simplified.indexes),
+    })),
+    namedAreas,
     pois,
-    stats: buildStats(row, startPlace, finishPlace),
+    stats: buildStats(row),
     warnings,
     featureIds: features.map((item) => item.id),
   };
@@ -207,8 +289,7 @@ export function rankPois(
 ): PosterPoi[] {
   const amenityMax = Math.min(...selected.map((item) => item.amenityMaxM ?? Number.POSITIVE_INFINITY));
   const center = centroid(latlng);
-  const ranked: Array<PosterPoi & { score: number }> = [];
-  const seen = new Set<string>();
+  const ranked = new Map<string, PosterPoi & { score: number }>();
   for (const feature of geojson.features) {
     const name = featureName(feature);
     if (!name) continue;
@@ -216,13 +297,14 @@ export function rankPois(
     if (!point) continue;
     const [lat, lng] = point;
     const kind = classifyPoi(featureTags(feature));
-    const { distM, routeFrac } = nearestOnRoute(lat, lng, latlng);
+    const { distM, routeFrac } = poiRouteHit(feature, lat, lng, latlng);
+    if (!isAlongRoute(distM)) continue;
     if (AMENITY_KINDS.has(kind) && Number.isFinite(amenityMax) && distM > amenityMax) continue;
     const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const existing = ranked.get(key);
+    if (existing && distM >= existing.distToRouteM) continue;
     const xy = schematicXY(lat, lng, bbox);
-    ranked.push({
+    ranked.set(key, {
       name,
       kind,
       lat,
@@ -234,12 +316,237 @@ export function rankPois(
       score: (KIND_WEIGHTS[kind] ?? 20) - distM / 50,
     });
   }
-  ranked.sort((a, b) => b.score - a.score);
-  return ranked.slice(0, MAX_POIS).map(({ score: _score, ...row }) => row);
+  return [...ranked.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_POIS)
+    .map(({ score: _score, ...row }) => row);
+}
+
+export function namedWaysFromSegmentEfforts(
+  efforts: StravaSegmentEffort[],
+  latlng: LatLng[],
+  bbox: BBox,
+): NamedWay[] {
+  const features = [];
+  for (const effort of efforts) {
+    if (effort.hidden) continue;
+    if ((effort.distance ?? 0) < MIN_STRAVA_SEGMENT_M) continue;
+    const name = (effort.segment?.name || effort.name || "").trim();
+    if (!name) continue;
+    const start = Math.max(0, Math.min(effort.start_index ?? -1, effort.end_index ?? -1));
+    const end = Math.min(latlng.length - 1, Math.max(effort.start_index ?? -1, effort.end_index ?? -1));
+    if (end <= start) continue;
+    const coordinates = latlng.slice(start, end + 1).map(([lat, lng]) => [lng, lat]);
+    if (coordinates.length < 2) continue;
+    features.push({
+      type: "Feature" as const,
+      properties: { name, tags: { highway: "path", name }, routeStart: start, routeEnd: end },
+      geometry: { type: "LineString" as const, coordinates },
+    });
+  }
+  return collectNamedWays(collection(features), latlng, bbox, "strava");
+}
+
+export function collectNamedWays(
+  geojson: FeatureCollection,
+  latlng: LatLng[],
+  bbox: BBox,
+  source: NamedWay["source"] = "osm",
+): NamedWay[] {
+  const groups = new Map<
+    string,
+    { name: string; kind: string; lines: number[][][]; spans: Array<{ start: number; end: number }> }
+  >();
+  for (const feature of geojson.features) {
+    const name = featureName(feature);
+    if (!name) continue;
+    const lines = lineCoords(feature.geometry);
+    if (!lines.length) continue;
+    const key = name.toLowerCase();
+    const kind = classifyPoi(featureTags(feature));
+    const span = featureRouteSpan(feature);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.lines.push(...lines);
+      if (span) existing.spans.push(span);
+    } else {
+      groups.set(key, { name, kind, lines, spans: span ? [span] : [] });
+    }
+  }
+  const center = centroid(latlng);
+  const ranked: Array<NamedWay & { score: number }> = [];
+  for (const group of groups.values()) {
+    const simplified = group.lines
+      .map((line) => simplifyCoords(line, MAX_LINE_POINTS))
+      .filter((line) => line.length >= 2);
+    if (!simplified.length) continue;
+    const anchor = closestOnLines(simplified, latlng);
+    if (!anchor || !isAlongRoute(anchor.distM)) continue;
+    ranked.push({
+      name: group.name,
+      kind: group.kind,
+      geometry: { type: "MultiLineString", coordinates: simplified },
+      lat: anchor.lat,
+      lng: anchor.lng,
+      distToRouteM: Math.round(anchor.distM * 10) / 10,
+      routeFrac: Math.round(anchor.routeFrac * 10_000) / 10_000,
+      bearing: bearingWord(center, [anchor.lat, anchor.lng]),
+      xy: schematicXY(anchor.lat, anchor.lng, bbox),
+      source,
+      routeSpans: group.spans.length ? mergeRouteSpans(group.spans) : undefined,
+      score: (KIND_WEIGHTS[group.kind] ?? 20) - anchor.distM / 50,
+    });
+  }
+  return ranked
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_NAMED_WAYS)
+    .map(({ score: _score, ...row }) => row);
+}
+
+export function mergeNamedWays(...lists: NamedWay[][]): NamedWay[] {
+  const byName = new Map<string, NamedWay>();
+  for (const list of lists) {
+    for (const way of list) {
+      const key = way.name.toLowerCase();
+      const existing = byName.get(key);
+      if (!existing) {
+        byName.set(key, { ...way, routeSpans: mergeRouteSpans(way.routeSpans) });
+        continue;
+      }
+      const routeSpans = mergeRouteSpans(existing.routeSpans, way.routeSpans);
+      if (sourceRank(way) < sourceRank(existing)) {
+        byName.set(key, { ...way, routeSpans });
+        continue;
+      }
+      if (sourceRank(way) === sourceRank(existing) && way.distToRouteM < existing.distToRouteM) {
+        byName.set(key, { ...way, routeSpans });
+        continue;
+      }
+      byName.set(key, { ...existing, routeSpans });
+    }
+  }
+  return [...byName.values()]
+    .sort((a, b) => a.distToRouteM - b.distToRouteM)
+    .slice(0, MAX_NAMED_WAYS);
+}
+
+function sourceRank(way: NamedWay): number {
+  return way.source === "strava" ? 1 : 0;
+}
+
+export function collectNamedAreas(
+  geojson: FeatureCollection,
+  latlng: LatLng[],
+  bbox: BBox,
+  selected: FeatureDef[] = [],
+): { areas: NamedArea[]; fallbacks: Feature[] } {
+  const amenityMax = Math.min(...selected.map((item) => item.amenityMaxM ?? Number.POSITIVE_INFINITY));
+  const center = centroid(latlng);
+  const ranked = new Map<string, NamedArea & { score: number }>();
+  const fallbacks: Feature[] = [];
+  for (const feature of geojson.features) {
+    const name = featureName(feature);
+    if (!name) continue;
+    const kind = classifyPoi(featureTags(feature));
+    const geometry = asAreaGeometry(feature.geometry);
+    if (!geometry) {
+      fallbacks.push(feature);
+      continue;
+    }
+    const occupancy = areaOccupancy(geometry, bbox);
+    if (occupancy == null || occupancy > AREA_MAX_OCCUPANCY) continue;
+    if (occupancy < AREA_MIN_OCCUPANCY) {
+      fallbacks.push(feature);
+      continue;
+    }
+    const simplified = simplifyArea(geometry, MAX_LINE_POINTS);
+    const anchor = closestOnArea(simplified, latlng);
+    if (!anchor || !isAlongRoute(anchor.distM)) continue;
+    if (AMENITY_KINDS.has(kind) && Number.isFinite(amenityMax) && anchor.distM > amenityMax) continue;
+    const key = name.toLowerCase();
+    const existing = ranked.get(key);
+    if (existing && anchor.distM >= existing.distToRouteM) continue;
+    ranked.set(key, {
+      name,
+      kind,
+      geometry: simplified,
+      lat: anchor.lat,
+      lng: anchor.lng,
+      distToRouteM: Math.round(anchor.distM * 10) / 10,
+      routeFrac: Math.round(anchor.routeFrac * 10_000) / 10_000,
+      bearing: bearingWord(center, [anchor.lat, anchor.lng]),
+      xy: schematicXY(anchor.lat, anchor.lng, bbox),
+      score: (KIND_WEIGHTS[kind] ?? 20) - anchor.distM / 50,
+    });
+  }
+  const areas = pruneNestedAreas(
+    [...ranked.values()]
+      .sort((a, b) => b.score - a.score)
+      .map(({ score: _score, ...row }) => row),
+  ).slice(0, MAX_NAMED_AREAS);
+  const kept = new Set(areas.map((area) => area.name.toLowerCase()));
+  return {
+    areas,
+    fallbacks: fallbacks.filter((feature) => {
+      const name = featureName(feature);
+      return !name || !kept.has(name.toLowerCase());
+    }),
+  };
+}
+
+const SETTLEMENT_KINDS = new Set([
+  "city",
+  "town",
+  "village",
+  "hamlet",
+  "suburb",
+  "locality",
+]);
+
+export function annotatePoisInsideAreas(pois: PosterPoi[], areas: NamedArea[]): PosterPoi[] {
+  if (!areas.length) return pois;
+  return pois.map((poi) => {
+    if (SETTLEMENT_KINDS.has(poi.kind)) return poi;
+    const containers = areas.filter(
+      (area) =>
+        area.name.toLowerCase() !== poi.name.toLowerCase() &&
+        geometryContains(area.geometry, poi.lat, poi.lng),
+    );
+    if (!containers.length) return poi;
+    containers.sort((a, b) => (AREA_SPECIFICITY[b.kind] ?? 0) - (AREA_SPECIFICITY[a.kind] ?? 0));
+    return { ...poi, inside: containers[0].name };
+  });
+}
+
+export function dropPoiNames(pois: PosterPoi[], areas: NamedArea[]): PosterPoi[] {
+  if (!areas.length) return pois;
+  const names = new Set(areas.map((area) => area.name.toLowerCase()));
+  return pois.filter((poi) => !names.has(poi.name.toLowerCase()));
+}
+
+export function pruneNestedAreas(areas: NamedArea[]): NamedArea[] {
+  if (areas.length < 2) return areas;
+  const drop = new Set<NamedArea>();
+  for (const inner of areas) {
+    for (const outer of areas) {
+      if (inner === outer || drop.has(inner) || drop.has(outer)) continue;
+      if (!geometryContains(outer.geometry, inner.lat, inner.lng)) continue;
+      const innerSpec = AREA_SPECIFICITY[inner.kind] ?? 0;
+      const outerSpec = AREA_SPECIFICITY[outer.kind] ?? 0;
+      if (innerSpec > outerSpec && inner.distToRouteM <= AREA_ON_GROUNDS_M) {
+        drop.add(outer);
+      } else {
+        drop.add(inner);
+      }
+    }
+  }
+  return areas.filter((area) => !drop.has(area));
 }
 
 export function classifyPoi(tags: Record<string, string>): string {
   if (tags.landuse === "cemetery" || tags.amenity === "grave_yard") return "cemetery";
+  if (/^(mtb|hiking|bicycle|foot)$/.test(tags.route ?? "")) return "trail";
+  if (/^(path|track|cycleway|bridleway)$/.test(tags.highway ?? "")) return "trail";
   for (const key of ["natural", "waterway", "place", "tourism", "leisure", "man_made", "amenity"]) {
     const value = tags[key];
     if (value) return value;
@@ -273,6 +580,74 @@ function featureName(feature: Feature): string | null {
   return typeof name === "string" && name.trim() ? name.trim() : null;
 }
 
+function featureRouteSpan(feature: Feature): { start: number; end: number } | null {
+  const props = feature.properties ?? {};
+  const start = (props as { routeStart?: unknown }).routeStart;
+  const end = (props as { routeEnd?: unknown }).routeEnd;
+  if (typeof start !== "number" || typeof end !== "number") return null;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return { start: Math.min(start, end), end: Math.max(start, end) };
+}
+
+function mergeRouteSpans(
+  ...lists: Array<Array<{ start: number; end: number }> | undefined>
+): Array<{ start: number; end: number }> | undefined {
+  let seen = false;
+  const all: Array<{ start: number; end: number }> = [];
+  for (const list of lists) {
+    if (list === undefined) continue;
+    seen = true;
+    all.push(...list);
+  }
+  if (!seen) return undefined;
+  const normalized = all
+    .map((span) => ({
+      start: Math.min(span.start, span.end),
+      end: Math.max(span.start, span.end),
+    }))
+    .filter((span) => Number.isFinite(span.start) && Number.isFinite(span.end) && span.end >= span.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  const out: Array<{ start: number; end: number }> = [];
+  for (const span of normalized) {
+    const last = out[out.length - 1];
+    if (last && span.start <= last.end + 1) {
+      last.end = Math.max(last.end, span.end);
+      continue;
+    }
+    out.push({ ...span });
+  }
+  return out;
+}
+
+function lineCoords(geometry: Geometry | null): number[][][] {
+  if (!geometry) return [];
+  if (geometry.type === "LineString") return [geometry.coordinates];
+  if (geometry.type === "MultiLineString") return geometry.coordinates;
+  return [];
+}
+
+function simplifyCoords(coords: number[][], maxPoints: number): number[][] {
+  if (coords.length <= maxPoints) return coords;
+  const step = (coords.length - 1) / (maxPoints - 1);
+  return Array.from({ length: maxPoints }, (_, index) => coords[Math.round(index * step)]);
+}
+
+function closestOnLines(
+  lines: number[][][],
+  latlng: LatLng[],
+): { lat: number; lng: number; distM: number; routeFrac: number } | null {
+  let best: { lat: number; lng: number; distM: number; routeFrac: number } | null = null;
+  for (const line of lines) {
+    for (const point of line) {
+      if (!Array.isArray(point) || point.length < 2) continue;
+      const [lng, lat] = point;
+      const hit = nearestOnRoute(lat, lng, latlng);
+      if (!best || hit.distM < best.distM) best = { lat, lng, ...hit };
+    }
+  }
+  return best;
+}
+
 function flattenCoords(coords: unknown): number[][] {
   if (!Array.isArray(coords) || !coords.length) return [];
   if (typeof coords[0] === "number" && coords.length >= 2) {
@@ -281,25 +656,160 @@ function flattenCoords(coords: unknown): number[][] {
   return (coords as unknown[]).flatMap((item) => flattenCoords(item));
 }
 
-function avg(values: number[]) {
-  return values.reduce((sum, n) => sum + n, 0) / values.length;
+export function asAreaGeometry(geometry: Geometry | null | undefined): AreaGeometry | null {
+  if (!geometry) return null;
+  if (geometry.type === "Polygon") return geometry;
+  if (geometry.type === "MultiPolygon") return geometry;
+  if (geometry.type === "LineString") {
+    const ring = closedRing(geometry.coordinates);
+    return ring ? { type: "Polygon", coordinates: [ring] } : null;
+  }
+  if (geometry.type === "MultiLineString") {
+    const rings = geometry.coordinates.map(closedRing).filter((ring): ring is number[][] => Boolean(ring));
+    if (rings.length === 1) return { type: "Polygon", coordinates: rings };
+    if (rings.length > 1) return { type: "MultiPolygon", coordinates: rings.map((ring) => [ring]) };
+    const joined = joinRing(geometry.coordinates);
+    return joined ? { type: "Polygon", coordinates: [joined] } : null;
+  }
+  return null;
 }
 
-function nearestPlace(pois: PosterPoi[], point: LatLng): string {
-  const places = pois.filter((poi) =>
-    ["city", "town", "village", "hamlet", "suburb", "quarter", "neighbourhood", "locality"].includes(poi.kind),
-  );
-  if (!places.length) return "";
-  let best = places[0];
-  let bestDist = Number.POSITIVE_INFINITY;
-  for (const poi of places) {
-    const d = (poi.lat - point[0]) ** 2 + (poi.lng - point[1]) ** 2;
-    if (d < bestDist) {
-      best = poi;
-      bestDist = d;
+function closedRing(coords: number[][]): number[][] | null {
+  if (coords.length < 4) return null;
+  if (!nearCoord(coords[0], coords[coords.length - 1])) return null;
+  return coords;
+}
+
+function joinRing(lines: number[][][]): number[][] | null {
+  const remaining = lines.map((line) => line.filter((point) => point.length >= 2)).filter((line) => line.length >= 2);
+  if (!remaining.length) return null;
+  let ring = remaining.shift()!.slice();
+  while (remaining.length) {
+    const end = ring[ring.length - 1];
+    const index = remaining.findIndex(
+      (line) => nearCoord(line[0], end) || nearCoord(line[line.length - 1], end),
+    );
+    if (index < 0) break;
+    const next = remaining.splice(index, 1)[0];
+    const piece = nearCoord(next[0], end) ? next : next.slice().reverse();
+    ring = ring.concat(piece.slice(1));
+  }
+  if (ring.length >= 4 && nearCoord(ring[0], ring[ring.length - 1])) return ring;
+  return null;
+}
+
+function nearCoord(a: number[], b: number[], eps = 1e-7) {
+  return Math.abs(a[0] - b[0]) <= eps && Math.abs(a[1] - b[1]) <= eps;
+}
+
+function simplifyArea(geometry: AreaGeometry, maxPoints: number): AreaGeometry {
+  if (geometry.type === "Polygon") {
+    return { type: "Polygon", coordinates: geometry.coordinates.map((ring) => simplifyClosedRing(ring, maxPoints)) };
+  }
+  return {
+    type: "MultiPolygon",
+    coordinates: geometry.coordinates.map((polygon) => polygon.map((ring) => simplifyClosedRing(ring, maxPoints))),
+  };
+}
+
+function simplifyClosedRing(coords: number[][], maxPoints: number): number[][] {
+  if (coords.length <= maxPoints) return coords;
+  const inner = coords[0] && nearCoord(coords[0], coords[coords.length - 1]) ? coords.slice(0, -1) : coords;
+  const simplified = simplifyCoords(inner, Math.max(3, maxPoints - 1));
+  return [...simplified, simplified[0]];
+}
+
+function areaOccupancy(geometry: AreaGeometry, bbox: BBox): number | null {
+  const geomBbox = geometryBbox(geometry);
+  if (!geomBbox) return null;
+  const clipped = intersectBbox(geomBbox, bbox);
+  if (!clipped) return null;
+  const frame = Math.max(1e-12, (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]));
+  return ((clipped[2] - clipped[0]) * (clipped[3] - clipped[1])) / frame;
+}
+
+function geometryBbox(geometry: AreaGeometry): BBox | null {
+  const points = flattenCoords(geometry.coordinates);
+  if (!points.length) return null;
+  const lngs = points.map((point) => point[0]);
+  const lats = points.map((point) => point[1]);
+  return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
+}
+
+function intersectBbox(a: BBox, b: BBox): BBox | null {
+  const minLng = Math.max(a[0], b[0]);
+  const minLat = Math.max(a[1], b[1]);
+  const maxLng = Math.min(a[2], b[2]);
+  const maxLat = Math.min(a[3], b[3]);
+  if (maxLng <= minLng || maxLat <= minLat) return null;
+  return [minLng, minLat, maxLng, maxLat];
+}
+
+function isAlongRoute(distM: number): boolean {
+  return distM <= LANDMARK_NEAR_ROUTE_M;
+}
+
+function poiRouteHit(
+  feature: Feature,
+  lat: number,
+  lng: number,
+  latlng: LatLng[],
+): { distM: number; routeFrac: number } {
+  const area = asAreaGeometry(feature.geometry);
+  if (area) {
+    const anchor = closestOnArea(area, latlng);
+    if (anchor) return { distM: anchor.distM, routeFrac: anchor.routeFrac };
+  }
+  return nearestOnRoute(lat, lng, latlng);
+}
+
+function closestOnArea(
+  geometry: AreaGeometry,
+  latlng: LatLng[],
+): { lat: number; lng: number; distM: number; routeFrac: number } | null {
+  for (const point of latlng) {
+    if (geometryContains(geometry, point[0], point[1])) {
+      const hit = nearestOnRoute(point[0], point[1], latlng);
+      return { lat: point[0], lng: point[1], distM: 0, routeFrac: hit.routeFrac };
     }
   }
-  return best.name;
+  const vertices = flattenCoords(geometry.coordinates);
+  let best: { lat: number; lng: number; distM: number; routeFrac: number } | null = null;
+  for (const point of vertices) {
+    if (point.length < 2) continue;
+    const [lng, lat] = point;
+    const hit = nearestOnRoute(lat, lng, latlng);
+    if (!best || hit.distM < best.distM) best = { lat, lng, ...hit };
+  }
+  return best;
+}
+
+export function geometryContains(geometry: AreaGeometry, lat: number, lng: number): boolean {
+  if (geometry.type === "Polygon") return polygonContains(geometry.coordinates, lng, lat);
+  return geometry.coordinates.some((polygon) => polygonContains(polygon, lng, lat));
+}
+
+function polygonContains(rings: number[][][], lng: number, lat: number): boolean {
+  if (!rings.length || !ringContains(rings[0], lng, lat)) return false;
+  return !rings.slice(1).some((hole) => ringContains(hole, lng, lat));
+}
+
+function ringContains(ring: number[][], lng: number, lat: number): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const xi = ring[i][0];
+    const yi = ring[i][1];
+    const xj = ring[j][0];
+    const yj = ring[j][1];
+    if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi + 1e-18) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function avg(values: number[]) {
+  return values.reduce((sum, n) => sum + n, 0) / values.length;
 }
 
 function buildStats(
@@ -313,8 +823,6 @@ function buildStats(
     total_elevation_gain: number | null;
     average_speed: number | null;
   },
-  startPlace: string,
-  finishPlace: string,
 ): FormattedStat[] {
   const stats: FormattedStat[] = [
     { id: "title", label: "Title", value: row.name },
@@ -326,7 +834,5 @@ function buildStats(
     { id: "elevationGain", label: "Elevation gain", value: formatElevation(row.total_elevation_gain) },
     { id: "averageSpeed", label: "Average speed", value: formatSpeed(row.average_speed) },
   ];
-  if (startPlace) stats.push({ id: "startPlace", label: "Start", value: startPlace });
-  if (finishPlace) stats.push({ id: "finishPlace", label: "Finish", value: finishPlace });
   return stats.filter((item) => item.value);
 }

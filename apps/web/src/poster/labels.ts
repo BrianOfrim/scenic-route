@@ -1,6 +1,6 @@
 /**
- * Recommended number of landmark names in the image prompt (schematic discs
- * stay numbered). Past roughly a dozen, image models start dropping, merging,
+ * Recommended number of named labels in the image prompt (discs, trails, and
+ * named regions). Past roughly a dozen, image models start dropping, merging,
  * or misspelling names. The UI warns when this is exceeded but does not cap.
  */
 export const MAX_LABELS = 12;

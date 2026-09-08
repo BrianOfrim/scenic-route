@@ -21,6 +21,7 @@ export type ActivityRow = {
   velocity: string | null;
   altitude: string | null;
   bbox: string | null;
+  segment_efforts?: string | null;
 };
 
 export type ActivitySummary = {
@@ -131,6 +132,22 @@ export function activityToFeatureCollection(row: ActivityRow): FeatureCollection
       },
     ],
   };
+}
+
+export function getCachedSegmentEfforts(row: ActivityRow): unknown[] | null {
+  if (row.segment_efforts == null) return null;
+  try {
+    const parsed = JSON.parse(row.segment_efforts) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedSegmentEfforts(activityId: number, efforts: unknown[]) {
+  getDb()
+    .prepare("UPDATE activities SET segment_efforts = ? WHERE id = ?")
+    .run(JSON.stringify(efforts), activityId);
 }
 
 export function listSportTypes(): string[] {

@@ -53,11 +53,47 @@ export type PosterPoi = {
   bearing: string;
   xy: { x: number; y: number; region: string };
   source?: string;
+  inside?: string;
+};
+
+export type AreaGeometry =
+  | { type: "Polygon"; coordinates: number[][][] }
+  | { type: "MultiPolygon"; coordinates: number[][][][] };
+
+export type NamedArea = {
+  name: string;
+  kind: string;
+  geometry: AreaGeometry;
+  lat: number;
+  lng: number;
+  distToRouteM: number;
+  routeFrac: number;
+  bearing: string;
+  xy: { x: number; y: number; region: string };
+  /** Schematic wash letter (A, B, C…). Names live in the prompt. */
+  letter?: string;
 };
 
 export type FormattedStat = { id: string; label: string; value: string };
 
 export type PosterWays = Record<string, FeatureCollection>;
+
+export type NamedWay = {
+  name: string;
+  kind: string;
+  geometry: { type: "MultiLineString"; coordinates: number[][][] };
+  lat: number;
+  lng: number;
+  distToRouteM: number;
+  routeFrac: number;
+  bearing: string;
+  xy: { x: number; y: number; region: string };
+  source?: "osm" | "strava";
+  colorName?: string;
+  color?: string;
+  /** Inclusive GPS-stream indexes from Strava efforts. Prefer these over distance. */
+  routeSpans?: Array<{ start: number; end: number }>;
+};
 
 export type PosterContext = {
   activity: {
@@ -78,6 +114,8 @@ export type PosterContext = {
   latlng: [number, number][];
   stops: number[];
   ways: PosterWays;
+  namedWays: NamedWay[];
+  namedAreas: NamedArea[];
   pois: PosterPoi[];
   stats: FormattedStat[];
   warnings: string[];
@@ -105,9 +143,11 @@ export type PosterSpec = {
     color: string;
     startMarker: string;
     finishMarker: string;
+    startName?: string;
+    finishName?: string;
     shapeNotes: string;
   };
-  geography: Array<{ kind: string; name: string; placement: string; treatment: string }>;
+  geography: Array<{ kind: string; name: string; placement: string; treatment: string; color?: string; letter?: string }>;
   landmarks: Array<{ name: string; kind: string; placement: string; icon: string; pin?: number }>;
   text: {
     title: string;

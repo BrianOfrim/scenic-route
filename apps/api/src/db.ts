@@ -36,6 +36,18 @@ function migrate(connection: Database.Database) {
     CREATE INDEX IF NOT EXISTS activities_streams_synced ON activities (streams_synced);
     CREATE INDEX IF NOT EXISTS activities_start_date ON activities (start_date);
   `);
+  ensureColumn(connection, "activities", "segment_efforts", "TEXT");
+}
+
+function ensureColumn(
+  connection: Database.Database,
+  table: string,
+  column: string,
+  ddl: string,
+) {
+  const cols = connection.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (cols.some((col) => col.name === column)) return;
+  connection.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
 }
 
 export function getDb() {

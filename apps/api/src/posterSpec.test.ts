@@ -51,7 +51,7 @@ test("validatePosterSpec accepts a complete spec", () => {
 test("validatePosterSpec fills a missing finalPrompt", () => {
   const spec = validatePosterSpec({ ...sample, finalPrompt: "" });
   assert.match(spec.finalPrompt, /1 "Castle Mountain"/);
-  assert.match(spec.finalPrompt, /Write each name on the map/);
+  assert.match(spec.finalPrompt, /write each name and any icon beside the path/);
   assert.match(spec.finalPrompt, /Bow Valley/);
   assert.match(spec.finalPrompt, /Start marker: green dot/);
   assert.match(spec.finalPrompt, /Finish marker: black dot/);
@@ -64,6 +64,35 @@ test("validatePosterSpec fallback uses one marker when start and finish match", 
     finalPrompt: "",
   });
   assert.match(spec.finalPrompt, /Marker: combined gold\/green disc/);
+});
+
+test("validatePosterSpec fallback writes a shared start/finish name on the map", () => {
+  const spec = validatePosterSpec({
+    ...sample,
+    route: {
+      ...sample.route,
+      startMarker: "combined gold/green disc",
+      finishMarker: "combined gold/green disc",
+      startName: "Parkridge",
+      finishName: "Parkridge",
+    },
+    finalPrompt: "",
+  });
+  assert.match(spec.finalPrompt, /Write "Parkridge" at the start\/finish marker/);
+  assert.match(spec.finalPrompt, /schematic has no start\/finish text/);
+  assert.match(spec.finalPrompt, /Do not put this name in the title block/);
+});
+
+test("specToImagePrompt writes distinct start and finish names on the map", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      route: { ...sample.route, startName: "Camrose", finishName: "Edmonton" },
+    }),
+  );
+  assert.match(prompt, /Write "Camrose" at the start marker and "Edmonton" at the finish marker/);
+  assert.match(prompt, /Those markers are a private location index/);
+  assert.match(prompt, /These names sit on the map, not in the title block/);
 });
 
 test("validatePosterSpec rejects a missing title", () => {
@@ -101,15 +130,19 @@ test("specToImagePrompt renders prose without JSON or empty fields", () => {
   assert.match(prompt, /Style: Swiss minimal\./);
   assert.match(prompt, /Palette: off-white, red\./);
   assert.match(prompt, /CRITICAL route fidelity/);
-  assert.match(prompt, /Trace it exactly/);
+  assert.match(prompt, /Trace that line exactly/);
   assert.match(prompt, /A prettier wrong path is a failed poster/);
+  assert.match(prompt, /Never interrupt the line for a label, icon, or decoration/);
   assert.match(prompt, /Route: single accent line, in red\./);
   assert.match(prompt, /Start marker: green dot\. Finish marker: black dot\./);
   assert.match(prompt, /1 "Castle Mountain" \(upper-right; icon: peak\)/);
   assert.match(prompt, /private location index/);
+  assert.match(prompt, /A small marker may sit on the route/);
+  assert.match(prompt, /offset off the path/);
+  assert.match(prompt, /never treat an icon as a destination/);
   assert.match(prompt, /Do not draw the numbers/);
   assert.match(prompt, /Do not add a legend, key, or numbered callouts/);
-  assert.match(prompt, /replace every disc with the written name/);
+  assert.match(prompt, /replace every disc with a small on-route marker/);
   assert.match(prompt, /Title, exactly: "Bow Valley"\./);
   assert.match(prompt, /Stats to typeset: Distance 42\.0 km\./);
 });
@@ -120,9 +153,14 @@ test("specToImagePrompt appends explicit exclusions once", () => {
   assert.equal(prompt.match(/no watermark/g)?.length, 1);
   assert.match(prompt, /no number-to-name legend or index/);
   assert.match(prompt, /no numbered landmark discs, pin numbers, or numbered callouts/);
-  assert.match(prompt, /no text other than the title block and the listed landmark names/);
-  assert.match(prompt, /no different route than the red line on the schematic/);
+  assert.match(prompt, /no text other than the title block and the listed landmark, trail, region, and start\/finish names/);
+  assert.match(prompt, /no different route than the GPS track on the schematic/);
+  assert.match(prompt, /no color-to-name legend or trail color key/);
+  assert.match(prompt, /no schematic route colors on the finished path/);
+  assert.match(prompt, /no multi-colored GPS track copied from the schematic/);
   assert.match(prompt, /no smoothed, straightened, shortcut, or invented path/);
+  assert.match(prompt, /no labels or landmark illustrations covering, breaking, or replacing the route/);
+  assert.match(prompt, /no landmark icon used as a destination or gap in the path/);
 });
 
 test("specToImagePrompt drops planner copy that treats numbers as artwork", () => {
@@ -143,7 +181,70 @@ test("specToImagePrompt drops planner copy that treats numbers as artwork", () =
   assert.doesNotMatch(prompt, /printed landmark text labels/);
   assert.match(prompt, /Lower cartouche for the title/);
   assert.match(prompt, /Write each name once/);
-  assert.match(prompt, /Copy the red route as a traced original/);
+  assert.match(prompt, /Copy the route shape as a traced original/);
+  assert.match(prompt, /Do not copy the schematic's route colors/);
+});
+
+test("specToImagePrompt includes a private trail color key", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      geography: [
+        {
+          kind: "trail",
+          name: "Porcupine Rim",
+          placement: "upper-right",
+          color: "teal",
+          treatment: "write the name along that stretch",
+        },
+        ...sample.geography,
+      ],
+    }),
+  );
+  assert.match(prompt, /teal = Porcupine Rim/);
+  assert.match(prompt, /private trail index/);
+  assert.match(prompt, /discard the color/);
+  assert.match(prompt, /one continuous line in the poster route color/);
+  assert.match(prompt, /same line weight/);
+  assert.match(prompt, /Do not draw a color key/);
+  assert.doesNotMatch(prompt, /teal stretch of the GPS track/);
+  assert.doesNotMatch(prompt, /[{}\[\]]/);
+});
+
+test("specToImagePrompt scrubs leftover teal-stretch copy", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      finalPrompt: "Middle-earth map. Paint the teal stretch of the GPS track. Title at the top.",
+    }),
+  );
+  assert.doesNotMatch(prompt, /teal stretch of the GPS track/);
+  assert.match(prompt, /Middle-earth map/);
+  assert.match(prompt, /Title at the top/);
+});
+
+test("specToImagePrompt tells the model named regions are washes not pins", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      geography: [
+        {
+          kind: "neighbourhood",
+          name: "Old Strathcona",
+          placement: "upper-left",
+          treatment: "pale wash",
+          letter: "A",
+        },
+        ...sample.geography,
+      ],
+    }),
+  );
+  assert.match(prompt, /neighbourhood Old Strathcona/);
+  assert.match(prompt, /pale washes with a letter/);
+  assert.match(prompt, /discard the letter/);
+  assert.match(prompt, /A = Old Strathcona/);
+  assert.match(prompt, /do not draw the letter/i);
+  assert.doesNotMatch(prompt, /[{}\[\]]/);
 });
 
 test("specToImagePrompt explains a route-only reference when present", () => {
