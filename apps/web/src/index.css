@@ -1,12 +1,12 @@
 :root {
   color-scheme: dark;
-  --ink: #f4efe4;
-  --muted: #b4aa96;
-  --paper: #16140f;
-  --panel: #1f1b14;
-  --line: #3a3326;
-  --accent: #d24b3a;
-  --accent-2: #e8c36a;
+  --ink: #e8efe4;
+  --muted: #93a390;
+  --paper: #121610;
+  --panel: #181d16;
+  --line: #2c3628;
+  --accent: #c4783a;
+  --accent-2: #b8c97a;
   font-family: "IBM Plex Sans", system-ui, sans-serif;
   background: var(--paper);
   color: var(--ink);
@@ -40,7 +40,7 @@ a {
   align-items: center;
   padding: 16px 20px;
   border-bottom: 1px solid var(--line);
-  background: #14110c;
+  background: #0e120c;
 }
 
 .brand {
@@ -121,7 +121,7 @@ h1 {
 }
 
 .error {
-  color: #f0a09a;
+  color: #e89b8a;
 }
 
 .warn {
@@ -153,7 +153,7 @@ textarea,
 
 .button {
   background: var(--accent);
-  color: #fff8ef;
+  color: #f4f8ef;
   border: 0;
   border-radius: 999px;
   padding: 8px 14px;
@@ -176,7 +176,7 @@ textarea,
 .text-btn.on,
 .chip.on,
 .activity.on {
-  background: #3a2a18;
+  background: #24301c;
   border-color: var(--accent-2);
 }
 
@@ -184,7 +184,7 @@ textarea,
 select,
 textarea {
   width: 100%;
-  background: #14110c;
+  background: #0e120c;
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -381,7 +381,7 @@ textarea {
   align-items: center;
   gap: 6px;
   border: 1px solid var(--line);
-  background: #14110c;
+  background: #0e120c;
   color: var(--ink);
   border-radius: 999px;
   padding: 4px 10px;
@@ -476,7 +476,7 @@ textarea {
   width: 100%;
   display: block;
   border-radius: 6px;
-  background: #111;
+  background: #0c0e0a;
 }
 
 .result-compare-card span,
@@ -523,7 +523,7 @@ textarea {
   width: 100%;
   display: block;
   border-radius: 6px;
-  background: #111;
+  background: #0c0e0a;
 }
 
 .preview-grid {
@@ -568,7 +568,7 @@ textarea {
   min-height: 0;
   width: 100%;
   object-fit: contain;
-  background: #111;
+  background: #0c0e0a;
   border-radius: 8px;
 }
 
@@ -614,7 +614,7 @@ textarea {
 .lightbox {
   position: fixed;
   inset: 0;
-  background: rgba(8, 7, 5, 0.86);
+  background: rgba(6, 8, 5, 0.86);
   display: grid;
   place-items: center;
   padding: 16px;
@@ -660,7 +660,7 @@ textarea {
   min-height: 0;
   padding: 0;
   border: 1px solid var(--line);
-  background: #111;
+  background: #0c0e0a;
   color: inherit;
   border-radius: 8px;
   overflow: hidden;
@@ -682,7 +682,7 @@ textarea {
   bottom: 8px;
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(8, 7, 5, 0.72);
+  background: rgba(6, 8, 5, 0.72);
   font-size: 11px;
   color: var(--accent-2);
 }
@@ -754,7 +754,7 @@ textarea {
 .meta-drawer pre {
   white-space: pre-wrap;
   font-size: 11px;
-  background: #14110c;
+  background: #0e120c;
   padding: 10px;
   border-radius: 8px;
   overflow: auto;
