@@ -153,6 +153,8 @@ test("specToImagePrompt appends explicit exclusions once", () => {
   assert.equal(prompt.match(/no watermark/g)?.length, 1);
   assert.match(prompt, /no number-to-name legend or index/);
   assert.match(prompt, /no numbered landmark discs, pin numbers, or numbered callouts/);
+  assert.match(prompt, /no scale bar, graphic scale, distance ruler, or map scale/);
+  assert.match(prompt, /Do not draw a scale bar, graphic scale, or distance ruler/);
   assert.match(prompt, /no text other than the title block and the listed landmark, trail, region, and start\/finish names/);
   assert.match(prompt, /no different route than the GPS track on the schematic/);
   assert.match(prompt, /no color-to-name legend or trail color key/);
@@ -272,4 +274,24 @@ test("specToImagePrompt explains a route-only reference when present", () => {
   assert.match(prompt, /every separate red stroke on it is a required segment/i);
   assert.match(prompt, /same red GPS track/);
   assert.match(prompt, /Do not drop a stroke/);
+});
+
+test("specToImagePrompt explains a satellite reference when present", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      grounding: {
+        images: [
+          { index: 1, role: "schematic", legend: "red = route" },
+          { index: 2, role: "satellite", legend: "real aerial imagery with the GPS track" },
+        ],
+        rules: [],
+      },
+    }),
+  );
+  assert.match(prompt, /image 2 is the satellite/);
+  assert.match(prompt, /real aerial photography of the same frame/i);
+  assert.match(prompt, /every separate red stroke on it is a required segment/i);
+  assert.match(prompt, /Do not copy the photograph/);
+  assert.match(prompt, /keep the poster stylized/);
 });

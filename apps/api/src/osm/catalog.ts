@@ -147,7 +147,7 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "poi",
     selectors: ["nwr[historic][name]"],
-    defaultOn: true,
+    defaultOn: false,
     weight: 76,
   },
   {

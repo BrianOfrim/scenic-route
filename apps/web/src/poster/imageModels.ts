@@ -46,6 +46,71 @@ export function formatDurationMs(ms: number) {
   return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
 }
 
+export function finiteMoney(value: number | null | undefined) {
+  return value != null && Number.isFinite(value) ? value : null;
+}
+
+export function sumCosts(values: Array<number | null | undefined>) {
+  const amounts = values.map(finiteMoney).filter((value): value is number => value != null);
+  return amounts.length ? roundMoney(amounts.reduce((sum, value) => sum + value, 0)) : null;
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 1e6) / 1e6;
+}
+
+export function formatUsd(value: number) {
+  return `$${value.toFixed(3)}`;
+}
+
+/** Planner cost plus image-gen cost. `cost` is treated as image-gen when `imageCost` is omitted. */
+export function formatCostBreakdown(input: {
+  promptCost?: number | null;
+  imageCost?: number | null;
+  cost?: number | null;
+}) {
+  const prompt = finiteMoney(input.promptCost);
+  const image = finiteMoney(input.imageCost) ?? finiteMoney(input.cost);
+  if (prompt == null && image == null) return "";
+  if (prompt == null) return formatUsd(image as number);
+  if (image == null) return `prompt ${formatUsd(prompt)}`;
+  return `prompt ${formatUsd(prompt)} · image ${formatUsd(image)}`;
+}
+
+export type CostItem = {
+  styleId?: string;
+  promptCost?: number | null;
+  imageCost?: number | null;
+  cost?: number | null;
+};
+
+/** Prompt cost is counted once per style; image cost is summed across every item. */
+export function batchCosts(items: CostItem[]) {
+  const prompts = new Map<string, number>();
+  const images: number[] = [];
+  items.forEach((item, index) => {
+    const prompt = finiteMoney(item.promptCost);
+    if (prompt != null) {
+      const key = item.styleId?.trim() || `\0${index}`;
+      if (!prompts.has(key)) prompts.set(key, prompt);
+    }
+    const image = finiteMoney(item.imageCost) ?? finiteMoney(item.cost);
+    if (image != null) images.push(image);
+  });
+  const promptCost = prompts.size ? [...prompts.values()].reduce((sum, value) => sum + value, 0) : null;
+  const imageCost = images.length ? images.reduce((sum, value) => sum + value, 0) : null;
+  return { promptCost, imageCost, total: sumCosts([promptCost, imageCost]) };
+}
+
+export function formatBatchCost(items: CostItem[]) {
+  const { promptCost, imageCost, total } = batchCosts(items);
+  if (total == null) return "";
+  if (promptCost != null && imageCost != null) {
+    return `total ${formatUsd(total)} · prompt ${formatUsd(promptCost)} · image ${formatUsd(imageCost)}`;
+  }
+  return `total ${formatUsd(total)}`;
+}
+
 export function shortModelLabel(id: string, name?: string | null) {
   const trimmed = name?.trim();
   if (trimmed && trimmed !== id) return trimmed;

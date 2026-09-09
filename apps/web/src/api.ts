@@ -88,7 +88,7 @@ export type NamedWay = {
   routeFrac: number;
   bearing: string;
   xy: { x: number; y: number; region: string };
-  source?: "osm" | "strava";
+  source?: "osm" | "strava" | "user";
   colorName?: string;
   color?: string;
   /** Inclusive GPS-stream indexes from Strava efforts. Prefer these over distance. */
@@ -175,6 +175,7 @@ export type PosterRecord = {
   batchId?: string;
   aspectRatio: string;
   cost: number | null;
+  promptCost?: number | null;
   durationMs?: number;
   createdAt: string;
   previousPosterId?: string;
@@ -187,6 +188,32 @@ export type PosterRecord = {
   referenceCount: number;
   variant?: number;
   url: string;
+  editor?: PosterEditorSnapshot;
+};
+
+export type PosterEditorSnapshot = {
+  featureIds: string[];
+  labels: string[];
+  trailNames: string[];
+  trailAliases: Record<string, string>;
+  areaNames: string[];
+  customPois: PosterPoi[];
+  customWays: NamedWay[];
+  cropStart: number;
+  cropEnd: number;
+  showRouteMarkers: boolean;
+  title: string;
+  startPlace: string;
+  finishPlace: string;
+  placesEdited: boolean;
+  statIds: string[];
+  aspectRatio: string;
+  styleIds: string[];
+  stylePrompt: string;
+  imageModelIds: string[];
+  variants: number;
+  specs?: Partial<Record<string, PosterSpec>>;
+  planCosts?: Partial<Record<string, number | null>>;
 };
 
 async function readJson<T>(response: Response): Promise<T> {

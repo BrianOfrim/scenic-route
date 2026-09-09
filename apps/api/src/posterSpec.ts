@@ -310,6 +310,7 @@ export const PROMPT_EXCLUSIONS = [
   "no multi-colored GPS track copied from the schematic",
   "no numbered landmark discs, pin numbers, or numbered callouts",
   "no latitude/longitude numbers, coordinates, or grid lines",
+  "no scale bar, graphic scale, distance ruler, or map scale",
   "no watermark",
   "no text other than the title block and the listed landmark, trail, region, and start/finish names",
   "no different route than the GPS track on the schematic",
@@ -382,6 +383,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
       labeled("Title block", spec.composition.titleBlock),
       labeled("Border", spec.composition.border),
       decorations.length ? `Decorations: ${decorations.join(", ")}.` : "",
+      "Do not draw a scale bar, graphic scale, or distance ruler — they will not be accurate. Distance belongs only in the title-block stats.",
     ]),
   );
 
@@ -440,6 +442,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
     .filter((item) => t(item.role) || t(item.legend))
     .map((item) => `image ${item.index} is the ${t(item.role) || "reference"}${t(item.legend) ? ` (${t(item.legend)})` : ""}`);
   const hasRouteOnly = spec.grounding.images.some((item) => /route-only|silhouette/i.test(item.role));
+  const hasSatellite = spec.grounding.images.some((item) => /satellite/i.test(item.role));
   const groundingRules = list(spec.grounding.rules).filter(keepAsPosterInstruction);
   sections.push(
     paragraph([
@@ -447,6 +450,9 @@ export function specToImagePrompt(spec: PosterSpec): string {
       "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and landmarks; north is up. Paint that path as one styled line. Do not copy the schematic's route colors.",
       hasRouteOnly
         ? "The route-only image is the same red GPS track as the schematic, with geography removed. Every separate red stroke on it is a required segment — including lines that run parallel, hug a shore, or almost touch. Do not drop a stroke because water or another part of the route is nearby."
+        : "",
+      hasSatellite
+        ? "The satellite image is real aerial photography of the same frame, with the same red GPS track overlaid. Use it to read land cover, water, vegetation, and built areas, and to confirm every bend, parallel, and shore hug. Every separate red stroke on it is a required segment — including lines that run parallel, hug a shore, or almost touch. Do not drop a stroke because water or another part of the route is nearby. Do not copy the photograph or its colors; keep the poster stylized. The red line is the same exact track as the schematic."
         : "",
       landmarks.length
         ? "The schematic's numbered discs are scaffolding, not artwork. Copy geography and the exact route from the reference; replace every disc with a small on-route marker plus the written name from the landmark list, kept off the path so the route stays visible and continuous."

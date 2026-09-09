@@ -39,14 +39,16 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.equal(messages.length, 2);
   assert.match(String(messages[0].content), /geographic source of truth/);
   assert.match(String(messages[0].content), /GPS track on the schematic is exact/);
-  assert.match(String(messages[0].content), /route-only image/);
-  assert.match(String(messages[0].content), /every separate stroke/);
+  assert.match(String(messages[0].content), /satellite image/);
+  assert.match(String(messages[0].content), /real aerial photography/);
+  assert.match(String(messages[0].content), /every separate stroke/i);
   assert.match(String(messages[0].content), /do not redesign it/i);
   assert.match(String(messages[0].content), /optional finalPrompt/);
   assert.match(String(messages[0].content), /combined start\/finish marker/);
   assert.match(String(messages[0].content), /write those names at the schematic start\/finish marker/);
   assert.match(String(messages[0].content), /not title-block stats/);
   assert.match(String(messages[0].content), /never a prose string in place of an object/);
+  assert.match(String(messages[0].content), /Do not request a scale bar/);
   assert.match(String(messages[0].content), /private index/);
   assert.match(String(messages[0].content), /never copy the numbers/);
   assert.match(String(messages[0].content), /small marker on the route/);

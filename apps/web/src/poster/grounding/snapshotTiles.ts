@@ -40,6 +40,7 @@ export async function snapshotTiles(options: {
     },
     interactive: false,
     attributionControl: false,
+    pixelRatio: 1,
     canvasContextAttributes: { preserveDrawingBuffer: true },
     fadeDuration: 0,
   });
@@ -53,35 +54,54 @@ export async function snapshotTiles(options: {
     map.resize();
     map.fitBounds(bounds, { padding: 24, animate: false });
     await waitFor(map, "idle");
-    overlayRoute(map.getCanvas(), map, options.latlng, options.routeMarkers ?? "ends");
-    return map.getCanvas().toDataURL("image/png");
+    return compositeRoute(map, options.latlng, options.routeMarkers ?? "ends", options.source);
   } finally {
     map.remove();
     container.remove();
   }
 }
 
-function overlayRoute(
-  canvas: HTMLCanvasElement,
+function compositeRoute(
   map: Map,
   latlng: [number, number][],
   markers: false | "ends" | "loop",
-) {
+  source: TileSource,
+): string {
+  const gl = map.getCanvas();
+  const canvas = document.createElement("canvas");
+  canvas.width = gl.width;
+  canvas.height = gl.height;
   const ctx = canvas.getContext("2d");
-  if (!ctx || latlng.length < 2) return;
+  if (!ctx) throw new Error("Could not create a 2D canvas context");
+  ctx.drawImage(gl, 0, 0);
+  const cssW = gl.clientWidth || canvas.width;
+  const scale = cssW ? canvas.width / cssW : 1;
+  overlayRoute(ctx, map, latlng, markers, scale);
+  const mime = source === "satellite" ? "image/jpeg" : "image/png";
+  return canvas.toDataURL(mime, 0.85);
+}
+
+function overlayRoute(
+  ctx: CanvasRenderingContext2D,
+  map: Map,
+  latlng: [number, number][],
+  markers: false | "ends" | "loop",
+  scale: number,
+) {
+  if (latlng.length < 2) return;
   const points = latlng.map(([lat, lng]) => {
     const p = map.project([lng, lat]);
-    return [p.x, p.y] as [number, number];
+    return [p.x * scale, p.y * scale] as [number, number];
   });
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.strokeStyle = "#111";
-  ctx.lineWidth = 6;
+  ctx.lineWidth = 6 * scale;
   stroke(ctx, points);
   ctx.strokeStyle = "#e11d48";
-  ctx.lineWidth = 3.5;
+  ctx.lineWidth = 3.5 * scale;
   stroke(ctx, points);
-  if (markers) drawRouteEndMarkers(ctx, points[0], points[points.length - 1], markers);
+  if (markers) drawRouteEndMarkers(ctx, points[0], points[points.length - 1], markers, scale);
 }
 
 function stroke(ctx: CanvasRenderingContext2D, points: [number, number][]) {

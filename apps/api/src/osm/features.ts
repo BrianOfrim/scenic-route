@@ -99,7 +99,7 @@ export type NamedWay = {
   routeFrac: number;
   bearing: string;
   xy: { x: number; y: number; region: string };
-  source?: "osm" | "strava";
+  source?: "osm" | "strava" | "user";
   colorName?: string;
   color?: string;
   /** Inclusive GPS-stream indexes from Strava efforts. Prefer these over distance. */

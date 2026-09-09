@@ -11,7 +11,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "middle-earth",
     label: "Middle-earth",
     prompt:
-      "Hand-inked map on aged parchment in the style of a Tolkien journey map. Hachured mountains, tree-cluster forests, calligraphic labels, an ornate compass rose, and a decorative cartouche for the title. The route is a red dotted journey line. Warm tea-stain paper, sepia ink, no modern cartography.",
+      "Hand-inked map on aged parchment in the style of a Tolkien journey map. Tree-cluster forests, calligraphic labels, an ornate compass rose, and a decorative cartouche for the title. The route is a red dotted journey line. Warm tea-stain paper, sepia ink, no modern cartography.",
     palette: ["tea-stain", "sepia", "oxblood"],
     typography: "calligraphic uncials",
   },
@@ -51,7 +51,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "ukiyo-e",
     label: "Ukiyo-e",
     prompt:
-      "Japanese ukiyo-e woodblock print: Hokusai-style waves for water, stylized peaks, indigo and ochre palette, visible woodgrain, a red seal stamp containing the title. Flat color fields, outlined forms, no photorealism.",
+      "Japanese ukiyo-e woodblock print: Hokusai-style waves for water, stylized landforms — peaks only if the geography includes them — indigo and ochre palette, visible woodgrain, a red seal stamp containing the title. Flat color fields, outlined forms, no photorealism.",
     palette: ["indigo", "ochre", "seal-red"],
     typography: "woodblock seal",
   },
@@ -67,7 +67,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "synthwave",
     label: "Synthwave",
     prompt:
-      "Synthwave poster: sunset magenta-to-orange gradient sky, neon grid ground plane, chrome script title, purple haze mountains. The route is a glowing neon path. Retro-futurist 1980s album art.",
+      "Synthwave poster: sunset magenta-to-orange gradient sky, neon grid ground plane, chrome script title, purple horizon haze. The route is a glowing neon path. Retro-futurist 1980s album art.",
     palette: ["magenta", "orange", "violet"],
     typography: "chrome script",
   },

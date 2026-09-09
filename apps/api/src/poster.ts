@@ -25,6 +25,7 @@ export type PosterRecord = {
   batchId?: string;
   aspectRatio: string;
   cost: number | null;
+  promptCost?: number | null;
   durationMs?: number;
   createdAt: string;
   previousPosterId?: string;
@@ -37,6 +38,32 @@ export type PosterRecord = {
   referenceCount: number;
   variant?: number;
   url: string;
+  editor?: PosterEditorSnapshot;
+};
+
+export type PosterEditorSnapshot = {
+  featureIds: string[];
+  labels: string[];
+  trailNames: string[];
+  trailAliases: Record<string, string>;
+  areaNames: string[];
+  customPois: unknown[];
+  customWays: unknown[];
+  cropStart: number;
+  cropEnd: number;
+  showRouteMarkers: boolean;
+  title: string;
+  startPlace: string;
+  finishPlace: string;
+  placesEdited: boolean;
+  statIds: string[];
+  aspectRatio: string;
+  styleIds: string[];
+  stylePrompt: string;
+  imageModelIds: string[];
+  variants: number;
+  specs?: Record<string, PosterSpec>;
+  planCosts?: Record<string, number | null>;
 };
 
 export const DEFAULT_VARIANTS = 4;
@@ -68,6 +95,8 @@ export type GeneratePosterBody = {
   model?: string;
   batchId?: string;
   variants?: number;
+  promptCost?: number | null;
+  editor?: unknown;
 };
 
 export function decodeDataUrl(url: string): { mime: string; bytes: Buffer } {
@@ -132,6 +161,7 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
       batchId,
       aspectRatio,
       cost: image.cost,
+      promptCost: finiteCost(body.promptCost),
       durationMs: image.durationMs,
       createdAt: new Date().toISOString(),
       previousPosterId: body.previousPosterId,
@@ -144,6 +174,7 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
       referenceCount: decoded.length,
       variant: index + 1,
       url: `/api/posters/${posterId}/image.png`,
+      editor: sanitizePosterEditor(body.editor),
     };
     fs.writeFileSync(posterPath(posterId, "json"), JSON.stringify(record, null, 2));
     return record;
@@ -196,6 +227,85 @@ export function readPosterRef(posterId: string, index: number): Buffer {
   const file = posterPath(posterId, `ref-${index}.png`);
   if (!fs.existsSync(file)) throw new PosterError("reference not found", 404);
   return fs.readFileSync(file);
+}
+
+function finiteCost(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => (typeof item === "string" && item.trim() ? [item.trim()] : []));
+}
+
+function stringMap(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const next: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof item === "string") next[key] = item;
+  }
+  return next;
+}
+
+function objectList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => item && typeof item === "object" && !Array.isArray(item));
+}
+
+function finiteInt(value: unknown, fallback: number) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : fallback;
+}
+
+function specMap(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const next: Record<string, PosterSpec> = {};
+  for (const [id, spec] of Object.entries(value as Record<string, unknown>)) {
+    if (!id.trim() || !spec || typeof spec !== "object" || Array.isArray(spec)) continue;
+    const parsed = validatePosterSpec(spec);
+    if (parsed.style.name || parsed.finalPrompt) next[id] = parsed;
+  }
+  return Object.keys(next).length ? next : undefined;
+}
+
+function costMap(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const next: Record<string, number | null> = {};
+  for (const [id, cost] of Object.entries(value as Record<string, unknown>)) {
+    if (!id.trim()) continue;
+    if (cost == null) next[id] = null;
+    else if (typeof cost === "number" && Number.isFinite(cost)) next[id] = cost;
+  }
+  return Object.keys(next).length ? next : undefined;
+}
+
+export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  return {
+    featureIds: stringList(raw.featureIds),
+    labels: stringList(raw.labels),
+    trailNames: stringList(raw.trailNames),
+    trailAliases: stringMap(raw.trailAliases),
+    areaNames: stringList(raw.areaNames),
+    customPois: objectList(raw.customPois),
+    customWays: objectList(raw.customWays),
+    cropStart: finiteInt(raw.cropStart, 0),
+    cropEnd: finiteInt(raw.cropEnd, 1),
+    showRouteMarkers: raw.showRouteMarkers !== false,
+    title: typeof raw.title === "string" ? raw.title : "",
+    startPlace: typeof raw.startPlace === "string" ? raw.startPlace : "",
+    finishPlace: typeof raw.finishPlace === "string" ? raw.finishPlace : "",
+    placesEdited: raw.placesEdited === true,
+    statIds: stringList(raw.statIds),
+    aspectRatio: typeof raw.aspectRatio === "string" && raw.aspectRatio.trim() ? raw.aspectRatio.trim() : "2:3",
+    styleIds: stringList(raw.styleIds),
+    stylePrompt: typeof raw.stylePrompt === "string" ? raw.stylePrompt : "",
+    imageModelIds: stringList(raw.imageModelIds),
+    variants: clampVariants(typeof raw.variants === "number" ? raw.variants : undefined),
+    specs: specMap(raw.specs),
+    planCosts: costMap(raw.planCosts),
+  };
 }
 
 function sanitizeBatchId(value?: string) {

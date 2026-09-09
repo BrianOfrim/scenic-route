@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { deletePoster, fetchPosters, type PosterRecord } from "../api";
 import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
-import { formatDurationMs, posterVariantLabel, shortModelLabel } from "../poster/imageModels";
+import { formatBatchCost, formatCostBreakdown, formatDurationMs, posterVariantLabel, shortModelLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 
 type Props = {
@@ -73,6 +73,10 @@ export function Gallery({ onBack, onRefine }: Props) {
   }, [active, posters]);
   const compareStyles = new Set(batchSiblings.map((item) => item.styleId)).size > 1;
   const compareModels = new Set(batchSiblings.map((item) => item.model)).size > 1;
+  const activeCost = active
+    ? formatCostBreakdown({ promptCost: active.promptCost, cost: active.cost })
+    : "";
+  const batchCost = batchSiblings.length > 1 ? formatBatchCost(batchSiblings) : "";
   const compareImages = useMemo<CompareImage[]>(() => {
     if (!active) return [];
     const schematic =
@@ -288,8 +292,9 @@ export function Gallery({ onBack, onRefine }: Props) {
                 <p className="muted">
                   {active.model}
                   {active.durationMs != null ? ` · ${formatDurationMs(active.durationMs)}` : ""}
-                  {active.cost != null ? ` · $${active.cost.toFixed(3)}` : ""} · {active.referenceCount} refs
+                  {activeCost ? ` · ${activeCost}` : ""} · {active.referenceCount} refs
                 </p>
+                {batchCost ? <p className="muted">{batchCost}</p> : null}
                 <pre>{active.prompt}</pre>
                 <pre>{JSON.stringify(active.spec, null, 2)}</pre>
                 <div className="preview-grid">

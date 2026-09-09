@@ -25,6 +25,15 @@ import {
   schematicLayersFromFeatureIds,
   type AspectRatio,
 } from "./grounding/renderSchematic";
+import { snapshotTiles } from "./grounding/snapshotTiles";
+import { applyTrailAlias, nextTrailAliases, trailSourceName, userLandmark, userNamedWay } from "./annotate";
+import {
+  asAspectRatio,
+  captureEditorSnapshot,
+  editorSeed,
+  restoreEditor,
+  styleIdFromRecord,
+} from "./editorSnapshot";
 import { MAX_LABELS, prioritizeLabels } from "./labels";
 import { nearestPlaceName } from "./places";
 import { assignAreaLetters } from "./areaLetters";
@@ -32,12 +41,15 @@ import { assignTrailColors } from "./trailColors";
 import { SpecEditor } from "./SpecEditor";
 import {
   MAX_VARIANTS,
+  formatBatchCost,
+  formatCostBreakdown,
   formatDurationMs,
   minMaxReferences,
   posterVariantLabel,
   readStoredImageModels,
   readStoredVariants,
   shortModelLabel,
+  sumCosts,
   variantCount,
   writeStoredImageModels,
   writeStoredVariants,
@@ -54,29 +66,95 @@ type GenerationRun = {
   label: string;
   startedAt: number;
   finishedAt?: number;
+  promptCost?: number | null;
+  imageCost?: number | null;
   error?: string;
 };
 
-function initialStyleId(record?: PosterRecord | null) {
-  const id = record?.styleId;
-  if (id && POSTER_STYLES.some((item) => item.id === id)) return id;
-  if (record?.stylePrompt) return "custom";
-  return DEFAULT_POSTER_STYLE.id;
-}
 
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
 
 const SCHEMATIC_LEGEND =
   "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; blue = water; green = forest; ochre wash + letter = named district, private region index, copy the footprint not the ochre or letter; numbered discs = private location index, do not copy";
 
-const ROUTE_ONLY_LEGEND =
-  "same red line as the schematic, geography removed; every separate stroke is a required segment, including parallels and shore hugs";
+const SATELLITE_LEGEND =
+  "real aerial imagery of the same frame; red = GPS track; use for land cover, water, vegetation, and built form; every red stroke is a required segment; do not copy the photograph";
 
-function statIdFromLabel(label: string) {
-  const key = label.trim().toLowerCase();
-  if (key.startsWith("start")) return "startPlace";
-  if (key.startsWith("finish")) return "finishPlace";
-  return key.replace(/\s+/g, "");
+
+function TrailChip({
+  trail,
+  editing,
+  draft,
+  onEdit,
+  onDraft,
+  onSave,
+  onCancel,
+  onRemove,
+}: {
+  trail: NamedWay;
+  editing: boolean;
+  draft: string;
+  onEdit: () => void;
+  onDraft: (value: string) => void;
+  onSave: (value: string) => void;
+  onCancel: () => void;
+  onRemove: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const skipBlurRef = useRef(false);
+  useEffect(() => {
+    if (!editing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [editing]);
+  const title =
+    trail.source === "user" ? "Named by hand on the schematic" : "Named trail on the schematic";
+  return (
+    <span className="chip on" title={editing ? undefined : `${title}. Click the name to rename.`}>
+      <span className="chip-swatch" style={{ background: trail.color }} aria-hidden />
+      {editing ? (
+        <input
+          ref={inputRef}
+          className="chip-edit"
+          value={draft}
+          aria-label={`Rename ${trail.name}`}
+          onChange={(event) => onDraft(event.target.value)}
+          onBlur={() => {
+            if (skipBlurRef.current) {
+              skipBlurRef.current = false;
+              return;
+            }
+            onSave(inputRef.current?.value ?? draft);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onSave((event.target as HTMLInputElement).value);
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              skipBlurRef.current = true;
+              onCancel();
+            }
+          }}
+        />
+      ) : (
+        <button type="button" className="chip-name" onClick={onEdit}>
+          {trail.name}
+        </button>
+      )}
+      <button
+        type="button"
+        className="chip-remove"
+        aria-label={`Remove ${trail.name}`}
+        title={`Remove ${trail.name}`}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onRemove}
+      >
+        ×
+      </button>
+    </span>
+  );
 }
 
 function GroundingThumb({
@@ -111,7 +189,7 @@ function schematicLegend(markers: false | "ends" | "loop") {
 
 function groundingLayers(
   schematicUrl: string | null,
-  routeOnlyUrl: string | null,
+  satelliteUrl: string | null,
   maxRefs: number,
   latlng: [number, number][],
   showMarkers: boolean,
@@ -124,14 +202,24 @@ function groundingLayers(
       dataUrl: schematicUrl,
     },
   ];
-  if (maxRefs >= 2 && routeOnlyUrl) {
+  if (maxRefs >= 2 && satelliteUrl) {
     layers.push({
-      role: "route-only",
-      legend: ROUTE_ONLY_LEGEND,
-      dataUrl: routeOnlyUrl,
+      role: "satellite",
+      legend: SATELLITE_LEGEND,
+      dataUrl: satelliteUrl,
     });
   }
   return layers;
+}
+
+function sentRefsHint(maxRefs: number, hasSatellite: boolean, satellitePending: boolean) {
+  const parts = ["schematic"];
+  if (maxRefs >= 2) {
+    if (hasSatellite) parts.push("satellite");
+    else if (satellitePending) parts.push("satellite (loading)");
+  }
+  if (parts.length === 1) return "1 schematic reference will be sent. Click the preview to enlarge.";
+  return `${parts.length} references will be sent: ${parts.join(" + ")}. Click a preview to enlarge.`;
 }
 
 type ModelRef = { role: string; legend?: string; dataUrl: string };
@@ -158,6 +246,9 @@ type Props = {
   dismissPoi?: { name: string; nonce: number } | null;
   dismissArea?: { name: string; nonce: number } | null;
   dismissTrail?: { name: string; nonce: number } | null;
+  placeLandmark?: { name: string; lat: number; lng: number; nonce: number } | null;
+  placeSection?: { name: string; start: number; end: number; nonce: number } | null;
+  renameTrail?: { name: string; next: string; nonce: number } | null;
 };
 
 export function PosterPanel({
@@ -175,51 +266,58 @@ export function PosterPanel({
   dismissPoi,
   dismissArea,
   dismissTrail,
+  placeLandmark,
+  placeSection,
+  renameTrail: renameTrailEvent,
 }: Props) {
   const catalog = FEATURE_CATALOG.map(
     (item) => features.find((feature) => feature.id === item.id) ?? item,
   );
+  const seeded = useMemo(() => editorSeed(refineFrom), [refineFrom]);
   const [context, setContext] = useState<PosterContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [featureIds, setFeatureIds] = useState<string[]>(DEFAULT_FEATURE_IDS);
-  const [styleIds, setStyleIds] = useState<string[]>(() => [initialStyleId(refineFrom)]);
-  const [stylePrompt, setStylePrompt] = useState(refineFrom?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
-  const [activeStyleId, setActiveStyleId] = useState(() => initialStyleId(refineFrom));
-  const [title, setTitle] = useState("");
+  const [featureIds, setFeatureIds] = useState<string[]>(() => seeded?.featureIds ?? DEFAULT_FEATURE_IDS);
+  const [styleIds, setStyleIds] = useState<string[]>(() => seeded?.styleIds ?? [styleIdFromRecord(refineFrom)]);
+  const [stylePrompt, setStylePrompt] = useState(seeded?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
+  const [activeStyleId, setActiveStyleId] = useState(() => seeded?.styleIds[0] ?? styleIdFromRecord(refineFrom));
+  const [title, setTitle] = useState(seeded?.title ?? "");
   const [startPlace, setStartPlace] = useState("");
   const [finishPlace, setFinishPlace] = useState("");
   const [placesEdited, setPlacesEdited] = useState(false);
   const [statIds, setStatIds] = useState<string[]>(["title", "date", "distance", "movingTime"]);
   const [labels, setLabels] = useState<string[]>([]);
   const [trailNames, setTrailNames] = useState<string[]>([]);
+  const [trailAliases, setTrailAliases] = useState<Record<string, string>>({});
+  const [editingTrail, setEditingTrail] = useState<string | null>(null);
+  const [editingTrailName, setEditingTrailName] = useState("");
   const [areaNames, setAreaNames] = useState<string[]>([]);
   const [customPois, setCustomPois] = useState<PosterPoi[]>([]);
+  const [customWays, setCustomWays] = useState<NamedWay[]>([]);
   const [cropStart, setCropStart] = useState(0);
   const [cropEnd, setCropEnd] = useState(1);
-  const [showRouteMarkers, setShowRouteMarkers] = useState(true);
+  const [showRouteMarkers, setShowRouteMarkers] = useState(seeded?.showRouteMarkers ?? true);
   const [landmarkQuery, setLandmarkQuery] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
   const [landmarkChoices, setLandmarkChoices] = useState<PosterPoi[] | null>(null);
   const [landmarkHint, setLandmarkHint] = useState<string | null>(null);
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("2:3");
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(() => asAspectRatio(seeded?.aspectRatio));
   const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
-  const [routeOnlyUrl, setRouteOnlyUrl] = useState<string | null>(null);
+  const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
   const [modelRefs, setModelRefs] = useState<ModelRef[]>([]);
   const [sentRefs, setSentRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
   const [imageModelIds, setImageModelIds] = useState(() => {
+    if (seeded?.imageModelIds?.length) return seeded.imageModelIds;
     const stored = readStoredImageModels();
     return refineFrom?.model && !stored.includes(refineFrom.model)
       ? [...stored, refineFrom.model]
       : stored;
   });
-  const [variants, setVariants] = useState(() => readStoredVariants());
-  const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => {
-    const id = initialStyleId(refineFrom);
-    return refineFrom?.spec ? { [id]: refineFrom.spec } : {};
-  });
+  const [variants, setVariants] = useState(() => seeded?.variants ?? readStoredVariants());
+  const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
+  const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
   const [planning, setPlanning] = useState(false);
   const [planProgress, setPlanProgress] = useState({ done: 0, total: 0 });
   const [generating, setGenerating] = useState(false);
@@ -284,35 +382,56 @@ export function PosterPanel({
       .then((next) => {
         if (cancelled) return;
         setContext(next);
-        setLabels(next.pois.map((poi) => poi.name));
-        setTrailNames((next.namedWays ?? []).map((trail) => trail.name));
-        setAreaNames((next.namedAreas ?? []).map((area) => area.name));
         if (activityChanged) {
           cropActivityId.current = activityId;
-          setTitle(next.activity.name || "Ride");
-          setCropStart(0);
-          setCropEnd(Math.max(1, next.latlng.length - 1));
-          setPlacesEdited(false);
-          setStartPlace("");
-          setFinishPlace("");
+          setEditingTrail(null);
+          setLandmarkQuery("");
+          setLandmarkChoices(null);
+          setLandmarkHint(null);
           if (refineFrom) {
-            setStatIds(
-              refineFrom.stats
-                .map((item) => statIdFromLabel(item.label))
-                .filter((id) => id !== "startPlace" && id !== "finishPlace"),
-            );
+            const restored = restoreEditor(refineFrom, next.latlng.length, {
+              title: next.activity.name || "Ride",
+              labels: next.pois.map((poi) => poi.name),
+              trailNames: (next.namedWays ?? []).map((trail) => trail.name),
+              areaNames: (next.namedAreas ?? []).map((area) => area.name),
+            });
+            setFeatureIds(restored.featureIds);
+            setLabels(restored.labels);
+            setTrailNames(restored.trailNames);
+            setTrailAliases(restored.trailAliases);
+            setAreaNames(restored.areaNames);
+            setCustomPois(restored.customPois);
+            setCustomWays(restored.customWays);
+            setCropStart(restored.cropStart);
+            setCropEnd(restored.cropEnd);
+            setShowRouteMarkers(restored.showRouteMarkers);
+            setTitle(restored.title);
+            setStartPlace(restored.startPlace);
+            setFinishPlace(restored.finishPlace);
+            setPlacesEdited(restored.placesEdited);
+            setStatIds(restored.statIds);
+            setAspectRatio(restored.aspectRatio);
+            setStyleIds(restored.styleIds);
+            setStylePrompt(restored.stylePrompt);
+            setActiveStyleId(restored.styleIds[0] ?? styleIdFromRecord(refineFrom));
+            setSpecs(restored.specs);
+            setPlanCosts(restored.planCosts);
+            if (restored.imageModelIds?.length) setImageModelIds(restored.imageModelIds);
+            if (restored.variants != null) setVariants(restored.variants);
             setSentRefs(savedModelRefs(refineFrom));
-            const specStart = refineFrom.spec?.route.startName?.trim() ?? "";
-            const specFinish = refineFrom.spec?.route.finishName?.trim() ?? "";
-            const savedStart =
-              specStart || refineFrom.stats.find((item) => /^start/i.test(item.label))?.value || "";
-            const savedFinish =
-              specFinish || refineFrom.stats.find((item) => /^finish$/i.test(item.label))?.value || "";
-            if (savedStart || savedFinish) {
-              setStartPlace(savedStart || savedFinish);
-              setFinishPlace(savedFinish || savedStart);
-              setPlacesEdited(true);
-            }
+          } else {
+            setLabels(next.pois.map((poi) => poi.name));
+            setTrailNames((next.namedWays ?? []).map((trail) => trail.name));
+            setAreaNames((next.namedAreas ?? []).map((area) => area.name));
+            setTitle(next.activity.name || "Ride");
+            setCropStart(0);
+            setCropEnd(Math.max(1, next.latlng.length - 1));
+            setPlacesEdited(false);
+            setStartPlace("");
+            setFinishPlace("");
+            setCustomPois([]);
+            setCustomWays([]);
+            setTrailAliases({});
           }
         } else {
           const last = Math.max(1, next.latlng.length - 1);
@@ -359,7 +478,9 @@ export function PosterPanel({
   }, [context, labels, customPois, croppedLatLng]);
 
   const selectedNamedWays = useMemo(() => {
-    const colored = assignTrailColors((context?.namedWays ?? []).filter((trail) => trailNames.includes(trail.name)));
+    const suggested = (context?.namedWays ?? []).filter((trail) => trailNames.includes(trail.name));
+    const ranked = prioritizeLabels(suggested, customWays);
+    const colored = assignTrailColors(ranked).map((trail) => applyTrailAlias(trail, trailAliases));
     if (!context?.latlng?.length) return colored;
     const [lo, hi] = clampCrop(context.latlng.length, cropStart, cropEnd);
     return colored
@@ -368,7 +489,7 @@ export function PosterPanel({
         routeSpans: shiftRouteSpans(trail.routeSpans, lo, hi),
       }))
       .filter((trail) => trail.routeSpans === undefined || trail.routeSpans.length > 0);
-  }, [context, trailNames, cropStart, cropEnd]);
+  }, [context, trailNames, customWays, cropStart, cropEnd, trailAliases]);
 
   const selectedNamedAreas = useMemo(() => {
     const areas = (context?.namedAreas ?? []).filter((area) => areaNames.includes(area.name));
@@ -465,8 +586,33 @@ export function PosterPanel({
   }, []);
 
   const removeTrail = useCallback((name: string) => {
-    setTrailNames((current) => current.filter((item) => item !== name));
-  }, []);
+    const source = trailSourceName(name, trailAliases);
+    setCustomWays((current) => current.filter((item) => item.name !== source));
+    setTrailNames((current) => current.filter((item) => item !== source));
+    setTrailAliases((current) => {
+      if (!(source in current)) return current;
+      const next = { ...current };
+      delete next[source];
+      return next;
+    });
+    setEditingTrail((current) => (current === name || current === source ? null : current));
+  }, [trailAliases]);
+
+  const renameTrail = useCallback(
+    (from: string, to: string) => {
+      const taken = selectedNamedWays.map((trail) => trail.name);
+      const result = nextTrailAliases(from, to, trailAliases, taken);
+      if ("error" in result) {
+        setLandmarkHint(result.error);
+        return false;
+      }
+      setTrailAliases(result.aliases);
+      setLandmarkHint(`Renamed stretch to “${result.display}”`);
+      setEditingTrail(null);
+      return true;
+    },
+    [selectedNamedWays, trailAliases],
+  );
 
   useEffect(() => {
     if (!dismissPoi?.name) return;
@@ -483,6 +629,37 @@ export function PosterPanel({
     removeTrail(dismissTrail.name);
   }, [dismissTrail, removeTrail]);
 
+  useEffect(() => {
+    if (!placeLandmark?.name) return;
+    const route = croppedLatLng.length >= 2 ? croppedLatLng : context?.latlng ?? [];
+    const poi = userLandmark(
+      placeLandmark.name,
+      placeLandmark.lat,
+      placeLandmark.lng,
+      route,
+      displayBbox ?? context?.bbox,
+    );
+    if (!poi) return;
+    addCustom(poi);
+    setLandmarkHint(`Added ${poi.name} on the schematic`);
+  }, [placeLandmark]);
+
+  useEffect(() => {
+    if (!placeSection?.name || !context?.latlng?.length) return;
+    const [lo] = clampCrop(context.latlng.length, cropStart, cropEnd);
+    const start = lo + Math.min(placeSection.start, placeSection.end);
+    const end = lo + Math.max(placeSection.start, placeSection.end);
+    const way = userNamedWay(placeSection.name, start, end, context.latlng, displayBbox ?? context.bbox);
+    if (!way) return;
+    addCustomWay(way);
+    setLandmarkHint(`Named “${way.name}” on the schematic`);
+  }, [placeSection]);
+
+  useEffect(() => {
+    if (!renameTrailEvent?.name) return;
+    renameTrail(renameTrailEvent.name, renameTrailEvent.next);
+  }, [renameTrailEvent, renameTrail]);
+
   useEffect(
     () => () => {
       onCropChange?.(null);
@@ -496,7 +673,7 @@ export function PosterPanel({
   useEffect(() => {
     if (croppedLatLng.length < 2 || !groundingBbox) {
       setSchematicUrl(null);
-      setRouteOnlyUrl(null);
+      setSatelliteUrl(null);
       return;
     }
     try {
@@ -512,21 +689,43 @@ export function PosterPanel({
           layers: schematicLayers,
         }),
       );
-      setRouteOnlyUrl(
-        renderSchematicDataUrl({
-          latlng: croppedLatLng,
-          bbox: groundingBbox,
-          aspectRatio,
-          silhouette: true,
-        }),
-      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not render schematic");
     }
   }, [context, croppedLatLng, groundingBbox, selectedPois, selectedNamedWays, selectedNamedAreas, aspectRatio, schematicLayers]);
 
   useEffect(() => {
-    const layers = groundingLayers(schematicUrl, routeOnlyUrl, maxRefs, croppedLatLng, showRouteMarkers);
+    if (croppedLatLng.length < 2 || !groundingBbox || maxRefs < 2) {
+      setSatelliteUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void snapshotTiles({
+      source: "satellite",
+      bbox: groundingBbox,
+      latlng: croppedLatLng,
+      aspectRatio,
+      routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
+    })
+      .then((url) => {
+        if (!cancelled) setSatelliteUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setSatelliteUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [croppedLatLng, groundingBbox, aspectRatio, showRouteMarkers, maxRefs]);
+
+  useEffect(() => {
+    const layers = groundingLayers(
+      schematicUrl,
+      satelliteUrl,
+      maxRefs,
+      croppedLatLng,
+      showRouteMarkers,
+    );
     if (!layers.length) {
       setModelRefs([]);
       return;
@@ -538,7 +737,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [schematicUrl, routeOnlyUrl, maxRefs, aspectRatio, showRouteMarkers, croppedLatLng]);
+  }, [schematicUrl, satelliteUrl, maxRefs, aspectRatio, showRouteMarkers, croppedLatLng]);
 
   useEffect(() => {
     setModelRuns([]);
@@ -554,8 +753,31 @@ export function PosterPanel({
     return () => window.clearInterval(timer);
   }, [generating, planning]);
 
+  async function ensureSatellite(): Promise<string | null> {
+    if (maxRefs < 2 || croppedLatLng.length < 2 || !groundingBbox) return null;
+    if (satelliteUrl) return satelliteUrl;
+    try {
+      return await snapshotTiles({
+        source: "satellite",
+        bbox: groundingBbox,
+        latlng: croppedLatLng,
+        aspectRatio,
+        routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
+      });
+    } catch {
+      return null;
+    }
+  }
+
   async function buildGrounding(): Promise<GroundingLayer[]> {
-    return groundingLayers(schematicUrl, routeOnlyUrl, maxRefs, croppedLatLng, showRouteMarkers);
+    const satellite = await ensureSatellite();
+    return groundingLayers(
+      schematicUrl,
+      satellite,
+      maxRefs,
+      croppedLatLng,
+      showRouteMarkers,
+    );
   }
 
   async function handlePlan() {
@@ -611,18 +833,21 @@ export function PosterPanel({
                 specs[style.id] ??
                 (refineFrom && refineFrom.styleId === style.id ? refineFrom.spec : undefined),
             });
-            return { styleId: style.id, spec: planned.spec };
+            return { styleId: style.id, spec: planned.spec, cost: planned.cost };
           } catch (err) {
             return {
               styleId: style.id,
               error: err instanceof Error ? err.message : "Planner failed",
+              cost: null,
             };
           } finally {
             setPlanProgress((current) => ({ ...current, done: current.done + 1 }));
           }
         }),
       );
-      const planned = settled.flatMap((item) => (item.spec ? [{ styleId: item.styleId, spec: item.spec }] : []));
+      const planned = settled.flatMap((item) =>
+        item.spec ? [{ styleId: item.styleId, spec: item.spec, cost: item.cost }] : [],
+      );
       const failures = settled.flatMap((item) =>
         item.error ? [`${styleLabel(item.styleId)}: ${item.error}`] : [],
       );
@@ -630,6 +855,11 @@ export function PosterPanel({
       setSpecs((current) => {
         const next = { ...current };
         for (const item of planned) next[item.styleId] = item.spec;
+        return next;
+      });
+      setPlanCosts((current) => {
+        const next = { ...current };
+        for (const item of planned) next[item.styleId] = item.cost ?? null;
         return next;
       });
       if (!planned.some((item) => item.styleId === activeStyleId)) {
@@ -678,6 +908,7 @@ export function PosterPanel({
           model: job.model,
           label: shortModelLabel(job.model, imageModels.find((item) => item.id === job.model)?.name),
           startedAt,
+          promptCost: planCosts[job.styleId] ?? null,
         })),
       );
       const settled = await Promise.all(
@@ -687,6 +918,7 @@ export function PosterPanel({
               activityId,
               spec: job.spec,
               references: packed.map((item) => item.dataUrl),
+              previousPosterId: refineFrom?.posterId,
               refineNotes: refineNotes || undefined,
               featureIds,
               labels: selectedPois.map((poi) => poi.name),
@@ -697,10 +929,37 @@ export function PosterPanel({
               batchId,
               model: job.model,
               variants,
+              promptCost: planCosts[job.styleId] ?? null,
+              editor: captureEditorSnapshot({
+                featureIds,
+                labels,
+                trailNames,
+                trailAliases,
+                areaNames,
+                customPois,
+                customWays,
+                cropStart,
+                cropEnd,
+                showRouteMarkers,
+                title,
+                startPlace,
+                finishPlace,
+                placesEdited,
+                statIds,
+                aspectRatio,
+                styleIds,
+                stylePrompt,
+                imageModelIds,
+                variants,
+                specs,
+                planCosts,
+              }),
             });
             setModelRuns((current) =>
               current.map((run) =>
-                run.key === job.key ? { ...run, finishedAt: Date.now() } : run,
+                run.key === job.key
+                  ? { ...run, finishedAt: Date.now(), imageCost: sumCosts(records.map((item) => item.cost)) }
+                  : run,
               ),
             );
             return { key: job.key, styleId: job.styleId, model: job.model, records };
@@ -776,6 +1035,12 @@ export function PosterPanel({
     );
     setLabels((current) => (current.includes(poi.name) ? current : [...current, poi.name]));
     setLandmarkChoices(null);
+  }
+
+  function addCustomWay(way: NamedWay) {
+    setCustomWays((current) =>
+      current.some((item) => item.name.toLowerCase() === way.name.toLowerCase()) ? current : [...current, way],
+    );
   }
 
   function toggleFeature(id: string) {
@@ -861,9 +1126,14 @@ export function PosterPanel({
     .filter((item): item is string => Boolean(item));
   const editingCustom = styleIds.includes("custom");
   const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
+  const resultCost = result
+    ? formatCostBreakdown({ promptCost: result.promptCost, cost: result.cost })
+    : "";
+  const runsBatchCost = formatBatchCost(modelRuns);
   const compareStyles = new Set(batchResults.map((item) => item.styleId)).size > 1;
   const compareModels = new Set(batchResults.map((item) => item.model)).size > 1;
   const compareItems = batchResults.length ? batchResults : result ? [result] : [];
+  const resultsBatchCost = formatBatchCost(compareItems);
   const schematicSrc =
     sentRefs.find((item) => item.role === "schematic")?.dataUrl ??
     (result ? `/api/posters/${result.posterId}/ref-1.png` : null);
@@ -1061,23 +1331,34 @@ export function PosterPanel({
                 </button>
               ))}
               {selectedNamedWays.map((trail) => (
-                <button
-                  key={`trail-${trail.name}`}
-                  type="button"
-                  className="chip on"
-                  title="Named trail on the schematic"
-                  onClick={() => setTrailNames((current) => current.filter((name) => name !== trail.name))}
-                >
-                  <span className="chip-swatch" style={{ background: trail.color }} aria-hidden />
-                  {trail.name} ×
-                </button>
+                <TrailChip
+                  key={`trail-${trailSourceName(trail.name, trailAliases)}`}
+                  trail={trail}
+                  editing={editingTrail === trail.name}
+                  draft={editingTrail === trail.name ? editingTrailName : trail.name}
+                  onEdit={() => {
+                    setEditingTrail(trail.name);
+                    setEditingTrailName(trail.name);
+                  }}
+                  onDraft={setEditingTrailName}
+                  onSave={(value) => {
+                    if (editingTrail !== trail.name) return;
+                    renameTrail(trail.name, value);
+                  }}
+                  onCancel={() => setEditingTrail(null)}
+                  onRemove={() => removeTrail(trail.name)}
+                />
               ))}
               {selectedPois.map((poi, index) => (
                 <button
                   key={`${poi.name}-${poi.lat}`}
                   type="button"
                   className="chip on"
-                  title={`Disc ${index + 1} on the schematic`}
+                  title={
+                    poi.source === "user"
+                      ? `Disc ${index + 1} · placed on the schematic`
+                      : `Disc ${index + 1} on the schematic`
+                  }
                   onClick={() => removePoi(poi.name)}
                 >
                   {index + 1} {poi.name} ×
@@ -1106,13 +1387,18 @@ export function PosterPanel({
                 className="search"
                 value={landmarkQuery}
                 onChange={(event) => setLandmarkQuery(event.target.value)}
-                placeholder="Add a landmark"
+                placeholder="Search OSM for a landmark"
                 disabled={lookingUp}
               />
               <button className="text-btn" type="submit" disabled={lookingUp || !landmarkQuery.trim()}>
                 {lookingUp ? "Looking up…" : "Add"}
               </button>
             </form>
+            <p className="muted">
+              Places that are not on OSM, and stretches that are not on Strava, are labeled on
+              the schematic: Place landmark or Name stretch. Click a named stretch — or its chip —
+              to rename a Strava or hand-named trail.
+            </p>
             {landmarkHint && <p className="muted">{landmarkHint}</p>}
             {landmarkChoices?.map((poi) => (
               <button key={`${poi.name}-${poi.lat}`} type="button" className="chip" onClick={() => addCustom(poi)}>
@@ -1246,19 +1532,21 @@ export function PosterPanel({
                   label="schematic"
                   onOpen={() => setPreview({ src: schematicUrl, label: "schematic" })}
                 />
-                {maxRefs >= 2 && routeOnlyUrl && (
+                {maxRefs >= 2 && satelliteUrl && (
                   <GroundingThumb
-                    src={routeOnlyUrl}
-                    label="route-only"
-                    onOpen={() => setPreview({ src: routeOnlyUrl, label: "route-only" })}
+                    src={satelliteUrl}
+                    label="satellite"
+                    onOpen={() => setPreview({ src: satelliteUrl, label: "satellite" })}
                   />
                 )}
               </div>
             ) : null}
             <p className="muted">
-              {maxRefs >= 2 && routeOnlyUrl
-                ? "2 references will be sent: schematic + route-only. Click a preview to enlarge."
-                : "1 schematic reference will be sent. Click the preview to enlarge."}
+              {sentRefsHint(
+                maxRefs,
+                Boolean(satelliteUrl),
+                maxRefs >= 2 && Boolean(schematicUrl) && !satelliteUrl,
+              )}
             </p>
             {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
           </div>
@@ -1335,6 +1623,10 @@ export function PosterPanel({
                     const status = run.error ? "failed" : run.finishedAt ? "done" : "running";
                     const showStyle = styleIds.length > 1;
                     const showModel = imageModelIds.length > 1 || !showStyle;
+                    const cost = formatCostBreakdown({
+                      promptCost: run.promptCost,
+                      imageCost: run.imageCost,
+                    });
                     return (
                       <li key={run.key} className={`model-time ${status}`}>
                         <span>
@@ -1345,11 +1637,18 @@ export function PosterPanel({
                         <span>
                           {time}
                           {run.finishedAt ? "" : "…"}
+                          {cost ? ` · ${cost}` : ""}
                           {run.error ? " · failed" : ""}
                         </span>
                       </li>
                     );
                   })}
+                  {runsBatchCost ? (
+                    <li className="model-time total">
+                      <span>Batch</span>
+                      <span>{runsBatchCost}</span>
+                    </li>
+                  ) : null}
                 </ul>
               )}
             </div>
@@ -1415,8 +1714,11 @@ export function PosterPanel({
                 {styleLabel(result.styleId, result.spec.style.name)}
                 {` · ${shortModelLabel(result.model, result.modelName)}`}
                 {result.durationMs != null ? ` · ${formatDurationMs(result.durationMs)}` : ""}
-                {result.cost != null ? ` · $${result.cost.toFixed(3)}` : ""}
+                {resultCost ? ` · ${resultCost}` : ""}
               </p>
+              {compareItems.length > 1 && resultsBatchCost ? (
+                <p className="muted">{resultsBatchCost}</p>
+              ) : null}
               {sentRefs.length > 0 && (
                 <>
                   <div className="eyebrow">Sent to the model</div>

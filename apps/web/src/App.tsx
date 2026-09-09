@@ -17,7 +17,7 @@ import {
 } from "./api";
 import { ActivityList } from "./ActivityList";
 import { Gallery } from "./gallery/Gallery";
-import { MapView } from "./MapView";
+import { MapView, type Basemap } from "./MapView";
 import { PosterPanel } from "./poster/PosterPanel";
 import type { SchematicLayers } from "./poster/grounding/renderSchematic";
 
@@ -46,11 +46,28 @@ export function App() {
   const [dismissPoi, setDismissPoi] = useState<{ name: string; nonce: number } | null>(null);
   const [dismissArea, setDismissArea] = useState<{ name: string; nonce: number } | null>(null);
   const [dismissTrail, setDismissTrail] = useState<{ name: string; nonce: number } | null>(null);
+  const [placeLandmark, setPlaceLandmark] = useState<{
+    name: string;
+    lat: number;
+    lng: number;
+    nonce: number;
+  } | null>(null);
+  const [placeSection, setPlaceSection] = useState<{
+    name: string;
+    start: number;
+    end: number;
+    nonce: number;
+  } | null>(null);
+  const [renameTrail, setRenameTrail] = useState<{
+    name: string;
+    next: string;
+    nonce: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posterOpen, setPosterOpen] = useState(false);
   const [refineFrom, setRefineFrom] = useState<PosterRecord | null>(null);
-  const [basemap, setBasemap] = useState<"osm" | "schematic">("osm");
+  const [basemap, setBasemap] = useState<Basemap>("osm");
   const [viewNonce, setViewNonce] = useState(0);
 
   const go = useCallback((next: string) => {
@@ -182,8 +199,9 @@ export function App() {
           )}
           <label className="filter">
             Basemap
-            <select value={basemap} onChange={(event) => setBasemap(event.target.value as "osm" | "schematic")}>
+            <select value={basemap} onChange={(event) => setBasemap(event.target.value as Basemap)}>
               <option value="osm">Streets</option>
+              <option value="satellite">Satellite</option>
               <option value="schematic">Schematic</option>
             </select>
           </label>
@@ -232,9 +250,14 @@ export function App() {
             schematicLayers={posterOpen ? schematicLayers : null}
             basemap={basemap}
             viewNonce={viewNonce}
+            labelingEnabled={posterOpen}
             onRemovePoi={(name) => setDismissPoi({ name, nonce: Date.now() })}
             onRemoveArea={(name) => setDismissArea({ name, nonce: Date.now() })}
             onRemoveTrail={(name) => setDismissTrail({ name, nonce: Date.now() })}
+            onNeedSchematic={() => setBasemap("schematic")}
+            onPlaceLandmark={(draft) => setPlaceLandmark({ ...draft, nonce: Date.now() })}
+            onPlaceSection={(draft) => setPlaceSection({ ...draft, nonce: Date.now() })}
+            onRenameTrail={(draft) => setRenameTrail({ name: draft.from, next: draft.name, nonce: Date.now() })}
           />
         </main>
         {posterOpen && selectedId != null && (
@@ -254,6 +277,9 @@ export function App() {
               setDismissPoi(null);
               setDismissArea(null);
               setDismissTrail(null);
+              setPlaceLandmark(null);
+              setPlaceSection(null);
+              setRenameTrail(null);
               setRefineFrom(null);
             }}
             onCropChange={setCropLatLng}
@@ -266,6 +292,9 @@ export function App() {
             dismissPoi={dismissPoi}
             dismissArea={dismissArea}
             dismissTrail={dismissTrail}
+            placeLandmark={placeLandmark}
+            placeSection={placeSection}
+            renameTrail={renameTrail}
           />
         )}
       </div>

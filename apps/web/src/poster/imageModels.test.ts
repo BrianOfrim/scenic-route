@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  batchCosts,
+  formatBatchCost,
+  formatCostBreakdown,
   formatDurationMs,
+  formatUsd,
   minMaxReferences,
   posterVariantLabel,
   shortModelLabel,
+  sumCosts,
   uniqueIds,
   clampVariants,
   variantCount,
@@ -15,6 +20,29 @@ test("formatDurationMs uses compact units", () => {
   assert.equal(formatDurationMs(52_000), "52s");
   assert.equal(formatDurationMs(72_000), "1m 12s");
   assert.equal(formatDurationMs(120_000), "2m");
+});
+
+test("formatCostBreakdown labels prompt and image gen costs", () => {
+  assert.equal(formatUsd(0.042), "$0.042");
+  assert.equal(formatCostBreakdown({ cost: 0.16 }), "$0.160");
+  assert.equal(formatCostBreakdown({ promptCost: 0.008, cost: 0.043 }), "prompt $0.008 · image $0.043");
+  assert.equal(formatCostBreakdown({ promptCost: 0.008, imageCost: 0.043 }), "prompt $0.008 · image $0.043");
+  assert.equal(formatCostBreakdown({ promptCost: 0.008 }), "prompt $0.008");
+  assert.equal(formatCostBreakdown({}), "");
+  assert.equal(sumCosts([0.04, null, 0.02]), 0.06);
+  assert.equal(sumCosts([null, undefined]), null);
+});
+
+test("formatBatchCost totals a batch and counts each style's prompt once", () => {
+  const items = [
+    { styleId: "ink", promptCost: 0.008, imageCost: 0.04 },
+    { styleId: "ink", promptCost: 0.008, imageCost: 0.04 },
+    { styleId: "wpa", promptCost: 0.009, cost: 0.05 },
+  ];
+  assert.deepEqual(batchCosts(items), { promptCost: 0.017, imageCost: 0.13, total: 0.147 });
+  assert.equal(formatBatchCost(items), "total $0.147 · prompt $0.017 · image $0.130");
+  assert.equal(formatBatchCost([{ cost: 0.16 }, { cost: 0.04 }]), "total $0.200");
+  assert.equal(formatBatchCost([]), "");
 });
 
 test("shortModelLabel prefers a distinct display name", () => {
