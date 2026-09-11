@@ -23,7 +23,7 @@ Create an OpenRouter key at [https://openrouter.ai/keys](https://openrouter.ai/k
 ```
 OPENROUTER_API_KEY=
 OPENROUTER_MODEL=anthropic/claude-sonnet-4
-OPENROUTER_IMAGE_MODEL=google/gemini-2.5-flash-image
+OPENROUTER_IMAGE_MODEL=openai/gpt-image-2.5-sunburst
 ```
 
 ```bash
@@ -35,7 +35,7 @@ Open [http://localhost:5174](http://localhost:5174). Connect Strava and click **
 ## Flow
 
 1. Select an activity on the map.
-2. **Make poster** — crop the track, tick geography and landmark layers, pick a style or write a custom prompt, choose which stats appear.
+2. **Make poster** — crop the track, choose Map or Route only, tick geography and landmark layers (or skip them in Route only), pick a style or write a custom prompt, choose which stats appear.
 3. Toggle grounding images. The schematic preview is immediate; terrain/streets/satellite snapshots are taken from a hidden MapLibre map (tiles proxied so the canvas is not tainted).
 4. **Plan prompt** — the LLM returns a structured `PosterSpec`. Edit the JSON if you want.
 5. **Generate poster** — OpenRouter image model, then save to `data/posters/`.

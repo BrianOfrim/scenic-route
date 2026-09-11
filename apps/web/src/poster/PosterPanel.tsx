@@ -40,27 +40,40 @@ import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import { SpecEditor } from "./SpecEditor";
 import {
+  IMAGE_MODEL,
   MAX_VARIANTS,
   formatBatchCost,
   formatCostBreakdown,
   formatDurationMs,
-  minMaxReferences,
   posterVariantLabel,
-  readStoredImageModels,
   readStoredVariants,
   shortModelLabel,
   sumCosts,
   variantCount,
-  writeStoredImageModels,
   writeStoredVariants,
 } from "./imageModels";
 
 import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
-import { DEFAULT_POSTER_STYLE, POSTER_STYLES, styleById, styleLabel } from "./styles";
+import {
+  AUTO_PALETTE_ID,
+  DEFAULT_POSTER_STYLE,
+  POSTER_STYLES,
+  paletteIdsForStyle,
+  parsePlanSlotKey,
+  planSlotKey,
+  planSlotLabel,
+  resolveStyleColor,
+  showsPalettePicker,
+  specForSlot,
+  styleById,
+  stylePalettes,
+  stylePlanSlots,
+} from "./styles";
 
 type GenerationRun = {
   key: string;
   styleId: string;
+  paletteId: string;
   styleLabel: string;
   model: string;
   label: string;
@@ -73,9 +86,14 @@ type GenerationRun = {
 
 
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
+const EMPTY_POIS: PosterPoi[] = [];
+const EMPTY_WAYS: NamedWay[] = [];
+const EMPTY_AREAS: NamedArea[] = [];
 
 const SCHEMATIC_LEGEND =
   "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; blue = water; green = forest; ochre wash + letter = named district, private region index, copy the footprint not the ochre or letter; numbered discs = private location index, do not copy";
+
+const ROUTE_ONLY_LEGEND = "red = GPS track";
 
 const SATELLITE_LEGEND =
   "real aerial imagery of the same frame; red = GPS track; use for land cover, water, vegetation, and built form; every red stroke is a required segment; do not copy the photograph";
@@ -181,10 +199,11 @@ function routeMarkerMode(show: boolean, latlng: [number, number][]): false | "en
   return isClosedLoop(latlng) ? "loop" : "ends";
 }
 
-function schematicLegend(markers: false | "ends" | "loop") {
-  if (markers === "loop") return `${SCHEMATIC_LEGEND}; gold/green = combined start/finish`;
-  if (markers === "ends") return `${SCHEMATIC_LEGEND}; green/black dots = start/finish`;
-  return SCHEMATIC_LEGEND;
+function schematicLegend(markers: false | "ends" | "loop", routeOnly = false) {
+  const base = routeOnly ? ROUTE_ONLY_LEGEND : SCHEMATIC_LEGEND;
+  if (markers === "loop") return `${base}; gold/green = combined start/finish`;
+  if (markers === "ends") return `${base}; green/black dots = start/finish`;
+  return base;
 }
 
 function groundingLayers(
@@ -193,16 +212,17 @@ function groundingLayers(
   maxRefs: number,
   latlng: [number, number][],
   showMarkers: boolean,
+  routeOnly = false,
 ): GroundingLayer[] {
   if (!schematicUrl) return [];
   const layers: GroundingLayer[] = [
     {
       role: "schematic",
-      legend: schematicLegend(routeMarkerMode(showMarkers, latlng)),
+      legend: schematicLegend(routeMarkerMode(showMarkers, latlng), routeOnly),
       dataUrl: schematicUrl,
     },
   ];
-  if (maxRefs >= 2 && satelliteUrl) {
+  if (!routeOnly && maxRefs >= 2 && satelliteUrl) {
     layers.push({
       role: "satellite",
       legend: SATELLITE_LEGEND,
@@ -212,9 +232,9 @@ function groundingLayers(
   return layers;
 }
 
-function sentRefsHint(maxRefs: number, hasSatellite: boolean, satellitePending: boolean) {
+function sentRefsHint(maxRefs: number, hasSatellite: boolean, satellitePending: boolean, routeOnly = false) {
   const parts = ["schematic"];
-  if (maxRefs >= 2) {
+  if (!routeOnly && maxRefs >= 2) {
     if (hasSatellite) parts.push("satellite");
     else if (satellitePending) parts.push("satellite (loading)");
   }
@@ -242,6 +262,7 @@ type Props = {
   onNamedAreasChange?: (areas: NamedArea[]) => void;
   onWaysChange?: (ways: PosterWays | null) => void;
   onSchematicLayersChange?: (layers: ReturnType<typeof schematicLayersFromFeatureIds> | null) => void;
+  onRouteOnlyChange?: (routeOnly: boolean) => void;
   refineFrom?: PosterRecord | null;
   dismissPoi?: { name: string; nonce: number } | null;
   dismissArea?: { name: string; nonce: number } | null;
@@ -263,6 +284,7 @@ export function PosterPanel({
   onNamedAreasChange,
   onWaysChange,
   onSchematicLayersChange,
+  onRouteOnlyChange,
   refineFrom,
   dismissPoi,
   dismissArea,
@@ -282,7 +304,15 @@ export function PosterPanel({
   const [featureIds, setFeatureIds] = useState<string[]>(() => seeded?.featureIds ?? DEFAULT_FEATURE_IDS);
   const [styleIds, setStyleIds] = useState<string[]>(() => seeded?.styleIds ?? [styleIdFromRecord(refineFrom)]);
   const [stylePrompt, setStylePrompt] = useState(seeded?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
+  const [paletteIdsByStyle, setPaletteIdsByStyle] = useState<Record<string, string[]>>(
+    () => seeded?.paletteIdsByStyle ?? {},
+  );
   const [activeStyleId, setActiveStyleId] = useState(() => seeded?.styleIds[0] ?? styleIdFromRecord(refineFrom));
+  const [activePlanKey, setActivePlanKey] = useState(() => {
+    const id = seeded?.styleIds[0] ?? styleIdFromRecord(refineFrom);
+    const paletteId = seeded?.paletteIdsByStyle?.[id]?.[0] ?? AUTO_PALETTE_ID;
+    return planSlotKey(id, paletteId);
+  });
   const [title, setTitle] = useState(seeded?.title ?? "");
   const [startPlace, setStartPlace] = useState("");
   const [finishPlace, setFinishPlace] = useState("");
@@ -299,6 +329,7 @@ export function PosterPanel({
   const [cropStart, setCropStart] = useState(0);
   const [cropEnd, setCropEnd] = useState(1);
   const [showRouteMarkers, setShowRouteMarkers] = useState(seeded?.showRouteMarkers ?? true);
+  const [routeOnly, setRouteOnly] = useState(seeded?.routeOnly ?? false);
   const [landmarkQuery, setLandmarkQuery] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
   const [landmarkChoices, setLandmarkChoices] = useState<PosterPoi[] | null>(null);
@@ -310,13 +341,7 @@ export function PosterPanel({
   const [sentRefs, setSentRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
-  const [imageModelIds, setImageModelIds] = useState(() => {
-    if (seeded?.imageModelIds?.length) return seeded.imageModelIds;
-    const stored = readStoredImageModels();
-    return refineFrom?.model && !stored.includes(refineFrom.model)
-      ? [...stored, refineFrom.model]
-      : stored;
-  });
+  const imageModelIds = [IMAGE_MODEL];
   const [variants, setVariants] = useState(() => seeded?.variants ?? readStoredVariants());
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
@@ -339,16 +364,7 @@ export function PosterPanel({
   useEffect(() => {
     let cancelled = false;
     void fetchPosterCapabilities().then((caps) => {
-      if (cancelled) return;
-      setImageModels(caps.models);
-      setImageModelIds((current) => {
-        const known = current.filter(
-          (id) => id === refineFrom?.model || caps.models.some((item) => item.id === id),
-        );
-        if (known.length) return known;
-        const fallback = caps.defaultModel || caps.models[0]?.id || "";
-        return fallback ? [fallback] : [];
-      });
+      if (!cancelled) setImageModels(caps.models);
     });
     return () => {
       cancelled = true;
@@ -356,19 +372,14 @@ export function PosterPanel({
   }, []);
 
   useEffect(() => {
-    if (!imageModelIds.length) return;
-    if (imageModelIds.length > 1) {
-      setMaxRefs(minMaxReferences(imageModelIds, imageModels));
-      return;
-    }
     let cancelled = false;
-    void fetchMaxReferences(imageModelIds[0]).then((value) => {
+    void fetchMaxReferences(IMAGE_MODEL).then((value) => {
       if (!cancelled) setMaxRefs(value);
     });
     return () => {
       cancelled = true;
     };
-  }, [imageModelIds.join("\0"), imageModels]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -407,6 +418,7 @@ export function PosterPanel({
             setCropStart(restored.cropStart);
             setCropEnd(restored.cropEnd);
             setShowRouteMarkers(restored.showRouteMarkers);
+            setRouteOnly(restored.routeOnly);
             setTitle(restored.title);
             setStartPlace(restored.startPlace);
             setFinishPlace(restored.finishPlace);
@@ -415,10 +427,14 @@ export function PosterPanel({
             setAspectRatio(restored.aspectRatio);
             setStyleIds(restored.styleIds);
             setStylePrompt(restored.stylePrompt);
+            setPaletteIdsByStyle(restored.paletteIdsByStyle);
             setActiveStyleId(restored.styleIds[0] ?? styleIdFromRecord(refineFrom));
+            const first = restored.styleIds[0] ?? styleIdFromRecord(refineFrom);
+            setActivePlanKey(
+              planSlotKey(first, restored.paletteIdsByStyle[first]?.[0] ?? AUTO_PALETTE_ID),
+            );
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
-            if (restored.imageModelIds?.length) setImageModelIds(restored.imageModelIds);
             if (restored.variants != null) setVariants(restored.variants);
             setSentRefs(savedModelRefs(refineFrom));
           } else {
@@ -500,19 +516,27 @@ export function PosterPanel({
     return assignAreaLetters(nearRoute);
   }, [context, areaNames, croppedLatLng]);
 
+  const posterPois = routeOnly ? EMPTY_POIS : selectedPois;
+  const posterWays = routeOnly ? EMPTY_WAYS : selectedNamedWays;
+  const posterAreas = routeOnly ? EMPTY_AREAS : selectedNamedAreas;
+
   const schematicLayers = useMemo(
-    () => schematicLayersFromFeatureIds(featureIds, routeMarkerMode(showRouteMarkers, croppedLatLng)),
-    [featureIds, showRouteMarkers, croppedLatLng],
+    () =>
+      schematicLayersFromFeatureIds(
+        routeOnly ? [] : featureIds,
+        routeMarkerMode(showRouteMarkers, croppedLatLng),
+      ),
+    [featureIds, showRouteMarkers, croppedLatLng, routeOnly],
   );
 
   const displayBbox = useMemo(() => {
     if (croppedLatLng.length < 2) return context?.bbox ?? null;
-    return paddedBbox(croppedLatLng, [...selectedPois, ...selectedNamedWays, ...selectedNamedAreas]);
-  }, [context, croppedLatLng, selectedPois, selectedNamedWays, selectedNamedAreas]);
+    return paddedBbox(croppedLatLng, [...posterPois, ...posterWays, ...posterAreas]);
+  }, [context, croppedLatLng, posterPois, posterWays, posterAreas]);
   const groundingBbox = useMemo(() => {
     if (croppedLatLng.length < 2) return displayBbox;
-    return schematicBbox(croppedLatLng, [...selectedPois, ...selectedNamedWays, ...selectedNamedAreas]);
-  }, [croppedLatLng, selectedPois, selectedNamedWays, selectedNamedAreas, displayBbox]);
+    return schematicBbox(croppedLatLng, [...posterPois, ...posterWays, ...posterAreas]);
+  }, [croppedLatLng, posterPois, posterWays, posterAreas, displayBbox]);
 
   const loopRide = useMemo(() => isClosedLoop(croppedLatLng), [croppedLatLng]);
 
@@ -559,16 +583,20 @@ export function PosterPanel({
   }, [stopLatLng, onStopsChange]);
 
   useEffect(() => {
-    onPoisChange?.(selectedPois);
-  }, [selectedPois, onPoisChange]);
+    onPoisChange?.(posterPois);
+  }, [posterPois, onPoisChange]);
 
   useEffect(() => {
-    onNamedWaysChange?.(selectedNamedWays);
-  }, [selectedNamedWays, onNamedWaysChange]);
+    onNamedWaysChange?.(posterWays);
+  }, [posterWays, onNamedWaysChange]);
 
   useEffect(() => {
-    onNamedAreasChange?.(selectedNamedAreas);
-  }, [selectedNamedAreas, onNamedAreasChange]);
+    onNamedAreasChange?.(posterAreas);
+  }, [posterAreas, onNamedAreasChange]);
+
+  useEffect(() => {
+    onRouteOnlyChange?.(routeOnly);
+  }, [routeOnly, onRouteOnlyChange]);
 
   useEffect(() => {
     onWaysChange?.(context?.ways ?? null);
@@ -712,9 +740,9 @@ export function PosterPanel({
           latlng: croppedLatLng,
           bbox: groundingBbox,
           ways: context?.ways,
-          pois: selectedPois,
-          namedWays: selectedNamedWays,
-          namedAreas: selectedNamedAreas,
+          pois: posterPois,
+          namedWays: posterWays,
+          namedAreas: posterAreas,
           aspectRatio,
           layers: schematicLayers,
         }),
@@ -722,10 +750,10 @@ export function PosterPanel({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not render schematic");
     }
-  }, [context, croppedLatLng, groundingBbox, selectedPois, selectedNamedWays, selectedNamedAreas, aspectRatio, schematicLayers]);
+  }, [context, croppedLatLng, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
 
   useEffect(() => {
-    if (croppedLatLng.length < 2 || !groundingBbox || maxRefs < 2) {
+    if (routeOnly || croppedLatLng.length < 2 || !groundingBbox || maxRefs < 2) {
       setSatelliteUrl(null);
       return;
     }
@@ -746,7 +774,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [croppedLatLng, groundingBbox, aspectRatio, showRouteMarkers, maxRefs]);
+  }, [croppedLatLng, groundingBbox, aspectRatio, showRouteMarkers, maxRefs, routeOnly]);
 
   useEffect(() => {
     const layers = groundingLayers(
@@ -755,6 +783,7 @@ export function PosterPanel({
       maxRefs,
       croppedLatLng,
       showRouteMarkers,
+      routeOnly,
     );
     if (!layers.length) {
       setModelRefs([]);
@@ -767,7 +796,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [schematicUrl, satelliteUrl, maxRefs, aspectRatio, showRouteMarkers, croppedLatLng]);
+  }, [schematicUrl, satelliteUrl, maxRefs, aspectRatio, showRouteMarkers, croppedLatLng, routeOnly]);
 
   useEffect(() => {
     setModelRuns([]);
@@ -784,7 +813,7 @@ export function PosterPanel({
   }, [generating, planning]);
 
   async function ensureSatellite(): Promise<string | null> {
-    if (maxRefs < 2 || croppedLatLng.length < 2 || !groundingBbox) return null;
+    if (routeOnly || maxRefs < 2 || croppedLatLng.length < 2 || !groundingBbox) return null;
     if (satelliteUrl) return satelliteUrl;
     try {
       return await snapshotTiles({
@@ -807,16 +836,17 @@ export function PosterPanel({
       maxRefs,
       croppedLatLng,
       showRouteMarkers,
+      routeOnly,
     );
   }
 
   async function handlePlan() {
     if (!context) return;
-    const selectedStyles = styleIds.map((id) => styleById(id));
-    if (!selectedStyles.length) return;
+    const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
+    if (!slots.length) return;
     setPlanning(true);
     setError(null);
-    setPlanProgress({ done: 0, total: selectedStyles.length });
+    setPlanProgress({ done: 0, total: slots.length });
     try {
       const layers = await buildGrounding();
       const packed = planContactSheets(layers, maxRefs);
@@ -836,15 +866,18 @@ export function PosterPanel({
         subtitle,
         stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
         aspectRatio,
-        geography: catalog
-          .filter(
-            (item) =>
-              (item.group === "geography" || item.id === "cemeteries") && featureIds.includes(item.id),
-          )
-          .map((item) => ({ id: item.id, label: item.label })),
-        pois: selectedPois,
-        namedWays: selectedNamedWays,
-        namedAreas: selectedNamedAreas,
+        geography: routeOnly
+          ? []
+          : catalog
+              .filter(
+                (item) =>
+                  (item.group === "geography" || item.id === "cemeteries") && featureIds.includes(item.id),
+              )
+              .map((item) => ({ id: item.id, label: item.label })),
+        pois: posterPois,
+        namedWays: posterWays,
+        namedAreas: posterAreas,
+        routeOnly,
         grounding: packed.map((sheet, index) => ({
           index: index + 1,
           role: sheet.role,
@@ -853,20 +886,21 @@ export function PosterPanel({
         refineNotes: refineNotes || undefined,
       };
       const settled = await Promise.all(
-        selectedStyles.map(async (style) => {
+        slots.map(async (slot) => {
+          const style = styleById(slot.styleId);
           try {
             const planned = await planPoster({
               ...base,
-              style,
+              style: styleForPlan(style, slot.paletteId),
               customStylePrompt: style.id === "custom" ? stylePrompt : undefined,
               previousSpec:
-                specs[style.id] ??
-                (refineFrom && refineFrom.styleId === style.id ? refineFrom.spec : undefined),
+                specForSlot(specs, slot.styleId, slot.paletteId) ??
+                (refineFrom && refineFrom.styleId === slot.styleId ? refineFrom.spec : undefined),
             });
-            return { styleId: style.id, spec: planned.spec, cost: planned.cost };
+            return { ...slot, spec: planned.spec, cost: planned.cost };
           } catch (err) {
             return {
-              styleId: style.id,
+              ...slot,
               error: err instanceof Error ? err.message : "Planner failed",
               cost: null,
             };
@@ -876,23 +910,24 @@ export function PosterPanel({
         }),
       );
       const planned = settled.flatMap((item) =>
-        item.spec ? [{ styleId: item.styleId, spec: item.spec, cost: item.cost }] : [],
+        item.spec ? [{ key: item.key, styleId: item.styleId, paletteId: item.paletteId, spec: item.spec, cost: item.cost }] : [],
       );
       const failures = settled.flatMap((item) =>
-        item.error ? [`${styleLabel(item.styleId)}: ${item.error}`] : [],
+        item.error ? [`${planSlotLabel(item.styleId, item.paletteId)}: ${item.error}`] : [],
       );
       if (!planned.length) throw new Error(failures.join(" · ") || "Planner failed");
       setSpecs((current) => {
         const next = { ...current };
-        for (const item of planned) next[item.styleId] = item.spec;
+        for (const item of planned) next[item.key] = item.spec;
         return next;
       });
       setPlanCosts((current) => {
         const next = { ...current };
-        for (const item of planned) next[item.styleId] = item.cost ?? null;
+        for (const item of planned) next[item.key] = item.cost ?? null;
         return next;
       });
-      if (!planned.some((item) => item.styleId === activeStyleId)) {
+      if (!planned.some((item) => item.key === activePlanKey)) {
+        setActivePlanKey(planned[0].key);
         setActiveStyleId(planned[0].styleId);
       }
       if (failures.length) {
@@ -907,16 +942,18 @@ export function PosterPanel({
 
   async function handleGenerate() {
     if (!context) return;
-    const jobs = styleIds.flatMap((styleId) => {
-      const planned = specs[styleId];
+    const jobs = stylePlanSlots(styleIds, paletteIdsByStyle).flatMap((slot) => {
+      const planned = specForSlot(specs, slot.styleId, slot.paletteId);
       if (!planned) return [];
-      const style = styleById(styleId);
+      const style = styleById(slot.styleId);
       return imageModelIds.map((model) => ({
-        key: `${styleId}\0${model}`,
-        styleId,
+        key: `${slot.key}\0${model}`,
+        styleId: slot.styleId,
+        paletteId: slot.paletteId,
         style,
         spec: planned,
         model,
+        slotKey: slot.key,
       }));
     });
     if (!jobs.length) return;
@@ -926,19 +963,19 @@ export function PosterPanel({
       const layers = await buildGrounding();
       const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
       setSentRefs(packed.map((item) => ({ role: item.role, legend: item.legend, dataUrl: item.dataUrl })));
-      if (!imageModelIds.length) throw new Error("Select at least one image model");
       const batchId = crypto.randomUUID();
       setGenerateProgress({ done: 0, total: jobs.length });
       const startedAt = Date.now();
       setModelRuns(
         jobs.map((job) => ({
           key: job.key,
-          styleId: job.styleId,
-          styleLabel: job.style.label,
+          styleId: job.slotKey,
+          paletteId: job.paletteId,
+          styleLabel: planSlotLabel(job.styleId, job.paletteId),
           model: job.model,
           label: shortModelLabel(job.model, imageModels.find((item) => item.id === job.model)?.name),
           startedAt,
-          promptCost: planCosts[job.styleId] ?? null,
+          promptCost: planCosts[job.slotKey] ?? specForSlot(planCosts, job.styleId, job.paletteId) ?? null,
         })),
       );
       const settled = await Promise.all(
@@ -951,15 +988,19 @@ export function PosterPanel({
               previousPosterId: refineFrom?.posterId,
               refineNotes: refineNotes || undefined,
               featureIds,
-              labels: selectedPois.map((poi) => poi.name),
+              labels: posterPois.map((poi) => poi.name),
               stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
               styleId: job.styleId,
-              stylePrompt: job.style.id === "custom" ? stylePrompt : job.style.prompt,
+              paletteId: job.paletteId,
+              stylePrompt:
+                job.style.id === "custom"
+                  ? stylePrompt
+                  : resolveStyleColor(job.style, job.paletteId).prompt,
               aspectRatio,
               batchId,
               model: job.model,
               variants,
-              promptCost: planCosts[job.styleId] ?? null,
+              promptCost: planCosts[job.slotKey] ?? specForSlot(planCosts, job.styleId, job.paletteId) ?? null,
               editor: captureEditorSnapshot({
                 featureIds,
                 labels,
@@ -971,6 +1012,7 @@ export function PosterPanel({
                 cropStart,
                 cropEnd,
                 showRouteMarkers,
+                routeOnly,
                 title,
                 startPlace,
                 finishPlace,
@@ -979,6 +1021,7 @@ export function PosterPanel({
                 aspectRatio,
                 styleIds,
                 stylePrompt,
+                paletteIdsByStyle,
                 imageModelIds,
                 variants,
                 specs,
@@ -992,7 +1035,7 @@ export function PosterPanel({
                   : run,
               ),
             );
-            return { key: job.key, styleId: job.styleId, model: job.model, records };
+            return { key: job.key, styleId: job.styleId, paletteId: job.paletteId, model: job.model, records };
           } catch (err) {
             const error = err instanceof Error ? err.message : "Poster generation failed";
             setModelRuns((current) =>
@@ -1000,7 +1043,7 @@ export function PosterPanel({
                 run.key === job.key ? { ...run, finishedAt: Date.now(), error } : run,
               ),
             );
-            return { key: job.key, styleId: job.styleId, model: job.model, error };
+            return { key: job.key, styleId: job.styleId, paletteId: job.paletteId, model: job.model, error };
           } finally {
             setGenerateProgress((current) => ({ ...current, done: current.done + 1 }));
           }
@@ -1009,9 +1052,9 @@ export function PosterPanel({
       const records = settled.flatMap((item) => item.records ?? []);
       const failures = settled.flatMap((item) => {
         if (!item.error) return [];
-        const theme = styleLabel(item.styleId);
+        const theme = planSlotLabel(item.styleId, item.paletteId ?? AUTO_PALETTE_ID);
         const model = shortModelLabel(item.model);
-        return [`${styleIds.length > 1 ? `${theme} · ` : ""}${model}: ${item.error}`];
+        return [`${stylePlanSlots(styleIds, paletteIdsByStyle).length > 1 ? `${theme} · ` : ""}${model}: ${item.error}`];
       });
       if (!records.length) throw new Error(failures.join(" · ") || "Poster generation failed");
       setBatchResults(records);
@@ -1079,12 +1122,84 @@ export function PosterPanel({
     );
   }
 
+  function styleForPlan(style: ReturnType<typeof styleById>, selectedPaletteId: string) {
+    if (style.id === "custom") {
+      return {
+        id: style.id,
+        label: style.label,
+        prompt: stylePrompt,
+        palette: [] as string[],
+        typography: style.typography,
+        openPalette: false,
+      };
+    }
+    const resolved = resolveStyleColor(style, selectedPaletteId);
+    return {
+      id: style.id,
+      label: style.label,
+      prompt: resolved.prompt,
+      palette: resolved.palette,
+      typography: style.typography,
+      openPalette: resolved.openPalette,
+    };
+  }
+
+  function dropSlot(styleId: string, paletteId: string) {
+    const key = planSlotKey(styleId, paletteId);
+    setSpecs((current) => {
+      if (!current[key] && !current[styleId]) return current;
+      const next = { ...current };
+      delete next[key];
+      if (paletteId === AUTO_PALETTE_ID) delete next[styleId];
+      return next;
+    });
+    setPlanCosts((current) => {
+      if (!(key in current) && !(styleId in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      if (paletteId === AUTO_PALETTE_ID) delete next[styleId];
+      return next;
+    });
+  }
+
+  function togglePalette(styleId: string, paletteId: string) {
+    const style = styleById(styleId);
+    const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
+    const selected = current.includes(paletteId)
+      ? current.filter((item) => item !== paletteId)
+      : [...current, paletteId];
+    const next = selected.length ? selected : [AUTO_PALETTE_ID];
+    if (next.length === current.length && next.every((id, index) => id === current[index])) return;
+    setPaletteIdsByStyle((map) => ({ ...map, [styleId]: next }));
+    for (const id of current) {
+      if (!next.includes(id)) dropSlot(styleId, id);
+    }
+    const added = !current.includes(paletteId) && next.includes(paletteId);
+    const active = parsePlanSlotKey(activePlanKey);
+    if (added) {
+      setActiveStyleId(styleId);
+      setActivePlanKey(planSlotKey(styleId, paletteId));
+    } else if (active.styleId === styleId && !next.includes(active.paletteId)) {
+      setActivePlanKey(planSlotKey(styleId, next[0]));
+    }
+  }
+
   function toggleStyle(id: string) {
     setStyleIds((current) => {
       if (current.includes(id)) {
         if (current.length === 1) return current;
         const next = current.filter((item) => item !== id);
         setActiveStyleId((active) => (active === id ? next[0] : active));
+        setPaletteIdsByStyle((map) => {
+          const copy = { ...map };
+          delete copy[id];
+          return copy;
+        });
+        for (const paletteId of paletteIdsForStyle(styleById(id), paletteIdsByStyle[id])) {
+          dropSlot(id, paletteId);
+        }
+        const first = next[0];
+        setActivePlanKey(planSlotKey(first, paletteIdsForStyle(styleById(first), paletteIdsByStyle[first])[0]));
         return next;
       }
       setActiveStyleId(id);
@@ -1092,26 +1207,11 @@ export function PosterPanel({
         const from = styleById(activeStyleId);
         if (from.prompt) setStylePrompt(from.prompt);
       }
+      const palettes = paletteIdsForStyle(styleById(id), [AUTO_PALETTE_ID]);
+      setPaletteIdsByStyle((map) => ({ ...map, [id]: palettes }));
+      setActivePlanKey(planSlotKey(id, palettes[0]));
       return [...current, id];
     });
-  }
-
-  function applyImageModels(ids: string[]) {
-    const next = ids.filter(Boolean);
-    if (!next.length) return;
-    setImageModelIds(next);
-    writeStoredImageModels(next);
-    setMaxRefs(next.length === 1
-      ? imageModels.find((item) => item.id === next[0])?.maxReferences || maxRefs
-      : minMaxReferences(next, imageModels));
-  }
-
-  function toggleImageModel(id: string) {
-    const next = imageModelIds.includes(id)
-      ? imageModelIds.filter((item) => item !== id)
-      : [...imageModelIds, id];
-    if (!next.length) return;
-    applyImageModels(next);
   }
 
   function applyVariants(value: number) {
@@ -1122,27 +1222,28 @@ export function PosterPanel({
   function selectResult(record: PosterRecord) {
     setResult(record);
     if (record.styleId) {
+      const paletteId = record.paletteId ?? AUTO_PALETTE_ID;
+      const key = planSlotKey(record.styleId, paletteId);
       setActiveStyleId(record.styleId);
-      setSpecs((current) => ({ ...current, [record.styleId]: record.spec }));
+      setActivePlanKey(key);
+      setSpecs((current) => ({ ...current, [record.styleId]: record.spec, [key]: record.spec }));
     }
     setSentRefs(savedModelRefs(record));
   }
 
-  const modelOptions = [
-    ...imageModels,
-    ...imageModelIds
-      .filter((id) => !imageModels.some((item) => item.id === id))
-      .map((id) => ({ id, name: id, maxReferences: maxRefs })),
-  ];
+  function resultSlotLabel(item: PosterRecord) {
+    return planSlotLabel(item.styleId, item.paletteId ?? AUTO_PALETTE_ID, item.spec.style.name);
+  }
 
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
   const croppedKm = trackDistanceM(croppedLatLng);
   const busy = planning || generating;
-  const plannedStyleIds = styleIds.filter((id) => specs[id]);
-  const specStyleId = specs[activeStyleId] ? activeStyleId : plannedStyleIds[0];
-  const spec = specStyleId ? specs[specStyleId] ?? null : null;
-  const allThemesPlanned = styleIds.length > 0 && styleIds.every((id) => specs[id]);
-  const generateCount = plannedStyleIds.length * imageModelIds.reduce(
+  const planSlots = stylePlanSlots(styleIds, paletteIdsByStyle);
+  const plannedSlots = planSlots.filter((slot) => specForSlot(specs, slot.styleId, slot.paletteId));
+  const specSlot = plannedSlots.find((slot) => slot.key === activePlanKey) ?? plannedSlots[0];
+  const spec = specSlot ? specForSlot(specs, specSlot.styleId, specSlot.paletteId) ?? null : null;
+  const allThemesPlanned = planSlots.length > 0 && plannedSlots.length === planSlots.length;
+  const generateCount = plannedSlots.length * imageModelIds.reduce(
     (sum, id) => sum + variantCount(variants, imageModels.find((item) => item.id === id)?.maxImages),
     0,
   );
@@ -1156,13 +1257,15 @@ export function PosterPanel({
     .filter((item): item is string => Boolean(item));
   const editingCustom = styleIds.includes("custom");
   const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
+  const paletteStyles = styleIds.map(styleById).filter(showsPalettePicker);
   const resultCost = result
     ? formatCostBreakdown({ promptCost: result.promptCost, cost: result.cost })
     : "";
   const runsBatchCost = formatBatchCost(modelRuns);
-  const compareStyles = new Set(batchResults.map((item) => item.styleId)).size > 1;
-  const compareModels = new Set(batchResults.map((item) => item.model)).size > 1;
   const compareItems = batchResults.length ? batchResults : result ? [result] : [];
+  const compareStyles =
+    new Set(compareItems.map((item) => planSlotKey(item.styleId, item.paletteId ?? AUTO_PALETTE_ID))).size > 1;
+  const compareModels = new Set(compareItems.map((item) => item.model)).size > 1;
   const resultsBatchCost = formatBatchCost(compareItems);
   const schematicSrc =
     sentRefs.find((item) => item.role === "schematic")?.dataUrl ??
@@ -1174,7 +1277,7 @@ export function PosterPanel({
       src: item.url,
       label:
         [
-          compareStyles ? styleLabel(item.styleId, item.spec.style.name) : null,
+          compareStyles ? resultSlotLabel(item) : null,
           compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
           posterVariantLabel(item, compareItems),
           item.durationMs != null ? formatDurationMs(item.durationMs) : null,
@@ -1183,6 +1286,13 @@ export function PosterPanel({
           .join(" · ") || "result",
     })),
   ];
+
+  function applyRouteOnly(next: boolean) {
+    if (next === routeOnly) return;
+    setRouteOnly(next);
+    setSpecs({});
+    setPlanCosts({});
+  }
 
   function applyCrop(nextStart: number, nextEnd: number) {
     if (!context) return;
@@ -1229,6 +1339,30 @@ export function PosterPanel({
       )}
       {context && !loading && (
         <div className="poster-body">
+          <div className="panel-block">
+            <div className="eyebrow">Content</div>
+            <div className="chip-row">
+              <button
+                type="button"
+                className={`chip ${routeOnly ? "" : "on"}`}
+                onClick={() => applyRouteOnly(false)}
+              >
+                Route + landmarks
+              </button>
+              <button
+                type="button"
+                className={`chip ${routeOnly ? "on" : ""}`}
+                onClick={() => applyRouteOnly(true)}
+              >
+                Route only
+              </button>
+            </div>
+            <p className="muted">
+              {routeOnly
+                ? "GPS track and start/finish markers only. Title and stats stay in the title block."
+                : "Geography, landmarks, named trails, and districts on the map."}
+            </p>
+          </div>
           <div className="panel-block">
             <div className="eyebrow">Crop track</div>
             <label className="poster-crop-row">
@@ -1318,6 +1452,8 @@ export function PosterPanel({
             </p>
           </div>
 
+          {!routeOnly && (
+          <>
           <div className="panel-block">
             <div className="eyebrow">Geography</div>
             {catalog
@@ -1436,6 +1572,8 @@ export function PosterPanel({
               </button>
             ))}
           </div>
+          </>
+          )}
 
           <div className="panel-block">
             <div className="eyebrow">Themes</div>
@@ -1452,10 +1590,42 @@ export function PosterPanel({
               ))}
             </div>
             <p className="muted">
-              {styleIds.length > 1
-                ? `${styleIds.length} themes will each get their own prompt`
-                : "Select more than one to compare themes"}
+              {planSlots.length > 1
+                ? `${planSlots.length} prompts — one per selected theme and palette`
+                : "Select more themes or palettes to compare"}
             </p>
+            {paletteStyles.map((style) => {
+              const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
+              return (
+                <div key={style.id} className="palette-group">
+                  <div className="eyebrow">
+                    {paletteStyles.length > 1 ? `${style.label} palette` : "Palette"}
+                  </div>
+                  <div className="chip-row">
+                    <button
+                      type="button"
+                      className={`chip ${selected.includes(AUTO_PALETTE_ID) ? "on" : ""}`}
+                      onClick={() => togglePalette(style.id, AUTO_PALETTE_ID)}
+                    >
+                      Auto
+                    </button>
+                    {stylePalettes(style).map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`chip ${selected.includes(item.id) ? "on" : ""}`}
+                        onClick={() => togglePalette(style.id, item.id)}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                  {selected.length > 1 && (
+                    <p className="muted">{selected.length} palettes will each get their own prompt</p>
+                  )}
+                </div>
+              );
+            })}
             {(editingCustom || singlePreset) && (
               <textarea
                 className="poster-prompt"
@@ -1464,8 +1634,14 @@ export function PosterPanel({
                 onChange={(event) => {
                   const value = event.target.value;
                   if (singlePreset) {
+                    const fromId = styleIds[0];
+                    for (const paletteId of paletteIdsForStyle(styleById(fromId), paletteIdsByStyle[fromId])) {
+                      dropSlot(fromId, paletteId);
+                    }
                     setStyleIds(["custom"]);
                     setActiveStyleId("custom");
+                    setPaletteIdsByStyle({ custom: [AUTO_PALETTE_ID] });
+                    setActivePlanKey(planSlotKey("custom", AUTO_PALETTE_ID));
                   }
                   setStylePrompt(value);
                 }}
@@ -1526,35 +1702,13 @@ export function PosterPanel({
                 </select>
               </label>
             </div>
-            <div className="poster-field">
-              Image models
-              <div className="model-list">
-                {modelOptions.map((item) => (
-                  <label key={item.id} className="check">
-                    <input
-                      type="checkbox"
-                      checked={imageModelIds.includes(item.id)}
-                      onChange={() => toggleImageModel(item.id)}
-                      disabled={!modelOptions.length}
-                    />
-                    <span>
-                      {item.name}
-                      <em>{item.id !== item.name ? item.id : ""}</em>
-                    </span>
-                  </label>
-                ))}
-              </div>
+            {variantCaps.length || variants > 1 ? (
               <p className="muted">
-                {imageModelIds.length > 1
-                  ? `${imageModelIds.length} models will generate in parallel`
-                  : "Select more than one to compare outputs"}
                 {variantCaps.length
-                  ? ` · ${variantCaps.join(" · ")}`
-                  : variants > 1
-                    ? ` · ${variants} images per prompt, one request`
-                    : ""}
+                  ? variantCaps.join(" · ")
+                  : `${variants} images per prompt, one request`}
               </p>
-            </div>
+            ) : null}
             {schematicUrl ? (
               <div className="preview-grid">
                 <GroundingThumb
@@ -1562,7 +1716,7 @@ export function PosterPanel({
                   label="schematic"
                   onOpen={() => setPreview({ src: schematicUrl, label: "schematic" })}
                 />
-                {maxRefs >= 2 && satelliteUrl && (
+                {!routeOnly && maxRefs >= 2 && satelliteUrl && (
                   <GroundingThumb
                     src={satelliteUrl}
                     label="satellite"
@@ -1576,6 +1730,7 @@ export function PosterPanel({
                 maxRefs,
                 Boolean(satelliteUrl),
                 maxRefs >= 2 && Boolean(schematicUrl) && !satelliteUrl,
+                routeOnly,
               )}
             </p>
             {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
@@ -1587,31 +1742,34 @@ export function PosterPanel({
                 ? planProgress.total > 1
                   ? `Planning ${planProgress.done}/${planProgress.total}… ${elapsed}s`
                   : `Planning… ${elapsed}s`
-                : plannedStyleIds.length
-                  ? styleIds.length > 1
+                : plannedSlots.length
+                  ? planSlots.length > 1
                     ? "Re-plan prompts"
                     : "Re-plan"
-                  : styleIds.length > 1
+                  : planSlots.length > 1
                     ? "Plan prompts"
                     : "Plan prompt"}
             </button>
-            {plannedStyleIds.length > 0 && !allThemesPlanned && (
-              <p className="muted">Plan prompts for the newly selected themes before generating.</p>
+            {plannedSlots.length > 0 && !allThemesPlanned && (
+              <p className="muted">Plan prompts for the newly selected themes and palettes before generating.</p>
             )}
           </div>
 
-          {spec && (
+          {spec && specSlot && (
             <div className="panel-block">
-              {plannedStyleIds.length > 1 && (
+              {plannedSlots.length > 1 && (
                 <div className="chip-row">
-                  {plannedStyleIds.map((id) => (
+                  {plannedSlots.map((slot) => (
                     <button
-                      key={id}
+                      key={slot.key}
                       type="button"
-                      className={`chip ${id === specStyleId ? "on" : ""}`}
-                      onClick={() => setActiveStyleId(id)}
+                      className={`chip ${slot.key === specSlot.key ? "on" : ""}`}
+                      onClick={() => {
+                        setActiveStyleId(slot.styleId);
+                        setActivePlanKey(slot.key);
+                      }}
                     >
-                      {styleLabel(id, specs[id]?.style.name)}
+                      {planSlotLabel(slot.styleId, slot.paletteId, specForSlot(specs, slot.styleId, slot.paletteId)?.style.name)}
                     </button>
                   ))}
                 </div>
@@ -1619,13 +1777,13 @@ export function PosterPanel({
               <SpecEditor
                 spec={spec}
                 onChange={(next) =>
-                  setSpecs((current) => ({ ...current, [specStyleId ?? activeStyleId]: next }))
+                  setSpecs((current) => ({ ...current, [specSlot.key]: next }))
                 }
               />
               <button
                 className="button"
                 type="button"
-                disabled={busy || !imageModelIds.length || !allThemesPlanned}
+                disabled={busy || !allThemesPlanned}
                 onClick={() => void handleGenerate()}
               >
                 {generating
@@ -1635,13 +1793,8 @@ export function PosterPanel({
                       ? `Generating ${generateCount} variants… ${elapsed}s`
                       : `Generating… ${elapsed}s`
                   : generateCount > 1
-                    ? styleIds.length > 1 || imageModelIds.length > 1
-                      ? `Generate ${[
-                          styleIds.length > 1 ? `${styleIds.length} themes` : null,
-                          imageModelIds.length > 1 ? `${imageModelIds.length} models` : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" × ")} (${generateCount} variants)`
+                    ? plannedSlots.length > 1
+                      ? `Generate ${plannedSlots.length} posters (${generateCount} variants)`
                       : `Generate ${generateCount} variants`
                     : "Generate poster"}
               </button>
@@ -1651,7 +1804,7 @@ export function PosterPanel({
                     const ms = (run.finishedAt ?? Date.now()) - run.startedAt;
                     const time = formatDurationMs(ms);
                     const status = run.error ? "failed" : run.finishedAt ? "done" : "running";
-                    const showStyle = styleIds.length > 1;
+                    const showStyle = planSlots.length > 1;
                     const showModel = imageModelIds.length > 1 || !showStyle;
                     const cost = formatCostBreakdown({
                       promptCost: run.promptCost,
@@ -1704,7 +1857,7 @@ export function PosterPanel({
                     <img src={item.url} alt={item.title} />
                     <span>
                       {[
-                        compareStyles ? styleLabel(item.styleId, item.spec.style.name) : null,
+                        compareStyles ? resultSlotLabel(item) : null,
                         compareModels || !compareStyles
                           ? shortModelLabel(item.model, item.modelName)
                           : null,
@@ -1741,7 +1894,7 @@ export function PosterPanel({
                 </a>
               </div>
               <p className="muted">
-                {styleLabel(result.styleId, result.spec.style.name)}
+                {resultSlotLabel(result)}
                 {` · ${shortModelLabel(result.model, result.modelName)}`}
                 {result.durationMs != null ? ` · ${formatDurationMs(result.durationMs)}` : ""}
                 {resultCost ? ` · ${resultCost}` : ""}

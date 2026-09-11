@@ -185,6 +185,7 @@ export type PosterRecord = {
   stats: Array<{ label: string; value: string }>;
   styleId: string;
   stylePrompt: string;
+  paletteId?: string;
   referenceCount: number;
   variant?: number;
   url: string;
@@ -202,6 +203,7 @@ export type PosterEditorSnapshot = {
   cropStart: number;
   cropEnd: number;
   showRouteMarkers: boolean;
+  routeOnly: boolean;
   title: string;
   startPlace: string;
   finishPlace: string;
@@ -210,6 +212,8 @@ export type PosterEditorSnapshot = {
   aspectRatio: string;
   styleIds: string[];
   stylePrompt: string;
+  paletteId: string;
+  paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
   variants: number;
   specs?: Partial<Record<string, PosterSpec>>;

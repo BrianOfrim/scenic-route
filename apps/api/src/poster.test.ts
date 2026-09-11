@@ -31,6 +31,7 @@ test("sanitizePosterEditor keeps crop, labels, and custom annotations", () => {
     cropStart: 20.4,
     cropEnd: 80,
     showRouteMarkers: false,
+    routeOnly: true,
     title: "Dawn Patrol",
     startPlace: "Banff",
     finishPlace: "Lake Louise",
@@ -39,6 +40,7 @@ test("sanitizePosterEditor keeps crop, labels, and custom annotations", () => {
     aspectRatio: "16:9",
     styleIds: ["middle-earth"],
     stylePrompt: "ink",
+    paletteId: "process-blue",
     imageModelIds: ["google/gemini-test"],
     variants: 2,
   });
@@ -47,10 +49,38 @@ test("sanitizePosterEditor keeps crop, labels, and custom annotations", () => {
   assert.equal(editor.cropStart, 20);
   assert.equal(editor.cropEnd, 80);
   assert.equal(editor.showRouteMarkers, false);
+  assert.equal(editor.routeOnly, true);
   assert.equal(editor.customPois.length, 1);
   assert.deepEqual(editor.customWays, []);
   assert.equal(editor.trailAliases["Bow Valley Parkway"], "Parkway");
   assert.equal(editor.variants, 2);
+  assert.equal(editor.paletteId, "process-blue");
+  assert.deepEqual(editor.paletteIdsByStyle, {});
+});
+
+test("sanitizePosterEditor defaults paletteId to auto", () => {
+  const editor = sanitizePosterEditor({
+    styleIds: ["swiss"],
+    stylePrompt: "",
+  });
+  assert.equal(editor?.paletteId, "auto");
+  assert.equal(editor?.routeOnly, false);
+  assert.deepEqual(editor?.paletteIdsByStyle, {});
+});
+
+test("sanitizePosterEditor keeps per-style palette lists", () => {
+  const editor = sanitizePosterEditor({
+    styleIds: ["swiss", "risograph"],
+    paletteIdsByStyle: {
+      swiss: ["process-blue", "black", ""],
+      risograph: ["pink-teal"],
+      "": ["auto"],
+    },
+  });
+  assert.deepEqual(editor?.paletteIdsByStyle, {
+    swiss: ["process-blue", "black"],
+    risograph: ["pink-teal"],
+  });
 });
 
 test("sanitizePosterEditor ignores missing or invalid payloads", () => {

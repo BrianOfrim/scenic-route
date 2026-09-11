@@ -257,6 +257,23 @@ test("specToImagePrompt tells the model named regions are washes not pins", () =
   assert.doesNotMatch(prompt, /[{}\[\]]/);
 });
 
+test("specToImagePrompt describes a route-only poster when there are no named features", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      geography: [],
+      landmarks: [],
+    }),
+  );
+  assert.match(prompt, /route-only poster/i);
+  assert.match(prompt, /no landmarks, trail names, or named districts/);
+  assert.match(prompt, /no text other than the title block and optional start\/finish names/);
+  assert.match(prompt, /no landmark names, trail names, district labels, or invented place names/);
+  assert.doesNotMatch(prompt, /relative to water, roads, and landmarks/);
+  assert.doesNotMatch(prompt, /Castle Mountain/);
+  assert.doesNotMatch(prompt, /listed landmark, trail, region/);
+});
+
 test("specToImagePrompt explains a route-only reference when present", () => {
   const prompt = specToImagePrompt(
     validatePosterSpec({

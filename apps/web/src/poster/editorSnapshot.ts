@@ -2,7 +2,7 @@ import type { NamedWay, PosterPoi, PosterRecord, PosterSpec } from "../api";
 import { clampCrop } from "./crop";
 import { DEFAULT_FEATURE_IDS } from "./featureCatalog";
 import type { AspectRatio } from "./grounding/renderSchematic";
-import { DEFAULT_POSTER_STYLE, POSTER_STYLES } from "./styles";
+import { AUTO_PALETTE_ID, DEFAULT_POSTER_STYLE, POSTER_STYLES, planSlotKey, snapshotPaletteIds } from "./styles";
 
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
 
@@ -17,6 +17,7 @@ export type PosterEditorSnapshot = {
   cropStart: number;
   cropEnd: number;
   showRouteMarkers: boolean;
+  routeOnly: boolean;
   title: string;
   startPlace: string;
   finishPlace: string;
@@ -25,6 +26,8 @@ export type PosterEditorSnapshot = {
   aspectRatio: AspectRatio;
   styleIds: string[];
   stylePrompt: string;
+  paletteId: string;
+  paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
   variants: number;
   specs: Partial<Record<string, PosterSpec>>;
@@ -42,6 +45,7 @@ export type EditorCapture = {
   cropStart: number;
   cropEnd: number;
   showRouteMarkers: boolean;
+  routeOnly?: boolean;
   title: string;
   startPlace: string;
   finishPlace: string;
@@ -50,6 +54,8 @@ export type EditorCapture = {
   aspectRatio: AspectRatio;
   styleIds: string[];
   stylePrompt: string;
+  paletteId?: string;
+  paletteIdsByStyle?: Record<string, string[]>;
   imageModelIds: string[];
   variants: number;
   specs: Partial<Record<string, PosterSpec>>;
@@ -58,6 +64,18 @@ export type EditorCapture = {
 
 export function asAspectRatio(value?: string | null): AspectRatio {
   return ASPECTS.includes(value as AspectRatio) ? (value as AspectRatio) : "2:3";
+}
+
+function snapshotPalettes(
+  styleIds: string[],
+  paletteIdsByStyle?: Record<string, string[] | undefined> | null,
+  legacyPaletteId?: string | null,
+) {
+  return snapshotPaletteIds(styleIds, paletteIdsByStyle, legacyPaletteId);
+}
+
+function firstPaletteId(styleIds: string[], paletteIdsByStyle: Record<string, string[]>) {
+  return paletteIdsByStyle[styleIds[0]]?.[0] ?? Object.values(paletteIdsByStyle)[0]?.[0] ?? AUTO_PALETTE_ID;
 }
 
 export function styleIdFromRecord(record?: PosterRecord | null) {
@@ -75,6 +93,7 @@ export function statIdFromLabel(label: string) {
 }
 
 export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapshot {
+  const paletteIdsByStyle = snapshotPalettes(input.styleIds, input.paletteIdsByStyle, input.paletteId);
   return {
     featureIds: [...input.featureIds],
     labels: [...input.labels],
@@ -86,6 +105,7 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
     cropStart: input.cropStart,
     cropEnd: input.cropEnd,
     showRouteMarkers: input.showRouteMarkers,
+    routeOnly: Boolean(input.routeOnly),
     title: input.title,
     startPlace: input.startPlace,
     finishPlace: input.finishPlace,
@@ -94,6 +114,8 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
     aspectRatio: input.aspectRatio,
     styleIds: [...input.styleIds],
     stylePrompt: input.stylePrompt,
+    paletteIdsByStyle,
+    paletteId: firstPaletteId(input.styleIds, paletteIdsByStyle),
     imageModelIds: [...input.imageModelIds],
     variants: input.variants,
     specs: { ...input.specs },
@@ -112,6 +134,7 @@ export type RestoredEditor = {
   cropStart: number;
   cropEnd: number;
   showRouteMarkers: boolean;
+  routeOnly: boolean;
   title: string;
   startPlace: string;
   finishPlace: string;
@@ -120,6 +143,8 @@ export type RestoredEditor = {
   aspectRatio: AspectRatio;
   styleIds: string[];
   stylePrompt: string;
+  paletteId: string;
+  paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[] | null;
   variants: number | null;
   specs: Partial<Record<string, PosterSpec>>;
@@ -153,9 +178,12 @@ export function editorSeed(record?: PosterRecord | null) {
     featureIds: restored.featureIds,
     styleIds: restored.styleIds,
     stylePrompt: restored.stylePrompt,
+    paletteId: restored.paletteId,
+    paletteIdsByStyle: restored.paletteIdsByStyle,
     aspectRatio: restored.aspectRatio,
     title: restored.title,
     showRouteMarkers: restored.showRouteMarkers,
+    routeOnly: restored.routeOnly,
     imageModelIds: restored.imageModelIds,
     variants: restored.variants,
     specs: restored.specs,
@@ -193,6 +221,7 @@ export function restoreEditor(
     cropStart,
     cropEnd,
     showRouteMarkers: editor?.showRouteMarkers ?? true,
+    routeOnly: editor?.routeOnly === true,
     title: editor?.title || record.title || defaults.title,
     startPlace,
     finishPlace,
@@ -207,15 +236,38 @@ export function restoreEditor(
     aspectRatio: asAspectRatio(editor?.aspectRatio || record.aspectRatio),
     styleIds: editor?.styleIds?.length ? editor.styleIds : [styleId],
     stylePrompt: editor?.stylePrompt || record.stylePrompt || DEFAULT_POSTER_STYLE.prompt,
+    paletteIdsByStyle: snapshotPalettes(
+      editor?.styleIds?.length ? editor.styleIds : [styleId],
+      editor?.paletteIdsByStyle,
+      editor?.paletteId,
+    ),
+    paletteId: firstPaletteId(
+      editor?.styleIds?.length ? editor.styleIds : [styleId],
+      snapshotPalettes(
+        editor?.styleIds?.length ? editor.styleIds : [styleId],
+        editor?.paletteIdsByStyle,
+        editor?.paletteId,
+      ),
+    ),
     imageModelIds: editor?.imageModelIds?.length ? editor.imageModelIds : null,
     variants: editor?.variants ?? null,
     specs: {
       ...(editor?.specs ?? {}),
-      ...(record.spec ? { [styleId]: record.spec } : {}),
+      ...(record.spec
+        ? {
+            [styleId]: record.spec,
+            [planSlotKey(styleId, record.paletteId ?? AUTO_PALETTE_ID)]: record.spec,
+          }
+        : {}),
     },
     planCosts: {
       ...(editor?.planCosts ?? {}),
-      ...(record.promptCost != null ? { [styleId]: record.promptCost } : {}),
+      ...(record.promptCost != null
+        ? {
+            [styleId]: record.promptCost,
+            [planSlotKey(styleId, record.paletteId ?? AUTO_PALETTE_ID)]: record.promptCost,
+          }
+        : {}),
     },
   };
 }

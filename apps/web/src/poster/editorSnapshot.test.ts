@@ -118,6 +118,7 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
     cropStart: 20,
     cropEnd: 80,
     showRouteMarkers: false,
+    routeOnly: true,
     title: "Dawn Patrol",
     startPlace: "Banff",
     finishPlace: "Lake Louise",
@@ -126,6 +127,7 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
     aspectRatio: "16:9",
     styleIds: ["middle-earth", "tron"],
     stylePrompt: "custom ink",
+    paletteId: "red",
     imageModelIds: ["google/gemini-test"],
     variants: 2,
     specs: { "middle-earth": spec },
@@ -141,6 +143,7 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
   assert.equal(restored.cropStart, 20);
   assert.equal(restored.cropEnd, 80);
   assert.equal(restored.showRouteMarkers, false);
+  assert.equal(restored.routeOnly, true);
   assert.equal(restored.title, "Dawn Patrol");
   assert.equal(restored.startPlace, "Banff");
   assert.equal(restored.finishPlace, "Lake Louise");
@@ -148,6 +151,8 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
   assert.deepEqual(restored.statIds, ["title", "distance"]);
   assert.equal(restored.aspectRatio, "16:9");
   assert.deepEqual(restored.styleIds, ["middle-earth", "tron"]);
+  assert.equal(restored.paletteId, "auto");
+  assert.deepEqual(restored.paletteIdsByStyle, { "middle-earth": ["auto"], tron: ["auto"] });
   assert.deepEqual(restored.imageModelIds, ["google/gemini-test"]);
   assert.equal(restored.variants, 2);
 });
@@ -174,6 +179,7 @@ test("restoreEditor clamps crop to the current track", () => {
         aspectRatio: "2:3",
         styleIds: ["middle-earth"],
         stylePrompt: "",
+        paletteId: "auto",
         imageModelIds: [],
         variants: 4,
         specs: {},
@@ -187,6 +193,102 @@ test("restoreEditor clamps crop to the current track", () => {
   assert.equal(restored.cropEnd, 49);
 });
 
+test("restoreEditor keeps a costume palette on a single theme", () => {
+  const snapshot = captureEditorSnapshot({
+    featureIds: ["lakes"],
+    labels: [],
+    trailNames: [],
+    trailAliases: {},
+    areaNames: [],
+    customPois: [],
+    customWays: [],
+    cropStart: 0,
+    cropEnd: 10,
+    showRouteMarkers: true,
+    title: "Ride",
+    startPlace: "",
+    finishPlace: "",
+    placesEdited: false,
+    statIds: ["title"],
+    aspectRatio: "2:3",
+    styleIds: ["swiss"],
+    stylePrompt: "",
+    paletteId: "process-blue",
+    imageModelIds: [],
+    variants: 4,
+    specs: {},
+    planCosts: {},
+  });
+  const restored = restoreEditor(record({ editor: snapshot }), 20, defaults);
+  assert.equal(restored.paletteId, "process-blue");
+  assert.deepEqual(restored.paletteIdsByStyle, { swiss: ["process-blue"] });
+});
+
+test("restoreEditor keeps per-style palettes and multiple palettes on one style", () => {
+  const snapshot = captureEditorSnapshot({
+    featureIds: ["lakes"],
+    labels: [],
+    trailNames: [],
+    trailAliases: {},
+    areaNames: [],
+    customPois: [],
+    customWays: [],
+    cropStart: 0,
+    cropEnd: 10,
+    showRouteMarkers: true,
+    title: "Ride",
+    startPlace: "",
+    finishPlace: "",
+    placesEdited: false,
+    statIds: ["title"],
+    aspectRatio: "2:3",
+    styleIds: ["swiss", "risograph"],
+    stylePrompt: "",
+    paletteIdsByStyle: {
+      swiss: ["process-blue", "black"],
+      risograph: ["pink-teal"],
+    },
+    imageModelIds: [],
+    variants: 4,
+    specs: {},
+    planCosts: {},
+  });
+  const restored = restoreEditor(record({ editor: snapshot }), 20, defaults);
+  assert.deepEqual(restored.paletteIdsByStyle.swiss, ["process-blue", "black"]);
+  assert.deepEqual(restored.paletteIdsByStyle.risograph, ["pink-teal"]);
+  assert.equal(restored.paletteId, "process-blue");
+});
+
+test("restoreEditor still accepts a legacy single paletteId", () => {
+  const snapshot = captureEditorSnapshot({
+    featureIds: ["lakes"],
+    labels: [],
+    trailNames: [],
+    trailAliases: {},
+    areaNames: [],
+    customPois: [],
+    customWays: [],
+    cropStart: 0,
+    cropEnd: 10,
+    showRouteMarkers: true,
+    title: "Ride",
+    startPlace: "",
+    finishPlace: "",
+    placesEdited: false,
+    statIds: ["title"],
+    aspectRatio: "2:3",
+    styleIds: ["swiss"],
+    stylePrompt: "",
+    paletteId: "signal-yellow",
+    imageModelIds: [],
+    variants: 4,
+    specs: {},
+    planCosts: {},
+  });
+  const restored = restoreEditor(record({ editor: snapshot }), 20, defaults);
+  assert.deepEqual(restored.paletteIdsByStyle, { swiss: ["signal-yellow"] });
+});
+
 test("restoreEditor falls back to saved record fields when no snapshot exists", () => {
   const restored = restoreEditor(record(), 80, defaults);
   assert.deepEqual(restored.featureIds, ["lakes", "peaks"]);
@@ -195,11 +297,13 @@ test("restoreEditor falls back to saved record fields when no snapshot exists", 
   assert.equal(restored.cropStart, 0);
   assert.equal(restored.cropEnd, 79);
   assert.equal(restored.title, "Bow Valley");
+  assert.equal(restored.routeOnly, false);
   assert.equal(restored.aspectRatio, "3:4");
   assert.equal(restored.startPlace, "Banff");
   assert.equal(restored.finishPlace, "Lake Louise");
   assert.equal(restored.placesEdited, true);
   assert.deepEqual(restored.styleIds, ["middle-earth"]);
+  assert.equal(restored.paletteId, "auto");
   assert.equal(restored.imageModelIds, null);
   assert.equal(restored.featureIds === DEFAULT_FEATURE_IDS, false);
 });

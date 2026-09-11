@@ -63,6 +63,7 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
     customStylePrompt: string;
     groundingImages: Array<{ role: string }>;
     routeMarkers: { enabled: boolean; mode: string };
+    routeOnly: boolean;
   };
   assert.equal(user.landmarks[0].name, "Norsemen Inn");
   assert.equal(user.landmarks[0].pin, 1);
@@ -83,6 +84,52 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.equal(user.customStylePrompt, "more negative space");
   assert.equal(user.groundingImages[0].role, "schematic");
   assert.deepEqual(user.routeMarkers, { enabled: true, mode: "loop" });
+  assert.equal(user.routeOnly, false);
+});
+
+test("buildPlannerMessages in route-only mode drops named features", () => {
+  const messages = buildPlannerMessages({
+    ...input,
+    routeOnly: true,
+  });
+  const system = String(messages[0].content);
+  const user = JSON.parse(String(messages[1].content)) as {
+    routeOnly: boolean;
+    landmarks: unknown[];
+    namedTrails: unknown[];
+    namedRegions: unknown[];
+    geographyLayers: unknown[];
+  };
+  assert.equal(user.routeOnly, true);
+  assert.deepEqual(user.landmarks, []);
+  assert.deepEqual(user.namedTrails, []);
+  assert.deepEqual(user.namedRegions, []);
+  assert.deepEqual(user.geographyLayers, []);
+  assert.match(system, /route-only poster/);
+  assert.match(system, /geography and landmarks must be empty/);
+  assert.doesNotMatch(system, /Named trails recolor stretches/);
+  assert.doesNotMatch(system, /Named regions are pale ochre washes/);
+  assert.doesNotMatch(system, /numbered discs as a private index/);
+});
+
+test("repairPlannerOutput in route-only mode strips landmarks and geography", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: ["red"], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "dot", finishMarker: "dot", shapeNotes: "" },
+      geography: [{ kind: "trail", name: "River Valley Trail", placement: "along route", treatment: "write the name" }],
+      landmarks: [{ name: "Norsemen Inn", kind: "pub", placement: "upper-left", icon: "pub", pin: 1 }],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    { ...input, routeOnly: true },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.deepEqual(spec.landmarks, []);
+  assert.deepEqual(spec.geography, []);
 });
 
 test("repairPlannerOutput coerces prose fields into the nested shape", () => {
@@ -358,4 +405,43 @@ test("repairPlannerOutput injects named regions and drops them from landmarks", 
 test("assertUsableSpec rejects a spec with no style or route direction", () => {
   const empty = validatePosterSpec({ text: { title: "x" }, finalPrompt: "y" });
   assert.throws(() => assertUsableSpec(empty), /unusable spec/);
+});
+
+test("planner asks for an open palette instead of refilling a cliché pair", () => {
+  const openInput: PlannerInput = {
+    ...input,
+    style: {
+      id: "risograph",
+      label: "Risograph",
+      prompt: "Two-ink risograph print. Pick any two Riso inks; do not default to fluorescent pink and teal.",
+      palette: [],
+      typography: "zine sans",
+      openPalette: true,
+    },
+  };
+  const messages = buildPlannerMessages(openInput);
+  assert.match(String(messages[0].content), /no fixed palette/);
+  assert.match(String(messages[0].content), /Do not fall back to a cliché pair/);
+  const user = JSON.parse(String(messages[1].content)) as {
+    stylePreset: { palette: string[]; openPalette: boolean };
+    paletteInstruction: string;
+  };
+  assert.deepEqual(user.stylePreset.palette, []);
+  assert.equal(user.stylePreset.openPalette, true);
+  assert.match(user.paletteInstruction, /no fixed palette/);
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Risograph", medium: "risograph", palette: [], typography: "zine sans" },
+      composition: { routePlacement: "center" },
+      route: { treatment: "loud ink", color: "the louder ink" },
+    },
+    openInput,
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.deepEqual(spec.style.palette, []);
+});
+
+test("planner honors a supplied costume palette", () => {
+  const messages = buildPlannerMessages(input);
+  assert.match(String(messages[0].content), /Honor stylePreset.palette exactly: off-white, red/);
 });

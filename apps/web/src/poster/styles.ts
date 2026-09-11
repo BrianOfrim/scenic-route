@@ -1,9 +1,22 @@
+export const AUTO_PALETTE_ID = "auto";
+
+export type ColorMode = "identity" | "canonical" | "open";
+
+export type StylePalette = {
+  id: string;
+  label: string;
+  colors: string[];
+};
+
 export type PosterStyle = {
   id: string;
   label: string;
   prompt: string;
   palette: string[];
   typography: string;
+  colorMode: ColorMode;
+  palettes?: StylePalette[];
+  openHint?: string;
 };
 
 export const POSTER_STYLES: PosterStyle[] = [
@@ -14,6 +27,7 @@ export const POSTER_STYLES: PosterStyle[] = [
       "Hand-inked map on aged parchment in the style of a Tolkien journey map. Tree-cluster forests, calligraphic labels, an ornate compass rose, and a decorative cartouche for the title. The route is a red dotted journey line. Warm tea-stain paper, sepia ink, no modern cartography.",
     palette: ["tea-stain", "sepia", "oxblood"],
     typography: "calligraphic uncials",
+    colorMode: "identity",
   },
   {
     id: "vintage-topo",
@@ -22,6 +36,7 @@ export const POSTER_STYLES: PosterStyle[] = [
       "Vintage USGS topographic map: dense brown contour lines, tan and sage hypsometric tints, serif labels, neatline and grid ticks, a bold red route overprinted on the sheet. Slightly yellowed paper, lithographic print texture.",
     palette: ["tan", "sage", "sienna", "red"],
     typography: "engraved serif",
+    colorMode: "identity",
   },
   {
     id: "tron",
@@ -30,6 +45,7 @@ export const POSTER_STYLES: PosterStyle[] = [
       "Tron lightcycle world: matte black void, cyan neon grid roads receding into darkness, the route a blazing orange light trail with bloom and glow. HUD typography for the title, scanlines, no parchment or paper.",
     palette: ["black", "cyan", "orange"],
     typography: "HUD gothic",
+    colorMode: "identity",
   },
   {
     id: "swiss",
@@ -38,6 +54,13 @@ export const POSTER_STYLES: PosterStyle[] = [
       "Swiss modernist map poster: off-white paper, hairline grey roads, a single accent-color route, Helvetica title block, generous negative space, no ornament, no texture beyond a faint paper tooth.",
     palette: ["off-white", "grey", "red"],
     typography: "Helvetica",
+    colorMode: "canonical",
+    palettes: [
+      { id: "red", label: "Red", colors: ["off-white", "grey", "red"] },
+      { id: "black", label: "Black", colors: ["off-white", "grey", "black"] },
+      { id: "process-blue", label: "Process blue", colors: ["off-white", "grey", "process-blue"] },
+      { id: "signal-yellow", label: "Signal yellow", colors: ["off-white", "grey", "signal-yellow"] },
+    ],
   },
   {
     id: "blueprint",
@@ -46,14 +69,21 @@ export const POSTER_STYLES: PosterStyle[] = [
       "Cyanotype architectural blueprint: deep cyan paper, white technical linework, dimension ticks and a stamped title block. The route is a heavier white line. Drafting-room precision, no color besides cyan and white.",
     palette: ["cyan", "white"],
     typography: "stamped technical sans",
+    colorMode: "identity",
   },
   {
     id: "ukiyo-e",
     label: "Ukiyo-e",
     prompt:
-      "Japanese ukiyo-e woodblock print: Hokusai-style waves for water, stylized landforms — peaks only if the geography includes them — indigo and ochre palette, visible woodgrain, a red seal stamp containing the title. Flat color fields, outlined forms, no photorealism.",
+      "Japanese ukiyo-e woodblock print: Hokusai-style waves for water, stylized landforms — peaks only if the geography includes them — visible woodgrain, a seal stamp containing the title. Flat color fields, outlined forms, no photorealism.",
     palette: ["indigo", "ochre", "seal-red"],
     typography: "woodblock seal",
+    colorMode: "canonical",
+    palettes: [
+      { id: "hokusai", label: "Hokusai", colors: ["indigo", "ochre", "seal-red"] },
+      { id: "hiroshige-dawn", label: "Hiroshige dawn", colors: ["dusk-blue", "peach", "grey"] },
+      { id: "summer-green", label: "Summer green", colors: ["sap-green", "indigo", "cream"] },
+    ],
   },
   {
     id: "wpa",
@@ -62,6 +92,13 @@ export const POSTER_STYLES: PosterStyle[] = [
       "1930s WPA National Park poster: flat bold poster colors, screen-print grain, big stacked title, simplified landforms, a heroic composition. The route is a strong graphic path through the landscape.",
     palette: ["poster-orange", "forest-green", "cream"],
     typography: "stacked gothic",
+    colorMode: "canonical",
+    palettes: [
+      { id: "park", label: "Park", colors: ["poster-orange", "forest-green", "cream"] },
+      { id: "desert", label: "Desert", colors: ["terracotta", "turquoise", "sand"] },
+      { id: "alpine", label: "Alpine", colors: ["navy", "cream", "scarlet"] },
+      { id: "coast", label: "Coast", colors: ["sea-blue", "cream", "coral"] },
+    ],
   },
   {
     id: "synthwave",
@@ -70,6 +107,7 @@ export const POSTER_STYLES: PosterStyle[] = [
       "Synthwave poster: sunset magenta-to-orange gradient sky, neon grid ground plane, chrome script title, purple horizon haze. The route is a glowing neon path. Retro-futurist 1980s album art.",
     palette: ["magenta", "orange", "violet"],
     typography: "chrome script",
+    colorMode: "identity",
   },
   {
     id: "pirate",
@@ -78,14 +116,17 @@ export const POSTER_STYLES: PosterStyle[] = [
       "Pirate treasure map on burnt-edge parchment: an X marks the finish, dotted route, a sea serpent in any lake, skull-and-crossbones compass, coffee stains and fold creases. Hand-lettered labels.",
     palette: ["parchment", "soot", "blood-red"],
     typography: "hand-lettered",
+    colorMode: "identity",
   },
   {
     id: "watercolour",
     label: "Watercolour journal",
     prompt:
       "Travel journal watercolour: loose wet-on-wet washes, fine ink outlines, handwritten labels, visible paper texture and paint blooms. Soft, personal, not a printed atlas.",
-    palette: ["wash-blue", "sap-green", "ink"],
+    palette: [],
     typography: "handwritten ink",
+    colorMode: "open",
+    openHint: "Choose washes from the land and water in the frame; do not lock a preset trio.",
   },
   {
     id: "star-chart",
@@ -94,22 +135,37 @@ export const POSTER_STYLES: PosterStyle[] = [
       "Celestial chart: deep navy field, the route as a constellation of linked gold stars, gold serif labels, decorative celestial border and corner flourishes. No daylight landscape.",
     palette: ["navy", "gold"],
     typography: "gold serif",
+    colorMode: "identity",
   },
   {
     id: "transit",
     label: "Transit diagram",
     prompt:
-      "Beck-style transit diagram: 45-degree and horizontal lines only, landmarks as named station dots, bold colored route on a cream field, small sans-serif tags. Schematic, not geographic texture.",
+      "Beck-style transit diagram: 45-degree and horizontal lines only, landmarks as named station dots, a bold colored route on a cream field, small sans-serif tags. Schematic, not geographic texture.",
     palette: ["cream", "route-red", "navy"],
     typography: "small sans-serif",
+    colorMode: "canonical",
+    palettes: [
+      { id: "central-red", label: "Central red", colors: ["cream", "route-red", "navy"] },
+      { id: "victoria-blue", label: "Victoria blue", colors: ["cream", "victoria-blue", "navy"] },
+      { id: "district-green", label: "District green", colors: ["cream", "district-green", "navy"] },
+      { id: "circle-yellow", label: "Circle yellow", colors: ["cream", "circle-yellow", "navy"] },
+    ],
   },
   {
     id: "art-deco",
     label: "Art deco",
     prompt:
-      "Art deco travel poster: geometric gold and teal, sunburst behind the title, stylized typography, stepped frames, simplified landforms. Elegant 1920s luxury-line advertisement.",
+      "Art deco travel poster: geometric forms, sunburst behind the title, stylized typography, stepped frames, simplified landforms. Elegant 1920s luxury-line advertisement.",
     palette: ["gold", "teal", "cream"],
     typography: "geometric deco",
+    colorMode: "canonical",
+    palettes: [
+      { id: "luxury-line", label: "Luxury line", colors: ["gold", "teal", "cream"] },
+      { id: "black-gold", label: "Black and gold", colors: ["black", "gold", "ivory"] },
+      { id: "ocean-liner", label: "Ocean liner", colors: ["silver", "navy", "cream"] },
+      { id: "jazz-club", label: "Jazz club", colors: ["coral", "black", "cream"] },
+    ],
   },
   {
     id: "rpg",
@@ -118,14 +174,30 @@ export const POSTER_STYLES: PosterStyle[] = [
       "16-bit RPG overworld map: chunky pixel tiles, sprite-like landmarks, dotted path for the route, limited NES-era palette, no anti-aliasing. Looks like a pause-screen map from a 1990s SNES game.",
     palette: ["nes-green", "nes-blue", "nes-tan"],
     typography: "pixel caps",
+    colorMode: "canonical",
+    palettes: [
+      { id: "overworld", label: "Overworld", colors: ["nes-green", "nes-blue", "nes-tan"] },
+      { id: "dungeon", label: "Dungeon", colors: ["slate", "purple", "gold"] },
+      { id: "winter", label: "Winter", colors: ["ice", "grey", "navy"] },
+      { id: "desert", label: "Desert", colors: ["tan", "orange", "brown"] },
+    ],
   },
   {
     id: "risograph",
     label: "Risograph",
     prompt:
-      "Two-ink risograph print: fluorescent pink and teal, slight misregistration, coarse halftone dots, cheap paper grain. The route is the louder ink. Handmade zine energy.",
-    palette: ["fluorescent-pink", "teal"],
+      "Two-ink risograph print: slight misregistration, coarse halftone dots, cheap paper grain. The route is the louder ink. Handmade zine energy.",
+    palette: [],
     typography: "zine sans",
+    colorMode: "open",
+    openHint: "Pick any two Riso inks; do not default to fluorescent pink and teal.",
+    palettes: [
+      { id: "pink-teal", label: "Fluorescent pink + teal", colors: ["fluorescent-pink", "teal"] },
+      { id: "blue-sunflower", label: "Federal blue + sunflower", colors: ["federal-blue", "sunflower"] },
+      { id: "black-red", label: "Black + bright red", colors: ["black", "bright-red"] },
+      { id: "orange-teal", label: "Fluorescent orange + teal", colors: ["fluorescent-orange", "teal"] },
+      { id: "kelly-cornflower", label: "Kelly + cornflower", colors: ["kelly", "cornflower"] },
+    ],
   },
   {
     id: "telemetry",
@@ -134,6 +206,68 @@ export const POSTER_STYLES: PosterStyle[] = [
       "Dark endurance-sport telemetry poster: near-black field, route as a luminous speed-gradient trail, small monospace stat blocks, faint grid, no fantasy decoration.",
     palette: ["near-black", "lime", "ice"],
     typography: "monospace stats",
+    colorMode: "canonical",
+    palettes: [
+      { id: "lime", label: "Lime", colors: ["near-black", "lime", "ice"] },
+      { id: "ember", label: "Ember", colors: ["near-black", "amber", "red"] },
+      { id: "magenta", label: "Magenta", colors: ["near-black", "magenta", "cyan"] },
+      { id: "mono", label: "Mono", colors: ["near-black", "white", "ice"] },
+    ],
+  },
+  {
+    id: "linen-postcard",
+    label: "Linen postcard",
+    prompt:
+      "1950s American linen postcard: faded canvas weave, stacked Greetings-from lettering for the title, a highway-shield cartouche. The route is a bold road-trip line. Mid-century roadside Americana, no parchment and no neon.",
+    palette: ["linen-cream", "chrome-teal", "bumper-red"],
+    typography: "stacked greetings-from",
+    colorMode: "canonical",
+    palettes: [
+      { id: "chrome", label: "Chrome", colors: ["linen-cream", "chrome-teal", "bumper-red"] },
+      { id: "sunset", label: "Sunset", colors: ["linen-cream", "aqua", "postcard-orange"] },
+      { id: "desert", label: "Desert", colors: ["peach", "turquoise", "sand"] },
+      { id: "civic", label: "Civic", colors: ["linen-cream", "navy", "barn-red"] },
+    ],
+  },
+  {
+    id: "aeronautical",
+    label: "Aeronautical chart",
+    prompt:
+      "FAA-style sectional aeronautical chart: magenta airways and VORs, cyan hydrography, tan terrain tints, airport marks, a neatline and scale. The route is a plotted flight path. Functional aviation cartography, not a fantasy map.",
+    palette: ["chart-tan", "airway-magenta", "hydro-cyan"],
+    typography: "aviation sans",
+    colorMode: "identity",
+  },
+  {
+    id: "art-nouveau",
+    label: "Art nouveau",
+    prompt:
+      "Art nouveau travel poster in the manner of Mucha: organic vine frames, flowing hairline borders, a decorative title cartouche. The route is a single elegant path. Belle-époque luxury, floral and curved, not geometric deco.",
+    palette: ["cream", "gold-green", "muted-rose"],
+    typography: "flowing nouveau",
+    colorMode: "canonical",
+    palettes: [
+      { id: "mucha-spring", label: "Mucha spring", colors: ["cream", "gold-green", "muted-rose"] },
+      { id: "twilight", label: "Twilight", colors: ["ivory", "violet", "gold"] },
+      { id: "autumn", label: "Autumn", colors: ["cream", "olive", "russet"] },
+      { id: "peacock", label: "Peacock", colors: ["cream", "teal", "gold"] },
+    ],
+  },
+  {
+    id: "linocut",
+    label: "Linocut",
+    prompt:
+      "Western linocut print: two or three inks, carved gouges and knife marks, cream stock, bold reduced landforms. The route is the loudest carved stroke. Hand-cut block print, not Japanese woodblock and not risograph halftone.",
+    palette: [],
+    typography: "carved block caps",
+    colorMode: "open",
+    openHint: "Pick two or three inks; do not default to black and vermilion.",
+    palettes: [
+      { id: "black-vermilion", label: "Black + vermilion", colors: ["cream", "iron-black", "vermilion"] },
+      { id: "navy-cream", label: "Navy + cream", colors: ["cream", "navy"] },
+      { id: "forest-ochre", label: "Forest + ochre", colors: ["cream", "forest", "ochre"] },
+      { id: "indigo-crimson", label: "Indigo + crimson", colors: ["cream", "indigo", "crimson"] },
+    ],
   },
   {
     id: "custom",
@@ -141,6 +275,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt: "",
     palette: [],
     typography: "",
+    colorMode: "identity",
   },
 ];
 
@@ -155,4 +290,119 @@ export function styleLabel(id: string, fallback?: string): string {
   if (match) return match.label;
   const trimmed = fallback?.trim();
   return trimmed || id || "Unknown theme";
+}
+
+export function isCostumeStyle(style: PosterStyle): boolean {
+  return style.colorMode === "canonical" || style.colorMode === "open";
+}
+
+export function stylePalettes(style: PosterStyle): StylePalette[] {
+  return style.palettes ?? [];
+}
+
+export function showsPalettePicker(style: PosterStyle): boolean {
+  return isCostumeStyle(style) && stylePalettes(style).length > 0;
+}
+
+export function normalizePaletteId(style: PosterStyle, paletteId?: string | null): string {
+  if (!showsPalettePicker(style)) return AUTO_PALETTE_ID;
+  if (!paletteId || paletteId === AUTO_PALETTE_ID) return AUTO_PALETTE_ID;
+  return stylePalettes(style).some((item) => item.id === paletteId) ? paletteId : AUTO_PALETTE_ID;
+}
+
+export function paletteIdsForStyle(style: PosterStyle, selected?: string[] | null): string[] {
+  if (!showsPalettePicker(style)) return [AUTO_PALETTE_ID];
+  const ids = [...new Set((selected ?? []).map((id) => normalizePaletteId(style, id)))];
+  return ids.length ? ids : [AUTO_PALETTE_ID];
+}
+
+export function planSlotKey(styleId: string, paletteId: string) {
+  return `${styleId}::${paletteId}`;
+}
+
+export function parsePlanSlotKey(key: string): { styleId: string; paletteId: string } {
+  const split = key.indexOf("::");
+  if (split < 0) return { styleId: key, paletteId: AUTO_PALETTE_ID };
+  return { styleId: key.slice(0, split), paletteId: key.slice(split + 2) };
+}
+
+export function stylePlanSlots(
+  styleIds: string[],
+  paletteIdsByStyle?: Record<string, string[] | undefined>,
+): Array<{ styleId: string; paletteId: string; key: string }> {
+  return styleIds.flatMap((styleId) => {
+    const style = styleById(styleId);
+    return paletteIdsForStyle(style, paletteIdsByStyle?.[styleId]).map((paletteId) => ({
+      styleId,
+      paletteId,
+      key: planSlotKey(styleId, paletteId),
+    }));
+  });
+}
+
+export function paletteChoiceLabel(style: PosterStyle, paletteId: string) {
+  if (paletteId === AUTO_PALETTE_ID) return "Auto";
+  return stylePalettes(style).find((item) => item.id === paletteId)?.label ?? paletteId;
+}
+
+export function planSlotLabel(styleId: string, paletteId: string, fallback?: string) {
+  const theme = styleLabel(styleId, fallback);
+  if (!showsPalettePicker(styleById(styleId))) return theme;
+  return `${theme} · ${paletteChoiceLabel(styleById(styleId), paletteId)}`;
+}
+
+export function specForSlot<T>(
+  specs: Partial<Record<string, T>>,
+  styleId: string,
+  paletteId: string,
+): T | undefined {
+  return specs[planSlotKey(styleId, paletteId)] ?? (paletteId === AUTO_PALETTE_ID ? specs[styleId] : undefined);
+}
+
+export function snapshotPaletteIds(
+  styleIds: string[],
+  paletteIdsByStyle?: Record<string, string[] | undefined> | null,
+  legacyPaletteId?: string | null,
+): Record<string, string[]> {
+  const next: Record<string, string[]> = {};
+  for (const id of styleIds) {
+    const style = styleById(id);
+    const fromMap = paletteIdsByStyle?.[id];
+    const fallback = !fromMap?.length && styleIds.length === 1 && legacyPaletteId ? [legacyPaletteId] : undefined;
+    next[id] = paletteIdsForStyle(style, fromMap ?? fallback);
+  }
+  return next;
+}
+
+export type ResolvedStyleColor = {
+  paletteId: string;
+  palette: string[];
+  prompt: string;
+  openPalette: boolean;
+};
+
+export function resolveStyleColor(style: PosterStyle, paletteId?: string | null): ResolvedStyleColor {
+  const id = normalizePaletteId(style, paletteId);
+  if (style.colorMode === "identity") {
+    return { paletteId: AUTO_PALETTE_ID, palette: style.palette, prompt: style.prompt, openPalette: false };
+  }
+  const preset = stylePalettes(style).find((item) => item.id === id);
+  if (preset) {
+    return { paletteId: id, palette: preset.colors, prompt: style.prompt, openPalette: false };
+  }
+  if (style.colorMode === "open") {
+    const hint = style.openHint?.trim();
+    return {
+      paletteId: AUTO_PALETTE_ID,
+      palette: [],
+      prompt: hint ? `${style.prompt} ${hint}` : style.prompt,
+      openPalette: true,
+    };
+  }
+  return {
+    paletteId: AUTO_PALETTE_ID,
+    palette: stylePalettes(style)[0]?.colors ?? style.palette,
+    prompt: style.prompt,
+    openPalette: false,
+  };
 }

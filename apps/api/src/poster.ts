@@ -35,6 +35,7 @@ export type PosterRecord = {
   stats: Array<{ label: string; value: string }>;
   styleId: string;
   stylePrompt: string;
+  paletteId?: string;
   referenceCount: number;
   variant?: number;
   url: string;
@@ -52,6 +53,7 @@ export type PosterEditorSnapshot = {
   cropStart: number;
   cropEnd: number;
   showRouteMarkers: boolean;
+  routeOnly: boolean;
   title: string;
   startPlace: string;
   finishPlace: string;
@@ -60,6 +62,8 @@ export type PosterEditorSnapshot = {
   aspectRatio: string;
   styleIds: string[];
   stylePrompt: string;
+  paletteId: string;
+  paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
   variants: number;
   specs?: Record<string, PosterSpec>;
@@ -91,6 +95,7 @@ export type GeneratePosterBody = {
   stats?: Array<{ label: string; value: string }>;
   styleId?: string;
   stylePrompt?: string;
+  paletteId?: string;
   aspectRatio?: string;
   model?: string;
   batchId?: string;
@@ -171,6 +176,7 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
       stats: body.stats ?? spec.text.stats,
       styleId: body.styleId ?? "",
       stylePrompt: body.stylePrompt ?? spec.style.medium,
+      paletteId: body.paletteId?.trim() || undefined,
       referenceCount: decoded.length,
       variant: index + 1,
       url: `/api/posters/${posterId}/image.png`,
@@ -247,6 +253,17 @@ function stringMap(value: unknown) {
   return next;
 }
 
+function stringListMap(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const next: Record<string, string[]> = {};
+  for (const [key, list] of Object.entries(value as Record<string, unknown>)) {
+    if (!key.trim()) continue;
+    const items = stringList(list);
+    if (items.length) next[key] = items;
+  }
+  return next;
+}
+
 function objectList(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.filter((item) => item && typeof item === "object" && !Array.isArray(item));
@@ -293,6 +310,7 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     cropStart: finiteInt(raw.cropStart, 0),
     cropEnd: finiteInt(raw.cropEnd, 1),
     showRouteMarkers: raw.showRouteMarkers !== false,
+    routeOnly: raw.routeOnly === true,
     title: typeof raw.title === "string" ? raw.title : "",
     startPlace: typeof raw.startPlace === "string" ? raw.startPlace : "",
     finishPlace: typeof raw.finishPlace === "string" ? raw.finishPlace : "",
@@ -301,6 +319,8 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     aspectRatio: typeof raw.aspectRatio === "string" && raw.aspectRatio.trim() ? raw.aspectRatio.trim() : "2:3",
     styleIds: stringList(raw.styleIds),
     stylePrompt: typeof raw.stylePrompt === "string" ? raw.stylePrompt : "",
+    paletteId: typeof raw.paletteId === "string" && raw.paletteId.trim() ? raw.paletteId.trim() : "auto",
+    paletteIdsByStyle: stringListMap(raw.paletteIdsByStyle),
     imageModelIds: stringList(raw.imageModelIds),
     variants: clampVariants(typeof raw.variants === "number" ? raw.variants : undefined),
     specs: specMap(raw.specs),

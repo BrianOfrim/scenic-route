@@ -72,6 +72,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posterOpen, setPosterOpen] = useState(false);
+  const [routeOnly, setRouteOnly] = useState(false);
   const [refineFrom, setRefineFrom] = useState<PosterRecord | null>(null);
   const [basemap, setBasemap] = useState<Basemap>("osm");
   const [viewNonce, setViewNonce] = useState(0);
@@ -231,6 +232,7 @@ export function App() {
               setViewNonce((value) => value + 1);
             } else {
               setPosterOpen(false);
+              setRouteOnly(false);
               setCropLatLng(null);
               setCropStops([]);
               setPois([]);
@@ -256,7 +258,7 @@ export function App() {
             schematicLayers={posterOpen ? schematicLayers : null}
             basemap={basemap}
             viewNonce={viewNonce}
-            labelingEnabled={posterOpen}
+            labelingEnabled={posterOpen && !routeOnly}
             onRemovePoi={(name) => setDismissPoi({ name, nonce: Date.now() })}
             onRemoveArea={(name) => setDismissArea({ name, nonce: Date.now() })}
             onRemoveTrail={(name) => setDismissTrail({ name, nonce: Date.now() })}
@@ -274,6 +276,7 @@ export function App() {
             refineFrom={refineFrom}
             onClose={() => {
               setPosterOpen(false);
+              setRouteOnly(false);
               setCropLatLng(null);
               setCropStops([]);
               setPois([]);
@@ -297,6 +300,7 @@ export function App() {
             onNamedAreasChange={setNamedAreas}
             onWaysChange={setWays}
             onSchematicLayersChange={setSchematicLayers}
+            onRouteOnlyChange={setRouteOnly}
             dismissPoi={dismissPoi}
             dismissArea={dismissArea}
             dismissTrail={dismissTrail}
