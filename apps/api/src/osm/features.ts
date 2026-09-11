@@ -34,6 +34,11 @@ const AREA_MIN_OCCUPANCY = 0.01;
 const AREA_ON_GROUNDS_M = 1500;
 /** Default landmarks: ride through them, or pass within this corridor. */
 const LANDMARK_NEAR_ROUTE_M = 100;
+/** Named beaches are often large; keep them if the route comes within 500 m. */
+const BEACH_NEAR_ROUTE_M = 500;
+/** Towns and villages are settlement nodes, often well off the GPS line. */
+const TOWN_NEAR_ROUTE_M = 1_000;
+const TOWN_KINDS = new Set(["city", "town", "village", "hamlet", "suburb", "locality"]);
 const AREA_SPECIFICITY: Record<string, number> = {
   university: 3,
   college: 3,
@@ -199,12 +204,18 @@ export async function loadRouteFeatures(activityId: number, featureIds?: string[
     padded,
     namedAreaFeatures,
   );
+  const namedWater = features.some((item) => item.id === "named-water") ? namedWaterFeatures(ways) : [];
   const pois = dropPoiNames(
     annotatePoisInsideAreas(
       rankPois(
         {
           type: "FeatureCollection",
-          features: [...poisFc.features, ...(ways.cemeteries?.features ?? []), ...areaFallbacks],
+          features: [
+            ...poisFc.features,
+            ...namedWater,
+            ...(ways.cemeteries?.features ?? []),
+            ...areaFallbacks,
+          ],
         },
         latlng,
         padded,
@@ -281,6 +292,14 @@ export function splitWays(geojson: FeatureCollection, selected: FeatureDef[]): P
   return Object.fromEntries(WAY_BUCKETS.map((key) => [key, collection(buckets[key])]));
 }
 
+/** Named lake polygons from geography, so ranking can use the shoreline instead of the centroid. */
+export function namedWaterFeatures(ways: PosterWays): Feature[] {
+  return (ways.water?.features ?? []).filter((feature) => {
+    if (!featureName(feature)) return false;
+    return Boolean(asAreaGeometry(feature.geometry));
+  });
+}
+
 export function rankPois(
   geojson: FeatureCollection,
   latlng: LatLng[],
@@ -295,14 +314,14 @@ export function rankPois(
     if (!name) continue;
     const point = featurePoint(feature);
     if (!point) continue;
-    const [lat, lng] = point;
     const kind = classifyPoi(featureTags(feature));
-    const { distM, routeFrac } = poiRouteHit(feature, lat, lng, latlng);
-    if (!isAlongRoute(distM)) continue;
-    if (AMENITY_KINDS.has(kind) && Number.isFinite(amenityMax) && distM > amenityMax) continue;
+    const hit = poiRouteHit(feature, point[0], point[1], latlng);
+    if (!isAlongRoute(hit.distM, kind)) continue;
+    if (AMENITY_KINDS.has(kind) && Number.isFinite(amenityMax) && hit.distM > amenityMax) continue;
     const key = name.toLowerCase();
     const existing = ranked.get(key);
-    if (existing && distM >= existing.distToRouteM) continue;
+    if (existing && hit.distM >= existing.distToRouteM) continue;
+    const { lat, lng, distM, routeFrac } = hit;
     const xy = schematicXY(lat, lng, bbox);
     ranked.set(key, {
       name,
@@ -381,7 +400,7 @@ export function collectNamedWays(
       .filter((line) => line.length >= 2);
     if (!simplified.length) continue;
     const anchor = closestOnLines(simplified, latlng);
-    if (!anchor || !isAlongRoute(anchor.distM)) continue;
+    if (!anchor || !isAlongRoute(anchor.distM, group.kind)) continue;
     ranked.push({
       name: group.name,
       kind: group.kind,
@@ -461,7 +480,7 @@ export function collectNamedAreas(
     }
     const simplified = simplifyArea(geometry, MAX_LINE_POINTS);
     const anchor = closestOnArea(simplified, latlng);
-    if (!anchor || !isAlongRoute(anchor.distM)) continue;
+    if (!anchor || !isAlongRoute(anchor.distM, kind)) continue;
     if (AMENITY_KINDS.has(kind) && Number.isFinite(amenityMax) && anchor.distM > amenityMax) continue;
     const key = name.toLowerCase();
     const existing = ranked.get(key);
@@ -745,8 +764,14 @@ function intersectBbox(a: BBox, b: BBox): BBox | null {
   return [minLng, minLat, maxLng, maxLat];
 }
 
-function isAlongRoute(distM: number): boolean {
-  return distM <= LANDMARK_NEAR_ROUTE_M;
+function landmarkNearRouteM(kind?: string): number {
+  if (kind === "beach") return BEACH_NEAR_ROUTE_M;
+  if (kind && TOWN_KINDS.has(kind)) return TOWN_NEAR_ROUTE_M;
+  return LANDMARK_NEAR_ROUTE_M;
+}
+
+function isAlongRoute(distM: number, kind?: string): boolean {
+  return distM <= landmarkNearRouteM(kind);
 }
 
 function poiRouteHit(
@@ -754,25 +779,22 @@ function poiRouteHit(
   lat: number,
   lng: number,
   latlng: LatLng[],
-): { distM: number; routeFrac: number } {
+): { lat: number; lng: number; distM: number; routeFrac: number } {
   const area = asAreaGeometry(feature.geometry);
   if (area) {
     const anchor = closestOnArea(area, latlng);
-    if (anchor) return { distM: anchor.distM, routeFrac: anchor.routeFrac };
+    if (anchor) return anchor;
   }
-  return nearestOnRoute(lat, lng, latlng);
+  const hit = nearestOnRoute(lat, lng, latlng);
+  return { lat, lng, ...hit };
 }
 
 function closestOnArea(
   geometry: AreaGeometry,
   latlng: LatLng[],
 ): { lat: number; lng: number; distM: number; routeFrac: number } | null {
-  for (const point of latlng) {
-    if (geometryContains(geometry, point[0], point[1])) {
-      const hit = nearestOnRoute(point[0], point[1], latlng);
-      return { lat: point[0], lng: point[1], distM: 0, routeFrac: hit.routeFrac };
-    }
-  }
+  const contained = containedTrackAnchor(geometry, latlng);
+  if (contained) return contained;
   const vertices = flattenCoords(geometry.coordinates);
   let best: { lat: number; lng: number; distM: number; routeFrac: number } | null = null;
   for (const point of vertices) {
@@ -782,6 +804,35 @@ function closestOnArea(
     if (!best || hit.distM < best.distM) best = { lat, lng, ...hit };
   }
   return best;
+}
+
+/** Centroid of the GPS points that sit inside the polygon. */
+function containedTrackAnchor(
+  geometry: AreaGeometry,
+  latlng: LatLng[],
+): { lat: number; lng: number; distM: number; routeFrac: number } | null {
+  const inside: LatLng[] = [];
+  const indexes: number[] = [];
+  for (let i = 0; i < latlng.length; i += 1) {
+    if (!geometryContains(geometry, latlng[i][0], latlng[i][1])) continue;
+    inside.push(latlng[i]);
+    indexes.push(i);
+  }
+  if (!inside.length) return null;
+  const lat = avg(inside.map((point) => point[0]));
+  const lng = avg(inside.map((point) => point[1]));
+  let nearest = indexes[0];
+  let nearestDist = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < inside.length; i += 1) {
+    const dLat = inside[i][0] - lat;
+    const dLng = inside[i][1] - lng;
+    const dist = dLat * dLat + dLng * dLng;
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = indexes[i];
+    }
+  }
+  return { lat, lng, distM: 0, routeFrac: nearest / Math.max(1, latlng.length - 1) };
 }
 
 export function geometryContains(geometry: AreaGeometry, lat: number, lng: number): boolean {

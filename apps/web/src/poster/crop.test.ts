@@ -30,6 +30,28 @@ test("isNearCroppedRoute drops landmarks the cropped track no longer passes", ()
   assert.ok(distToTrackM([53.0, -113.0], full.slice(2)) > 100);
 });
 
+test("isNearCroppedRoute keeps beaches out to 500 m and towns out to 1 km", () => {
+  const track: [number, number][] = [
+    [53.0, -113.0],
+    [53.005, -113.0],
+    [53.01, -113.0],
+  ];
+  const beach = { lat: 53.005, lng: -112.994, kind: "beach" };
+  const farBeach = { lat: 53.005, lng: -112.97, kind: "beach" };
+  const village = { lat: 53.005, lng: -112.9925, kind: "village" };
+  const farVillage = { lat: 53.005, lng: -112.955, kind: "village" };
+  const peak = { lat: 53.005, lng: -112.994, kind: "peak" };
+  assert.equal(isNearCroppedRoute(beach, track), true);
+  assert.equal(isNearCroppedRoute(farBeach, track), false);
+  assert.equal(isNearCroppedRoute(village, track), true);
+  assert.equal(isNearCroppedRoute(farVillage, track), false);
+  assert.equal(isNearCroppedRoute(peak, track), false);
+  assert.ok(distToTrackM([beach.lat, beach.lng], track) > 100);
+  assert.ok(distToTrackM([beach.lat, beach.lng], track) <= 500);
+  assert.ok(distToTrackM([village.lat, village.lng], track) > 100);
+  assert.ok(distToTrackM([village.lat, village.lng], track) <= 1000);
+});
+
 test("shiftRouteSpans remaps Strava indexes into a crop", () => {
   assert.deepEqual(shiftRouteSpans([{ start: 5, end: 10 }], 3, 8), [{ start: 2, end: 5 }]);
   assert.deepEqual(shiftRouteSpans([{ start: 5, end: 10 }], 0, 2), []);
@@ -54,6 +76,9 @@ test("schematicBbox is tighter than the map bbox and ignores distant landmarks",
 
   const withNearPin = schematicBbox(track, [{ lat: 53.014, lng: -112.995, distToRouteM: 400 }]);
   assert.ok(withNearPin[1][1] > tight[1][1]);
+
+  const withBeach = schematicBbox(track, [{ lat: 53.005, lng: -112.985, distToRouteM: 400, kind: "beach" }]);
+  assert.ok(withBeach[1][0] > tight[1][0]);
 });
 
 test("isClosedLoop treats nearby ends as one point", () => {

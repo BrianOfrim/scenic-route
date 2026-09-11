@@ -9,6 +9,7 @@ import {
   collectNamedWays,
   dropPoiNames,
   mergeNamedWays,
+  namedWaterFeatures,
   namedWaysFromSegmentEfforts,
   pruneNestedAreas,
   rankPois,
@@ -318,6 +319,214 @@ test("rankPois keeps only landmarks you ride past or through", () => {
   );
   assert.equal(pois.find((poi) => poi.name === "Camrose")?.distToRouteM, 0);
   assert.ok((pois.find((poi) => poi.name === "Norsemen Inn")?.distToRouteM ?? 999) < 100);
+});
+
+test("rankPois keeps named beaches within 500 m", () => {
+  const route: [number, number][] = [
+    [53.0, -113.0],
+    [53.005, -113.0],
+    [53.01, -113.0],
+  ];
+  const bbox: [number, number, number, number] = [-113.06, 52.99, -112.94, 53.02];
+  const geojson = {
+    type: "FeatureCollection" as const,
+    features: [
+      {
+        type: "Feature" as const,
+        properties: { name: "Pigeon Lake Beach", tags: { natural: "beach", name: "Pigeon Lake Beach" } },
+        geometry: { type: "Point" as const, coordinates: [-112.994, 53.005] },
+      },
+      {
+        type: "Feature" as const,
+        properties: { name: "Distant Shore", tags: { natural: "beach", name: "Distant Shore" } },
+        geometry: { type: "Point" as const, coordinates: [-112.97, 53.005] },
+      },
+      {
+        type: "Feature" as const,
+        properties: { name: "Castle Mountain", tags: { natural: "peak", name: "Castle Mountain" } },
+        geometry: { type: "Point" as const, coordinates: [-112.994, 53.005] },
+      },
+    ],
+  };
+  const pois = rankPois(geojson, route, bbox, FEATURE_CATALOG);
+  assert.deepEqual(
+    pois.map((poi) => poi.name).sort(),
+    ["Pigeon Lake Beach"],
+  );
+  const beach = pois[0];
+  assert.ok(beach.distToRouteM > 100);
+  assert.ok(beach.distToRouteM <= 500);
+});
+
+test("rankPois keeps a named lake you ride along, not its distant center", () => {
+  const route: [number, number][] = [
+    [53.0, -113.0],
+    [53.005, -113.0],
+    [53.01, -113.0],
+  ];
+  const bbox: [number, number, number, number] = [-113.08, 52.99, -112.98, 53.02];
+  const lake = {
+    type: "Feature" as const,
+    properties: { name: "Pigeon Lake", tags: { natural: "water", water: "lake", name: "Pigeon Lake" } },
+    geometry: {
+      type: "Polygon" as const,
+      coordinates: [[
+        [-113.05, 52.995],
+        [-113.0008, 52.995],
+        [-113.0008, 53.0],
+        [-113.0008, 53.005],
+        [-113.0008, 53.01],
+        [-113.0008, 53.015],
+        [-113.05, 53.015],
+        [-113.05, 52.995],
+      ]],
+    },
+  };
+  const centerOnly = {
+    type: "Feature" as const,
+    properties: { name: "Pigeon Lake", tags: { natural: "water", water: "lake", name: "Pigeon Lake" } },
+    geometry: { type: "Point" as const, coordinates: [-113.025, 53.005] },
+  };
+  const farPond = {
+    type: "Feature" as const,
+    properties: { name: "Far Pond", tags: { natural: "water", name: "Far Pond" } },
+    geometry: {
+      type: "Polygon" as const,
+      coordinates: [[
+        [-112.97, 53.0],
+        [-112.96, 53.0],
+        [-112.96, 53.01],
+        [-112.97, 53.01],
+        [-112.97, 53.0],
+      ]],
+    },
+  };
+  const fromCenter = rankPois(
+    { type: "FeatureCollection", features: [centerOnly] },
+    route,
+    bbox,
+    FEATURE_CATALOG,
+  );
+  assert.equal(fromCenter.some((poi) => poi.name === "Pigeon Lake"), false);
+
+  const pois = rankPois(
+    { type: "FeatureCollection", features: [centerOnly, lake, farPond] },
+    route,
+    bbox,
+    FEATURE_CATALOG,
+  );
+  assert.deepEqual(
+    pois.map((poi) => poi.name),
+    ["Pigeon Lake"],
+  );
+  assert.ok(pois[0].distToRouteM < 100);
+  assert.ok(Math.abs(pois[0].lng + 113.0) < 0.01);
+});
+
+test("rankPois pins a named lake at the centroid of the contained track", () => {
+  const route: [number, number][] = [
+    [53.0, -113.0],
+    [53.002, -113.01],
+    [53.0025, -113.012],
+    [53.003, -113.014],
+    [53.01, -113.05],
+    [53.012, -113.06],
+  ];
+  const bbox: [number, number, number, number] = [-113.08, 52.99, -112.98, 53.02];
+  const lake = {
+    type: "Feature" as const,
+    properties: { name: "Pigeon Lake", tags: { natural: "water", water: "lake", name: "Pigeon Lake" } },
+    geometry: {
+      type: "Polygon" as const,
+      coordinates: [[
+        [-113.055, 53.001],
+        [-113.005, 53.001],
+        [-113.005, 53.011],
+        [-113.055, 53.011],
+        [-113.055, 53.001],
+      ]],
+    },
+  };
+  const pois = rankPois({ type: "FeatureCollection", features: [lake] }, route, bbox, FEATURE_CATALOG);
+  assert.equal(pois.length, 1);
+  assert.equal(pois[0].name, "Pigeon Lake");
+  assert.equal(pois[0].distToRouteM, 0);
+  assert.ok(Math.abs(pois[0].lat - 53.004375) < 1e-6);
+  assert.ok(Math.abs(pois[0].lng + 113.0215) < 1e-6);
+});
+
+test("namedWaterFeatures keeps named lake polygons only", () => {
+  const ways = splitWays(
+    {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: { name: "Pigeon Lake", tags: { natural: "water", name: "Pigeon Lake" } },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[-113.05, 53], [-113.0, 53], [-113.0, 53.01], [-113.05, 53], [-113.05, 53]]],
+          },
+        },
+        {
+          type: "Feature",
+          properties: { tags: { natural: "water" } },
+          geometry: {
+            type: "Polygon",
+            coordinates: [[[-113.02, 53], [-113.01, 53], [-113.01, 53.01], [-113.02, 53], [-113.02, 53]]],
+          },
+        },
+      ],
+    },
+    FEATURE_CATALOG.filter((item) => item.id === "lakes"),
+  );
+  assert.deepEqual(
+    namedWaterFeatures(ways).map((feature) => feature.properties?.name),
+    ["Pigeon Lake"],
+  );
+});
+
+test("rankPois keeps towns and villages within 1 km", () => {
+  const route: [number, number][] = [
+    [53.0, -113.0],
+    [53.005, -113.0],
+    [53.01, -113.0],
+  ];
+  const bbox: [number, number, number, number] = [-113.06, 52.99, -112.94, 53.02];
+  const geojson = {
+    type: "FeatureCollection" as const,
+    features: [
+      {
+        type: "Feature" as const,
+        properties: { name: "Mulhurst Bay", tags: { place: "hamlet", name: "Mulhurst Bay" } },
+        geometry: { type: "Point" as const, coordinates: [-112.9925, 53.005] },
+      },
+      {
+        type: "Feature" as const,
+        properties: { name: "Argentia Beach", tags: { place: "village", name: "Argentia Beach" } },
+        geometry: { type: "Point" as const, coordinates: [-112.9925, 53.005] },
+      },
+      {
+        type: "Feature" as const,
+        properties: { name: "Far Hamlet", tags: { place: "hamlet", name: "Far Hamlet" } },
+        geometry: { type: "Point" as const, coordinates: [-112.97, 53.005] },
+      },
+      {
+        type: "Feature" as const,
+        properties: { name: "Castle Mountain", tags: { natural: "peak", name: "Castle Mountain" } },
+        geometry: { type: "Point" as const, coordinates: [-112.9925, 53.005] },
+      },
+    ],
+  };
+  const pois = rankPois(geojson, route, bbox, FEATURE_CATALOG);
+  assert.deepEqual(
+    pois.map((poi) => poi.name).sort(),
+    ["Argentia Beach", "Mulhurst Bay"],
+  );
+  for (const poi of pois) {
+    assert.ok(poi.distToRouteM > 100);
+    assert.ok(poi.distToRouteM <= 1000);
+  }
 });
 
 test("collectNamedWays drops trails the ride does not pass", () => {

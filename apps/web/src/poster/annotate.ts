@@ -75,6 +75,23 @@ export function userLandmark(
   };
 }
 
+export function relocateLandmark(
+  poi: PosterPoi,
+  lat: number,
+  lng: number,
+  route: LatLng[],
+  bbox: BBoxCorners | null | undefined,
+): PosterPoi | null {
+  const next = userLandmark(poi.name, lat, lng, route, bbox);
+  if (!next) return null;
+  return {
+    ...next,
+    kind: poi.kind,
+    source: "user",
+    inside: poi.inside,
+  };
+}
+
 export function trailSourceName(name: string, aliases: Record<string, string>): string {
   for (const [source, display] of Object.entries(aliases)) {
     if (display === name) return source;

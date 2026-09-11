@@ -31,6 +31,17 @@ export function sliceTrack(latlng: [number, number][], start: number, end: numbe
 
 /** Same corridor the API uses when first picking landmarks. */
 export const LANDMARK_NEAR_ROUTE_M = 100;
+/** Same 500 m beach corridor the API uses. */
+export const BEACH_NEAR_ROUTE_M = 500;
+/** Same 1 km town/village corridor the API uses. */
+export const TOWN_NEAR_ROUTE_M = 1_000;
+const TOWN_KINDS = new Set(["city", "town", "village", "hamlet", "suburb", "locality"]);
+
+export function landmarkNearRouteM(kind?: string): number {
+  if (kind === "beach") return BEACH_NEAR_ROUTE_M;
+  if (kind && TOWN_KINDS.has(kind)) return TOWN_NEAR_ROUTE_M;
+  return LANDMARK_NEAR_ROUTE_M;
+}
 
 export function distToTrackM(point: [number, number], latlng: [number, number][]): number {
   let best = Infinity;
@@ -43,9 +54,9 @@ export function distToTrackM(point: [number, number], latlng: [number, number][]
 }
 
 export function isNearCroppedRoute(
-  extra: { lat: number; lng: number },
+  extra: { lat: number; lng: number; kind?: string },
   latlng: [number, number][],
-  maxM = LANDMARK_NEAR_ROUTE_M,
+  maxM = landmarkNearRouteM(extra.kind),
 ): boolean {
   if (latlng.length < 2) return false;
   return distToTrackM([extra.lat, extra.lng], latlng) <= maxM;
@@ -120,15 +131,17 @@ const SCHEMATIC_NEAR_ROUTE_M = 600;
 /** Tight frame for grounding images: small pad, only landmarks near the track. */
 export function schematicBbox(
   latlng: [number, number][],
-  extras: Array<{ lat: number; lng: number; distToRouteM?: number }> = [],
+  extras: Array<{ lat: number; lng: number; distToRouteM?: number; kind?: string }> = [],
 ): [[number, number], [number, number]] {
-  const near = extras.filter((item) => isNearTrack(latlng, item, SCHEMATIC_NEAR_ROUTE_M));
+  const near = extras.filter((item) =>
+    isNearTrack(latlng, item, Math.max(SCHEMATIC_NEAR_ROUTE_M, landmarkNearRouteM(item.kind))),
+  );
   return paddedBbox(latlng, near, { padFrac: 0.06, minPadM: 200, maxPadM: 1_200 });
 }
 
 function isNearTrack(
   latlng: [number, number][],
-  extra: { lat: number; lng: number; distToRouteM?: number },
+  extra: { lat: number; lng: number; distToRouteM?: number; kind?: string },
   maxM: number,
 ) {
   if (typeof extra.distToRouteM === "number") return extra.distToRouteM <= maxM;

@@ -52,6 +52,12 @@ export function App() {
     lng: number;
     nonce: number;
   } | null>(null);
+  const [moveLandmark, setMoveLandmark] = useState<{
+    name: string;
+    lat: number;
+    lng: number;
+    nonce: number;
+  } | null>(null);
   const [placeSection, setPlaceSection] = useState<{
     name: string;
     start: number;
@@ -256,6 +262,7 @@ export function App() {
             onRemoveTrail={(name) => setDismissTrail({ name, nonce: Date.now() })}
             onNeedSchematic={() => setBasemap("schematic")}
             onPlaceLandmark={(draft) => setPlaceLandmark({ ...draft, nonce: Date.now() })}
+            onMoveLandmark={(draft) => setMoveLandmark({ ...draft, nonce: Date.now() })}
             onPlaceSection={(draft) => setPlaceSection({ ...draft, nonce: Date.now() })}
             onRenameTrail={(draft) => setRenameTrail({ name: draft.from, next: draft.name, nonce: Date.now() })}
           />
@@ -278,6 +285,7 @@ export function App() {
               setDismissArea(null);
               setDismissTrail(null);
               setPlaceLandmark(null);
+              setMoveLandmark(null);
               setPlaceSection(null);
               setRenameTrail(null);
               setRefineFrom(null);
@@ -293,6 +301,7 @@ export function App() {
             dismissArea={dismissArea}
             dismissTrail={dismissTrail}
             placeLandmark={placeLandmark}
+            moveLandmark={moveLandmark}
             placeSection={placeSection}
             renameTrail={renameTrail}
           />

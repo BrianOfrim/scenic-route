@@ -26,7 +26,7 @@ import {
   type AspectRatio,
 } from "./grounding/renderSchematic";
 import { snapshotTiles } from "./grounding/snapshotTiles";
-import { applyTrailAlias, nextTrailAliases, trailSourceName, userLandmark, userNamedWay } from "./annotate";
+import { applyTrailAlias, nextTrailAliases, relocateLandmark, trailSourceName, userLandmark, userNamedWay } from "./annotate";
 import {
   asAspectRatio,
   captureEditorSnapshot,
@@ -247,6 +247,7 @@ type Props = {
   dismissArea?: { name: string; nonce: number } | null;
   dismissTrail?: { name: string; nonce: number } | null;
   placeLandmark?: { name: string; lat: number; lng: number; nonce: number } | null;
+  moveLandmark?: { name: string; lat: number; lng: number; nonce: number } | null;
   placeSection?: { name: string; start: number; end: number; nonce: number } | null;
   renameTrail?: { name: string; next: string; nonce: number } | null;
 };
@@ -267,6 +268,7 @@ export function PosterPanel({
   dismissArea,
   dismissTrail,
   placeLandmark,
+  moveLandmark,
   placeSection,
   renameTrail: renameTrailEvent,
 }: Props) {
@@ -643,6 +645,34 @@ export function PosterPanel({
     addCustom(poi);
     setLandmarkHint(`Added ${poi.name} on the schematic`);
   }, [placeLandmark]);
+
+  useEffect(() => {
+    if (!moveLandmark?.name) return;
+    const route = croppedLatLng.length >= 2 ? croppedLatLng : context?.latlng ?? [];
+    const bbox = displayBbox ?? context?.bbox;
+    const key = moveLandmark.name.trim().toLowerCase();
+    const existing =
+      customPois.find((item) => item.name.trim().toLowerCase() === key) ??
+      selectedPois.find((item) => item.name.trim().toLowerCase() === key) ??
+      (context?.pois ?? []).find((item) => item.name.trim().toLowerCase() === key);
+    const poi = existing
+      ? relocateLandmark(existing, moveLandmark.lat, moveLandmark.lng, route, bbox)
+      : userLandmark(moveLandmark.name, moveLandmark.lat, moveLandmark.lng, route, bbox);
+    if (!poi) return;
+    const name = existing?.name ?? poi.name;
+    setCustomPois((current) => {
+      const match = current.findIndex((item) => item.name.trim().toLowerCase() === key);
+      const next = { ...poi, name };
+      if (match >= 0) {
+        const copy = [...current];
+        copy[match] = next;
+        return copy;
+      }
+      return [...current, next];
+    });
+    setLabels((current) => (current.includes(name) ? current : [...current, name]));
+    setLandmarkHint(`Moved ${name}`);
+  }, [moveLandmark]);
 
   useEffect(() => {
     if (!placeSection?.name || !context?.latlng?.length) return;
@@ -1396,8 +1426,8 @@ export function PosterPanel({
             </form>
             <p className="muted">
               Places that are not on OSM, and stretches that are not on Strava, are labeled on
-              the schematic: Place landmark or Name stretch. Click a named stretch — or its chip —
-              to rename a Strava or hand-named trail.
+              the schematic: Place landmark or Name stretch. Drag a numbered landmark to move it.
+              Click a named stretch — or its chip — to rename a Strava or hand-named trail.
             </p>
             {landmarkHint && <p className="muted">{landmarkHint}</p>}
             {landmarkChoices?.map((poi) => (

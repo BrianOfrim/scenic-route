@@ -340,6 +340,16 @@ button.map-schematic-tip-name:focus-visible {
   box-shadow: 0 0 0 1px rgba(244, 239, 228, 0.35);
 }
 
+.map-poi.is-draggable .map-poi-dot,
+.map-poi.is-draggable .map-poi-name {
+  cursor: grab;
+}
+
+.map-poi.is-dragging .map-poi-dot,
+.map-poi.is-dragging .map-poi-name {
+  cursor: grabbing;
+}
+
 .map-poi-label {
   pointer-events: auto;
   display: flex;

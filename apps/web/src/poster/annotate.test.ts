@@ -5,6 +5,7 @@ import {
   nearestRouteHit,
   nextTrailAliases,
   orderedSpan,
+  relocateLandmark,
   schematicXY,
   trailSourceName,
   userLandmark,
@@ -44,6 +45,22 @@ test("userLandmark keeps the clicked coordinates and marks the source as user", 
 
 test("userLandmark rejects a blank name", () => {
   assert.equal(userLandmark("   ", 53, -113, northSouth, bbox), null);
+});
+
+test("relocateLandmark keeps the name and kind, and updates route metrics", () => {
+  const original = userLandmark("Summit cairn", 53.015, -112.99, northSouth, bbox);
+  assert.ok(original);
+  original.kind = "peak";
+  original.inside = "Jasper";
+  const moved = relocateLandmark(original, 53.028, -113.0, northSouth, bbox);
+  assert.ok(moved);
+  assert.equal(moved.name, "Summit cairn");
+  assert.equal(moved.kind, "peak");
+  assert.equal(moved.source, "user");
+  assert.equal(moved.inside, "Jasper");
+  assert.equal(moved.lat, 53.028);
+  assert.equal(moved.lng, -113.0);
+  assert.ok(moved.distToRouteM < original.distToRouteM);
 });
 
 test("userNamedWay slices the GPS stretch and stores full-track spans", () => {

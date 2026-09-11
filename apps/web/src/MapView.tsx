@@ -29,6 +29,16 @@ type HoverUi = {
 const POI_HIT_PX = 18;
 const TRAIL_HIT_PX = 12;
 const ROUTE_SNAP_PX = 16;
+const LANDMARK_DRAG_PX = 5;
+
+type LandmarkDrag = {
+  name: string;
+  lat: number;
+  lng: number;
+  startX: number;
+  startY: number;
+  moved: boolean;
+};
 
 export type AnnotateMode = "browse" | "landmark" | "section";
 
@@ -65,6 +75,7 @@ type Props = {
   onRemoveTrail?: (name: string) => void;
   onNeedSchematic?: () => void;
   onPlaceLandmark?: (draft: LandmarkDraft) => void;
+  onMoveLandmark?: (draft: LandmarkDraft) => void;
   onPlaceSection?: (draft: SectionDraft) => void;
   onRenameTrail?: (draft: RenameDraft) => void;
 };
@@ -90,6 +101,7 @@ export function MapView({
   onRemoveTrail,
   onNeedSchematic,
   onPlaceLandmark,
+  onMoveLandmark,
   onPlaceSection,
   onRenameTrail,
 }: Props) {
@@ -116,7 +128,9 @@ export function MapView({
   const onRemoveTrailRef = useRef(onRemoveTrail);
   const onNeedSchematicRef = useRef(onNeedSchematic);
   const onPlaceLandmarkRef = useRef(onPlaceLandmark);
+  const onMoveLandmarkRef = useRef(onMoveLandmark);
   const onPlaceSectionRef = useRef(onPlaceSection);
+  const landmarkDragRef = useRef<LandmarkDrag | null>(null);
   const onRenameTrailRef = useRef(onRenameTrail);
   const onRenameTrailStartRef = useRef<(name: string, point: { x: number; y: number }) => void>(() => {});
   const basemapRef = useRef(basemap);
@@ -138,6 +152,7 @@ export function MapView({
   onRemoveTrailRef.current = onRemoveTrail;
   onNeedSchematicRef.current = onNeedSchematic;
   onPlaceLandmarkRef.current = onPlaceLandmark;
+  onMoveLandmarkRef.current = onMoveLandmark;
   onPlaceSectionRef.current = onPlaceSection;
   onRenameTrailRef.current = onRenameTrail;
   onRenameTrailStartRef.current = (name, point) => {
@@ -193,6 +208,9 @@ export function MapView({
         ways: waysRef.current,
         layers: layersRef.current,
         onRemovePoi: onRemovePoiRef,
+        onMoveLandmark: onMoveLandmarkRef,
+        labeling: labelingRef,
+        onMovedLandmark: (name) => setHint(`Moved ${name}`),
       });
       fit(map, cropRef.current ?? trackRef.current, 0);
     };
@@ -201,7 +219,7 @@ export function MapView({
         latlng: cropRef.current ?? trackRef.current,
         ways: waysRef.current,
         layers: layersRef.current,
-        pois: poisRef.current,
+        pois: poisWithDrag(poisRef.current, landmarkDragRef.current),
         namedWays: namedWaysRef.current,
         namedAreas: namedAreasRef.current,
         basemap: basemapRef.current,
@@ -266,6 +284,11 @@ export function MapView({
         hover.hide();
         return;
       }
+      if (landmarkDragRef.current?.moved) {
+        hover.hide();
+        map.getCanvas().style.cursor = "grabbing";
+        return;
+      }
       if (modeRef.current !== "browse") {
         hover.hide();
         if (modeRef.current === "section" && sectionStartRef.current != null) {
@@ -282,37 +305,106 @@ export function MapView({
         hover.hide();
         return;
       }
-      hover.show(
-        hitTestSchematic(
-          map,
-          event.point,
-          event.lngLat,
-          poisRef.current,
-          namedWaysRef.current,
-          namedAreasRef.current,
-          cropRef.current ?? trackRef.current,
-        ),
+      const hit = hitTestSchematic(
+        map,
         event.point,
+        event.lngLat,
+        poisRef.current,
+        namedWaysRef.current,
+        namedAreasRef.current,
+        cropRef.current ?? trackRef.current,
       );
+      map.getCanvas().style.cursor = hit?.kind === "poi" && labelingRef.current ? "grab" : "";
+      hover.show(hit, event.point);
     };
     const onHoverLeave = (event: { originalEvent?: { relatedTarget?: EventTarget | null } }) => {
       const next = event.originalEvent?.relatedTarget;
       if (next instanceof Node && hover.element.contains(next)) return;
       hover.hide();
     };
+    const onLandmarkPointerDown = (event: {
+      point: { x: number; y: number };
+      lngLat: { lng: number; lat: number };
+      originalEvent?: Event;
+    }) => {
+      if (!labelingRef.current || modeRef.current !== "browse" || draftRef.current) return;
+      const target = event.originalEvent?.target;
+      if (target instanceof Element && (target.closest(".map-annotate") || target.closest(".map-schematic-tip"))) {
+        return;
+      }
+      const pois = poisWithDrag(poisRef.current, landmarkDragRef.current);
+      const poi =
+        basemapRef.current === "schematic"
+          ? hitTestPoi(map, event.point, pois)
+          : null;
+      if (!poi) return;
+      landmarkDragRef.current = {
+        name: poi.name,
+        lat: poi.lat,
+        lng: poi.lng,
+        startX: event.point.x,
+        startY: event.point.y,
+        moved: false,
+      };
+      map.dragPan.disable();
+      hover.hide();
+    };
+    const onLandmarkPointerMove = (event: { point: { x: number; y: number }; lngLat: { lng: number; lat: number } }) => {
+      const drag = landmarkDragRef.current;
+      if (!drag) return;
+      const dist = Math.hypot(event.point.x - drag.startX, event.point.y - drag.startY);
+      if (!drag.moved && dist < LANDMARK_DRAG_PX) return;
+      landmarkDragRef.current = {
+        ...drag,
+        lat: event.lngLat.lat,
+        lng: event.lngLat.lng,
+        moved: true,
+      };
+      map.getCanvas().style.cursor = "grabbing";
+      hover.hide();
+      map.triggerRepaint();
+    };
+    const finishLandmarkDrag = () => {
+      const drag = landmarkDragRef.current;
+      if (!drag) return;
+      landmarkDragRef.current = null;
+      map.dragPan.enable();
+      map.getCanvas().style.cursor = "";
+      if (drag.moved) {
+        onMoveLandmarkRef.current?.({ name: drag.name, lat: drag.lat, lng: drag.lng });
+        setHint(`Moved ${drag.name}`);
+      }
+      map.triggerRepaint();
+    };
     map.on("load", paint);
     map.on("style.load", paint);
     map.on("render", redrawSchematic);
     map.on("click", onAnnotateClick);
+    map.on("mousedown", onLandmarkPointerDown);
+    map.on("touchstart", onLandmarkPointerDown);
+    map.on("mousemove", onLandmarkPointerMove);
+    map.on("touchmove", onLandmarkPointerMove);
     map.on("mousemove", onHoverMove);
+    map.on("mouseup", finishLandmarkDrag);
+    map.on("touchend", finishLandmarkDrag);
     map.on("mouseout", onHoverLeave);
+    window.addEventListener("pointerup", finishLandmarkDrag);
     return () => {
       map.off("load", paint);
       map.off("style.load", paint);
       map.off("render", redrawSchematic);
       map.off("click", onAnnotateClick);
+      map.off("mousedown", onLandmarkPointerDown);
+      map.off("touchstart", onLandmarkPointerDown);
+      map.off("mousemove", onLandmarkPointerMove);
+      map.off("touchmove", onLandmarkPointerMove);
       map.off("mousemove", onHoverMove);
+      map.off("mouseup", finishLandmarkDrag);
+      map.off("touchend", finishLandmarkDrag);
       map.off("mouseout", onHoverLeave);
+      window.removeEventListener("pointerup", finishLandmarkDrag);
+      landmarkDragRef.current = null;
+      map.dragPan.enable();
       clearMarkers(markersRef);
       hover.remove();
       if (hoverRef.current === hover) hoverRef.current = null;
@@ -329,6 +421,10 @@ export function MapView({
     basemapRef.current = basemap;
     if (overlayRef.current) overlayRef.current.hidden = basemap !== "schematic";
     hoverRef.current?.setActive(basemap === "schematic");
+    if (landmarkDragRef.current) {
+      landmarkDragRef.current = null;
+      map.dragPan.enable();
+    }
     map.setStyle(styleFor(basemap));
     if (basemap !== "schematic") {
       clearSchematicOverlay(overlayRef.current);
@@ -366,13 +462,18 @@ export function MapView({
       map.triggerRepaint();
       return;
     }
-    const apply = () => syncPoiMarkers(map, markersRef, pois, onRemovePoiRef);
+    const apply = () =>
+      syncPoiMarkers(map, markersRef, pois, onRemovePoiRef, {
+        draggable: labelingEnabled,
+        onMoveLandmark: onMoveLandmarkRef,
+        onMoved: (name) => setHint(`Moved ${name}`),
+      });
     apply();
     if (!map.loaded()) map.once("load", apply);
     return () => {
       map.off("load", apply);
     };
-  }, [pois]);
+  }, [pois, labelingEnabled]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -419,6 +520,10 @@ export function MapView({
     setSectionStart(null);
     setHint(null);
     sectionHoverRef.current = null;
+    if (landmarkDragRef.current) {
+      landmarkDragRef.current = null;
+      mapRef.current?.dragPan.enable();
+    }
     mapRef.current?.triggerRepaint();
   }, [labelingEnabled, viewNonce]);
 
@@ -482,6 +587,10 @@ export function MapView({
     setDraft(null);
     setSectionStart(null);
     sectionHoverRef.current = null;
+    if (landmarkDragRef.current) {
+      landmarkDragRef.current = null;
+      mapRef.current?.dragPan.enable();
+    }
     if (chosen === "browse") {
       setHint(null);
     } else {
@@ -654,6 +763,9 @@ function syncMapChrome(
     ways: PosterWays | null | undefined;
     layers: SchematicLayers | null | undefined;
     onRemovePoi: { current?: (name: string) => void };
+    onMoveLandmark?: { current?: (draft: LandmarkDraft) => void };
+    labeling?: { current: boolean };
+    onMovedLandmark?: (name: string) => void;
   },
 ) {
   if (basemap === "schematic") {
@@ -671,7 +783,11 @@ function syncMapChrome(
   }
   clearSchematicOverlay(overlay);
   if (!drawOverlays(map, data.track, data.crop, data.stops, data.namedWays, data.namedAreas)) return;
-  syncPoiMarkers(map, markersRef, data.pois, data.onRemovePoi);
+  syncPoiMarkers(map, markersRef, data.pois, data.onRemovePoi, {
+    draggable: Boolean(data.labeling?.current),
+    onMoveLandmark: data.onMoveLandmark,
+    onMoved: data.onMovedLandmark,
+  });
 }
 
 function paintSchematicOverlay(
@@ -955,6 +1071,29 @@ function createSchematicHover(
   };
 }
 
+function poisWithDrag(pois: PosterPoi[] | undefined, drag: LandmarkDrag | null): PosterPoi[] | undefined {
+  if (!drag || !pois) return pois;
+  return pois.map((poi) => (poi.name === drag.name ? { ...poi, lat: drag.lat, lng: drag.lng } : poi));
+}
+
+function hitTestPoi(
+  map: Map,
+  point: { x: number; y: number },
+  pois: PosterPoi[] | undefined,
+): PosterPoi | null {
+  const items = Array.isArray(pois) ? pois : [];
+  let best: PosterPoi | null = null;
+  let bestDist = POI_HIT_PX;
+  for (const poi of items) {
+    const projected = map.project([poi.lng, poi.lat]);
+    const dist = Math.hypot(projected.x - point.x, projected.y - point.y);
+    if (dist > bestDist) continue;
+    best = poi;
+    bestDist = dist;
+  }
+  return best;
+}
+
 function hitTestSchematic(
   map: Map,
   point: { x: number; y: number },
@@ -965,19 +1104,9 @@ function hitTestSchematic(
   route: [number, number][] | null | undefined,
 ): SchematicHover | null {
   const items = Array.isArray(pois) ? pois : [];
-  let bestIndex = -1;
-  let bestDist = POI_HIT_PX;
-  for (let index = 0; index < items.length; index += 1) {
-    const poi = items[index];
-    const projected = map.project([poi.lng, poi.lat]);
-    const dist = Math.hypot(projected.x - point.x, projected.y - point.y);
-    if (dist > bestDist) continue;
-    bestIndex = index;
-    bestDist = dist;
-  }
-  if (bestIndex >= 0) {
-    const poi = items[bestIndex];
-    return { kind: "poi", name: poi.name, label: `${bestIndex + 1} ${poi.name}` };
+  const poi = hitTestPoi(map, point, items);
+  if (poi) {
+    return { kind: "poi", name: poi.name, label: `${items.indexOf(poi) + 1} ${poi.name}` };
   }
   const trail = hitTestTrail(map, point, lngLat, trails, route);
   if (trail) return trail;
@@ -1233,14 +1362,23 @@ function syncPoiMarkers(
   markersRef: { current: Marker[] },
   pois: PosterPoi[] | undefined,
   onRemovePoiRef: { current?: (name: string) => void },
+  options?: {
+    draggable?: boolean;
+    onMoveLandmark?: { current?: (draft: LandmarkDraft) => void };
+    onMoved?: (name: string) => void;
+  },
 ) {
   clearMarkers(markersRef);
   const items = Array.isArray(pois) ? pois : [];
   markersRef.current = items.map((poi, index) => {
     const root = document.createElement("div");
-    root.className = "map-poi";
+    root.className = options?.draggable ? "map-poi is-draggable" : "map-poi";
     const dot = document.createElement("span");
     dot.className = "map-poi-dot";
+    if (options?.draggable) {
+      dot.setAttribute("role", "button");
+      dot.setAttribute("aria-label", `Move ${poi.name}`);
+    }
     const label = document.createElement("span");
     label.className = "map-poi-label";
     const name = document.createElement("span");
@@ -1251,16 +1389,74 @@ function syncPoiMarkers(
     remove.className = "map-poi-remove";
     remove.setAttribute("aria-label", `Remove ${poi.name}`);
     remove.title = `Remove ${poi.name}`;
-    remove.textContent = "×";
+    remove.addEventListener("pointerdown", (event) => event.stopPropagation());
     remove.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       onRemovePoiRef.current?.(poi.name);
     });
+    remove.textContent = "×";
     label.append(name, remove);
     root.append(dot, label);
-    return new Marker({ element: root, anchor: "top" }).setLngLat([poi.lng, poi.lat]).addTo(map);
+    const marker = new Marker({ element: root, anchor: "top" }).setLngLat([poi.lng, poi.lat]).addTo(map);
+    if (options?.draggable) {
+      bindMarkerDrag(map, marker, root, poi.name, options);
+    }
+    return marker;
   });
+}
+
+function bindMarkerDrag(
+  map: Map,
+  marker: Marker,
+  root: HTMLElement,
+  name: string,
+  options: {
+    onMoveLandmark?: { current?: (draft: LandmarkDraft) => void };
+    onMoved?: (name: string) => void;
+  },
+) {
+  let startX = 0;
+  let startY = 0;
+  let moved = false;
+  const pointFrom = (event: PointerEvent) => {
+    const rect = map.getCanvas().getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+  const onMove = (event: PointerEvent) => {
+    const dist = Math.hypot(event.clientX - startX, event.clientY - startY);
+    if (!moved && dist < LANDMARK_DRAG_PX) return;
+    moved = true;
+    root.classList.add("is-dragging");
+    const point = pointFrom(event);
+    marker.setLngLat(map.unproject([point.x, point.y]));
+  };
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    map.dragPan.enable();
+    root.classList.remove("is-dragging");
+    if (!moved) return;
+    const { lat, lng } = marker.getLngLat();
+    options.onMoveLandmark?.current?.({ name, lat, lng });
+    options.onMoved?.(name);
+  };
+  const onDown = (event: PointerEvent) => {
+    if (event.button !== 0) return;
+    if (event.target instanceof Element && event.target.closest(".map-poi-remove")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    startX = event.clientX;
+    startY = event.clientY;
+    moved = false;
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    map.dragPan.disable();
+  };
+  root.addEventListener("pointerdown", onDown);
+  for (const handle of root.querySelectorAll(".map-poi-dot, .map-poi-name")) {
+    handle.addEventListener("pointerdown", onDown);
+  }
 }
 
 function fit(map: Map, latlng: [number, number][] | null | undefined, duration: number) {
