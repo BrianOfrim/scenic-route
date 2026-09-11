@@ -3,7 +3,7 @@ import { withLlmTrace } from "./llmTrace";
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
 export const DEFAULT_CHAT_MODEL = "anthropic/claude-sonnet-4";
-export const DEFAULT_IMAGE_MODEL = "google/gemini-2.5-flash-image";
+export const DEFAULT_IMAGE_MODEL = "openai/gpt-image-2.5-sunburst";
 export const KEY_HINT =
   "Set OPENROUTER_API_KEY in .env.local, then restart the API.";
 

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { deletePoster, fetchPosters, type PosterRecord } from "../api";
-import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
+import { type CompareImage } from "../compare/BatchCompare";
 import { formatBatchCost, formatCostBreakdown, formatDurationMs, posterVariantLabel, shortModelLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
+import { galleryRuns, gallerySections, runHeadline } from "./galleryRuns";
+import { GalleryViewer } from "./GalleryViewer";
 
 type Props = {
   onBack: () => void;
   onRefine: (poster: PosterRecord) => void;
 };
-
-type Side = "left" | "right";
 
 function posterLabel(
   item: PosterRecord,
@@ -29,17 +29,79 @@ function posterLabel(
   );
 }
 
+function mixedStyles(posters: PosterRecord[]) {
+  return new Set(posters.map((item) => item.styleId)).size > 1;
+}
+
+function mixedModels(posters: PosterRecord[]) {
+  return new Set(posters.map((item) => item.model)).size > 1;
+}
+
+function GalleryCard({
+  poster,
+  title,
+  lines,
+  onOpen,
+}: {
+  poster: PosterRecord;
+  title?: string;
+  lines: string[];
+  onOpen: () => void;
+}) {
+  return (
+    <button type="button" className="gallery-card" onClick={onOpen}>
+      <img src={poster.url} alt={poster.title} />
+      <span>
+        {title ? <strong>{title}</strong> : null}
+        {lines.map((line, index) => (
+          <em key={line} className={index === 0 ? "gallery-model" : undefined}>
+            {line}
+          </em>
+        ))}
+      </span>
+    </button>
+  );
+}
+
+function GalleryRun({
+  posters,
+  onOpen,
+}: {
+  posters: PosterRecord[];
+  onOpen: (poster: PosterRecord) => void;
+}) {
+  const headline = runHeadline(posters);
+  const styles = mixedStyles(posters);
+  const models = mixedModels(posters);
+  return (
+    <section className="gallery-run">
+      <header className="gallery-run-head">
+        <strong>{headline.title}</strong>
+        <p className="muted">
+          {headline.date}
+          {headline.detail ? ` · ${headline.detail}` : ""}
+        </p>
+      </header>
+      <div className="gallery-run-row">
+        {posters.map((poster) => (
+          <GalleryCard
+            key={poster.posterId}
+            poster={poster}
+            lines={[posterLabel(poster, posters, styles, models)]}
+            onOpen={() => onOpen(poster)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function Gallery({ onBack, onRefine }: Props) {
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [activityId, setActivityId] = useState<string>("all");
-  const [modelId, setModelId] = useState<string>("all");
-  const [batchId, setBatchId] = useState<string>("all");
   const [active, setActive] = useState<PosterRecord | null>(null);
   const [showMeta, setShowMeta] = useState(false);
-  const [leftId, setLeftId] = useState("");
-  const [rightId, setRightId] = useState("");
-  const [focus, setFocus] = useState<Side>("right");
+  const [showSchematic, setShowSchematic] = useState(false);
 
   useEffect(() => {
     fetchPosters()
@@ -47,32 +109,13 @@ export function Gallery({ onBack, onRefine }: Props) {
       .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load posters"));
   }, []);
 
-  const activities = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const poster of posters) map.set(poster.activityId, poster.title);
-    return [...map.entries()];
-  }, [posters]);
-
-  const models = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const poster of posters) {
-      if (poster.model) map.set(poster.model, shortModelLabel(poster.model, poster.modelName));
-    }
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [posters]);
-
-  const visible = posters.filter((item) => {
-    if (activityId !== "all" && String(item.activityId) !== activityId) return false;
-    if (modelId !== "all" && item.model !== modelId) return false;
-    if (batchId !== "all" && item.batchId !== batchId) return false;
-    return true;
-  });
+  const sections = useMemo(() => gallerySections(galleryRuns(posters)), [posters]);
   const batchSiblings = useMemo(() => {
     if (!active) return [];
     return active.batchId ? posters.filter((item) => item.batchId === active.batchId) : [active];
   }, [active, posters]);
-  const compareStyles = new Set(batchSiblings.map((item) => item.styleId)).size > 1;
-  const compareModels = new Set(batchSiblings.map((item) => item.model)).size > 1;
+  const compareStyles = mixedStyles(batchSiblings);
+  const compareModels = mixedModels(batchSiblings);
   const activeCost = active
     ? formatCostBreakdown({ promptCost: active.promptCost, cost: active.cost })
     : "";
@@ -100,6 +143,10 @@ export function Gallery({ onBack, onRefine }: Props) {
   }, [active, batchSiblings, compareModels, compareStyles]);
 
   useEffect(() => {
+    if (showSchematic && active && active.referenceCount === 0) setShowSchematic(false);
+  }, [active, showSchematic]);
+
+  useEffect(() => {
     if (!active) return;
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -107,47 +154,26 @@ export function Gallery({ onBack, onRefine }: Props) {
         return;
       }
       if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      const ids = compareImages.map((item) => item.id);
-      const current = focus === "left" ? leftId : rightId;
-      const index = ids.indexOf(current);
-      if (index < 0 || ids.length < 2) return;
+      if (batchSiblings.length < 2) return;
+      const index = batchSiblings.findIndex((item) => item.posterId === active.posterId);
+      if (index < 0) return;
       const next =
         event.key === "ArrowRight"
-          ? ids[(index + 1) % ids.length]
-          : ids[(index - 1 + ids.length) % ids.length];
-      if (focus === "left") setLeftId(next);
-      else setRightId(next);
-      if (next !== "schematic") {
-        const poster = batchSiblings.find((item) => item.posterId === next);
-        if (poster) setActive(poster);
-      }
+          ? batchSiblings[(index + 1) % batchSiblings.length]
+          : batchSiblings[(index - 1 + batchSiblings.length) % batchSiblings.length];
+      setActive(next);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, batchSiblings, compareImages, focus, leftId, rightId]);
+  }, [active, batchSiblings]);
 
   function openPoster(poster: PosterRecord) {
-    const siblings = poster.batchId
-      ? posters.filter((item) => item.batchId === poster.batchId)
-      : [poster];
-    const images: CompareImage[] = [
-      ...(poster.referenceCount > 0
-        ? [{ id: "schematic", src: `/api/posters/${poster.posterId}/ref-1.png`, label: "schematic" }]
-        : []),
-      ...siblings.map((item) => ({ id: item.posterId, src: item.url, label: item.posterId })),
-    ];
-    const pair = defaultComparePair(images, poster.posterId);
-    setLeftId(pair.leftId);
-    setRightId(pair.rightId);
-    setFocus("right");
+    setShowSchematic(false);
     setShowMeta(false);
     setActive(poster);
   }
 
-  function assignCompare(id: string) {
-    if (focus === "left") setLeftId(id);
-    else setRightId(id);
-    if (id === "schematic") return;
+  function selectPoster(id: string) {
     const poster = batchSiblings.find((item) => item.posterId === id);
     if (poster) setActive(poster);
   }
@@ -159,10 +185,7 @@ export function Gallery({ onBack, onRefine }: Props) {
     setActive((current) => (current?.posterId === poster.posterId ? null : current));
   }
 
-  const focusedId = focus === "left" ? leftId : rightId;
-  const focusedImage = compareImages.find((item) => item.id === focusedId);
-  const focusedPoster =
-    focusedId === "schematic" ? active : (batchSiblings.find((item) => item.posterId === focusedId) ?? active);
+  const selectedImage = active ? compareImages.find((item) => item.id === active.posterId) : undefined;
 
   return (
     <div className="gallery">
@@ -172,123 +195,91 @@ export function Gallery({ onBack, onRefine }: Props) {
           <h1>Poster gallery</h1>
         </div>
         <div className="top-actions">
-          <label className="filter">
-            Activity
-            <select value={activityId} onChange={(event) => setActivityId(event.target.value)}>
-              <option value="all">All</option>
-              {activities.map(([id, name]) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="filter">
-            Model
-            <select value={modelId} onChange={(event) => setModelId(event.target.value)}>
-              <option value="all">All</option>
-              {models.map(([id, name]) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {batchId !== "all" && (
-            <button type="button" className="text-btn on" onClick={() => setBatchId("all")}>
-              Comparison run ×
-            </button>
-          )}
           <button type="button" className="text-btn" onClick={onBack}>
             Back to map
           </button>
         </div>
       </header>
       {error && <p className="error banner">{error}</p>}
-      <div className="gallery-grid">
-        {visible.map((poster) => (
-          <button
-            key={poster.posterId}
-            type="button"
-            className="gallery-card"
-            onClick={() => openPoster(poster)}
-          >
-            <img src={poster.url} alt={poster.title} />
-            <span>
-              <strong>{poster.title}</strong>
-              <em className="gallery-model">
-                {styleLabel(poster.styleId, poster.spec?.style?.name)}
-                {` · ${shortModelLabel(poster.model, poster.modelName)}`}
-                {poster.variant != null ? ` · ${poster.variant}` : ""}
-                {poster.durationMs != null ? ` · ${formatDurationMs(poster.durationMs)}` : ""}
-              </em>
-              <em>{new Date(poster.createdAt).toLocaleString()}</em>
-            </span>
-          </button>
-        ))}
-        {!visible.length && <p className="muted">No posters yet.</p>}
+      <div className="gallery-runs">
+        {sections.map((section) =>
+          section.kind === "singles" ? (
+            <div key={`singles-${section.posters[0].posterId}`} className="gallery-grid">
+              {section.posters.map((poster) => (
+                <GalleryCard
+                  key={poster.posterId}
+                  poster={poster}
+                  title={poster.title}
+                  lines={[
+                    [
+                      styleLabel(poster.styleId, poster.spec?.style?.name),
+                      shortModelLabel(poster.model, poster.modelName),
+                      poster.variant != null ? String(poster.variant) : null,
+                      poster.durationMs != null ? formatDurationMs(poster.durationMs) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · "),
+                    new Date(poster.createdAt).toLocaleString(),
+                  ]}
+                  onOpen={() => openPoster(poster)}
+                />
+              ))}
+            </div>
+          ) : (
+            <GalleryRun
+              key={section.run.key}
+              posters={section.run.posters}
+              onOpen={openPoster}
+            />
+          ),
+        )}
+        {!posters.length && <p className="muted">No posters yet.</p>}
       </div>
       {active && (
         <div className="lightbox" onClick={() => setActive(null)}>
-          <div className="lightbox-inner" onClick={(event) => event.stopPropagation()}>
-            <BatchCompare
+          <div
+            className={`lightbox-inner ${showMeta ? "with-meta" : ""}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <GalleryViewer
               images={compareImages}
-              leftId={leftId}
-              rightId={rightId}
-              focus={focus}
-              onFocus={setFocus}
-              onSelect={assignCompare}
-              onSwap={() => {
-                setLeftId(rightId);
-                setRightId(leftId);
-              }}
+              selectedId={active.posterId}
+              showSchematic={showSchematic}
+              onSelectPoster={selectPoster}
+              onToggleSchematic={() => setShowSchematic((value) => !value)}
             />
             <div className="lightbox-bar">
-              <strong>{active.title}</strong>
-              <span className="muted">{active.subtitle}</span>
-              <span className="gallery-model">
-                {styleLabel(active.styleId, active.spec?.style?.name)}
-                {` · ${shortModelLabel(active.model, active.modelName)}`}
-              </span>
+              <div className="lightbox-bar-copy">
+                <strong>{active.title}</strong>
+                <span className="muted">{active.subtitle}</span>
+                <span className="gallery-model">
+                  {styleLabel(active.styleId, active.spec?.style?.name)}
+                  {` · ${shortModelLabel(active.model, active.modelName)}`}
+                </span>
+              </div>
               <div className="poster-actions">
-                {active.batchId && (
-                  <button
-                    type="button"
-                    className={`text-btn ${batchId === active.batchId ? "on" : ""}`}
-                    onClick={() => {
-                      setBatchId(active.batchId ?? "all");
-                      setActive(null);
-                    }}
-                  >
-                    Show this comparison
-                  </button>
-                )}
+                <button type="button" className="text-btn" onClick={() => setActive(null)}>
+                  Close
+                </button>
                 <button type="button" className="text-btn" onClick={() => setShowMeta((value) => !value)}>
                   {showMeta ? "Hide details" : "Details"}
                 </button>
-                {focusedImage && (
-                  <a
-                    className="button"
-                    href={focusedImage.src}
-                    download={`${focusedId === "schematic" ? `${active.posterId}-schematic` : focusedId}.png`}
-                  >
-                    Download {focus === "left" ? "left" : "right"}
+                {selectedImage && (
+                  <a className="button" href={selectedImage.src} download={`${active.posterId}.png`}>
+                    Download
                   </a>
                 )}
-                {focusedPoster && (
-                  <button type="button" className="text-btn" onClick={() => onRefine(focusedPoster)}>
-                    Refine this
-                  </button>
-                )}
-                {focusedPoster && focusedId !== "schematic" && (
-                  <button type="button" className="text-btn" onClick={() => void handleDelete(focusedPoster)}>
-                    Delete
-                  </button>
-                )}
+                <button type="button" className="text-btn" onClick={() => onRefine(active)}>
+                  Refine this
+                </button>
+                <button type="button" className="text-btn" onClick={() => void handleDelete(active)}>
+                  Delete
+                </button>
               </div>
             </div>
             {showMeta && (
               <aside className="meta-drawer">
+                <div className="eyebrow">Details</div>
                 <p className="muted">
                   {active.model}
                   {active.durationMs != null ? ` · ${formatDurationMs(active.durationMs)}` : ""}
@@ -297,15 +288,17 @@ export function Gallery({ onBack, onRefine }: Props) {
                 {batchCost ? <p className="muted">{batchCost}</p> : null}
                 <pre>{active.prompt}</pre>
                 <pre>{JSON.stringify(active.spec, null, 2)}</pre>
-                <div className="preview-grid">
-                  {Array.from({ length: active.referenceCount }, (_, i) => (
-                    <img
-                      key={i}
-                      src={`/api/posters/${active.posterId}/ref-${i + 1}.png`}
-                      alt={`Grounding ${i + 1}`}
-                    />
-                  ))}
-                </div>
+                {active.referenceCount > 0 && (
+                  <div className="preview-grid">
+                    {Array.from({ length: active.referenceCount }, (_, i) => (
+                      <img
+                        key={i}
+                        src={`/api/posters/${active.posterId}/ref-${i + 1}.png`}
+                        alt={`Grounding ${i + 1}`}
+                      />
+                    ))}
+                  </div>
+                )}
               </aside>
             )}
           </div>
