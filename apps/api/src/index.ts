@@ -22,6 +22,7 @@ import {
   readPosterPng,
   readPosterRecord,
   readPosterRef,
+  setPosterFavorite,
 } from "./poster";
 import {
   StravaConfigError,
@@ -44,7 +45,7 @@ app.use(
   "*",
   cors({
     origin: WEB_ORIGIN,
-    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   }),
 );
 
@@ -230,6 +231,20 @@ app.get("/api/posters/:id/ref-:n", (c) => {
   try {
     const index = Number(String(c.req.param("n")).replace(/\.png$/i, ""));
     return png(readPosterRef(c.req.param("id"), index));
+  } catch (error) {
+    return fail(c, error);
+  }
+});
+
+app.patch("/api/posters/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    if (!isSafePosterId(id)) return c.json({ error: "not found" }, 404);
+    const body = (await c.req.json()) as { favorited?: unknown };
+    if (typeof body.favorited !== "boolean") {
+      return c.json({ error: "favorited must be a boolean" }, 400);
+    }
+    return c.json(setPosterFavorite(id, body.favorited));
   } catch (error) {
     return fail(c, error);
   }

@@ -189,6 +189,7 @@ export type PosterRecord = {
   referenceCount: number;
   variant?: number;
   url: string;
+  favorited?: boolean;
   editor?: PosterEditorSnapshot;
 };
 
@@ -323,6 +324,16 @@ export async function fetchPoster(id: string): Promise<PosterRecord> {
 
 export async function deletePoster(id: string): Promise<void> {
   await readJson(await fetch(`/api/posters/${id}`, { method: "DELETE" }));
+}
+
+export async function setPosterFavorite(id: string, favorited: boolean): Promise<PosterRecord> {
+  return readJson(
+    await fetch(`/api/posters/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ favorited }),
+    }),
+  );
 }
 
 export type ImageModelOption = {

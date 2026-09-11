@@ -94,6 +94,25 @@ test("runHeadline shares title, mixed labels, count, and total cost", () => {
   assert.match(headline.detail, /\$0\.100/);
 });
 
+test("favourites-only view keeps starred posters and regroups leftover singles", () => {
+  const posters = [
+    item("d", { createdAt: "2026-09-10T10:00:00Z" }),
+    item("c2", { batchId: "run-c", createdAt: "2026-09-09T12:01:00Z" }),
+    item("c1", { batchId: "run-c", createdAt: "2026-09-09T12:00:00Z" }),
+    item("b", { createdAt: "2026-09-08T10:00:00Z" }),
+  ];
+  const favorited = new Set(["c1", "b"]);
+  const sections = gallerySections(galleryRuns(posters.filter((poster) => favorited.has(poster.posterId))));
+
+  assert.equal(sections.length, 1);
+  assert.equal(sections[0]?.kind, "singles");
+  if (sections[0]?.kind !== "singles") throw new Error("expected singles after favourite filter");
+  assert.deepEqual(
+    sections[0].posters.map((poster) => poster.posterId),
+    ["c1", "b"],
+  );
+});
+
 test("runHeadline collapses long theme and model lists", () => {
   const headline = runHeadline(
     ["middle-earth", "vintage-topo", "wpa", "art-deco"].map((styleId, index) => ({

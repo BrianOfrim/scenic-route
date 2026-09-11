@@ -39,6 +39,7 @@ export type PosterRecord = {
   referenceCount: number;
   variant?: number;
   url: string;
+  favorited?: boolean;
   editor?: PosterEditorSnapshot;
 };
 
@@ -332,6 +333,14 @@ function sanitizeBatchId(value?: string) {
   const trimmed = value?.trim() ?? "";
   if (!trimmed || trimmed.length > 80 || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return undefined;
   return trimmed;
+}
+
+export function setPosterFavorite(posterId: string, favorited: boolean): PosterRecord {
+  const record = readPosterRecord(posterId);
+  if (!record) throw new PosterError("poster not found", 404);
+  const next: PosterRecord = { ...record, favorited };
+  fs.writeFileSync(posterPath(posterId, "json"), JSON.stringify(next, null, 2));
+  return next;
 }
 
 export function deletePoster(posterId: string) {

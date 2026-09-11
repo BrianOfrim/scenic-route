@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { deletePoster, fetchPosters, type PosterRecord } from "../api";
+import { deletePoster, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
 import { type CompareImage } from "../compare/BatchCompare";
 import { formatBatchCost, formatCostBreakdown, formatDurationMs, posterVariantLabel, shortModelLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
@@ -37,38 +37,69 @@ function mixedModels(posters: PosterRecord[]) {
   return new Set(posters.map((item) => item.model)).size > 1;
 }
 
+function FavoriteMark({ filled }: { filled: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3.8 14.7 9l5.8.9-4.2 4.1 1 5.8L12 17.2 6.7 19.8l1-5.8L3.5 9.9 9.3 9 12 3.8Z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.6"
+      />
+    </svg>
+  );
+}
+
 function GalleryCard({
   poster,
   title,
   lines,
   onOpen,
+  onToggleFavorite,
 }: {
   poster: PosterRecord;
   title?: string;
   lines: string[];
   onOpen: () => void;
+  onToggleFavorite: () => void;
 }) {
+  const favorited = Boolean(poster.favorited);
   return (
-    <button type="button" className="gallery-card" onClick={onOpen}>
-      <img src={poster.url} alt={poster.title} />
-      <span>
-        {title ? <strong>{title}</strong> : null}
-        {lines.map((line, index) => (
-          <em key={line} className={index === 0 ? "gallery-model" : undefined}>
-            {line}
-          </em>
-        ))}
-      </span>
-    </button>
+    <div className="gallery-card">
+      <button type="button" className="gallery-card-open" onClick={onOpen}>
+        <img src={poster.url} alt={poster.title} />
+        <span>
+          {title ? <strong>{title}</strong> : null}
+          {lines.map((line, index) => (
+            <em key={line} className={index === 0 ? "gallery-model" : undefined}>
+              {line}
+            </em>
+          ))}
+        </span>
+      </button>
+      <button
+        type="button"
+        className={`gallery-fav ${favorited ? "on" : ""}`}
+        aria-pressed={favorited}
+        aria-label={favorited ? "Remove from favourites" : "Add to favourites"}
+        title={favorited ? "Remove from favourites" : "Add to favourites"}
+        onClick={onToggleFavorite}
+      >
+        <FavoriteMark filled={favorited} />
+      </button>
+    </div>
   );
 }
 
 function GalleryRun({
   posters,
   onOpen,
+  onToggleFavorite,
 }: {
   posters: PosterRecord[];
   onOpen: (poster: PosterRecord) => void;
+  onToggleFavorite: (poster: PosterRecord) => void;
 }) {
   const headline = runHeadline(posters);
   const styles = mixedStyles(posters);
@@ -89,6 +120,7 @@ function GalleryRun({
             poster={poster}
             lines={[posterLabel(poster, posters, styles, models)]}
             onOpen={() => onOpen(poster)}
+            onToggleFavorite={() => onToggleFavorite(poster)}
           />
         ))}
       </div>
@@ -102,6 +134,7 @@ export function Gallery({ onBack, onRefine }: Props) {
   const [active, setActive] = useState<PosterRecord | null>(null);
   const [showMeta, setShowMeta] = useState(false);
   const [showSchematic, setShowSchematic] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
 
   useEffect(() => {
     fetchPosters()
@@ -109,7 +142,12 @@ export function Gallery({ onBack, onRefine }: Props) {
       .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load posters"));
   }, []);
 
-  const sections = useMemo(() => gallerySections(galleryRuns(posters)), [posters]);
+  const visible = useMemo(
+    () => (favoritesOnly ? posters.filter((item) => item.favorited) : posters),
+    [favoritesOnly, posters],
+  );
+  const sections = useMemo(() => gallerySections(galleryRuns(visible)), [visible]);
+  const favoriteCount = useMemo(() => posters.filter((item) => item.favorited).length, [posters]);
   const batchSiblings = useMemo(() => {
     if (!active) return [];
     return active.batchId ? posters.filter((item) => item.batchId === active.batchId) : [active];
@@ -178,6 +216,22 @@ export function Gallery({ onBack, onRefine }: Props) {
     if (poster) setActive(poster);
   }
 
+  function updatePoster(next: PosterRecord) {
+    setPosters((current) => current.map((item) => (item.posterId === next.posterId ? next : item)));
+    setActive((current) => (current?.posterId === next.posterId ? next : current));
+  }
+
+  async function handleFavorite(poster: PosterRecord) {
+    const next = !poster.favorited;
+    updatePoster({ ...poster, favorited: next });
+    try {
+      updatePoster(await setPosterFavorite(poster.posterId, next));
+    } catch (err: unknown) {
+      updatePoster(poster);
+      setError(err instanceof Error ? err.message : "Could not update favourite");
+    }
+  }
+
   async function handleDelete(poster: PosterRecord) {
     if (!window.confirm(`Delete “${poster.title}”?`)) return;
     await deletePoster(poster.posterId);
@@ -195,6 +249,14 @@ export function Gallery({ onBack, onRefine }: Props) {
           <h1>Poster gallery</h1>
         </div>
         <div className="top-actions">
+          <button
+            type="button"
+            className={`text-btn ${favoritesOnly ? "on" : ""}`}
+            aria-pressed={favoritesOnly}
+            onClick={() => setFavoritesOnly((value) => !value)}
+          >
+            Favourites{favoriteCount ? ` · ${favoriteCount}` : ""}
+          </button>
           <button type="button" className="text-btn" onClick={onBack}>
             Back to map
           </button>
@@ -222,6 +284,7 @@ export function Gallery({ onBack, onRefine }: Props) {
                     new Date(poster.createdAt).toLocaleString(),
                   ]}
                   onOpen={() => openPoster(poster)}
+                  onToggleFavorite={() => void handleFavorite(poster)}
                 />
               ))}
             </div>
@@ -230,10 +293,13 @@ export function Gallery({ onBack, onRefine }: Props) {
               key={section.run.key}
               posters={section.run.posters}
               onOpen={openPoster}
+              onToggleFavorite={(poster) => void handleFavorite(poster)}
             />
           ),
         )}
-        {!posters.length && <p className="muted">No posters yet.</p>}
+        {!visible.length && (
+          <p className="muted">{favoritesOnly ? "No favourited posters yet." : "No posters yet."}</p>
+        )}
       </div>
       {active && (
         <div className="lightbox" onClick={() => setActive(null)}>
@@ -260,6 +326,14 @@ export function Gallery({ onBack, onRefine }: Props) {
               <div className="poster-actions">
                 <button type="button" className="text-btn" onClick={() => setActive(null)}>
                   Close
+                </button>
+                <button
+                  type="button"
+                  className={`text-btn ${active.favorited ? "on" : ""}`}
+                  aria-pressed={Boolean(active.favorited)}
+                  onClick={() => void handleFavorite(active)}
+                >
+                  {active.favorited ? "Favourited" : "Favourite"}
                 </button>
                 <button type="button" className="text-btn" onClick={() => setShowMeta((value) => !value)}>
                   {showMeta ? "Hide details" : "Details"}
