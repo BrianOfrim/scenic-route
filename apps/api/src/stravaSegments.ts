@@ -6,7 +6,7 @@ export async function loadActivitySegmentEfforts(
   warnings: string[],
 ): Promise<StravaSegmentEffort[]> {
   const row = getActivity(activityId);
-  if (!row) return [];
+  if (!row || row.source === "gpx" || row.source === "fit" || row.source === "tcx") return [];
   const cached = getCachedSegmentEfforts(row) as StravaSegmentEffort[] | null;
   if (cached) return cached;
   try {

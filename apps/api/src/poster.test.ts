@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_VARIANTS, MAX_VARIANTS, clampVariants, sanitizePosterEditor, variantCount } from "./poster";
+import {
+  DEFAULT_VARIANTS,
+  MAX_VARIANTS,
+  clampVariants,
+  modifyImageReferences,
+  resolveImagePrompt,
+  sanitizePosterEditor,
+  variantCount,
+} from "./poster";
+import { specToImagePrompt, validatePosterSpec } from "./posterSpec";
 
 test("clampVariants keeps requests in 1–10 and defaults to 4", () => {
   assert.equal(DEFAULT_VARIANTS, 4);
@@ -87,4 +96,50 @@ test("sanitizePosterEditor ignores missing or invalid payloads", () => {
   assert.equal(sanitizePosterEditor(undefined), undefined);
   assert.equal(sanitizePosterEditor("nope"), undefined);
   assert.equal(sanitizePosterEditor([]), undefined);
+});
+
+test("modifyImageReferences puts the previous poster first and respects the cap", () => {
+  assert.deepEqual(modifyImageReferences("poster", ["schematic", "satellite"], 3), [
+    "poster",
+    "schematic",
+    "satellite",
+  ]);
+  assert.deepEqual(modifyImageReferences("poster", ["schematic", "satellite"], 2), ["poster", "schematic"]);
+  assert.deepEqual(modifyImageReferences("poster", ["schematic"], 1), ["poster"]);
+  assert.deepEqual(modifyImageReferences("poster", ["", "schematic"], 3), ["poster", "schematic"]);
+});
+
+test("resolveImagePrompt prefers a non-empty override", () => {
+  const spec = validatePosterSpec({
+    style: {
+      name: "Swiss minimal",
+      medium: "print",
+      palette: ["off-white"],
+      typography: "Helvetica",
+      texture: "",
+      references: "",
+    },
+    composition: {
+      aspectRatio: "2:3",
+      routePlacement: "center",
+      titleBlock: "top",
+      border: "",
+      decorations: [],
+    },
+    route: {
+      treatment: "line",
+      color: "red",
+      startMarker: "dot",
+      finishMarker: "dot",
+      shapeNotes: "",
+    },
+    geography: [],
+    landmarks: [],
+    text: { title: "Ride", subtitle: "", stats: [], rules: "" },
+    grounding: { images: [{ index: 1, role: "schematic", legend: "" }], rules: [] },
+    negative: [],
+    finalPrompt: "assembled from spec",
+  });
+  assert.equal(resolveImagePrompt(spec, "  warmer paper  "), "warmer paper");
+  assert.equal(resolveImagePrompt(spec, "   "), specToImagePrompt(spec));
 });

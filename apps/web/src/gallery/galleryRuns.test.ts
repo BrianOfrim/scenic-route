@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { galleryRuns, gallerySections, runHeadline } from "./galleryRuns";
+import {
+  galleryRuns,
+  gallerySections,
+  latestInLineage,
+  lineageFamily,
+  lineageRoot,
+  runHeadline,
+} from "./galleryRuns";
 
 function item(
   posterId: string,
-  overrides: { batchId?: string; createdAt?: string; title?: string } = {},
+  overrides: { batchId?: string; createdAt?: string; title?: string; previousPosterId?: string } = {},
 ) {
   return {
     posterId,
@@ -110,6 +117,105 @@ test("favourites-only view keeps starred posters and regroups leftover singles",
   assert.deepEqual(
     sections[0].posters.map((poster) => poster.posterId),
     ["c1", "b"],
+  );
+});
+
+test("lineageFamily walks refinements back to the original", () => {
+  const posters = [
+    item("orig", { createdAt: "2026-09-08T12:00:00Z" }),
+    item("r2", { createdAt: "2026-09-09T13:00:00Z", previousPosterId: "r1" }),
+    item("r1", { createdAt: "2026-09-09T12:00:00Z", previousPosterId: "orig" }),
+  ];
+  assert.equal(lineageRoot(posters, "r2")?.posterId, "orig");
+  assert.deepEqual(
+    lineageFamily(posters, "r2").map((poster) => poster.posterId),
+    ["orig", "r1", "r2"],
+  );
+  assert.deepEqual(
+    lineageFamily(posters, "orig").map((poster) => poster.posterId),
+    ["orig", "r1", "r2"],
+  );
+});
+
+test("galleryRuns puts refinements in the same row as the original", () => {
+  const runs = galleryRuns([
+    item("later", { createdAt: "2026-09-10T10:00:00Z" }),
+    item("r1", { createdAt: "2026-09-09T12:00:00Z", previousPosterId: "orig" }),
+    item("orig", { createdAt: "2026-09-08T12:00:00Z" }),
+  ]);
+  assert.deepEqual(
+    runs.map((run) => run.posters.map((poster) => poster.posterId)),
+    [["later"], ["orig", "r1"]],
+  );
+});
+
+test("galleryRuns attaches a refinement batch to the parent generate run", () => {
+  const runs = galleryRuns([
+    item("a1", { batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
+    item("a2", { batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
+    item("r1", { batchId: "ref", createdAt: "2026-09-09T12:00:00Z", previousPosterId: "a1" }),
+    item("r2", { batchId: "ref", createdAt: "2026-09-09T12:01:00Z", previousPosterId: "a1" }),
+  ]);
+  assert.equal(runs.length, 1);
+  assert.deepEqual(
+    runs[0].posters.map((poster) => poster.posterId),
+    ["a1", "a2", "r1", "r2"],
+  );
+});
+
+test("latestInLineage keeps the newest version in the original's slot", () => {
+  assert.deepEqual(
+    latestInLineage([
+      item("a1", { batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
+      item("a2", { batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
+      item("r1", { batchId: "ref", createdAt: "2026-09-09T12:00:00Z", previousPosterId: "a1" }),
+      item("r2", { batchId: "ref", createdAt: "2026-09-09T12:01:00Z", previousPosterId: "r1" }),
+    ]).map((poster) => poster.posterId),
+    ["r2", "a2"],
+  );
+});
+
+test("gallerySections shows only the latest version from each lineage", () => {
+  const sections = gallerySections(
+    galleryRuns([
+      item("later", { createdAt: "2026-09-10T10:00:00Z" }),
+      item("a1", { batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
+      item("a2", { batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
+      item("r1", { batchId: "ref", createdAt: "2026-09-09T12:00:00Z", previousPosterId: "a1" }),
+      item("r2", { batchId: "ref", createdAt: "2026-09-09T12:01:00Z", previousPosterId: "r1" }),
+    ]),
+  );
+
+  assert.equal(sections[0]?.kind, "singles");
+  if (sections[0]?.kind !== "singles") throw new Error("expected leading singles");
+  assert.deepEqual(
+    sections[0].posters.map((poster) => poster.posterId),
+    ["later"],
+  );
+
+  assert.equal(sections[1]?.kind, "run");
+  if (sections[1]?.kind !== "run") throw new Error("expected generate run");
+  assert.deepEqual(
+    sections[1].run.posters.map((poster) => poster.posterId),
+    ["r2", "a2"],
+  );
+});
+
+test("gallerySections packs a refined singleton into the grid", () => {
+  const sections = gallerySections(
+    galleryRuns([
+      item("r1", { createdAt: "2026-09-09T12:00:00Z", previousPosterId: "orig" }),
+      item("orig", { createdAt: "2026-09-08T12:00:00Z" }),
+      item("solo", { createdAt: "2026-09-07T10:00:00Z" }),
+    ]),
+  );
+
+  assert.equal(sections.length, 1);
+  assert.equal(sections[0]?.kind, "singles");
+  if (sections[0]?.kind !== "singles") throw new Error("expected singles");
+  assert.deepEqual(
+    sections[0].posters.map((poster) => poster.posterId),
+    ["r1", "solo"],
   );
 });
 

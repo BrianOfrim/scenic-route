@@ -351,9 +351,8 @@ export function PosterPanel({
   const [generateProgress, setGenerateProgress] = useState({ done: 0, total: 0 });
   const [modelRuns, setModelRuns] = useState<GenerationRun[]>([]);
   const [elapsed, setElapsed] = useState(0);
-  const [result, setResult] = useState<PosterRecord | null>(null);
-  const [batchResults, setBatchResults] = useState<PosterRecord[]>([]);
-  const [refineNotes, setRefineNotes] = useState("");
+  const [result, setResult] = useState<PosterRecord | null>(() => refineFrom ?? null);
+  const [batchResults, setBatchResults] = useState<PosterRecord[]>(() => (refineFrom ? [refineFrom] : []));
   const [preview, setPreview] = useState<{ src: string; label: string } | null>(null);
   const [compareOpen, setCompareOpen] = useState(false);
   const [compareLeftId, setCompareLeftId] = useState("");
@@ -437,6 +436,8 @@ export function PosterPanel({
             setPlanCosts(restored.planCosts);
             if (restored.variants != null) setVariants(restored.variants);
             setSentRefs(savedModelRefs(refineFrom));
+            setResult(refineFrom);
+            setBatchResults([refineFrom]);
           } else {
             setLabels(next.pois.map((poi) => poi.name));
             setTrailNames((next.namedWays ?? []).map((trail) => trail.name));
@@ -450,6 +451,9 @@ export function PosterPanel({
             setCustomPois([]);
             setCustomWays([]);
             setTrailAliases({});
+            setResult(null);
+            setBatchResults([]);
+            setSentRefs([]);
           }
         } else {
           const last = Math.max(1, next.latlng.length - 1);
@@ -883,7 +887,6 @@ export function PosterPanel({
           role: sheet.role,
           legend: sheet.legend,
         })),
-        refineNotes: refineNotes || undefined,
       };
       const settled = await Promise.all(
         slots.map(async (slot) => {
@@ -986,7 +989,6 @@ export function PosterPanel({
               spec: job.spec,
               references: packed.map((item) => item.dataUrl),
               previousPosterId: refineFrom?.posterId,
-              refineNotes: refineNotes || undefined,
               featureIds,
               labels: posterPois.map((poi) => poi.name),
               stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
@@ -1060,7 +1062,6 @@ export function PosterPanel({
       setBatchResults(records);
       setResult(records[0]);
       setActiveStyleId(records[0].styleId || activeStyleId);
-      setRefineNotes("");
       if (failures.length) {
         setError(`${failures.length} poster${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
       }
@@ -1917,21 +1918,11 @@ export function PosterPanel({
                   </div>
                 </>
               )}
-              <textarea
-                className="poster-prompt"
-                rows={3}
-                placeholder="Refine: brighter trail, bigger title…"
-                value={refineNotes}
-                onChange={(event) => setRefineNotes(event.target.value)}
-              />
-              <button
-                className="text-btn"
-                type="button"
-                disabled={busy || !refineNotes.trim()}
-                onClick={() => void handlePlan()}
-              >
-                Re-plan with notes
-              </button>
+              {refineFrom && result.posterId === refineFrom.posterId && (
+                <p className="muted">
+                  Setup restored from this poster. Change landmarks, crop, or themes, then Plan + Generate.
+                </p>
+              )}
             </div>
           )}
         </div>

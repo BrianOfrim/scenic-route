@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
+import { revisePosterPrompt } from "./modifyPrompt";
 import { createImage, listImageModels, maxImageOutputs, maxImageReferences, resolveImageModel } from "./openrouter";
 import { POSTERS_DIR, isSafePosterId, posterPath } from "./paths";
 import { specToImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
@@ -89,6 +90,10 @@ export type GeneratePosterBody = {
   activityId: number;
   spec: unknown;
   references: string[];
+  /** When set, skip assembling a prompt from the spec. */
+  prompt?: string;
+  /** Grounding images to persist as ref-N.png. Defaults to `references`. */
+  persistReferences?: string[];
   previousPosterId?: string;
   refineNotes?: string;
   featureIds?: string[];
@@ -103,7 +108,47 @@ export type GeneratePosterBody = {
   variants?: number;
   promptCost?: number | null;
   editor?: unknown;
+  label?: string;
 };
+
+export type ModifyPosterBody = {
+  posterId: string;
+  request: string;
+  variants?: number;
+  model?: string;
+};
+
+export function resolveImagePrompt(spec: PosterSpec, override?: string) {
+  const trimmed = override?.trim() ?? "";
+  return trimmed || specToImagePrompt(spec);
+}
+
+export function pngDataUrl(bytes: Buffer, mime = "image/png") {
+  return `data:${mime};base64,${bytes.toString("base64")}`;
+}
+
+export function dataUrls(urls: unknown): string[] {
+  if (!Array.isArray(urls)) return [];
+  return urls.flatMap((item) => (typeof item === "string" && item.trim() ? [item.trim()] : []));
+}
+
+/** Previous poster first, then saved grounding, capped to the model's ref limit. */
+export function modifyImageReferences(previousPosterUrl: string, groundingUrls: string[], maxRefs: number) {
+  const limit = Number.isFinite(maxRefs) ? Math.max(1, Math.round(maxRefs)) : 1;
+  return [previousPosterUrl, ...groundingUrls].filter((item) => item.trim()).slice(0, limit);
+}
+
+export function readPosterGroundingUrls(posterId: string, referenceCount: number): string[] {
+  const urls: string[] = [];
+  for (let index = 1; index <= referenceCount; index += 1) {
+    try {
+      urls.push(pngDataUrl(readPosterRef(posterId, index)));
+    } catch {
+      break;
+    }
+  }
+  return urls;
+}
 
 export function decodeDataUrl(url: string): { mime: string; bytes: Buffer } {
   const match = /^data:([^;,]+);base64,(.+)$/s.exec(url.trim());
@@ -129,16 +174,25 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
   const count = variantCount(body.variants, await maxImageOutputs(model));
   const batchId = sanitizeBatchId(body.batchId) ?? (count > 1 ? newBatchId() : undefined);
   const aspectRatio = (body.aspectRatio || spec.composition.aspectRatio || "2:3").trim();
-  const incoming = (body.references ?? []).filter((item) => typeof item === "string" && item.trim());
+  const incoming = dataUrls(body.references);
   if (!incoming.length) throw new PosterError("at least one grounding image is required");
 
   const maxRefs = await maxImageReferences(model);
   const references = incoming.slice(0, maxRefs);
+  const persist = dataUrls(body.persistReferences);
+  const stored = persist.length ? persist : references;
 
-  const decoded = references.map(decodeDataUrl);
-  const prompt = specToImagePrompt(spec);
+  const decoded = stored.map(decodeDataUrl);
+  const prompt = resolveImagePrompt(spec, body.prompt);
   const startedAt = Date.now();
-  const result = await createImage({ prompt, aspectRatio, references, model, n: count, label: "generate" });
+  const result = await createImage({
+    prompt,
+    aspectRatio,
+    references,
+    model,
+    n: count,
+    label: body.label ?? "generate",
+  });
   const durationMs = Date.now() - startedAt;
   const share = result.images.length;
   const images = result.images.map((image) => ({
@@ -185,6 +239,45 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
     };
     fs.writeFileSync(posterPath(posterId, "json"), JSON.stringify(record, null, 2));
     return record;
+  });
+}
+
+export async function modifyPoster(body: ModifyPosterBody): Promise<PosterRecord[]> {
+  const request = body.request?.trim() ?? "";
+  if (!request) throw new PosterError("a modification request is required");
+  const source = readPosterRecord(body.posterId);
+  if (!source) throw new PosterError("poster not found", 404);
+  const previousUrl = pngDataUrl(readPosterPng(source.posterId));
+  const grounding = readPosterGroundingUrls(source.posterId, source.referenceCount);
+  if (!grounding.length) throw new PosterError("previous poster is missing grounding images");
+
+  const revised = await revisePosterPrompt({
+    imageUrl: previousUrl,
+    previousPrompt: source.prompt,
+    request,
+  });
+  const model = resolveImageModel(body.model ?? source.model);
+  const spec: PosterSpec = { ...source.spec, finalPrompt: revised.prompt };
+  return generatePoster({
+    activityId: source.activityId,
+    spec,
+    prompt: revised.prompt,
+    references: modifyImageReferences(previousUrl, grounding, await maxImageReferences(model)),
+    persistReferences: grounding,
+    previousPosterId: source.posterId,
+    refineNotes: request,
+    featureIds: source.featureIds,
+    labels: source.labels,
+    stats: source.stats,
+    styleId: source.styleId,
+    stylePrompt: source.stylePrompt,
+    paletteId: source.paletteId,
+    aspectRatio: source.aspectRatio,
+    model,
+    variants: body.variants,
+    promptCost: revised.cost,
+    editor: source.editor,
+    label: "modify",
   });
 }
 

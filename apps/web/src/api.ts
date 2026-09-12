@@ -1,5 +1,7 @@
 import type { FeatureCollection, LineString } from "geojson";
 
+export type ActivitySource = "strava" | "gpx" | "fit" | "tcx";
+
 export type ActivitySummary = {
   id: number;
   name: string;
@@ -13,7 +15,19 @@ export type ActivitySummary = {
   averageSpeed: number | null;
   hasGps: boolean;
   streamsSynced: boolean;
+  source?: ActivitySource;
+  imported?: boolean;
 };
+
+export function isUploadedActivity(item: ActivitySummary): boolean {
+  return (
+    item.imported === true ||
+    item.source === "gpx" ||
+    item.source === "fit" ||
+    item.source === "tcx" ||
+    item.id >= 2_000_000_000_000
+  );
+}
 
 export type SyncProgress = {
   listComplete: boolean;
@@ -244,6 +258,38 @@ export async function fetchActivities(): Promise<ActivitySummary[]> {
   return body.activities;
 }
 
+export async function importGpxFiles(files: File[] | FileList): Promise<{
+  activities: ActivitySummary[];
+  errors: Array<{ filename: string; error: string }>;
+  skipped: number;
+}> {
+  const form = new FormData();
+  for (const file of Array.from(files)) form.append("file", file);
+  const body = await readJson<{
+    activities: ActivitySummary[];
+    errors?: Array<{ filename: string; error: string }>;
+    skipped?: number;
+  }>(await fetch("/api/activities/import", { method: "POST", body: form }));
+  return {
+    activities: body.activities,
+    errors: body.errors ?? [],
+    skipped: body.skipped ?? 0,
+  };
+}
+
+export async function removeActivities(ids: number[]): Promise<{
+  deleted: ActivitySummary[];
+  skipped: number;
+}> {
+  return readJson(
+    await fetch("/api/activities/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }),
+  );
+}
+
 export async function fetchActivityTrack(id: number): Promise<{
   activity: ActivitySummary;
   latlng: [number, number][];
@@ -310,6 +356,22 @@ export async function generatePoster(body: unknown): Promise<PosterRecord[]> {
   if (Array.isArray(payload.posters) && payload.posters.length) return payload.posters;
   if (payload.posterId) return [payload as PosterRecord];
   return [];
+}
+
+export async function modifyPoster(body: {
+  posterId: string;
+  request: string;
+  variants?: number;
+  model?: string;
+}): Promise<PosterRecord[]> {
+  const payload = await readJson<{ posters?: PosterRecord[] }>(
+    await fetch("/api/poster/modify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+  return payload.posters ?? [];
 }
 
 export async function fetchPosters(activityId?: number): Promise<PosterRecord[]> {

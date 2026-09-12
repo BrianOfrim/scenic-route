@@ -37,6 +37,17 @@ function migrate(connection: Database.Database) {
     CREATE INDEX IF NOT EXISTS activities_start_date ON activities (start_date);
   `);
   ensureColumn(connection, "activities", "segment_efforts", "TEXT");
+  ensureColumn(connection, "activities", "source", "TEXT NOT NULL DEFAULT 'strava'");
+  if (ensureColumn(connection, "activities", "imported", "INTEGER NOT NULL DEFAULT 0")) {
+    connection.exec(
+      `UPDATE activities SET imported = 1
+       WHERE source IN ('gpx', 'fit', 'tcx') OR id >= 2000000000000`,
+    );
+    const tokens = connection.prepare("SELECT value FROM settings WHERE key = ?").get("strava_tokens") as
+      | { value: string }
+      | undefined;
+    if (!tokens) connection.exec("UPDATE activities SET imported = 1");
+  }
 }
 
 function ensureColumn(
@@ -44,10 +55,11 @@ function ensureColumn(
   table: string,
   column: string,
   ddl: string,
-) {
+): boolean {
   const cols = connection.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  if (cols.some((col) => col.name === column)) return;
+  if (cols.some((col) => col.name === column)) return false;
   connection.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  return true;
 }
 
 export function getDb() {

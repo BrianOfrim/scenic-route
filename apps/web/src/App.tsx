@@ -5,6 +5,8 @@ import {
   fetchFeatures,
   fetchPoster,
   fetchStatus,
+  importGpxFiles,
+  removeActivities,
   syncStrava,
   type ActivitySummary,
   type FeatureOption,
@@ -70,6 +72,7 @@ export function App() {
     nonce: number;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posterOpen, setPosterOpen] = useState(false);
   const [routeOnly, setRouteOnly] = useState(false);
@@ -174,11 +177,75 @@ export function App() {
     }
   }
 
+  async function handleRemove(ids: number[]) {
+    setError(null);
+    try {
+      const result = await removeActivities(ids);
+      await refresh();
+      const removed = new Set(result.deleted.map((item) => item.id));
+      if (selectedId != null && removed.has(selectedId)) {
+        setSelectedId(null);
+        setPosterOpen(false);
+        setRefineFrom(null);
+        setRouteOnly(false);
+        setCropLatLng(null);
+        setCropStops([]);
+        setPois([]);
+        setNamedWays([]);
+        setNamedAreas([]);
+        setWays(null);
+        setSchematicLayers(null);
+      }
+      if (!result.deleted.length) {
+        setError(result.skipped ? "Strava activities cannot be removed here" : "Nothing to remove");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove activities");
+    }
+  }
+
+  async function handleImport(files: File[]) {
+    setImporting(true);
+    setError(null);
+    try {
+      const result = await importGpxFiles(files);
+      await refresh();
+      const first = result.activities[0];
+      if (first && result.activities.length === 1 && !result.skipped) {
+        setSelectedId(first.id);
+        setRefineFrom(null);
+        setPosterOpen(true);
+        setViewNonce((value) => value + 1);
+      } else if (first) {
+        setSelectedId(first.id);
+      }
+      const parts: string[] = [];
+      if (result.activities.length > 1) parts.push(`Imported ${result.activities.length} activities`);
+      if (result.skipped) {
+        parts.push(
+          `${result.skipped} already in your library`,
+        );
+      }
+      if (result.errors.length) {
+        parts.push(
+          result.errors.length <= 3
+            ? result.errors.map((item) => `${item.filename}: ${item.error}`).join(" · ")
+            : `${result.errors.length} files could not be imported`,
+        );
+      }
+      if (parts.length) setError(parts.join(". "));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   if (path.startsWith("/gallery")) {
     return (
       <Gallery
         onBack={() => go("/")}
-        onRefine={(poster) => {
+        onEditSetup={(poster) => {
           setSelectedId(poster.activityId);
           setRefineFrom(poster);
           setPosterOpen(true);
@@ -193,7 +260,7 @@ export function App() {
       <header className="top">
         <div>
           <p className="brand">Scenic Route</p>
-          <h1>Strava route posters</h1>
+          <h1>Route posters</h1>
         </div>
         <div className="top-actions">
           {error && (
@@ -223,6 +290,7 @@ export function App() {
           activities={activities}
           selectedId={selectedId}
           busy={busy}
+          importing={importing}
           onSelect={(id) => {
             const activity = activities.find((item) => item.id === id);
             setSelectedId(id);
@@ -245,6 +313,10 @@ export function App() {
           onSync={() => {
             void handleSync();
           }}
+          onImport={(files) => {
+            void handleImport(files);
+          }}
+          onRemove={(ids) => handleRemove(ids)}
         />
         <main className="stage">
           <MapView

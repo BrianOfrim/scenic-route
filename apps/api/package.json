@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "test": "tsx --test src/geo.test.ts src/overpass.test.ts src/posterSpec.test.ts src/planner.test.ts src/poster.test.ts src/openrouter.test.ts src/llmTrace.test.ts"
+    "test": "tsx --test src/geo.test.ts src/gpx.test.ts src/fit.test.ts src/tcx.test.ts src/archive.test.ts src/overpass.test.ts src/posterSpec.test.ts src/planner.test.ts src/poster.test.ts src/modifyPrompt.test.ts src/openrouter.test.ts src/llmTrace.test.ts"
   },
   "dependencies": {
+    "@garmin/fitsdk": "^21.214.0",
     "@hono/node-server": "^1.19.12",
     "better-sqlite3": "^13.0.3",
     "dotenv": "^17.2.3",
+    "fflate": "^0.8.3",
     "hono": "^4.11.7"
   },
   "devDependencies": {

@@ -22,7 +22,11 @@ export type ActivityRow = {
   altitude: string | null;
   bbox: string | null;
   segment_efforts?: string | null;
+  source?: string | null;
+  imported?: number | null;
 };
+
+export type ActivitySource = "strava" | "gpx" | "fit" | "tcx";
 
 export type ActivitySummary = {
   id: number;
@@ -37,13 +41,66 @@ export type ActivitySummary = {
   averageSpeed: number | null;
   hasGps: boolean;
   streamsSynced: boolean;
+  source: ActivitySource;
+  imported: boolean;
 };
+
+export function activitySource(value: string | null | undefined): ActivitySource {
+  return value === "gpx" || value === "fit" || value === "tcx" ? value : "strava";
+}
+
+export function toActivitySummary(
+  row: Pick<
+    ActivityRow,
+    | "id"
+    | "name"
+    | "type"
+    | "sport_type"
+    | "start_date"
+    | "distance"
+    | "moving_time"
+    | "elapsed_time"
+    | "total_elevation_gain"
+    | "average_speed"
+    | "has_gps"
+    | "streams_synced"
+    | "source"
+    | "imported"
+  >,
+): ActivitySummary {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    sportType: row.sport_type,
+    startDate: row.start_date,
+    distance: row.distance,
+    movingTime: row.moving_time,
+    elapsedTime: row.elapsed_time,
+    elevationGain: row.total_elevation_gain,
+    averageSpeed: row.average_speed,
+    hasGps: row.has_gps === 1,
+    streamsSynced: row.streams_synced === 1,
+    source: activitySource(row.source),
+    imported: isImported(row),
+  };
+}
+
+export function isImported(row: Pick<ActivityRow, "source" | "imported" | "id">): boolean {
+  return (
+    row.imported === 1 ||
+    row.source === "gpx" ||
+    row.source === "fit" ||
+    row.source === "tcx" ||
+    row.id >= 2_000_000_000_000
+  );
+}
 
 export function listActivities(): ActivitySummary[] {
   const rows = getDb()
     .prepare(
       `SELECT id, name, type, sport_type, start_date, distance, moving_time, elapsed_time,
-              total_elevation_gain, average_speed, has_gps, streams_synced
+              total_elevation_gain, average_speed, has_gps, streams_synced, source, imported
        FROM activities
        ORDER BY start_date DESC`,
     )
@@ -62,23 +119,12 @@ export function listActivities(): ActivitySummary[] {
       | "average_speed"
       | "has_gps"
       | "streams_synced"
+      | "source"
+      | "imported"
     >
   >;
 
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    sportType: row.sport_type,
-    startDate: row.start_date,
-    distance: row.distance,
-    movingTime: row.moving_time,
-    elapsedTime: row.elapsed_time,
-    elevationGain: row.total_elevation_gain,
-    averageSpeed: row.average_speed,
-    hasGps: row.has_gps === 1,
-    streamsSynced: row.streams_synced === 1,
-  }));
+  return rows.map(toActivitySummary);
 }
 
 export function getActivity(id: number): ActivityRow | null {
@@ -86,6 +132,27 @@ export function getActivity(id: number): ActivityRow | null {
     (getDb().prepare("SELECT * FROM activities WHERE id = ?").get(id) as ActivityRow | undefined) ??
     null
   );
+}
+
+export function deleteImportedByIds(ids: number[]): { deleted: ActivitySummary[]; skipped: number } {
+  const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  const deleted: ActivitySummary[] = [];
+  let skipped = 0;
+  const remove = getDb().transaction(() => {
+    const del = getDb().prepare("DELETE FROM activities WHERE id = ?");
+    for (const id of unique) {
+      const row = getActivity(id);
+      if (!row) continue;
+      if (!isImported(row)) {
+        skipped += 1;
+        continue;
+      }
+      del.run(id);
+      deleted.push(toActivitySummary(row));
+    }
+  });
+  remove();
+  return { deleted, skipped };
 }
 
 export function parseLatLng(raw: string | null): [number, number][] {

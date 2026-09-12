@@ -3,12 +3,13 @@ import { deletePoster, fetchPosters, setPosterFavorite, type PosterRecord } from
 import { type CompareImage } from "../compare/BatchCompare";
 import { formatBatchCost, formatCostBreakdown, formatDurationMs, posterVariantLabel, shortModelLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
-import { galleryRuns, gallerySections, runHeadline } from "./galleryRuns";
+import { galleryRuns, gallerySections, lineageFamily, runHeadline } from "./galleryRuns";
 import { GalleryViewer } from "./GalleryViewer";
+import { RefineStudio } from "./RefineStudio";
 
 type Props = {
   onBack: () => void;
-  onRefine: (poster: PosterRecord) => void;
+  onEditSetup: (poster: PosterRecord) => void;
 };
 
 function posterLabel(
@@ -37,6 +38,30 @@ function mixedModels(posters: PosterRecord[]) {
   return new Set(posters.map((item) => item.model)).size > 1;
 }
 
+function uniquePosters(items: PosterRecord[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.posterId)) return false;
+    seen.add(item.posterId);
+    return true;
+  });
+}
+
+function viewerSiblings(active: PosterRecord, posters: PosterRecord[]) {
+  const family = lineageFamily(posters, active.posterId);
+  const batch = active.batchId ? posters.filter((item) => item.batchId === active.batchId) : [];
+  const siblings = uniquePosters([...family, ...batch]);
+  if (!siblings.some((item) => item.posterId === active.posterId)) siblings.push(active);
+  return siblings;
+}
+
+function lineageNote(item: PosterRecord, originalId?: string) {
+  if (item.refineNotes?.trim()) return item.refineNotes.trim();
+  if (originalId && item.posterId === originalId) return "original";
+  if (item.previousPosterId) return "refinement";
+  return "";
+}
+
 function FavoriteMark({ filled }: { filled: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -55,20 +80,39 @@ function GalleryCard({
   poster,
   title,
   lines,
+  versionCount = 1,
   onOpen,
   onToggleFavorite,
 }: {
   poster: PosterRecord;
   title?: string;
   lines: string[];
+  versionCount?: number;
   onOpen: () => void;
   onToggleFavorite: () => void;
 }) {
   const favorited = Boolean(poster.favorited);
+  const stacked = versionCount > 1;
   return (
-    <div className="gallery-card">
-      <button type="button" className="gallery-card-open" onClick={onOpen}>
-        <img src={poster.url} alt={poster.title} />
+    <div className={`gallery-card${stacked ? " stacked" : ""}`}>
+      <button
+        type="button"
+        className="gallery-card-open"
+        onClick={onOpen}
+        aria-label={stacked ? `${poster.title}, ${versionCount} versions` : undefined}
+      >
+        {stacked ? (
+          <div className="gallery-stack">
+            {versionCount > 2 ? <span className="gallery-stack-sheet a" aria-hidden="true" /> : null}
+            <span className="gallery-stack-sheet b" aria-hidden="true" />
+            <img src={poster.url} alt="" />
+            <span className="gallery-stack-count" title={`${versionCount} versions`}>
+              {versionCount}
+            </span>
+          </div>
+        ) : (
+          <img src={poster.url} alt={poster.title} />
+        )}
         <span>
           {title ? <strong>{title}</strong> : null}
           {lines.map((line, index) => (
@@ -94,16 +138,21 @@ function GalleryCard({
 
 function GalleryRun({
   posters,
+  versionCount,
   onOpen,
   onToggleFavorite,
 }: {
   posters: PosterRecord[];
+  versionCount: (poster: PosterRecord) => number;
   onOpen: (poster: PosterRecord) => void;
   onToggleFavorite: (poster: PosterRecord) => void;
 }) {
   const headline = runHeadline(posters);
   const styles = mixedStyles(posters);
   const models = mixedModels(posters);
+  const ids = new Set(posters.map((item) => item.posterId));
+  const originalId = posters.find((item) => !item.previousPosterId || !ids.has(item.previousPosterId))
+    ?.posterId;
   return (
     <section className="gallery-run">
       <header className="gallery-run-head">
@@ -114,26 +163,32 @@ function GalleryRun({
         </p>
       </header>
       <div className="gallery-run-row">
-        {posters.map((poster) => (
-          <GalleryCard
-            key={poster.posterId}
-            poster={poster}
-            lines={[posterLabel(poster, posters, styles, models)]}
-            onOpen={() => onOpen(poster)}
-            onToggleFavorite={() => onToggleFavorite(poster)}
-          />
-        ))}
+        {posters.map((poster) => {
+          const note = lineageNote(poster, originalId);
+          const versions = versionCount(poster);
+          return (
+            <GalleryCard
+              key={poster.posterId}
+              poster={poster}
+              versionCount={versions}
+              lines={[posterLabel(poster, posters, styles, models), note].filter(Boolean)}
+              onOpen={() => onOpen(poster)}
+              onToggleFavorite={() => onToggleFavorite(poster)}
+            />
+          );
+        })}
       </div>
     </section>
   );
 }
 
-export function Gallery({ onBack, onRefine }: Props) {
+export function Gallery({ onBack, onEditSetup }: Props) {
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [studioFrom, setStudioFrom] = useState<PosterRecord | null>(null);
   const [active, setActive] = useState<PosterRecord | null>(null);
   const [showMeta, setShowMeta] = useState(false);
-  const [showSchematic, setShowSchematic] = useState(false);
+  const [compareId, setCompareId] = useState<string | null>(null);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
 
   useEffect(() => {
@@ -147,11 +202,19 @@ export function Gallery({ onBack, onRefine }: Props) {
     [favoritesOnly, posters],
   );
   const sections = useMemo(() => gallerySections(galleryRuns(visible)), [visible]);
+  const versionCount = useMemo(() => {
+    return (poster: PosterRecord) => lineageFamily(posters, poster.posterId).length;
+  }, [posters]);
   const favoriteCount = useMemo(() => posters.filter((item) => item.favorited).length, [posters]);
-  const batchSiblings = useMemo(() => {
-    if (!active) return [];
-    return active.batchId ? posters.filter((item) => item.batchId === active.batchId) : [active];
-  }, [active, posters]);
+  const family = useMemo(
+    () => (active ? lineageFamily(posters, active.posterId) : []),
+    [active, posters],
+  );
+  const original = family[0];
+  const batchSiblings = useMemo(
+    () => (active ? viewerSiblings(active, posters) : []),
+    [active, posters],
+  );
   const compareStyles = mixedStyles(batchSiblings);
   const compareModels = mixedModels(batchSiblings);
   const activeCost = active
@@ -170,19 +233,24 @@ export function Gallery({ onBack, onRefine }: Props) {
             },
           ]
         : [];
+    const originalId = original?.posterId;
     return [
       ...schematic,
-      ...batchSiblings.map((item) => ({
-        id: item.posterId,
-        src: item.url,
-        label: posterLabel(item, batchSiblings, compareStyles, compareModels),
-      })),
+      ...batchSiblings.map((item) => {
+        const base = posterLabel(item, batchSiblings, compareStyles, compareModels);
+        const note = lineageNote(item, originalId);
+        return {
+          id: item.posterId,
+          src: item.url,
+          label: note && family.length > 1 ? `${base} · ${note}` : base,
+        };
+      }),
     ];
-  }, [active, batchSiblings, compareModels, compareStyles]);
+  }, [active, batchSiblings, compareModels, compareStyles, family.length, original?.posterId]);
 
   useEffect(() => {
-    if (showSchematic && active && active.referenceCount === 0) setShowSchematic(false);
-  }, [active, showSchematic]);
+    if (compareId === "schematic" && active && active.referenceCount === 0) setCompareId(null);
+  }, [active, compareId]);
 
   useEffect(() => {
     if (!active) return;
@@ -206,14 +274,22 @@ export function Gallery({ onBack, onRefine }: Props) {
   }, [active, batchSiblings]);
 
   function openPoster(poster: PosterRecord) {
-    setShowSchematic(false);
     setShowMeta(false);
     setActive(poster);
+    const root = lineageFamily(posters, poster.posterId)[0];
+    setCompareId(root && root.posterId !== poster.posterId ? root.posterId : null);
   }
 
   function selectPoster(id: string) {
-    const poster = batchSiblings.find((item) => item.posterId === id);
-    if (poster) setActive(poster);
+    const poster = batchSiblings.find((item) => item.posterId === id) ?? posters.find((item) => item.posterId === id);
+    if (!poster) return;
+    setActive(poster);
+    const root = lineageFamily(posters, poster.posterId)[0];
+    setCompareId((current) => {
+      if (current === "schematic") return current;
+      if (root && root.posterId !== poster.posterId) return root.posterId;
+      return null;
+    });
   }
 
   function updatePoster(next: PosterRecord) {
@@ -241,6 +317,17 @@ export function Gallery({ onBack, onRefine }: Props) {
 
   const selectedImage = active ? compareImages.find((item) => item.id === active.posterId) : undefined;
 
+  if (studioFrom) {
+    return (
+      <RefineStudio
+        source={studioFrom}
+        posters={posters}
+        onBack={() => setStudioFrom(null)}
+        onPostersChange={setPosters}
+      />
+    );
+  }
+
   return (
     <div className="gallery">
       <header className="top">
@@ -267,31 +354,41 @@ export function Gallery({ onBack, onRefine }: Props) {
         {sections.map((section) =>
           section.kind === "singles" ? (
             <div key={`singles-${section.posters[0].posterId}`} className="gallery-grid">
-              {section.posters.map((poster) => (
-                <GalleryCard
-                  key={poster.posterId}
-                  poster={poster}
-                  title={poster.title}
-                  lines={[
-                    [
-                      styleLabel(poster.styleId, poster.spec?.style?.name),
-                      shortModelLabel(poster.model, poster.modelName),
-                      poster.variant != null ? String(poster.variant) : null,
-                      poster.durationMs != null ? formatDurationMs(poster.durationMs) : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · "),
-                    new Date(poster.createdAt).toLocaleString(),
-                  ]}
-                  onOpen={() => openPoster(poster)}
-                  onToggleFavorite={() => void handleFavorite(poster)}
-                />
-              ))}
+              {section.posters.map((poster) => {
+                const versions = versionCount(poster);
+                return (
+                  <GalleryCard
+                    key={poster.posterId}
+                    poster={poster}
+                    title={poster.title}
+                    versionCount={versions}
+                    lines={[
+                      [
+                        styleLabel(poster.styleId, poster.spec?.style?.name),
+                        shortModelLabel(poster.model, poster.modelName),
+                        poster.variant != null ? String(poster.variant) : null,
+                        poster.durationMs != null ? formatDurationMs(poster.durationMs) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · "),
+                      poster.refineNotes?.trim() ||
+                        (versions > 1
+                          ? `${versions} versions`
+                          : poster.previousPosterId
+                            ? "Refinement"
+                            : new Date(poster.createdAt).toLocaleString()),
+                    ]}
+                    onOpen={() => openPoster(poster)}
+                    onToggleFavorite={() => void handleFavorite(poster)}
+                  />
+                );
+              })}
             </div>
           ) : (
             <GalleryRun
               key={section.run.key}
               posters={section.run.posters}
+              versionCount={versionCount}
               onOpen={openPoster}
               onToggleFavorite={(poster) => void handleFavorite(poster)}
             />
@@ -310,9 +407,28 @@ export function Gallery({ onBack, onRefine }: Props) {
             <GalleryViewer
               images={compareImages}
               selectedId={active.posterId}
-              showSchematic={showSchematic}
+              compareId={compareId}
+              hint={
+                compareId && compareId !== "schematic"
+                  ? "Original on the left. Click another refinement to compare it, or the original to view it alone."
+                  : family.length > 1 && compareId !== "schematic"
+                    ? "Click a refinement to see it beside the original."
+                    : undefined
+              }
               onSelectPoster={selectPoster}
-              onToggleSchematic={() => setShowSchematic((value) => !value)}
+              onCompare={(id) => {
+                if (id === "schematic") {
+                  setCompareId("schematic");
+                  return;
+                }
+                if (id == null) {
+                  setCompareId(
+                    original && active && original.posterId !== active.posterId ? original.posterId : null,
+                  );
+                  return;
+                }
+                setCompareId(id);
+              }}
             />
             <div className="lightbox-bar">
               <div className="lightbox-bar-copy">
@@ -343,8 +459,18 @@ export function Gallery({ onBack, onRefine }: Props) {
                     Download
                   </a>
                 )}
-                <button type="button" className="text-btn" onClick={() => onRefine(active)}>
-                  Refine this
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => {
+                    setStudioFrom(active);
+                    setActive(null);
+                  }}
+                >
+                  Refine image
+                </button>
+                <button type="button" className="text-btn" onClick={() => onEditSetup(active)}>
+                  Edit setup
                 </button>
                 <button type="button" className="text-btn" onClick={() => void handleDelete(active)}>
                   Delete
