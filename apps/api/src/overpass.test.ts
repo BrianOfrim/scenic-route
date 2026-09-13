@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FEATURE_CATALOG } from "./osm/catalog";
+import { FEATURE_CATALOG, resolveFeatures } from "./osm/catalog";
 import {
   annotatePoisInsideAreas,
   asAreaGeometry,
@@ -356,6 +356,29 @@ test("rankPois keeps named beaches within 500 m", () => {
   const beach = pois[0];
   assert.ok(beach.distToRouteM > 100);
   assert.ok(beach.distToRouteM <= 500);
+});
+
+test("rankPois uses a tuned category corridor", () => {
+  const route: [number, number][] = [
+    [53.0, -113.0],
+    [53.005, -113.0],
+    [53.01, -113.0],
+  ];
+  const bbox: [number, number, number, number] = [-113.06, 52.99, -112.94, 53.02];
+  const geojson = {
+    type: "FeatureCollection" as const,
+    features: [
+      {
+        type: "Feature" as const,
+        properties: { name: "Castle Mountain", tags: { natural: "peak", name: "Castle Mountain" } },
+        geometry: { type: "Point" as const, coordinates: [-112.994, 53.005] },
+      },
+    ],
+  };
+  const tight = rankPois(geojson, route, bbox, resolveFeatures(["peaks"], { peaks: 100 }));
+  const wide = rankPois(geojson, route, bbox, resolveFeatures(["peaks"], { peaks: 500 }));
+  assert.deepEqual(tight.map((poi) => poi.name), []);
+  assert.deepEqual(wide.map((poi) => poi.name), ["Castle Mountain"]);
 });
 
 test("rankPois keeps a named lake you ride along, not its distant center", () => {

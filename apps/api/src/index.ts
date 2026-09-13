@@ -18,7 +18,7 @@ import {
 } from "./activities";
 import { ImportError } from "./gpx";
 import { importTrackFiles } from "./importActivity";
-import { catalogPublic } from "./osm/catalog";
+import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
 import { loadRouteFeatures } from "./osm/features";
 import { lookupLandmark } from "./osm/landmark";
 import { OpenRouterError, imageModel, listImageModels, maxImageReferences } from "./openrouter";
@@ -170,9 +170,8 @@ app.get("/api/features", (c) => c.json({ features: catalogPublic() }));
 app.get("/api/poster/context/:activityId", async (c) => {
   try {
     const activityId = Number(c.req.param("activityId"));
-    const raw = c.req.query("features");
-    const featureIds = raw ? raw.split(",").map((item) => item.trim()).filter(Boolean) : undefined;
-    return c.json(await loadRouteFeatures(activityId, featureIds));
+    const parsed = parseFeatureSelection(c.req.query("features"));
+    return c.json(await loadRouteFeatures(activityId, parsed.ids, parsed.nearRouteM));
   } catch (error) {
     return fail(c, error);
   }

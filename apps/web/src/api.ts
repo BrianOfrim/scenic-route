@@ -55,6 +55,7 @@ export type FeatureOption = {
   label: string;
   group: "geography" | "landmarks";
   defaultOn: boolean;
+  nearRouteM?: number;
 };
 
 export type PosterPoi = {
@@ -233,6 +234,7 @@ export type PosterEditorSnapshot = {
   variants: number;
   specs?: Partial<Record<string, PosterSpec>>;
   planCosts?: Partial<Record<string, number | null>>;
+  landmarkNearM?: Record<string, number>;
 };
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -310,8 +312,13 @@ export async function fetchFeatures(): Promise<FeatureOption[]> {
   return body.features;
 }
 
-export async function fetchPosterContext(activityId: number, featureIds: string[]): Promise<PosterContext> {
-  const qs = featureIds.length ? `?features=${encodeURIComponent(featureIds.join(","))}` : "";
+export async function fetchPosterContext(
+  activityId: number,
+  featureIds: string[],
+  featureQuery?: string,
+): Promise<PosterContext> {
+  const encoded = featureQuery ?? featureIds.join(",");
+  const qs = encoded ? `?features=${encodeURIComponent(encoded)}` : "";
   return readJson(await fetch(`/api/poster/context/${activityId}${qs}`));
 }
 

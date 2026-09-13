@@ -4,7 +4,10 @@ import type { PosterRecord, PosterSpec } from "../api";
 import {
   asAspectRatio,
   captureEditorSnapshot,
+  featureIdsToResolveNames,
+  namesFromPrompt,
   restoreEditor,
+  savedSetupNames,
   styleIdFromRecord,
 } from "./editorSnapshot";
 import { DEFAULT_FEATURE_IDS } from "./featureCatalog";
@@ -132,9 +135,11 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
     variants: 2,
     specs: { "middle-earth": spec },
     planCosts: { "middle-earth": 0.01 },
+    landmarkNearM: { peaks: 250, towns: 1500 },
   });
   const restored = restoreEditor(record({ editor: snapshot }), 100, defaults);
   assert.deepEqual(restored.featureIds, ["lakes", "rivers", "peaks"]);
+  assert.deepEqual(restored.landmarkNearM, { peaks: 250, towns: 1500 });
   assert.deepEqual(restored.labels, ["Castle Mountain"]);
   assert.deepEqual(restored.trailNames, ["Bow Valley Parkway"]);
   assert.equal(restored.trailAliases["Bow Valley Parkway"], "Parkway");
@@ -293,7 +298,7 @@ test("restoreEditor falls back to saved record fields when no snapshot exists", 
   const restored = restoreEditor(record(), 80, defaults);
   assert.deepEqual(restored.featureIds, ["lakes", "peaks"]);
   assert.deepEqual(restored.labels, ["Castle Mountain"]);
-  assert.deepEqual(restored.trailNames, defaults.trailNames);
+  assert.deepEqual(restored.trailNames, ["Bow Valley Parkway"]);
   assert.equal(restored.cropStart, 0);
   assert.equal(restored.cropEnd, 79);
   assert.equal(restored.title, "Bow Valley");
@@ -306,4 +311,116 @@ test("restoreEditor falls back to saved record fields when no snapshot exists", 
   assert.equal(restored.paletteId, "auto");
   assert.equal(restored.imageModelIds, null);
   assert.equal(restored.featureIds === DEFAULT_FEATURE_IDS, false);
+});
+
+test("namesFromPrompt reads labeled districts and quoted landmarks", () => {
+  const playground = namesFromPrompt(
+    [
+      "The map shows hand-lettered names for Jubilee Park, Rudy Swanson Recreation Park, and University of Alberta - Augustana Campus.",
+      "",
+      "Geography: labeled district University of Alberta - Augustana Campus (middle-right, northeast of the route; write the name along that stretch); labeled district Rudy Swanson Recreation Park (upper-center, northwest of the route; write the name); labeled district Jubilee Park (upper-center, north of the route; write the name).",
+      "",
+      "Reference images: image 1 is the schematic.",
+    ].join("\n"),
+  );
+  assert.deepEqual(playground.areaNames, [
+    "University of Alberta - Augustana Campus",
+    "Rudy Swanson Recreation Park",
+    "Jubilee Park",
+  ]);
+  assert.deepEqual(playground.labels, []);
+
+  const landmarks = namesFromPrompt(
+    [
+      "Geography: water Mirror Lake and connected streams (upper-center; wash fills); forest Woodland (flanking the route).",
+      "",
+      'Landmarks: do not draw the numbers. 1 "Mirror Lake" (upper-center; icon: water-label); 2 "Jubilee Park" (middle-right; icon: park-marker).',
+      "",
+      'Title, exactly: "Pedals & Pints ride".',
+    ].join("\n"),
+  );
+  assert.deepEqual(landmarks.labels, ["Mirror Lake"]);
+  assert.deepEqual(landmarks.areaNames, ["Jubilee Park"]);
+});
+
+test("restoreEditor prefers generation-time names over live OSM defaults", () => {
+  const restored = restoreEditor(
+    record({
+      featureIds: [],
+      labels: [],
+      spec: {
+        ...spec,
+        geography: [],
+        landmarks: [],
+        finalPrompt: [
+          "Geography: labeled district Jubilee Park (north of the route; write the name); labeled district Rudy Swanson Recreation Park (northwest of the route; write the name).",
+          "",
+          "Reference images: image 1 is the schematic.",
+        ].join("\n"),
+      },
+      prompt: "unused",
+    }),
+    80,
+    {
+      title: "Ride",
+      labels: ["Cascades Park", "Rotary Park"],
+      trailNames: ["Ghost trail"],
+      areaNames: ["Cascades Park", "Rotary Park"],
+    },
+  );
+  assert.deepEqual(restored.areaNames, ["Jubilee Park", "Rudy Swanson Recreation Park"]);
+  assert.deepEqual(restored.labels, []);
+  assert.ok(restored.featureIds.includes("named-parks"));
+  assert.ok(!restored.areaNames.includes("Cascades Park"));
+});
+
+test("savedSetupNames keeps an explicit editor snapshot", () => {
+  const snapshot = captureEditorSnapshot({
+    featureIds: ["named-parks"],
+    labels: [],
+    trailNames: [],
+    trailAliases: {},
+    areaNames: ["Jubilee Park"],
+    customPois: [],
+    customWays: [],
+    cropStart: 0,
+    cropEnd: 10,
+    showRouteMarkers: true,
+    title: "Ride",
+    startPlace: "",
+    finishPlace: "",
+    placesEdited: false,
+    statIds: ["title"],
+    aspectRatio: "2:3",
+    styleIds: ["middle-earth"],
+    stylePrompt: "",
+    paletteId: "auto",
+    imageModelIds: [],
+    variants: 4,
+    specs: {},
+    planCosts: {},
+  });
+  assert.deepEqual(savedSetupNames(record({ editor: snapshot, labels: [] })), {
+    labels: [],
+    trailNames: [],
+    areaNames: ["Jubilee Park"],
+  });
+});
+
+test("featureIdsToResolveNames leaves an explicit landmark set alone", () => {
+  assert.deepEqual(
+    featureIdsToResolveNames(["lakes", "peaks"], { labels: ["Castle Mountain"], trailNames: [], areaNames: [] }),
+    ["lakes", "peaks"],
+  );
+});
+
+test("namesFromPrompt ignores style clauses after hand-lettered place names", () => {
+  const names = namesFromPrompt(
+    "The map shows hand-lettered names for Jubilee Park, Rudy Swanson Recreation Park, and University of Alberta - Augustana Campus, an ornate fantasy compass rose, and an illuminated title cartouche reading 'Ride'.",
+  );
+  assert.deepEqual(names.labels, [
+    "Jubilee Park",
+    "Rudy Swanson Recreation Park",
+    "University of Alberta - Augustana Campus",
+  ]);
 });

@@ -52,9 +52,11 @@ test("sanitizePosterEditor keeps crop, labels, and custom annotations", () => {
     paletteId: "process-blue",
     imageModelIds: ["google/gemini-test"],
     variants: 2,
+    landmarkNearM: { peaks: 250, towns: "1000", skip: "nope" },
   });
   assert.ok(editor);
   assert.deepEqual(editor.featureIds, ["lakes", "peaks"]);
+  assert.deepEqual(editor.landmarkNearM, { peaks: 250, towns: 1000 });
   assert.equal(editor.cropStart, 20);
   assert.equal(editor.cropEnd, 80);
   assert.equal(editor.showRouteMarkers, false);

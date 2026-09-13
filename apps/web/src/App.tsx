@@ -19,7 +19,7 @@ import {
 } from "./api";
 import { ActivityList } from "./ActivityList";
 import { Gallery } from "./gallery/Gallery";
-import { MapView, type Basemap } from "./MapView";
+import { MapView, type Basemap, type LandmarkHighlight } from "./MapView";
 import { PosterPanel } from "./poster/PosterPanel";
 import type { SchematicLayers } from "./poster/grounding/renderSchematic";
 
@@ -43,6 +43,7 @@ export function App() {
   const [pois, setPois] = useState<PosterPoi[]>([]);
   const [namedWays, setNamedWays] = useState<NamedWay[]>([]);
   const [namedAreas, setNamedAreas] = useState<NamedArea[]>([]);
+  const [mapHighlight, setMapHighlight] = useState<LandmarkHighlight | null>(null);
   const [ways, setWays] = useState<PosterWays | null>(null);
   const [schematicLayers, setSchematicLayers] = useState<SchematicLayers | null>(null);
   const [dismissPoi, setDismissPoi] = useState<{ name: string; nonce: number } | null>(null);
@@ -193,6 +194,7 @@ export function App() {
         setPois([]);
         setNamedWays([]);
         setNamedAreas([]);
+        setMapHighlight(null);
         setWays(null);
         setSchematicLayers(null);
       }
@@ -306,6 +308,7 @@ export function App() {
               setPois([]);
               setNamedWays([]);
               setNamedAreas([]);
+              setMapHighlight(null);
               setWays(null);
               setSchematicLayers(null);
             }
@@ -331,6 +334,7 @@ export function App() {
             basemap={basemap}
             viewNonce={viewNonce}
             labelingEnabled={posterOpen && !routeOnly}
+            highlight={posterOpen ? mapHighlight : null}
             onRemovePoi={(name) => setDismissPoi({ name, nonce: Date.now() })}
             onRemoveArea={(name) => setDismissArea({ name, nonce: Date.now() })}
             onRemoveTrail={(name) => setDismissTrail({ name, nonce: Date.now() })}
@@ -354,6 +358,7 @@ export function App() {
               setPois([]);
               setNamedWays([]);
               setNamedAreas([]);
+              setMapHighlight(null);
               setWays(null);
               setSchematicLayers(null);
               setDismissPoi(null);
@@ -370,6 +375,7 @@ export function App() {
             onPoisChange={setPois}
             onNamedWaysChange={setNamedWays}
             onNamedAreasChange={setNamedAreas}
+            onHighlightChange={setMapHighlight}
             onWaysChange={setWays}
             onSchematicLayersChange={setSchematicLayers}
             onRouteOnlyChange={setRouteOnly}

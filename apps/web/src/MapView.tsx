@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { FeatureCollection } from "geojson";
 import type { StyleSpecification } from "maplibre-gl";
 import { Map, Marker, NavigationControl } from "./maplibre";
 import type { NamedArea, NamedWay, PosterPoi, PosterWays } from "./api";
@@ -12,9 +11,12 @@ import {
 
 export type Basemap = "osm" | "satellite" | "schematic";
 
-type SchematicHover = {
+export type LandmarkHighlight = {
   kind: "poi" | "trail" | "area";
   name: string;
+};
+
+type SchematicHover = LandmarkHighlight & {
   label: string;
 };
 
@@ -70,6 +72,7 @@ type Props = {
   basemap: Basemap;
   viewNonce?: number;
   labelingEnabled?: boolean;
+  highlight?: LandmarkHighlight | null;
   onRemovePoi?: (name: string) => void;
   onRemoveArea?: (name: string) => void;
   onRemoveTrail?: (name: string) => void;
@@ -96,6 +99,7 @@ export function MapView({
   basemap,
   viewNonce = 0,
   labelingEnabled = false,
+  highlight = null,
   onRemovePoi,
   onRemoveArea,
   onRemoveTrail,
@@ -134,11 +138,13 @@ export function MapView({
   const onRenameTrailRef = useRef(onRenameTrail);
   const onRenameTrailStartRef = useRef<(name: string, point: { x: number; y: number }) => void>(() => {});
   const basemapRef = useRef(basemap);
+  const styleReadyRef = useRef(false);
   const modeRef = useRef(mode);
   const draftRef = useRef(draft);
   const sectionStartRef = useRef(sectionStart);
   const sectionHoverRef = useRef<number | null>(null);
   const labelingRef = useRef(labelingEnabled);
+  const highlightRef = useRef(highlight);
   trackRef.current = selectedLatLng;
   cropRef.current = cropLatLng;
   stopsRef.current = cropStops;
@@ -154,6 +160,7 @@ export function MapView({
   onPlaceLandmarkRef.current = onPlaceLandmark;
   onMoveLandmarkRef.current = onMoveLandmark;
   onPlaceSectionRef.current = onPlaceSection;
+  highlightRef.current = highlight;
   onRenameTrailRef.current = onRenameTrail;
   onRenameTrailStartRef.current = (name, point) => {
     setMode("browse");
@@ -179,7 +186,7 @@ export function MapView({
     for (const stale of map.getContainer().querySelectorAll("canvas.map-schematic")) stale.remove();
     const overlay = document.createElement("canvas");
     overlay.className = "map-schematic";
-    overlay.hidden = basemapRef.current !== "schematic";
+    overlay.hidden = false;
     overlay.setAttribute("aria-hidden", "true");
     const controls = map.getContainer().querySelector(".maplibregl-control-container");
     if (controls) map.getContainer().insertBefore(overlay, controls);
@@ -207,6 +214,7 @@ export function MapView({
         namedAreas: namedAreasRef.current,
         ways: waysRef.current,
         layers: layersRef.current,
+        highlight: highlightRef.current,
         onRemovePoi: onRemovePoiRef,
         onMoveLandmark: onMoveLandmarkRef,
         labeling: labelingRef,
@@ -217,12 +225,14 @@ export function MapView({
     const redrawSchematic = () => {
       paintSchematicOverlay(map, overlayRef.current, {
         latlng: cropRef.current ?? trackRef.current,
+        stops: stopsRef.current,
         ways: waysRef.current,
         layers: layersRef.current,
         pois: poisWithDrag(poisRef.current, landmarkDragRef.current),
         namedWays: namedWaysRef.current,
         namedAreas: namedAreasRef.current,
         basemap: basemapRef.current,
+        highlight: highlightRef.current,
         preview: annotatePreview(cropRef.current ?? trackRef.current, sectionStartRef.current, sectionHoverRef.current, draftRef.current),
       });
     };
@@ -376,8 +386,12 @@ export function MapView({
       }
       map.triggerRepaint();
     };
-    map.on("load", paint);
-    map.on("style.load", paint);
+    const markStyleReady = () => {
+      styleReadyRef.current = true;
+      paint();
+    };
+    map.on("load", markStyleReady);
+    map.on("style.load", markStyleReady);
     map.on("render", redrawSchematic);
     map.on("click", onAnnotateClick);
     map.on("mousedown", onLandmarkPointerDown);
@@ -390,8 +404,8 @@ export function MapView({
     map.on("mouseout", onHoverLeave);
     window.addEventListener("pointerup", finishLandmarkDrag);
     return () => {
-      map.off("load", paint);
-      map.off("style.load", paint);
+      map.off("load", markStyleReady);
+      map.off("style.load", markStyleReady);
       map.off("render", redrawSchematic);
       map.off("click", onAnnotateClick);
       map.off("mousedown", onLandmarkPointerDown);
@@ -410,6 +424,7 @@ export function MapView({
       if (hoverRef.current === hover) hoverRef.current = null;
       overlay.remove();
       if (overlayRef.current === overlay) overlayRef.current = null;
+      styleReadyRef.current = false;
       map.remove();
       if (mapRef.current === map) mapRef.current = null;
     };
@@ -418,8 +433,9 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || basemapRef.current === basemap) return;
+    styleReadyRef.current = false;
     basemapRef.current = basemap;
-    if (overlayRef.current) overlayRef.current.hidden = basemap !== "schematic";
+    if (overlayRef.current) overlayRef.current.hidden = false;
     hoverRef.current?.setActive(basemap === "schematic");
     if (landmarkDragRef.current) {
       landmarkDragRef.current = null;
@@ -427,7 +443,6 @@ export function MapView({
     }
     map.setStyle(styleFor(basemap));
     if (basemap !== "schematic") {
-      clearSchematicOverlay(overlayRef.current);
       hoverRef.current?.hide();
     }
   }, [basemap]);
@@ -442,10 +457,8 @@ export function MapView({
         fit(map, cropLatLng ?? selectedLatLng, 600);
         return;
       }
-      if (!drawOverlays(map, selectedLatLng, cropLatLng, cropStops, namedWaysRef.current, namedAreasRef.current)) {
-        map.once("style.load", apply);
-        return;
-      }
+      if (!styleReadyRef.current) return;
+      map.triggerRepaint();
       fit(map, cropLatLng ?? selectedLatLng, 600);
     };
     apply();
@@ -462,12 +475,14 @@ export function MapView({
       map.triggerRepaint();
       return;
     }
-    const apply = () =>
+    const apply = () => {
       syncPoiMarkers(map, markersRef, pois, onRemovePoiRef, {
         draggable: labelingEnabled,
         onMoveLandmark: onMoveLandmarkRef,
         onMoved: (name) => setHint(`Moved ${name}`),
       });
+      applyPoiMarkerHighlight(markersRef.current, highlightRef.current);
+    };
     apply();
     if (!map.loaded()) map.once("load", apply);
     return () => {
@@ -478,36 +493,25 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (basemapRef.current === "schematic") {
-      map.triggerRepaint();
-      return;
-    }
-    const apply = () => {
-      drawOverlays(map, trackRef.current, cropRef.current, stopsRef.current, namedWays, namedAreasRef.current);
-    };
-    apply();
-    if (!map.loaded()) map.once("load", apply);
-    return () => {
-      map.off("load", apply);
-    };
-  }, [namedWays]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    if (basemapRef.current === "schematic") {
-      map.triggerRepaint();
-      return;
-    }
-    const apply = () => {
-      drawOverlays(map, trackRef.current, cropRef.current, stopsRef.current, namedWaysRef.current, namedAreas);
-    };
-    apply();
-    if (!map.loaded()) map.once("load", apply);
-    return () => {
-      map.off("load", apply);
-    };
-  }, [namedAreas]);
+    applyPoiMarkerHighlight(markersRef.current, highlight);
+    paintSchematicOverlay(map, overlayRef.current, {
+      latlng: cropRef.current ?? trackRef.current,
+      stops: stopsRef.current,
+      ways: waysRef.current,
+      layers: layersRef.current,
+      pois: poisWithDrag(poisRef.current, landmarkDragRef.current),
+      namedWays: namedWaysRef.current,
+      namedAreas: namedAreasRef.current,
+      basemap: basemapRef.current,
+      highlight,
+      preview: annotatePreview(
+        cropRef.current ?? trackRef.current,
+        sectionStartRef.current,
+        sectionHoverRef.current,
+        draftRef.current,
+      ),
+    });
+  }, [highlight]);
 
   useEffect(() => {
     mapRef.current?.triggerRepaint();
@@ -762,6 +766,7 @@ function syncMapChrome(
     namedAreas: NamedArea[] | undefined;
     ways: PosterWays | null | undefined;
     layers: SchematicLayers | null | undefined;
+    highlight?: LandmarkHighlight | null;
     onRemovePoi: { current?: (name: string) => void };
     onMoveLandmark?: { current?: (draft: LandmarkDraft) => void };
     labeling?: { current: boolean };
@@ -772,22 +777,34 @@ function syncMapChrome(
     clearMarkers(markersRef);
     paintSchematicOverlay(map, overlay, {
       latlng: data.crop ?? data.track,
+      stops: data.stops,
       ways: data.ways,
       layers: data.layers,
       pois: data.pois,
       namedWays: data.namedWays,
       namedAreas: data.namedAreas,
       basemap,
+      highlight: data.highlight,
     });
     return;
   }
-  clearSchematicOverlay(overlay);
-  if (!drawOverlays(map, data.track, data.crop, data.stops, data.namedWays, data.namedAreas)) return;
+  paintSchematicOverlay(map, overlay, {
+    latlng: data.crop ?? data.track,
+    stops: data.stops,
+    ways: data.ways,
+    layers: data.layers,
+    pois: data.pois,
+    namedWays: data.namedWays,
+    namedAreas: data.namedAreas,
+    basemap,
+    highlight: data.highlight,
+  });
   syncPoiMarkers(map, markersRef, data.pois, data.onRemovePoi, {
     draggable: Boolean(data.labeling?.current),
     onMoveLandmark: data.onMoveLandmark,
     onMoved: data.onMovedLandmark,
   });
+  applyPoiMarkerHighlight(markersRef.current, data.highlight);
 }
 
 function paintSchematicOverlay(
@@ -795,18 +812,19 @@ function paintSchematicOverlay(
   canvas: HTMLCanvasElement | null,
   data: {
     latlng: [number, number][] | null | undefined;
+    stops?: [number, number][];
     ways: PosterWays | null | undefined;
     layers: SchematicLayers | null | undefined;
     pois: PosterPoi[] | undefined;
     namedWays: NamedWay[] | undefined;
     namedAreas: NamedArea[] | undefined;
     basemap: Basemap;
+    highlight?: LandmarkHighlight | null;
     preview?: AnnotatePreview | null;
   },
 ) {
   if (!canvas) return;
-  canvas.hidden = data.basemap !== "schematic";
-  if (data.basemap !== "schematic") return;
+  canvas.hidden = false;
   const mapCanvas = map.getCanvas();
   const cssW = mapCanvas.clientWidth;
   const cssH = mapCanvas.clientHeight;
@@ -823,6 +841,14 @@ function paintSchematicOverlay(
     const point = map.project([lng, lat]);
     return [point.x * sx, point.y * sy];
   };
+  if (data.basemap !== "schematic") {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const scale = (sx + sy) / 2;
+    paintStreetAnnotations(ctx, project, data.namedAreas, data.namedWays, scale);
+    paintStreetTrack(ctx, data.latlng ?? [], data.stops, project, scale);
+    paintChipHighlight(ctx, project, data, scale);
+    return;
+  }
   drawSchematicScene(
     ctx,
     {
@@ -843,6 +869,78 @@ function paintSchematicOverlay(
   );
   const lineScale = schematicLineScale(map.getZoom()) * ((sx + sy) / 2);
   paintAnnotatePreview(ctx, project, data.preview, lineScale);
+  paintChipHighlight(ctx, project, data, lineScale);
+}
+
+function paintStreetTrack(
+  ctx: CanvasRenderingContext2D,
+  latlng: [number, number][],
+  stops: [number, number][] | undefined,
+  project: (lng: number, lat: number) => [number, number],
+  scale: number,
+) {
+  if (latlng.length < 2) return;
+  const points = latlng.map(([lat, lng]) => project(lng, lat));
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.strokeStyle = "#111111";
+  ctx.lineWidth = 8 * scale;
+  ctx.globalAlpha = 0.9;
+  ctx.stroke();
+  ctx.strokeStyle = "#e11d48";
+  ctx.lineWidth = 4.5 * scale;
+  ctx.globalAlpha = 1;
+  ctx.stroke();
+  for (const [lat, lng] of stops ?? []) {
+    const [x, y] = project(lng, lat);
+    ctx.beginPath();
+    ctx.arc(x, y, 5 * scale, 0, Math.PI * 2);
+    ctx.fillStyle = "#e8c36a";
+    ctx.fill();
+    ctx.lineWidth = 1.5 * scale;
+    ctx.strokeStyle = "#111111";
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function paintStreetAnnotations(
+  ctx: CanvasRenderingContext2D,
+  project: (lng: number, lat: number) => [number, number],
+  areas: NamedArea[] | undefined,
+  trails: NamedWay[] | undefined,
+  scale: number,
+) {
+  ctx.save();
+  ctx.fillStyle = "rgba(196, 148, 88, 0.28)";
+  for (const area of areas ?? []) fillProjectedGeometry(ctx, area.geometry, project);
+  ctx.setLineDash([2 * scale, 1 * scale]);
+  ctx.strokeStyle = "rgba(150, 96, 48, 0.85)";
+  ctx.lineWidth = 1.5 * scale;
+  ctx.lineJoin = "round";
+  for (const area of areas ?? []) fillProjectedGeometry(ctx, area.geometry, project, true);
+  ctx.setLineDash([]);
+  ctx.strokeStyle = "rgba(194, 65, 12, 0.85)";
+  ctx.lineWidth = 3 * scale;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  for (const trail of trails ?? []) {
+    for (const line of trail.geometry.coordinates) {
+      if (line.length < 2) continue;
+      ctx.beginPath();
+      line.forEach((point, index) => {
+        const [x, y] = project(point[0], point[1]);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 
 function annotatePreview(
@@ -1213,143 +1311,92 @@ function ringContains(ring: number[][], lng: number, lat: number) {
   return inside;
 }
 
-function clearSchematicOverlay(canvas: HTMLCanvasElement | null) {
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-}
-
-function lineCollection(latlng: [number, number][] | null | undefined): FeatureCollection {
-  if (!latlng || latlng.length < 2) return { type: "FeatureCollection", features: [] };
-  return {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        properties: {},
-        geometry: { type: "LineString", coordinates: latlng.map(([lat, lng]) => [lng, lat]) },
-      },
-    ],
-  };
-}
-
-function stopsCollection(stops: [number, number][] | undefined): FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: (stops ?? []).map(([lat, lng]) => ({
-      type: "Feature" as const,
-      properties: {},
-      geometry: { type: "Point" as const, coordinates: [lng, lat] },
-    })),
-  };
-}
-
-function ensureSource(map: Map, id: string, data: FeatureCollection) {
-  const source = map.getSource(id);
-  if (source && "setData" in source) {
-    (source as { setData: (data: FeatureCollection) => void }).setData(data);
-    return;
-  }
-  if (!map.getSource(id)) {
-    map.addSource(id, { type: "geojson", data });
+function applyPoiMarkerHighlight(markers: Marker[], highlight?: LandmarkHighlight | null) {
+  const name = highlight?.kind === "poi" ? highlight.name : null;
+  for (const marker of markers) {
+    const root = marker.getElement();
+    root.classList.toggle("is-highlight", Boolean(name && root.dataset.name === name));
   }
 }
 
-function namedWayCollection(trails: NamedWay[] | undefined): FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: (trails ?? []).map((trail) => ({
-      type: "Feature" as const,
-      properties: { name: trail.name },
-      geometry: trail.geometry,
-    })),
-  };
-}
-
-function namedAreaCollection(areas: NamedArea[] | undefined): FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: (areas ?? []).map((area) => ({
-      type: "Feature" as const,
-      properties: { name: area.name },
-      geometry: area.geometry,
-    })),
-  };
-}
-
-function drawOverlays(
-  map: Map,
-  selectedLatLng: [number, number][] | null,
-  cropLatLng: [number, number][] | null | undefined,
-  cropStops: [number, number][] | undefined,
-  namedWays?: NamedWay[],
-  namedAreas?: NamedArea[],
+function paintChipHighlight(
+  ctx: CanvasRenderingContext2D,
+  project: (lng: number, lat: number) => [number, number],
+  data: {
+    pois?: PosterPoi[];
+    namedWays?: NamedWay[];
+    namedAreas?: NamedArea[];
+    highlight?: LandmarkHighlight | null;
+  },
+  scale: number,
 ) {
-  if (!map.getStyle()) return false;
-  try {
-    ensureSource(map, "named-areas", namedAreaCollection(namedAreas));
-    ensureSource(map, "named-trails", namedWayCollection(namedWays));
-    ensureSource(map, "full-track", lineCollection(selectedLatLng));
-    ensureSource(map, "crop-track", lineCollection(cropLatLng ?? selectedLatLng));
-    ensureSource(map, "crop-stops", stopsCollection(cropStops));
-    addFill(map, "named-areas-fill", "named-areas", "#c49458", 0.28);
-    addDash(map, "named-areas-line", "named-areas", "#966030");
-    addLine(map, "named-trails-line", "named-trails", "#c2410c", 3, 0.85);
-    addLine(map, "full-track-line", "full-track", "#52525b", 3, 0.4);
-    addLine(map, "crop-track-casing", "crop-track", "#111111", 8, 0.9);
-    addLine(map, "crop-track-line", "crop-track", "#e11d48", 4.5, 1);
-    addStopLayer(map);
-    return Boolean(map.getLayer("crop-track-line"));
-  } catch {
-    return false;
+  const highlight = data.highlight;
+  if (!highlight) return;
+  ctx.save();
+  if (highlight.kind === "area") {
+    const area = data.namedAreas?.find((item) => item.name === highlight.name);
+    if (area) {
+      ctx.fillStyle = "rgba(240, 195, 106, 0.45)";
+      fillProjectedGeometry(ctx, area.geometry, project);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "#c98920";
+      ctx.lineWidth = 3 * scale;
+      fillProjectedGeometry(ctx, area.geometry, project, true);
+    }
+  } else if (highlight.kind === "trail") {
+    const trail = data.namedWays?.find((item) => item.name === highlight.name);
+    if (trail) {
+      ctx.strokeStyle = trail.color || "#fb923c";
+      ctx.lineWidth = 6 * scale;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      for (const line of trail.geometry.coordinates) {
+        if (line.length < 2) continue;
+        ctx.beginPath();
+        line.forEach((point, index) => {
+          const [x, y] = project(point[0], point[1]);
+          if (index === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+    }
+  } else {
+    const poi = data.pois?.find((item) => item.name === highlight.name);
+    if (poi) {
+      const [x, y] = project(poi.lng, poi.lat);
+      ctx.beginPath();
+      ctx.arc(x, y, 8 * scale, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(244, 208, 120, 0.35)";
+      ctx.fill();
+      ctx.lineWidth = 2.5 * scale;
+      ctx.strokeStyle = "#f4d078";
+      ctx.stroke();
+    }
   }
+  ctx.restore();
 }
 
-function addStopLayer(map: Map) {
-  if (map.getLayer("crop-stop-dots")) return;
-  map.addLayer({
-    id: "crop-stop-dots",
-    type: "circle",
-    source: "crop-stops",
-    paint: {
-      "circle-radius": 5,
-      "circle-color": "#e8c36a",
-      "circle-stroke-width": 1.5,
-      "circle-stroke-color": "#111111",
-    },
-  });
-}
-
-function addFill(map: Map, id: string, source: string, color: string, opacity: number) {
-  if (map.getLayer(id)) return;
-  map.addLayer({
-    id,
-    type: "fill",
-    source,
-    paint: { "fill-color": color, "fill-opacity": opacity },
-  });
-}
-
-function addDash(map: Map, id: string, source: string, color: string) {
-  if (map.getLayer(id)) return;
-  map.addLayer({
-    id,
-    type: "line",
-    source,
-    paint: { "line-color": color, "line-width": 1.5, "line-dasharray": [2, 1], "line-opacity": 0.85 },
-  });
-}
-
-function addLine(map: Map, id: string, source: string, color: string, width: number, opacity: number) {
-  if (map.getLayer(id)) return;
-  map.addLayer({
-    id,
-    type: "line",
-    source,
-    layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": color, "line-width": width, "line-opacity": opacity },
-  });
+function fillProjectedGeometry(
+  ctx: CanvasRenderingContext2D,
+  geometry: NamedArea["geometry"],
+  project: (lng: number, lat: number) => [number, number],
+  stroke = false,
+) {
+  const polygons = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
+  for (const polygon of polygons) {
+    ctx.beginPath();
+    for (const ring of polygon) {
+      ring.forEach((point, index) => {
+        const [x, y] = project(point[0], point[1]);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+    }
+    if (stroke) ctx.stroke();
+    else ctx.fill();
+  }
 }
 
 function clearMarkers(markersRef: { current: Marker[] }) {
@@ -1373,6 +1420,7 @@ function syncPoiMarkers(
   markersRef.current = items.map((poi, index) => {
     const root = document.createElement("div");
     root.className = options?.draggable ? "map-poi is-draggable" : "map-poi";
+    root.dataset.name = poi.name;
     const dot = document.createElement("span");
     dot.className = "map-poi-dot";
     if (options?.draggable) {

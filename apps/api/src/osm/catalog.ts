@@ -8,8 +8,13 @@ export type FeatureDef = {
   selectors: string[];
   defaultOn?: boolean;
   weight?: number;
-  amenityMaxM?: number;
+  /** Auto-add corridor in metres for landmark categories. */
+  nearRouteM?: number;
+  kinds?: string[];
 };
+
+export const DEFAULT_NEAR_ROUTE_M = 100;
+export const MAX_NEAR_ROUTE_M = 20_000;
 
 export const FEATURE_CATALOG: FeatureDef[] = [
   {
@@ -90,8 +95,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "poi",
     selectors: ["nwr[natural=peak][name]"],
-    defaultOn: true,
+    defaultOn: false,
     weight: 100,
+    nearRouteM: 100,
+    kinds: ["peak"],
   },
   {
     id: "towns",
@@ -99,8 +106,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "poi",
     selectors: ['nwr[place~"^(city|town|village|hamlet|suburb|locality)$"][name]'],
-    defaultOn: true,
+    defaultOn: false,
     weight: 88,
+    nearRouteM: 1_000,
+    kinds: ["city", "town", "village", "hamlet", "suburb", "locality"],
   },
   {
     id: "neighbourhoods",
@@ -108,8 +117,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "named-areas",
     selectors: ['nwr[place~"^(neighbourhood|quarter)$"][name]'],
-    defaultOn: true,
+    defaultOn: false,
     weight: 46,
+    nearRouteM: 100,
+    kinds: ["neighbourhood", "quarter"],
   },
   {
     id: "named-water",
@@ -120,8 +131,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
       'nwr[natural~"^(water|bay|beach)$"][name]',
       'nwr[waterway~"^(river|waterfall)$"][name]',
     ],
-    defaultOn: true,
+    defaultOn: false,
     weight: 85,
+    nearRouteM: 500,
+    kinds: ["water", "bay", "beach", "river", "waterfall"],
   },
   {
     id: "strava-segments",
@@ -129,8 +142,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "strava-ways",
     selectors: [],
-    defaultOn: true,
+    defaultOn: false,
     weight: 80,
+    nearRouteM: 100,
+    kinds: ["trail"],
   },
   {
     id: "viewpoints",
@@ -138,8 +153,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "poi",
     selectors: ['nwr[tourism~"^(viewpoint|attraction|castle)$"][name]'],
-    defaultOn: true,
+    defaultOn: false,
     weight: 75,
+    nearRouteM: 100,
+    kinds: ["viewpoint", "attraction", "castle"],
   },
   {
     id: "historic",
@@ -149,6 +166,21 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     selectors: ["nwr[historic][name]"],
     defaultOn: false,
     weight: 76,
+    nearRouteM: 100,
+    kinds: [
+      "historic",
+      "memorial",
+      "monument",
+      "ruins",
+      "archaeological_site",
+      "wayside_cross",
+      "wayside_shrine",
+      "battlefield",
+      "fort",
+      "manor",
+      "wreck",
+      "tomb",
+    ],
   },
   {
     id: "named-parks",
@@ -156,8 +188,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "named-areas",
     selectors: ['nwr[leisure~"^(park|nature_reserve)$"][name]'],
-    defaultOn: true,
+    defaultOn: false,
     weight: 62,
+    nearRouteM: 100,
+    kinds: ["park", "nature_reserve"],
   },
   {
     id: "structures",
@@ -165,8 +199,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "poi",
     selectors: ['nwr[man_made~"^(lighthouse|tower|bridge|windmill)$"][name]'],
-    defaultOn: true,
+    defaultOn: false,
     weight: 52,
+    nearRouteM: 100,
+    kinds: ["lighthouse", "tower", "bridge", "windmill"],
   },
   {
     id: "food",
@@ -174,8 +210,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "poi",
     selectors: ['nwr[amenity~"^(cafe|pub|restaurant)$"][name]'],
+    defaultOn: false,
     weight: 32,
-    amenityMaxM: 300,
+    nearRouteM: 100,
+    kinds: ["cafe", "pub", "restaurant"],
   },
   {
     id: "worship",
@@ -183,8 +221,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "poi",
     selectors: ["nwr[amenity=place_of_worship][name]"],
+    defaultOn: false,
     weight: 30,
-    amenityMaxM: 300,
+    nearRouteM: 100,
+    kinds: ["place_of_worship"],
   },
   {
     id: "lodging",
@@ -192,7 +232,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "poi",
     selectors: ['nwr[tourism~"^(alpine_hut|camp_site|wilderness_hut)$"][name]'],
+    defaultOn: false,
     weight: 56,
+    nearRouteM: 100,
+    kinds: ["alpine_hut", "camp_site", "wilderness_hut"],
   },
   {
     id: "playgrounds",
@@ -200,8 +243,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "poi",
     selectors: ["nwr[leisure=playground][name]"],
+    defaultOn: false,
     weight: 28,
-    amenityMaxM: 400,
+    nearRouteM: 100,
+    kinds: ["playground"],
   },
   {
     id: "schools",
@@ -211,7 +256,8 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     selectors: ["nwr[amenity=school][name]"],
     defaultOn: false,
     weight: 50,
-    amenityMaxM: 800,
+    nearRouteM: 100,
+    kinds: ["school"],
   },
   {
     id: "colleges",
@@ -219,9 +265,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "named-areas",
     selectors: ['nwr[amenity~"^(college|university)$"][name]'],
-    defaultOn: true,
+    defaultOn: false,
     weight: 68,
-    amenityMaxM: 1500,
+    nearRouteM: 100,
+    kinds: ["college", "university"],
   },
   {
     id: "cemeteries",
@@ -231,7 +278,8 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     selectors: ["nwr[landuse=cemetery]", "nwr[amenity=grave_yard]"],
     defaultOn: false,
     weight: 54,
-    amenityMaxM: 1200,
+    nearRouteM: 100,
+    kinds: ["cemetery", "grave_yard"],
   },
 ];
 
@@ -288,10 +336,57 @@ export function catalogPublic() {
     label: item.label,
     group: item.group,
     defaultOn: Boolean(item.defaultOn),
+    ...(item.nearRouteM != null ? { nearRouteM: item.nearRouteM } : {}),
   }));
 }
 
-export function resolveFeatures(ids?: string[]): FeatureDef[] {
+export function clampNearRouteM(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return DEFAULT_NEAR_ROUTE_M;
+  return Math.round(Math.min(MAX_NEAR_ROUTE_M, value));
+}
+
+export function parseFeatureSelection(raw?: string): {
+  ids?: string[];
+  nearRouteM: Record<string, number>;
+} {
+  if (!raw?.trim()) return { nearRouteM: {} };
+  const ids: string[] = [];
+  const nearRouteM: Record<string, number> = {};
+  for (const part of raw.split(",")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const colon = trimmed.indexOf(":");
+    if (colon === -1) {
+      ids.push(trimmed);
+      continue;
+    }
+    const id = trimmed.slice(0, colon).trim();
+    if (!id) continue;
+    ids.push(id);
+    const meters = Number(trimmed.slice(colon + 1));
+    if (Number.isFinite(meters) && meters >= 0) nearRouteM[id] = clampNearRouteM(meters);
+  }
+  return { ids, nearRouteM };
+}
+
+export function resolveFeatures(ids?: string[], nearRouteM?: Record<string, number>): FeatureDef[] {
   const wanted = ids?.length ? new Set(ids) : new Set(DEFAULT_FEATURE_IDS);
-  return FEATURE_CATALOG.filter((item) => wanted.has(item.id));
+  return FEATURE_CATALOG.filter((item) => wanted.has(item.id)).map((item) => {
+    const override = nearRouteM?.[item.id];
+    if (override == null || item.group !== "landmarks") return item;
+    return { ...item, nearRouteM: clampNearRouteM(override) };
+  });
+}
+
+export function nearRouteMForKind(kind?: string, selected: FeatureDef[] = FEATURE_CATALOG): number {
+  const pool = selected.length ? selected : FEATURE_CATALOG;
+  if (kind) {
+    const match = pool.find((item) => item.kinds?.includes(kind));
+    if (match?.nearRouteM != null) return match.nearRouteM;
+    const historic = pool.find((item) => item.id === "historic");
+    if (historic?.nearRouteM != null && !FEATURE_CATALOG.some((item) => item.id !== "historic" && item.kinds?.includes(kind))) {
+      return historic.nearRouteM;
+    }
+  }
+  return DEFAULT_NEAR_ROUTE_M;
 }

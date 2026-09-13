@@ -1,3 +1,10 @@
+import {
+  BEACH_NEAR_ROUTE_M,
+  DEFAULT_NEAR_ROUTE_M,
+  TOWN_NEAR_ROUTE_M,
+  nearRouteMForKind,
+} from "./featureCatalog";
+
 export function snapRadius(length: number): number {
   return Math.max(4, Math.min(16, Math.round(Math.max(1, length - 1) * 0.012)));
 }
@@ -30,17 +37,11 @@ export function sliceTrack(latlng: [number, number][], start: number, end: numbe
 }
 
 /** Same corridor the API uses when first picking landmarks. */
-export const LANDMARK_NEAR_ROUTE_M = 100;
-/** Same 500 m beach corridor the API uses. */
-export const BEACH_NEAR_ROUTE_M = 500;
-/** Same 1 km town/village corridor the API uses. */
-export const TOWN_NEAR_ROUTE_M = 1_000;
-const TOWN_KINDS = new Set(["city", "town", "village", "hamlet", "suburb", "locality"]);
+export const LANDMARK_NEAR_ROUTE_M = DEFAULT_NEAR_ROUTE_M;
+export { BEACH_NEAR_ROUTE_M, TOWN_NEAR_ROUTE_M };
 
-export function landmarkNearRouteM(kind?: string): number {
-  if (kind === "beach") return BEACH_NEAR_ROUTE_M;
-  if (kind && TOWN_KINDS.has(kind)) return TOWN_NEAR_ROUTE_M;
-  return LANDMARK_NEAR_ROUTE_M;
+export function landmarkNearRouteM(kind?: string, nearByFeature: Record<string, number> = {}): number {
+  return nearRouteMForKind(kind, nearByFeature);
 }
 
 export function distToTrackM(point: [number, number], latlng: [number, number][]): number {
@@ -132,9 +133,10 @@ const SCHEMATIC_NEAR_ROUTE_M = 600;
 export function schematicBbox(
   latlng: [number, number][],
   extras: Array<{ lat: number; lng: number; distToRouteM?: number; kind?: string }> = [],
+  nearByFeature: Record<string, number> = {},
 ): [[number, number], [number, number]] {
   const near = extras.filter((item) =>
-    isNearTrack(latlng, item, Math.max(SCHEMATIC_NEAR_ROUTE_M, landmarkNearRouteM(item.kind))),
+    isNearTrack(latlng, item, Math.max(SCHEMATIC_NEAR_ROUTE_M, landmarkNearRouteM(item.kind, nearByFeature))),
   );
   return paddedBbox(latlng, near, { padFrac: 0.06, minPadM: 200, maxPadM: 1_200 });
 }

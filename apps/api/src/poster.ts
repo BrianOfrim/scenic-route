@@ -70,6 +70,7 @@ export type PosterEditorSnapshot = {
   variants: number;
   specs?: Record<string, PosterSpec>;
   planCosts?: Record<string, number | null>;
+  landmarkNearM?: Record<string, number>;
 };
 
 export const DEFAULT_VARIANTS = 4;
@@ -419,7 +420,18 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     variants: clampVariants(typeof raw.variants === "number" ? raw.variants : undefined),
     specs: specMap(raw.specs),
     planCosts: costMap(raw.planCosts),
+    landmarkNearM: numberMap(raw.landmarkNearM),
   };
+}
+
+function numberMap(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const next: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const n = typeof raw === "number" ? raw : Number(raw);
+    if (key.trim() && Number.isFinite(n) && n >= 0) next[key] = Math.round(n);
+  }
+  return next;
 }
 
 function sanitizeBatchId(value?: string) {

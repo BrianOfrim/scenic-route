@@ -18,7 +18,16 @@ import {
   type PosterWays,
 } from "../api";
 import { clampCrop, isClosedLoop, isNearCroppedRoute, paddedBbox, schematicBbox, shiftRouteSpans, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
-import { FEATURE_CATALOG, DEFAULT_FEATURE_IDS, type FeatureOption } from "./featureCatalog";
+import {
+  FEATURE_CATALOG,
+  DEFAULT_FEATURE_IDS,
+  MAX_NEAR_ROUTE_M,
+  clampNearRouteM,
+  defaultLandmarkNearM,
+  encodeFeatureQuery,
+  nearRouteMForKind,
+  type FeatureOption,
+} from "./featureCatalog";
 import { planContactSheets, renderContactSheets, type GroundingLayer } from "./grounding/contactSheet";
 import {
   renderSchematicDataUrl,
@@ -34,6 +43,7 @@ import {
   restoreEditor,
   styleIdFromRecord,
 } from "./editorSnapshot";
+import { addedFeatureIds, forgetDismissedForLayers, takeFreshNames } from "./autoNames";
 import { MAX_LABELS, prioritizeLabels } from "./labels";
 import { nearestPlaceName } from "./places";
 import { assignAreaLetters } from "./areaLetters";
@@ -99,6 +109,19 @@ const SATELLITE_LEGEND =
   "real aerial imagery of the same frame; red = GPS track; use for land cover, water, vegetation, and built form; every red stroke is a required segment; do not copy the photograph";
 
 
+function chipHighlight(
+  kind: "area" | "trail" | "poi",
+  name: string,
+  onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void,
+) {
+  return {
+    onMouseEnter: () => onHighlightChange?.({ kind, name }),
+    onMouseLeave: () => onHighlightChange?.(null),
+    onFocus: () => onHighlightChange?.({ kind, name }),
+    onBlur: () => onHighlightChange?.(null),
+  };
+}
+
 function TrailChip({
   trail,
   editing,
@@ -108,6 +131,7 @@ function TrailChip({
   onSave,
   onCancel,
   onRemove,
+  onHighlightChange,
 }: {
   trail: NamedWay;
   editing: boolean;
@@ -117,6 +141,7 @@ function TrailChip({
   onSave: (value: string) => void;
   onCancel: () => void;
   onRemove: () => void;
+  onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const skipBlurRef = useRef(false);
@@ -128,7 +153,11 @@ function TrailChip({
   const title =
     trail.source === "user" ? "Named by hand on the schematic" : "Named trail on the schematic";
   return (
-    <span className="chip on" title={editing ? undefined : `${title}. Click the name to rename.`}>
+    <span
+      className="chip on"
+      title={editing ? undefined : `${title}. Click the name to rename.`}
+      {...chipHighlight("trail", trail.name, onHighlightChange)}
+    >
       <span className="chip-swatch" style={{ background: trail.color }} aria-hidden />
       {editing ? (
         <input
@@ -232,6 +261,23 @@ function groundingLayers(
   return layers;
 }
 
+function seedDismissed(incoming: string[], selected: string[], dismissed: Set<string>) {
+  dismissed.clear();
+  const keep = new Set(selected);
+  for (const name of incoming) {
+    if (!keep.has(name)) dismissed.add(name);
+  }
+}
+
+function FeatureQueryHint({ label }: { label: string }) {
+  return (
+    <span className="feature-query" aria-live="polite">
+      <span className="spinner" aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
+
 function sentRefsHint(maxRefs: number, hasSatellite: boolean, satellitePending: boolean, routeOnly = false) {
   const parts = ["schematic"];
   if (!routeOnly && maxRefs >= 2) {
@@ -271,6 +317,7 @@ type Props = {
   moveLandmark?: { name: string; lat: number; lng: number; nonce: number } | null;
   placeSection?: { name: string; start: number; end: number; nonce: number } | null;
   renameTrail?: { name: string; next: string; nonce: number } | null;
+  onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
 };
 
 export function PosterPanel({
@@ -293,15 +340,26 @@ export function PosterPanel({
   moveLandmark,
   placeSection,
   renameTrail: renameTrailEvent,
+  onHighlightChange,
 }: Props) {
-  const catalog = FEATURE_CATALOG.map(
-    (item) => features.find((feature) => feature.id === item.id) ?? item,
-  );
+  const catalog = FEATURE_CATALOG.map((item) => {
+    const remote = features.find((feature) => feature.id === item.id);
+    if (!remote) return item;
+    return { ...item, ...remote, nearRouteM: remote.nearRouteM ?? item.nearRouteM };
+  });
   const seeded = useMemo(() => editorSeed(refineFrom), [refineFrom]);
   const [context, setContext] = useState<PosterContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [featureIds, setFeatureIds] = useState<string[]>(() => seeded?.featureIds ?? DEFAULT_FEATURE_IDS);
+  const [landmarkNearM, setLandmarkNearM] = useState<Record<string, number>>(() => ({
+    ...defaultLandmarkNearM(),
+    ...seeded?.landmarkNearM,
+  }));
+  const [nearDrafts, setNearDrafts] = useState<Record<string, string>>({});
+  const dismissedAutoNames = useRef({ pois: new Set<string>(), trails: new Set<string>(), areas: new Set<string>() });
+  const enabledFeatureIds = useRef<string[] | null>(null);
+  const nearDebounce = useRef<number | null>(null);
   const [styleIds, setStyleIds] = useState<string[]>(() => seeded?.styleIds ?? [styleIdFromRecord(refineFrom)]);
   const [stylePrompt, setStylePrompt] = useState(seeded?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
   const [paletteIdsByStyle, setPaletteIdsByStyle] = useState<Record<string, string[]>>(
@@ -318,12 +376,13 @@ export function PosterPanel({
   const [finishPlace, setFinishPlace] = useState("");
   const [placesEdited, setPlacesEdited] = useState(false);
   const [statIds, setStatIds] = useState<string[]>(["title", "date", "distance", "movingTime"]);
-  const [labels, setLabels] = useState<string[]>([]);
-  const [trailNames, setTrailNames] = useState<string[]>([]);
+  const [labels, setLabels] = useState<string[]>(() => seeded?.labels ?? []);
+  const [trailNames, setTrailNames] = useState<string[]>(() => seeded?.trailNames ?? []);
   const [trailAliases, setTrailAliases] = useState<Record<string, string>>({});
   const [editingTrail, setEditingTrail] = useState<string | null>(null);
   const [editingTrailName, setEditingTrailName] = useState("");
-  const [areaNames, setAreaNames] = useState<string[]>([]);
+  const [areaNames, setAreaNames] = useState<string[]>(() => seeded?.areaNames ?? []);
+  const allowRefineAutoNames = useRef(false);
   const [customPois, setCustomPois] = useState<PosterPoi[]>([]);
   const [customWays, setCustomWays] = useState<NamedWay[]>([]);
   const [cropStart, setCropStart] = useState(0);
@@ -361,6 +420,14 @@ export function PosterPanel({
   const cropActivityId = useRef<number | null>(null);
 
   useEffect(() => {
+    return () => onHighlightChange?.(null);
+  }, [activityId]);
+  const featureQuery = useMemo(
+    () => encodeFeatureQuery(featureIds.filter((id) => id !== "named-trails"), landmarkNearM, catalog),
+    [featureIds, landmarkNearM, catalog],
+  );
+
+  useEffect(() => {
     let cancelled = false;
     void fetchPosterCapabilities().then((caps) => {
       if (!cancelled) setImageModels(caps.models);
@@ -383,17 +450,23 @@ export function PosterPanel({
   useEffect(() => {
     let cancelled = false;
     const activityChanged = cropActivityId.current !== activityId;
+    setLoading(true);
     if (activityChanged) {
-      setLoading(true);
       setError(null);
     }
-    fetchPosterContext(
-      activityId,
-      featureIds.filter((id) => id !== "named-trails"),
-    )
+    fetchPosterContext(activityId, featureIds.filter((id) => id !== "named-trails"), featureQuery)
       .then((next) => {
         if (cancelled) return;
         setContext(next);
+        const incomingPois = next.pois.map((poi) => poi.name);
+        const incomingTrails = (next.namedWays ?? []).map((trail) => trail.name);
+        const incomingAreas = (next.namedAreas ?? []).map((area) => area.name);
+        if (activityChanged) enabledFeatureIds.current = null;
+        const newlyEnabled = addedFeatureIds(enabledFeatureIds.current, featureIds);
+        enabledFeatureIds.current = featureIds;
+        forgetDismissedForLayers(dismissedAutoNames.current.pois, next.pois, newlyEnabled);
+        forgetDismissedForLayers(dismissedAutoNames.current.trails, next.namedWays ?? [], newlyEnabled);
+        forgetDismissedForLayers(dismissedAutoNames.current.areas, next.namedAreas ?? [], newlyEnabled);
         if (activityChanged) {
           cropActivityId.current = activityId;
           setEditingTrail(null);
@@ -403,11 +476,17 @@ export function PosterPanel({
           if (refineFrom) {
             const restored = restoreEditor(refineFrom, next.latlng.length, {
               title: next.activity.name || "Ride",
-              labels: next.pois.map((poi) => poi.name),
-              trailNames: (next.namedWays ?? []).map((trail) => trail.name),
-              areaNames: (next.namedAreas ?? []).map((area) => area.name),
+              labels: [],
+              trailNames: [],
+              areaNames: [],
             });
             setFeatureIds(restored.featureIds);
+            enabledFeatureIds.current = restored.featureIds;
+            allowRefineAutoNames.current = false;
+            setLandmarkNearM({ ...defaultLandmarkNearM(catalog), ...restored.landmarkNearM });
+            seedDismissed(incomingPois, restored.labels, dismissedAutoNames.current.pois);
+            seedDismissed(incomingTrails, restored.trailNames, dismissedAutoNames.current.trails);
+            seedDismissed(incomingAreas, restored.areaNames, dismissedAutoNames.current.areas);
             setLabels(restored.labels);
             setTrailNames(restored.trailNames);
             setTrailAliases(restored.trailAliases);
@@ -439,9 +518,13 @@ export function PosterPanel({
             setResult(refineFrom);
             setBatchResults([refineFrom]);
           } else {
-            setLabels(next.pois.map((poi) => poi.name));
-            setTrailNames((next.namedWays ?? []).map((trail) => trail.name));
-            setAreaNames((next.namedAreas ?? []).map((area) => area.name));
+            dismissedAutoNames.current.pois.clear();
+            dismissedAutoNames.current.trails.clear();
+            dismissedAutoNames.current.areas.clear();
+            allowRefineAutoNames.current = false;
+            setLabels(incomingPois);
+            setTrailNames(incomingTrails);
+            setAreaNames(incomingAreas);
             setTitle(next.activity.name || "Ride");
             setCropStart(0);
             setCropEnd(Math.max(1, next.latlng.length - 1));
@@ -459,6 +542,11 @@ export function PosterPanel({
           const last = Math.max(1, next.latlng.length - 1);
           setCropStart((start) => Math.min(start, last - 1));
           setCropEnd((end) => Math.min(Math.max(end, 1), last));
+          if (!refineFrom || allowRefineAutoNames.current) {
+            setLabels((current) => takeFreshNames(current, incomingPois, dismissedAutoNames.current.pois));
+            setTrailNames((current) => takeFreshNames(current, incomingTrails, dismissedAutoNames.current.trails));
+            setAreaNames((current) => takeFreshNames(current, incomingAreas, dismissedAutoNames.current.areas));
+          }
         }
       })
       .catch((err: unknown) => {
@@ -470,7 +558,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [activityId, featureIds.join(",")]);
+  }, [activityId, featureQuery]);
 
   const croppedLatLng = useMemo(() => {
     if (!context?.latlng?.length) return [];
@@ -489,15 +577,19 @@ export function PosterPanel({
 
   // context.pois arrive ranked by the API (kind weight minus distance);
   // user-added landmarks go first so they stay prominent in the prompt.
+  const selectedPlaceNames = useMemo(() => new Set([...labels, ...areaNames]), [labels, areaNames]);
+
   const selectedPois = useMemo(() => {
-    const suggested = (context?.pois ?? []).filter((poi) => labels.includes(poi.name));
+    const suggested = (context?.pois ?? []).filter((poi) => selectedPlaceNames.has(poi.name));
     const ranked = prioritizeLabels(suggested, customPois);
     if (croppedLatLng.length < 2) return ranked;
     const customNames = new Set(customPois.map((poi) => poi.name.trim().toLowerCase()));
     return ranked.filter(
-      (poi) => customNames.has(poi.name.trim().toLowerCase()) || isNearCroppedRoute(poi, croppedLatLng),
+      (poi) =>
+        customNames.has(poi.name.trim().toLowerCase()) ||
+        isNearCroppedRoute(poi, croppedLatLng, nearRouteMForKind(poi.kind, landmarkNearM)),
     );
-  }, [context, labels, customPois, croppedLatLng]);
+  }, [context, selectedPlaceNames, customPois, croppedLatLng, landmarkNearM]);
 
   const selectedNamedWays = useMemo(() => {
     const suggested = (context?.namedWays ?? []).filter((trail) => trailNames.includes(trail.name));
@@ -514,11 +606,13 @@ export function PosterPanel({
   }, [context, trailNames, customWays, cropStart, cropEnd, trailAliases]);
 
   const selectedNamedAreas = useMemo(() => {
-    const areas = (context?.namedAreas ?? []).filter((area) => areaNames.includes(area.name));
+    const areas = (context?.namedAreas ?? []).filter((area) => selectedPlaceNames.has(area.name));
     const nearRoute =
-      croppedLatLng.length < 2 ? areas : areas.filter((area) => isNearCroppedRoute(area, croppedLatLng));
+      croppedLatLng.length < 2
+        ? areas
+        : areas.filter((area) => isNearCroppedRoute(area, croppedLatLng, nearRouteMForKind(area.kind, landmarkNearM)));
     return assignAreaLetters(nearRoute);
-  }, [context, areaNames, croppedLatLng]);
+  }, [context, selectedPlaceNames, croppedLatLng, landmarkNearM]);
 
   const posterPois = routeOnly ? EMPTY_POIS : selectedPois;
   const posterWays = routeOnly ? EMPTY_WAYS : selectedNamedWays;
@@ -539,8 +633,8 @@ export function PosterPanel({
   }, [context, croppedLatLng, posterPois, posterWays, posterAreas]);
   const groundingBbox = useMemo(() => {
     if (croppedLatLng.length < 2) return displayBbox;
-    return schematicBbox(croppedLatLng, [...posterPois, ...posterWays, ...posterAreas]);
-  }, [croppedLatLng, posterPois, posterWays, posterAreas, displayBbox]);
+    return schematicBbox(croppedLatLng, [...posterPois, ...posterWays, ...posterAreas], landmarkNearM);
+  }, [croppedLatLng, posterPois, posterWays, posterAreas, displayBbox, landmarkNearM]);
 
   const loopRide = useMemo(() => isClosedLoop(croppedLatLng), [croppedLatLng]);
 
@@ -611,16 +705,19 @@ export function PosterPanel({
   }, [schematicLayers, onSchematicLayersChange]);
 
   const removePoi = useCallback((name: string) => {
+    dismissedAutoNames.current.pois.add(name);
     setCustomPois((current) => current.filter((item) => item.name !== name));
     setLabels((current) => current.filter((item) => item !== name));
   }, []);
 
   const removeArea = useCallback((name: string) => {
+    dismissedAutoNames.current.areas.add(name);
     setAreaNames((current) => current.filter((item) => item !== name));
   }, []);
 
   const removeTrail = useCallback((name: string) => {
     const source = trailSourceName(name, trailAliases);
+    dismissedAutoNames.current.trails.add(source);
     setCustomWays((current) => current.filter((item) => item.name !== source));
     setTrailNames((current) => current.filter((item) => item !== source));
     setTrailAliases((current) => {
@@ -702,6 +799,7 @@ export function PosterPanel({
       }
       return [...current, next];
     });
+    dismissedAutoNames.current.pois.delete(name);
     setLabels((current) => (current.includes(name) ? current : [...current, name]));
     setLandmarkHint(`Moved ${name}`);
   }, [moveLandmark]);
@@ -1005,6 +1103,7 @@ export function PosterPanel({
               promptCost: planCosts[job.slotKey] ?? specForSlot(planCosts, job.styleId, job.paletteId) ?? null,
               editor: captureEditorSnapshot({
                 featureIds,
+                landmarkNearM,
                 labels,
                 trailNames,
                 trailAliases,
@@ -1107,6 +1206,7 @@ export function PosterPanel({
     setCustomPois((current) =>
       current.some((item) => item.name.toLowerCase() === poi.name.toLowerCase()) ? current : [...current, poi],
     );
+    dismissedAutoNames.current.pois.delete(poi.name);
     setLabels((current) => (current.includes(poi.name) ? current : [...current, poi.name]));
     setLandmarkChoices(null);
   }
@@ -1118,9 +1218,39 @@ export function PosterPanel({
   }
 
   function toggleFeature(id: string) {
+    if (refineFrom) allowRefineAutoNames.current = true;
     setFeatureIds((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
+  }
+
+  function landmarkNearValue(id: string, fallback?: number) {
+    return landmarkNearM[id] ?? fallback ?? 100;
+  }
+
+  function commitLandmarkNear(id: string, raw: string) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+      setNearDrafts((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      return;
+    }
+    const meters = clampNearRouteM(parsed);
+    setLandmarkNearM((current) => (current[id] === meters ? current : { ...current, [id]: meters }));
+    setNearDrafts((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function draftLandmarkNear(id: string, raw: string) {
+    setNearDrafts((current) => ({ ...current, [id]: raw }));
+    if (nearDebounce.current != null) window.clearTimeout(nearDebounce.current);
+    nearDebounce.current = window.setTimeout(() => commitLandmarkNear(id, raw), 450);
   }
 
   function styleForPlan(style: ReturnType<typeof styleById>, selectedPaletteId: string) {
@@ -1236,6 +1366,8 @@ export function PosterPanel({
     return planSlotLabel(item.styleId, item.paletteId ?? AUTO_PALETTE_ID, item.spec.style.name);
   }
 
+  const showEditor = context != null && cropActivityId.current === activityId;
+  const featuresRefreshing = loading && showEditor;
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
   const croppedKm = trackDistanceM(croppedLatLng);
   const busy = planning || generating;
@@ -1328,9 +1460,12 @@ export function PosterPanel({
           Close
         </button>
       </div>
-      {loading && (
+      {loading && !showEditor && (
         <div className="panel-block">
-          <p className="muted">Loading nearby features…</p>
+          <p className="muted feature-query-block">
+            <span className="spinner" aria-hidden="true" />
+            Loading nearby features…
+          </p>
         </div>
       )}
       {error && (
@@ -1338,7 +1473,7 @@ export function PosterPanel({
           <p className="error">{error}</p>
         </div>
       )}
-      {context && !loading && (
+      {showEditor && context && (
         <div className="poster-body">
           <div className="panel-block">
             <div className="eyebrow">Content</div>
@@ -1455,8 +1590,11 @@ export function PosterPanel({
 
           {!routeOnly && (
           <>
-          <div className="panel-block">
-            <div className="eyebrow">Geography</div>
+          <div className="panel-block" aria-busy={featuresRefreshing}>
+            <div className="eyebrow-row">
+              <div className="eyebrow">Geography</div>
+              {featuresRefreshing && <FeatureQueryHint label="Querying OpenStreetMap…" />}
+            </div>
             {catalog
               .filter((item) => item.group === "geography")
               .map((item) => (
@@ -1471,20 +1609,50 @@ export function PosterPanel({
               ))}
           </div>
 
-          <div className="panel-block">
-            <div className="eyebrow">Landmarks</div>
+          <div className="panel-block" aria-busy={featuresRefreshing}>
+            <div className="eyebrow-row">
+              <div className="eyebrow">Landmarks</div>
+              {featuresRefreshing && <FeatureQueryHint label="Querying OpenStreetMap…" />}
+            </div>
             {catalog
               .filter((item) => item.group === "landmarks")
-              .map((item) => (
-                <label key={item.id} className="check">
-                  <input
-                    type="checkbox"
-                    checked={featureIds.includes(item.id)}
-                    onChange={() => toggleFeature(item.id)}
-                  />
-                  {item.label}
-                </label>
-              ))}
+              .map((item) => {
+                const meters = landmarkNearValue(item.id, item.nearRouteM);
+                return (
+                  <div key={item.id} className="landmark-row">
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={featureIds.includes(item.id)}
+                        onChange={() => toggleFeature(item.id)}
+                      />
+                      {item.label}
+                    </label>
+                    <label className="near-route">
+                      <span className="sr-only">Auto-add distance for {item.label}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={MAX_NEAR_ROUTE_M}
+                        step={50}
+                        value={nearDrafts[item.id] ?? meters}
+                        onChange={(event) => draftLandmarkNear(item.id, event.target.value)}
+                        onBlur={(event) => commitLandmarkNear(item.id, event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            commitLandmarkNear(item.id, event.currentTarget.value);
+                          }
+                        }}
+                      />
+                      m
+                    </label>
+                  </div>
+                );
+              })}
+            <p className="muted">
+              Auto-added if within this many metres of the route.
+            </p>
             <div className="chip-row">
               {selectedNamedAreas.map((area) => (
                 <button
@@ -1492,7 +1660,8 @@ export function PosterPanel({
                   type="button"
                   className="chip on"
                   title={`Wash ${area.letter} on the schematic`}
-                  onClick={() => setAreaNames((current) => current.filter((name) => name !== area.name))}
+                  onClick={() => removeArea(area.name)}
+                  {...chipHighlight("area", area.name, onHighlightChange)}
                 >
                   {area.letter} {area.name} ×
                 </button>
@@ -1514,6 +1683,7 @@ export function PosterPanel({
                   }}
                   onCancel={() => setEditingTrail(null)}
                   onRemove={() => removeTrail(trail.name)}
+                  onHighlightChange={onHighlightChange}
                 />
               ))}
               {selectedPois.map((poi, index) => (
@@ -1527,6 +1697,7 @@ export function PosterPanel({
                       : `Disc ${index + 1} on the schematic`
                   }
                   onClick={() => removePoi(poi.name)}
+                  {...chipHighlight("poi", poi.name, onHighlightChange)}
                 >
                   {index + 1} {poi.name} ×
                 </button>

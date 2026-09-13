@@ -20,7 +20,7 @@ import {
 import { formatDate, formatDuration, formatElevation, formatKm, formatSpeed } from "../format";
 import { loadActivitySegmentEfforts } from "../stravaSegments";
 import type { StravaSegmentEffort } from "../strava";
-import { KIND_WEIGHTS, resolveFeatures, type FeatureDef } from "./catalog";
+import { KIND_WEIGHTS, nearRouteMForKind, resolveFeatures, type FeatureDef } from "./catalog";
 import { collection, emptyCollection, queryOverpass, unionQuery } from "./overpass";
 
 const MIN_STRAVA_SEGMENT_M = 200;
@@ -32,13 +32,6 @@ const MAX_LINE_POINTS = 80;
 const AREA_MAX_OCCUPANCY = 0.45;
 const AREA_MIN_OCCUPANCY = 0.01;
 const AREA_ON_GROUNDS_M = 1500;
-/** Default landmarks: ride through them, or pass within this corridor. */
-const LANDMARK_NEAR_ROUTE_M = 100;
-/** Named beaches are often large; keep them if the route comes within 500 m. */
-const BEACH_NEAR_ROUTE_M = 500;
-/** Towns and villages are settlement nodes, often well off the GPS line. */
-const TOWN_NEAR_ROUTE_M = 1_000;
-const TOWN_KINDS = new Set(["city", "town", "village", "hamlet", "suburb", "locality"]);
 const AREA_SPECIFICITY: Record<string, number> = {
   university: 3,
   college: 3,
@@ -49,18 +42,6 @@ const AREA_SPECIFICITY: Record<string, number> = {
   quarter: 1,
 };
 const SPECIAL_BUCKETS = new Set(["poi", "named-ways", "strava-ways", "named-areas"]);
-const AMENITY_KINDS = new Set([
-  "cafe",
-  "pub",
-  "restaurant",
-  "place_of_worship",
-  "playground",
-  "school",
-  "college",
-  "university",
-  "cemetery",
-  "grave_yard",
-]);
 
 export type PosterPoi = {
   name: string;
@@ -159,7 +140,11 @@ const WAY_BUCKETS = [
   "cemeteries",
 ] as const;
 
-export async function loadRouteFeatures(activityId: number, featureIds?: string[]): Promise<PosterContext> {
+export async function loadRouteFeatures(
+  activityId: number,
+  featureIds?: string[],
+  nearRouteM?: Record<string, number>,
+): Promise<PosterContext> {
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new Error("activityId is required");
   }
@@ -170,7 +155,7 @@ export async function loadRouteFeatures(activityId: number, featureIds?: string[
   const stops = findStopIndexes(latlng, parseNumberArray(row.time), parseNumberArray(row.velocity));
   const simplified = simplifyTrack(latlng, 1200, stops);
 
-  const features = resolveFeatures(featureIds);
+  const features = resolveFeatures(featureIds, nearRouteM);
   const trackBbox = bboxFromLatLng(latlng);
   const trackDiagonal = bboxDiagonal(trackBbox);
   const padM = padMeters(trackDiagonal);
@@ -244,7 +229,7 @@ export async function loadRouteFeatures(activityId: number, featureIds?: string[
     latlng: simplified.points,
     stops: simplified.kept,
     ways,
-    namedWays: namedWaysFromSegmentEfforts(stravaEfforts, latlng, padded).map((way) => ({
+    namedWays: namedWaysFromSegmentEfforts(stravaEfforts, latlng, padded, features).map((way) => ({
       ...way,
       routeSpans: remapRouteSpans(way.routeSpans, simplified.indexes),
     })),
@@ -306,7 +291,6 @@ export function rankPois(
   bbox: BBox,
   selected: FeatureDef[],
 ): PosterPoi[] {
-  const amenityMax = Math.min(...selected.map((item) => item.amenityMaxM ?? Number.POSITIVE_INFINITY));
   const center = centroid(latlng);
   const ranked = new Map<string, PosterPoi & { score: number }>();
   for (const feature of geojson.features) {
@@ -316,8 +300,7 @@ export function rankPois(
     if (!point) continue;
     const kind = classifyPoi(featureTags(feature));
     const hit = poiRouteHit(feature, point[0], point[1], latlng);
-    if (!isAlongRoute(hit.distM, kind)) continue;
-    if (AMENITY_KINDS.has(kind) && Number.isFinite(amenityMax) && hit.distM > amenityMax) continue;
+    if (!isAlongRoute(hit.distM, kind, selected)) continue;
     const key = name.toLowerCase();
     const existing = ranked.get(key);
     if (existing && hit.distM >= existing.distToRouteM) continue;
@@ -345,6 +328,7 @@ export function namedWaysFromSegmentEfforts(
   efforts: StravaSegmentEffort[],
   latlng: LatLng[],
   bbox: BBox,
+  selected: FeatureDef[] = [],
 ): NamedWay[] {
   const features = [];
   for (const effort of efforts) {
@@ -363,7 +347,7 @@ export function namedWaysFromSegmentEfforts(
       geometry: { type: "LineString" as const, coordinates },
     });
   }
-  return collectNamedWays(collection(features), latlng, bbox, "strava");
+  return collectNamedWays(collection(features), latlng, bbox, "strava", selected);
 }
 
 export function collectNamedWays(
@@ -371,6 +355,7 @@ export function collectNamedWays(
   latlng: LatLng[],
   bbox: BBox,
   source: NamedWay["source"] = "osm",
+  selected: FeatureDef[] = [],
 ): NamedWay[] {
   const groups = new Map<
     string,
@@ -400,7 +385,7 @@ export function collectNamedWays(
       .filter((line) => line.length >= 2);
     if (!simplified.length) continue;
     const anchor = closestOnLines(simplified, latlng);
-    if (!anchor || !isAlongRoute(anchor.distM, group.kind)) continue;
+    if (!anchor || !isAlongRoute(anchor.distM, group.kind, selected)) continue;
     ranked.push({
       name: group.name,
       kind: group.kind,
@@ -459,7 +444,6 @@ export function collectNamedAreas(
   bbox: BBox,
   selected: FeatureDef[] = [],
 ): { areas: NamedArea[]; fallbacks: Feature[] } {
-  const amenityMax = Math.min(...selected.map((item) => item.amenityMaxM ?? Number.POSITIVE_INFINITY));
   const center = centroid(latlng);
   const ranked = new Map<string, NamedArea & { score: number }>();
   const fallbacks: Feature[] = [];
@@ -480,8 +464,7 @@ export function collectNamedAreas(
     }
     const simplified = simplifyArea(geometry, MAX_LINE_POINTS);
     const anchor = closestOnArea(simplified, latlng);
-    if (!anchor || !isAlongRoute(anchor.distM, kind)) continue;
-    if (AMENITY_KINDS.has(kind) && Number.isFinite(amenityMax) && anchor.distM > amenityMax) continue;
+    if (!anchor || !isAlongRoute(anchor.distM, kind, selected)) continue;
     const key = name.toLowerCase();
     const existing = ranked.get(key);
     if (existing && anchor.distM >= existing.distToRouteM) continue;
@@ -764,14 +747,8 @@ function intersectBbox(a: BBox, b: BBox): BBox | null {
   return [minLng, minLat, maxLng, maxLat];
 }
 
-function landmarkNearRouteM(kind?: string): number {
-  if (kind === "beach") return BEACH_NEAR_ROUTE_M;
-  if (kind && TOWN_KINDS.has(kind)) return TOWN_NEAR_ROUTE_M;
-  return LANDMARK_NEAR_ROUTE_M;
-}
-
-function isAlongRoute(distM: number, kind?: string): boolean {
-  return distM <= landmarkNearRouteM(kind);
+function isAlongRoute(distM: number, kind?: string, selected: FeatureDef[] = []): boolean {
+  return distM <= nearRouteMForKind(kind, selected);
 }
 
 function poiRouteHit(

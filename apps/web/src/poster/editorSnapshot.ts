@@ -1,8 +1,25 @@
 import type { NamedWay, PosterPoi, PosterRecord, PosterSpec } from "../api";
 import { clampCrop } from "./crop";
-import { DEFAULT_FEATURE_IDS } from "./featureCatalog";
+import { DEFAULT_FEATURE_IDS, FEATURE_CATALOG } from "./featureCatalog";
 import type { AspectRatio } from "./grounding/renderSchematic";
 import { AUTO_PALETTE_ID, DEFAULT_POSTER_STYLE, POSTER_STYLES, planSlotKey, snapshotPaletteIds } from "./styles";
+
+const NAMED_REGION_KINDS = new Set([
+  "neighbourhood",
+  "neighborhood",
+  "quarter",
+  "university",
+  "college",
+  "campus",
+  "park",
+  "nature_reserve",
+]);
+
+export type SavedSetupNames = {
+  labels: string[];
+  trailNames: string[];
+  areaNames: string[];
+};
 
 const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
 
@@ -32,6 +49,7 @@ export type PosterEditorSnapshot = {
   variants: number;
   specs: Partial<Record<string, PosterSpec>>;
   planCosts: Partial<Record<string, number | null>>;
+  landmarkNearM?: Record<string, number>;
 };
 
 export type EditorCapture = {
@@ -60,6 +78,7 @@ export type EditorCapture = {
   variants: number;
   specs: Partial<Record<string, PosterSpec>>;
   planCosts: Partial<Record<string, number | null>>;
+  landmarkNearM?: Record<string, number>;
 };
 
 export function asAspectRatio(value?: string | null): AspectRatio {
@@ -120,6 +139,7 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
     variants: input.variants,
     specs: { ...input.specs },
     planCosts: { ...input.planCosts },
+    landmarkNearM: { ...(input.landmarkNearM ?? {}) },
   };
 }
 
@@ -149,6 +169,7 @@ export type RestoredEditor = {
   variants: number | null;
   specs: Partial<Record<string, PosterSpec>>;
   planCosts: Partial<Record<string, number | null>>;
+  landmarkNearM: Record<string, number>;
 };
 
 function savedStartFinish(record: PosterRecord) {
@@ -166,6 +187,162 @@ function snapshotOf(record: PosterRecord) {
   return record.editor && typeof record.editor === "object" ? record.editor : undefined;
 }
 
+function uniqueNames(names: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of names) {
+    const name = raw.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+function firstNonEmpty(...lists: Array<string[] | undefined>): string[] {
+  for (const list of lists) {
+    if (list?.length) return uniqueNames(list);
+  }
+  return [];
+}
+
+function splitNameList(text: string) {
+  return text
+    .split(/\s*(?:,|\band\b)\s*/i)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function looksLikePlaceName(name: string) {
+  if (name.length < 2 || name.length > 80) return false;
+  if (/^(an|a|the)\s/i.test(name)) return false;
+  return /[A-Z]/.test(name[0] ?? "");
+}
+
+function slicePromptSection(prompt: string, heading: RegExp) {
+  const match = heading.exec(prompt);
+  if (!match) return "";
+  const start = match.index + match[0].length;
+  const rest = prompt.slice(start);
+  const end = rest.search(/\n\n|\nReference images:|\nTitle, exactly:|\nLandmarks:|\nAvoid:/);
+  return (end >= 0 ? rest.slice(0, end) : rest).trim();
+}
+
+export function namesFromSpec(spec?: PosterSpec | null): SavedSetupNames {
+  const labels: string[] = [];
+  const trailNames: string[] = [];
+  const areaNames: string[] = [];
+  if (!spec) return { labels, trailNames, areaNames };
+  for (const item of spec.landmarks ?? []) {
+    if (item.name?.trim()) labels.push(item.name.trim());
+  }
+  for (const item of spec.geography ?? []) {
+    const name = item.name?.trim();
+    if (!name) continue;
+    const kind = (item.kind ?? "").trim().toLowerCase();
+    const isTrail = Boolean(item.color) || kind === "trail" || kind === "path";
+    const isArea = Boolean(item.letter) || NAMED_REGION_KINDS.has(kind);
+    if (isTrail) trailNames.push(name);
+    else if (isArea) areaNames.push(name);
+    else labels.push(name);
+  }
+  return {
+    labels: uniqueNames(labels),
+    trailNames: uniqueNames(trailNames),
+    areaNames: uniqueNames(areaNames),
+  };
+}
+
+export function namesFromPrompt(prompt?: string | null): SavedSetupNames {
+  const labels: string[] = [];
+  const trailNames: string[] = [];
+  const areaNames: string[] = [];
+  if (!prompt) return { labels, trailNames, areaNames };
+
+  const geography = slicePromptSection(prompt, /(?:^|\n)Geography:\s*/);
+  if (geography) {
+    for (const match of geography.matchAll(/labeled district\s+(.+?)\s*\(/gi)) {
+      areaNames.push(match[1].trim());
+    }
+    for (const match of geography.matchAll(/(?:^|;\s+)(?:named )?(?:path|trail)\s+(.+?)\s*\(/gi)) {
+      trailNames.push(match[1].trim());
+    }
+  }
+
+  const landmarks = slicePromptSection(prompt, /(?:^|\n)Landmarks:\s*/) || slicePromptSection(prompt, /Label these landmarks[^:]*:\s*/i);
+  if (landmarks) {
+    for (const match of landmarks.matchAll(/"([^"]+)"/g)) {
+      const name = match[1].trim();
+      if (/\b(park|reserve|campus|university|college|recreation)\b/i.test(name)) areaNames.push(name);
+      else labels.push(name);
+    }
+  }
+
+  if (!labels.length && !trailNames.length && !areaNames.length) {
+    const lettered = prompt.match(/hand-lettered names for ([^.]+)\./i);
+    if (lettered) labels.push(...splitNameList(lettered[1]).filter(looksLikePlaceName));
+  }
+
+  const areas = new Set(uniqueNames(areaNames).map((name) => name.toLowerCase()));
+  const trails = new Set(uniqueNames(trailNames).map((name) => name.toLowerCase()));
+  return {
+    labels: uniqueNames(labels).filter((name) => !areas.has(name.toLowerCase()) && !trails.has(name.toLowerCase())),
+    trailNames: uniqueNames(trailNames),
+    areaNames: uniqueNames(areaNames),
+  };
+}
+
+export function savedSetupNames(record: PosterRecord): SavedSetupNames {
+  const editor = snapshotOf(record);
+  const fromEditor =
+    editor && (editor.labels.length > 0 || editor.trailNames.length > 0 || editor.areaNames.length > 0);
+  if (fromEditor && editor) {
+    return {
+      labels: uniqueNames(editor.labels),
+      trailNames: uniqueNames(editor.trailNames),
+      areaNames: uniqueNames(editor.areaNames),
+    };
+  }
+  const spec = namesFromSpec(record.spec);
+  const prompt = namesFromPrompt(record.spec?.finalPrompt || record.prompt);
+  return {
+    labels: firstNonEmpty(record.labels, spec.labels, prompt.labels),
+    trailNames: firstNonEmpty(spec.trailNames, prompt.trailNames),
+    areaNames: firstNonEmpty(spec.areaNames, prompt.areaNames),
+  };
+}
+
+export function featureIdsToResolveNames(featureIds: string[], names: SavedSetupNames): string[] {
+  const ids = [...(featureIds.length ? featureIds : DEFAULT_FEATURE_IDS)];
+  const hasLandmark = ids.some((id) => FEATURE_CATALOG.some((item) => item.id === id && item.group === "landmarks"));
+  const need = names.labels.length > 0 || names.trailNames.length > 0 || names.areaNames.length > 0;
+  if (hasLandmark || !need) return ids;
+  const extra = new Set<string>();
+  if (names.areaNames.length) {
+    extra.add("named-parks");
+    extra.add("neighbourhoods");
+    extra.add("colleges");
+  }
+  if (names.trailNames.length) extra.add("strava-segments");
+  if (names.labels.length) {
+    extra.add("playgrounds");
+    extra.add("peaks");
+    extra.add("named-parks");
+    extra.add("viewpoints");
+    extra.add("historic");
+    extra.add("towns");
+    extra.add("structures");
+    extra.add("schools");
+    extra.add("colleges");
+  }
+  for (const item of FEATURE_CATALOG) {
+    if (extra.has(item.id) && !ids.includes(item.id)) ids.push(item.id);
+  }
+  return ids;
+}
+
 export function editorSeed(record?: PosterRecord | null) {
   if (!record) return null;
   const restored = restoreEditor(record, 2, {
@@ -176,6 +353,9 @@ export function editorSeed(record?: PosterRecord | null) {
   });
   return {
     featureIds: restored.featureIds,
+    labels: restored.labels,
+    trailNames: restored.trailNames,
+    areaNames: restored.areaNames,
     styleIds: restored.styleIds,
     stylePrompt: restored.stylePrompt,
     paletteId: restored.paletteId,
@@ -188,6 +368,7 @@ export function editorSeed(record?: PosterRecord | null) {
     variants: restored.variants,
     specs: restored.specs,
     planCosts: restored.planCosts,
+    landmarkNearM: restored.landmarkNearM,
   };
 }
 
@@ -199,6 +380,7 @@ export function restoreEditor(
   const editor = snapshotOf(record);
   const places = savedStartFinish(record);
   const styleId = styleIdFromRecord(record);
+  const saved = savedSetupNames(record);
   const [cropStart, cropEnd] = clampCrop(
     trackLength,
     editor?.cropStart ?? 0,
@@ -206,16 +388,17 @@ export function restoreEditor(
   );
   const startPlace = editor?.startPlace ?? places.startPlace;
   const finishPlace = editor?.finishPlace ?? places.finishPlace;
+  const fromEditor =
+    editor && (editor.labels.length > 0 || editor.trailNames.length > 0 || editor.areaNames.length > 0);
   return {
-    featureIds: editor?.featureIds?.length
-      ? editor.featureIds
-      : record.featureIds.length
-        ? record.featureIds
-        : DEFAULT_FEATURE_IDS,
-    labels: editor?.labels ?? (record.labels.length ? record.labels : defaults.labels),
-    trailNames: editor?.trailNames ?? defaults.trailNames,
+    featureIds: featureIdsToResolveNames(
+      editor?.featureIds?.length ? editor.featureIds : record.featureIds,
+      saved,
+    ),
+    labels: fromEditor && editor ? editor.labels : saved.labels,
+    trailNames: fromEditor && editor ? editor.trailNames : saved.trailNames,
     trailAliases: editor?.trailAliases ?? {},
-    areaNames: editor?.areaNames ?? defaults.areaNames,
+    areaNames: fromEditor && editor ? editor.areaNames : saved.areaNames,
     customPois: editor?.customPois ?? [],
     customWays: editor?.customWays ?? [],
     cropStart,
@@ -269,5 +452,6 @@ export function restoreEditor(
           }
         : {}),
     },
+    landmarkNearM: { ...(editor?.landmarkNearM ?? {}) },
   };
 }
