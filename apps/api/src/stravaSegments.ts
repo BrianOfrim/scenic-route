@@ -5,14 +5,14 @@ export async function loadActivitySegmentEfforts(
   activityId: number,
   warnings: string[],
 ): Promise<StravaSegmentEffort[]> {
-  const row = getActivity(activityId);
+  const row = await getActivity(activityId);
   if (!row || row.source === "gpx" || row.source === "fit" || row.source === "tcx") return [];
   const cached = getCachedSegmentEfforts(row) as StravaSegmentEffort[] | null;
   if (cached) return cached;
   try {
     const fetched = await getActivitySegmentEfforts(activityId);
     if (!fetched) return [];
-    setCachedSegmentEfforts(activityId, fetched);
+    await setCachedSegmentEfforts(activityId, fetched);
     return fetched;
   } catch (error) {
     if (error instanceof StravaRateLimitError) {

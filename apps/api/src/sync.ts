@@ -1,4 +1,4 @@
-import { getDb, setJsonSetting } from "./db";
+import { query, queryOne, setJsonSetting } from "./db";
 import { bboxFromLatLng } from "./geo";
 import {
   activityHasGps,
@@ -30,22 +30,20 @@ export type SyncProgress = {
   retryAfter?: number;
 };
 
-function activityCounts() {
-  const row = getDb()
-    .prepare(
-      `SELECT
-        COUNT(*) as listed,
-        SUM(CASE WHEN streams_synced = 1 THEN 1 ELSE 0 END) as synced,
-        SUM(CASE WHEN streams_synced = 0 AND has_gps = 1 THEN 1 ELSE 0 END) as pending,
-        SUM(CASE WHEN has_gps = 0 OR streams_synced = 2 THEN 1 ELSE 0 END) as skipped
-      FROM activities`,
-    )
-    .get() as {
+async function activityCounts() {
+  const row = (await queryOne<{
     listed: number;
     synced: number;
     pending: number;
     skipped: number;
-  };
+  }>(
+    `SELECT
+        COUNT(*)::int AS listed,
+        COALESCE(SUM(CASE WHEN streams_synced = 1 THEN 1 ELSE 0 END), 0)::int AS synced,
+        COALESCE(SUM(CASE WHEN streams_synced = 0 AND has_gps = 1 THEN 1 ELSE 0 END), 0)::int AS pending,
+        COALESCE(SUM(CASE WHEN has_gps = 0 OR streams_synced = 2 THEN 1 ELSE 0 END), 0)::int AS skipped
+      FROM activities`,
+  )) ?? { listed: 0, synced: 0, pending: 0, skipped: 0 };
   return {
     listed: row.listed ?? 0,
     streamsSynced: row.synced ?? 0,
@@ -54,35 +52,33 @@ function activityCounts() {
   };
 }
 
-function upsertActivity(activity: StravaActivitySummary) {
+async function upsertActivity(activity: StravaActivitySummary) {
   const hasGps = activityHasGps(activity) ? 1 : 0;
   const start = activity.start_latlng;
   const startBbox =
     Array.isArray(start) && start.length >= 2
       ? JSON.stringify([start[1], start[0], start[1], start[0]])
       : null;
-  getDb()
-    .prepare(
-      `INSERT INTO activities (
-         id, name, type, sport_type, start_date, distance, moving_time, elapsed_time,
-         total_elevation_gain, average_speed, max_speed, trainer, has_gps, streams_synced, bbox
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         name = excluded.name,
-         type = excluded.type,
-         sport_type = excluded.sport_type,
-         start_date = excluded.start_date,
-         distance = excluded.distance,
-         moving_time = excluded.moving_time,
-         elapsed_time = excluded.elapsed_time,
-         total_elevation_gain = excluded.total_elevation_gain,
-         average_speed = excluded.average_speed,
-         max_speed = excluded.max_speed,
-         trainer = excluded.trainer,
-         has_gps = excluded.has_gps,
-         bbox = COALESCE(activities.bbox, excluded.bbox)`,
-    )
-    .run(
+  await query(
+    `INSERT INTO activities (
+       id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
+       total_elevation_gain, average_speed, max_speed, trainer, has_gps, streams_synced, bbox
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+     ON CONFLICT (id) DO UPDATE SET
+       name = EXCLUDED.name,
+       "type" = EXCLUDED."type",
+       sport_type = EXCLUDED.sport_type,
+       start_date = EXCLUDED.start_date,
+       distance = EXCLUDED.distance,
+       moving_time = EXCLUDED.moving_time,
+       elapsed_time = EXCLUDED.elapsed_time,
+       total_elevation_gain = EXCLUDED.total_elevation_gain,
+       average_speed = EXCLUDED.average_speed,
+       max_speed = EXCLUDED.max_speed,
+       trainer = EXCLUDED.trainer,
+       has_gps = EXCLUDED.has_gps,
+       bbox = COALESCE(activities.bbox, EXCLUDED.bbox)`,
+    [
       activity.id,
       activity.name ?? "Untitled",
       activity.type ?? "Unknown",
@@ -98,15 +94,14 @@ function upsertActivity(activity: StravaActivitySummary) {
       hasGps,
       hasGps ? 0 : 2,
       startBbox,
-    );
+    ],
+  );
 }
 
 async function syncActivityList(state: SyncState): Promise<SyncState> {
   let page = state.listComplete ? 1 : state.listPage;
   let listComplete = state.listComplete;
-  const existing = new Set(
-    (getDb().prepare("SELECT id FROM activities").all() as { id: number }[]).map((row) => row.id),
-  );
+  const existing = new Set((await query<{ id: number }>("SELECT id FROM activities")).map((row) => row.id));
   const maxPages = listComplete ? 3 : 8;
 
   for (let i = 0; i < maxPages; i += 1) {
@@ -121,7 +116,7 @@ async function syncActivityList(state: SyncState): Promise<SyncState> {
     for (const activity of data) {
       if (!existing.has(activity.id)) {
         allKnown = false;
-        upsertActivity(activity);
+        await upsertActivity(activity);
         existing.add(activity.id);
       }
     }
@@ -134,14 +129,15 @@ async function syncActivityList(state: SyncState): Promise<SyncState> {
   }
 
   const next: SyncState = { listComplete, listPage: listComplete ? 1 : page };
-  setJsonSetting("sync_state", next);
+  await setJsonSetting("sync_state", next);
   return next;
 }
 
 async function syncStreams() {
-  const pending = getDb()
-    .prepare("SELECT id FROM activities WHERE streams_synced = 0 AND has_gps = 1 LIMIT ?")
-    .all(STREAMS_PER_CALL) as { id: number }[];
+  const pending = await query<{ id: number }>(
+    "SELECT id FROM activities WHERE streams_synced = 0 AND has_gps = 1 LIMIT $1",
+    [STREAMS_PER_CALL],
+  );
 
   for (const activity of pending) {
     try {
@@ -150,31 +146,30 @@ async function syncStreams() {
       );
       const points = data.latlng?.data ?? [];
       if (points.length < 2) {
-        getDb()
-          .prepare("UPDATE activities SET streams_synced = 2, has_gps = 0 WHERE id = ?")
-          .run(activity.id);
+        await query("UPDATE activities SET streams_synced = 2, has_gps = 0 WHERE id = $1", [
+          activity.id,
+        ]);
         continue;
       }
-      getDb()
-        .prepare(
-          `UPDATE activities
-           SET streams_synced = 1, latlng = ?, time = ?, velocity = ?, altitude = ?, bbox = ?, has_gps = 1
-           WHERE id = ?`,
-        )
-        .run(
+      await query(
+        `UPDATE activities
+         SET streams_synced = 1, latlng = $1, "time" = $2, velocity = $3, altitude = $4, bbox = $5, has_gps = 1
+         WHERE id = $6`,
+        [
           JSON.stringify(points),
           data.time?.data ? JSON.stringify(data.time.data) : null,
           data.velocity_smooth?.data ? JSON.stringify(data.velocity_smooth.data) : null,
           data.altitude?.data ? JSON.stringify(data.altitude.data) : null,
           JSON.stringify(bboxFromLatLng(points)),
           activity.id,
-        );
+        ],
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       if (message.includes("404")) {
-        getDb()
-          .prepare("UPDATE activities SET streams_synced = 2, has_gps = 0 WHERE id = ?")
-          .run(activity.id);
+        await query("UPDATE activities SET streams_synced = 2, has_gps = 0 WHERE id = $1", [
+          activity.id,
+        ]);
         continue;
       }
       throw error;
@@ -183,9 +178,9 @@ async function syncStreams() {
 }
 
 export async function runSync(): Promise<SyncProgress> {
-  const state = await syncActivityList(getSyncState());
+  const state = await syncActivityList(await getSyncState());
   await syncStreams();
-  const counts = activityCounts();
+  const counts = await activityCounts();
   return {
     connected: true,
     listComplete: state.listComplete,
@@ -194,10 +189,10 @@ export async function runSync(): Promise<SyncProgress> {
   };
 }
 
-export function getSyncProgress() {
-  const state = getSyncState();
+export async function getSyncProgress() {
+  const state = await getSyncState();
   return {
     listComplete: state.listComplete,
-    ...activityCounts(),
+    ...(await activityCounts()),
   };
 }

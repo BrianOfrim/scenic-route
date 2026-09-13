@@ -16,6 +16,7 @@ import {
   listSportTypes,
   toActivitySummary,
 } from "./activities";
+import { initDb } from "./db";
 import { ImportError } from "./gpx";
 import { importTrackFiles } from "./importActivity";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
@@ -59,16 +60,19 @@ app.use(
   }),
 );
 
-app.get("/api/health", (c) => c.json({ ok: true }));
+app.get("/api/health", async (c) => {
+  await initDb();
+  return c.json({ ok: true });
+});
 
-app.get("/api/status", (c) => {
-  const tokens = getTokens();
+app.get("/api/status", async (c) => {
+  const tokens = await getTokens();
   return c.json({
     strava: {
       configured: isStravaConfigured(),
       connected: Boolean(tokens),
       athlete: tokens?.athlete ?? null,
-      sync: getSyncProgress(),
+      sync: await getSyncProgress(),
     },
     openrouter: {
       configured: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
@@ -97,20 +101,20 @@ app.get("/api/strava/callback", async (c) => {
   }
 });
 
-app.post("/api/strava/disconnect", (c) => {
-  disconnectStrava();
+app.post("/api/strava/disconnect", async (c) => {
+  await disconnectStrava();
   return c.json({ ok: true });
 });
 
 app.post("/api/strava/sync", async (c) => {
-  if (!getTokens()) return c.json({ error: "Strava is not connected" }, 401);
+  if (!(await getTokens())) return c.json({ error: "Strava is not connected" }, 401);
   try {
     return c.json(await runSync());
   } catch (error) {
     if (error instanceof StravaRateLimitError) {
       return c.json(
         {
-          ...getSyncProgress(),
+          ...(await getSyncProgress()),
           connected: true,
           done: false,
           rateLimited: true,
@@ -123,13 +127,13 @@ app.post("/api/strava/sync", async (c) => {
   }
 });
 
-app.get("/api/activities", (c) => c.json({ activities: listActivities() }));
+app.get("/api/activities", async (c) => c.json({ activities: await listActivities() }));
 
 app.post("/api/activities/remove", async (c) => {
   try {
     const body = (await c.req.json()) as { ids?: unknown };
     const ids = Array.isArray(body.ids) ? body.ids.map((id) => Number(id)) : [];
-    return c.json(deleteImportedByIds(ids));
+    return c.json(await deleteImportedByIds(ids));
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "remove failed" }, 400);
   }
@@ -139,7 +143,7 @@ app.post("/api/activities/import", async (c) => {
   try {
     const files = await readImportFiles(c);
     if (!files.length) return c.json({ error: "Choose a GPX, FIT, TCX, or Strava export zip" }, 400);
-    const result = importTrackFiles(files);
+    const result = await importTrackFiles(files);
     if (!result.activities.length && !result.skipped) {
       return c.json(
         { error: result.errors[0]?.error ?? "Could not import file", errors: result.errors, skipped: result.skipped },
@@ -153,9 +157,9 @@ app.post("/api/activities/import", async (c) => {
   }
 });
 
-app.get("/api/activities/:id", (c) => {
+app.get("/api/activities/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  const row = getActivity(id);
+  const row = await getActivity(id);
   if (!row) return c.json({ error: "not found" }, 404);
   return c.json({
     activity: toActivitySummary(row),
@@ -164,7 +168,7 @@ app.get("/api/activities/:id", (c) => {
   });
 });
 
-app.get("/api/sports", (c) => c.json({ sports: listSportTypes() }));
+app.get("/api/sports", async (c) => c.json({ sports: await listSportTypes() }));
 app.get("/api/features", (c) => c.json({ features: catalogPublic() }));
 
 app.get("/api/poster/context/:activityId", async (c) => {
@@ -390,8 +394,16 @@ function fail(c: Context, error: unknown) {
   return c.json({ error: message }, status);
 }
 
+try {
+  await initDb();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+}
+
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`scenic-route api http://127.0.0.1:${info.port}`);
+  console.log(`postgres: ${process.env.DATABASE_URL ? "DATABASE_URL" : "default local"}`);
   console.log(`strava configured: ${isStravaConfigured() ? "yes" : "no"}`);
   console.log(`llm traces: ${LLM_TRACES_DIR}`);
 });

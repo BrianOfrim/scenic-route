@@ -10,6 +10,7 @@ An LLM turns the ride, selected features, style, and stats into a structured JSO
 cd ~/Projects/scenic-route
 npm install
 cp .env.example .env.local
+docker compose up -d --wait
 ```
 
 Create a Strava API app at [https://www.strava.com/settings/api](https://www.strava.com/settings/api):
@@ -30,7 +31,7 @@ OPENROUTER_IMAGE_MODEL=openai/gpt-image-2.5-sunburst
 npm run dev
 ```
 
-Open [http://localhost:5174](http://localhost:5174). Connect Strava and click **Sync Strava**. GPS streams land in `data/scenic-route.sqlite`.
+Open [http://localhost:5174](http://localhost:5174). Connect Strava and click **Sync Strava**. GPS streams land in Postgres (`DATABASE_URL`, default `scenic_route`). An existing `data/scenic-route.sqlite` is imported once if the database is empty.
 
 ## Flow
 
@@ -46,12 +47,13 @@ Open [http://localhost:5174](http://localhost:5174). Connect Strava and click **
 | Path | Role |
 |------|------|
 | `apps/web` | Vite + React + MapLibre UI (port 5174) |
-| `apps/api` | Hono: Strava, SQLite, OSM/Overpass, planner, image gen (port 8790) |
-| `data/` | SQLite, OSM cache, posters |
+| `apps/api` | Hono: Strava, Postgres, OSM/Overpass, planner, image gen (port 8790) |
+| `data/` | OSM cache, posters (legacy SQLite is imported on first Postgres boot) |
 
 ## Commands
 
 ```bash
+npm run db:up
 npm run dev
 npm test
 npm run build

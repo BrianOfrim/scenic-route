@@ -148,7 +148,7 @@ export async function loadRouteFeatures(
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new Error("activityId is required");
   }
-  const row = getActivity(activityId);
+  const row = await getActivity(activityId);
   if (!row) throw new Error(`activity ${activityId} not found`);
   const latlng = parseLatLng(row.latlng);
   if (latlng.length < 2) throw new Error(`activity ${activityId} has no GPS track`);

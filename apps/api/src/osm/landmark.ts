@@ -37,7 +37,7 @@ export async function lookupLandmark(body: {
   const activityId = Number(body.activityId);
   if (!Number.isFinite(activityId) || activityId <= 0) throw new Error("activityId is required");
 
-  const row = getActivity(activityId);
+  const row = await getActivity(activityId);
   if (!row) throw new Error(`activity ${activityId} not found`);
   const latlng = body.latlng?.length ? body.latlng : parseLatLng(row.latlng);
   if (latlng.length < 2) throw new Error("need a GPS track to rank landmarks");

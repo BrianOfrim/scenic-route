@@ -1,4 +1,4 @@
-import { getDb, getJsonSetting, setJsonSetting } from "./db";
+import { getJsonSetting, query, setJsonSetting } from "./db";
 
 const STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize";
 const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token";
@@ -86,13 +86,13 @@ export function isStravaConfigured() {
   return Boolean(process.env.STRAVA_CLIENT_ID && process.env.STRAVA_CLIENT_SECRET);
 }
 
-export function getTokens() {
+export async function getTokens() {
   return getJsonSetting<StravaTokens>("strava_tokens");
 }
 
-export function getSyncState(): SyncState {
+export async function getSyncState(): Promise<SyncState> {
   return (
-    getJsonSetting<SyncState>("sync_state") ?? {
+    (await getJsonSetting<SyncState>("sync_state")) ?? {
       listComplete: false,
       listPage: 1,
     }
@@ -132,11 +132,12 @@ async function tokenRequest(body: Record<string, string>) {
     throw new Error(`Strava token exchange failed: ${response.status} ${text}`);
   }
   const tokens = (await response.json()) as StravaTokens;
-  setJsonSetting("strava_tokens", {
+  const existing = await getTokens();
+  await setJsonSetting("strava_tokens", {
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
     expires_at: tokens.expires_at,
-    athlete: tokens.athlete ?? getTokens()?.athlete,
+    athlete: tokens.athlete ?? existing?.athlete,
   });
   return tokens;
 }
@@ -168,7 +169,7 @@ async function refreshTokens(tokens: StravaTokens) {
 }
 
 async function getValidTokens(): Promise<StravaTokens> {
-  const tokens = getTokens();
+  const tokens = await getTokens();
   if (!tokens) throw new Error("Strava is not connected");
   if (tokens.expires_at * 1000 < Date.now() + 60_000) {
     return refreshTokens(tokens);
@@ -209,7 +210,7 @@ export async function stravaFetch<T>(
 export async function getActivitySegmentEfforts(
   activityId: number,
 ): Promise<StravaSegmentEffort[] | null> {
-  if (!getTokens()) return null;
+  if (!(await getTokens())) return null;
   const { data } = await stravaFetch<{ segment_efforts?: StravaSegmentEffort[] }>(
     `/activities/${activityId}?include_all_efforts=true`,
   );
@@ -226,6 +227,6 @@ export function activityHasGps(activity: StravaActivitySummary) {
   return Boolean(polyline) || (Array.isArray(start) && start.length >= 2);
 }
 
-export function disconnectStrava() {
-  getDb().prepare("DELETE FROM settings WHERE key = ?").run("strava_tokens");
+export async function disconnectStrava() {
+  await query("DELETE FROM settings WHERE key = $1", ["strava_tokens"]);
 }

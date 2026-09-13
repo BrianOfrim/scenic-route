@@ -1,8 +1,6 @@
 node_modules
 dist
 .DS_Store
-.env
-.env.local
 data/*.sqlite
 data/*.sqlite-*
 data/posters/
@@ -11,3 +9,6 @@ data/llm-traces/
 *.log
 .vite
 *.tsbuildinfo
+.env
+.env.*
+!.env.example

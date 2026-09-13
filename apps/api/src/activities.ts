@@ -1,5 +1,5 @@
 import type { FeatureCollection, LineString } from "geojson";
-import { getDb } from "./db";
+import { query, queryOne, withTransaction, type SqlClient } from "./db";
 
 export type ActivityRow = {
   id: number;
@@ -96,15 +96,8 @@ export function isImported(row: Pick<ActivityRow, "source" | "imported" | "id">)
   );
 }
 
-export function listActivities(): ActivitySummary[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT id, name, type, sport_type, start_date, distance, moving_time, elapsed_time,
-              total_elevation_gain, average_speed, has_gps, streams_synced, source, imported
-       FROM activities
-       ORDER BY start_date DESC`,
-    )
-    .all() as Array<
+export async function listActivities(): Promise<ActivitySummary[]> {
+  const rows = await query<
     Pick<
       ActivityRow,
       | "id"
@@ -122,37 +115,39 @@ export function listActivities(): ActivitySummary[] {
       | "source"
       | "imported"
     >
-  >;
+  >(
+    `SELECT id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
+            total_elevation_gain, average_speed, has_gps, streams_synced, source, imported
+     FROM activities
+     ORDER BY start_date DESC`,
+  );
 
   return rows.map(toActivitySummary);
 }
 
-export function getActivity(id: number): ActivityRow | null {
-  return (
-    (getDb().prepare("SELECT * FROM activities WHERE id = ?").get(id) as ActivityRow | undefined) ??
-    null
-  );
+export async function getActivity(id: number, client?: SqlClient): Promise<ActivityRow | null> {
+  return (await queryOne<ActivityRow>("SELECT * FROM activities WHERE id = $1", [id], client)) ?? null;
 }
 
-export function deleteImportedByIds(ids: number[]): { deleted: ActivitySummary[]; skipped: number } {
+export async function deleteImportedByIds(
+  ids: number[],
+): Promise<{ deleted: ActivitySummary[]; skipped: number }> {
   const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
-  const deleted: ActivitySummary[] = [];
-  let skipped = 0;
-  const remove = getDb().transaction(() => {
-    const del = getDb().prepare("DELETE FROM activities WHERE id = ?");
+  return withTransaction(async (client) => {
+    const deleted: ActivitySummary[] = [];
+    let skipped = 0;
     for (const id of unique) {
-      const row = getActivity(id);
+      const row = await getActivity(id, client);
       if (!row) continue;
       if (!isImported(row)) {
         skipped += 1;
         continue;
       }
-      del.run(id);
+      await query("DELETE FROM activities WHERE id = $1", [id], client);
       deleted.push(toActivitySummary(row));
     }
+    return { deleted, skipped };
   });
-  remove();
-  return { deleted, skipped };
 }
 
 export function parseLatLng(raw: string | null): [number, number][] {
@@ -211,15 +206,16 @@ export function getCachedSegmentEfforts(row: ActivityRow): unknown[] | null {
   }
 }
 
-export function setCachedSegmentEfforts(activityId: number, efforts: unknown[]) {
-  getDb()
-    .prepare("UPDATE activities SET segment_efforts = ? WHERE id = ?")
-    .run(JSON.stringify(efforts), activityId);
+export async function setCachedSegmentEfforts(activityId: number, efforts: unknown[]) {
+  await query("UPDATE activities SET segment_efforts = $1 WHERE id = $2", [
+    JSON.stringify(efforts),
+    activityId,
+  ]);
 }
 
-export function listSportTypes(): string[] {
-  const rows = getDb()
-    .prepare("SELECT DISTINCT sport_type FROM activities ORDER BY sport_type")
-    .all() as { sport_type: string }[];
+export async function listSportTypes(): Promise<string[]> {
+  const rows = await query<{ sport_type: string }>(
+    "SELECT DISTINCT sport_type FROM activities ORDER BY sport_type",
+  );
   return rows.map((row) => row.sport_type);
 }
