@@ -6,6 +6,7 @@ import { styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline } from "./galleryRuns";
 import { GalleryViewer } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
+import { ShareButton } from "../share";
 
 type Props = {
   onBack: () => void;
@@ -254,6 +255,7 @@ export function Gallery({ onBack, onEditSetup }: Props) {
 
   useEffect(() => {
     if (!active) return;
+    const current = active;
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setActive(null);
@@ -261,7 +263,7 @@ export function Gallery({ onBack, onEditSetup }: Props) {
       }
       if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
       if (batchSiblings.length < 2) return;
-      const index = batchSiblings.findIndex((item) => item.posterId === active.posterId);
+      const index = batchSiblings.findIndex((item) => item.posterId === current.posterId);
       if (index < 0) return;
       const next =
         event.key === "ArrowRight"
@@ -440,6 +442,30 @@ export function Gallery({ onBack, onEditSetup }: Props) {
                 </span>
               </div>
               <div className="poster-actions">
+                {batchSiblings.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => {
+                        const index = batchSiblings.findIndex((item) => item.posterId === active.posterId);
+                        setActive(batchSiblings[(index - 1 + batchSiblings.length) % batchSiblings.length]);
+                      }}
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => {
+                        const index = batchSiblings.findIndex((item) => item.posterId === active.posterId);
+                        setActive(batchSiblings[(index + 1) % batchSiblings.length]);
+                      }}
+                    >
+                      Next
+                    </button>
+                  </>
+                )}
                 <button type="button" className="text-btn" onClick={() => setActive(null)}>
                   Close
                 </button>
@@ -455,9 +481,12 @@ export function Gallery({ onBack, onEditSetup }: Props) {
                   {showMeta ? "Hide details" : "Details"}
                 </button>
                 {selectedImage && (
-                  <a className="button" href={selectedImage.src} download={`${active.posterId}.png`}>
-                    Download
-                  </a>
+                  <>
+                    <a className="button" href={selectedImage.src} download={`${active.posterId}.png`}>
+                      Download
+                    </a>
+                    <ShareButton url={selectedImage.src} filename={`${active.posterId}.png`} />
+                  </>
                 )}
                 <button
                   type="button"

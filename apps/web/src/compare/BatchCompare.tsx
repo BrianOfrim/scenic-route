@@ -166,6 +166,16 @@ export function BatchCompare({ images, leftId, rightId, focus, onFocus, onSelect
           );
         })}
       </div>
+      {images.length > 1 && (
+        <div className="compare-nav">
+          <button type="button" className="text-btn" onClick={() => onFocus("left")}>
+            Left
+          </button>
+          <button type="button" className="text-btn" onClick={() => onFocus("right")}>
+            Right
+          </button>
+        </div>
+      )}
       <p className="muted compare-hint">
         Click a side, then a thumbnail, to place any two images from this run — including the schematic.
         Double-click a poster or use Full screen to view it larger. Esc leaves full screen first.
@@ -185,9 +195,35 @@ export function BatchCompare({ images, leftId, rightId, focus, onFocus, onSelect
             <img src={expanded.src} alt={expanded.label} onClick={(event) => event.stopPropagation()} />
             <div className="compare-fullscreen-bar" onClick={(event) => event.stopPropagation()}>
               <strong>{expanded.label}</strong>
-              <button type="button" className="text-btn" onClick={closeExpanded}>
-                Close
-              </button>
+              <div className="compare-nav">
+                {images.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => {
+                        const index = images.findIndex((item) => item.id === expanded.id);
+                        setExpanded(images[(index - 1 + images.length) % images.length]);
+                      }}
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => {
+                        const index = images.findIndex((item) => item.id === expanded.id);
+                        setExpanded(images[(index + 1) % images.length]);
+                      }}
+                    >
+                      Next
+                    </button>
+                  </>
+                )}
+                <button type="button" className="text-btn" onClick={closeExpanded}>
+                  Close
+                </button>
+              </div>
             </div>
           </div>,
           document.body,

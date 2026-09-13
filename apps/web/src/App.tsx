@@ -22,6 +22,9 @@ import { Gallery } from "./gallery/Gallery";
 import { MapView, type Basemap, type LandmarkHighlight } from "./MapView";
 import { PosterPanel } from "./poster/PosterPanel";
 import type { SchematicLayers } from "./poster/grounding/renderSchematic";
+import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
+
+type MobilePane = "activities" | "map" | "poster";
 
 const EMPTY_POIS: PosterPoi[] = [];
 const EMPTY_WAYS: NamedWay[] = [];
@@ -32,7 +35,9 @@ function currentPath() {
 }
 
 export function App() {
+  const isMobile = useMediaQuery(MOBILE_QUERY);
   const [path, setPath] = useState(currentPath);
+  const [mobilePane, setMobilePane] = useState<MobilePane>("activities");
   const [status, setStatus] = useState<StatusPayload | null>(null);
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
   const [features, setFeatures] = useState<FeatureOption[]>([]);
@@ -86,6 +91,15 @@ export function App() {
     setPath(next);
   }, []);
 
+  const openMobilePane = useCallback((next: MobilePane) => {
+    setMobilePane((current) => {
+      if (next === "map" && current !== "map") {
+        setViewNonce((value) => value + 1);
+      }
+      return next;
+    });
+  }, []);
+
   const refresh = useCallback(async () => {
     const [nextStatus, nextActivities, nextFeatures] = await Promise.all([
       fetchStatus(),
@@ -123,6 +137,7 @@ export function App() {
           setSelectedId(poster.activityId);
           setRefineFrom(poster);
           setPosterOpen(true);
+          setMobilePane("poster");
         }
       }
       const sync = next.strava.sync;
@@ -217,6 +232,7 @@ export function App() {
         setSelectedId(first.id);
         setRefineFrom(null);
         setPosterOpen(true);
+        setMobilePane("poster");
         setViewNonce((value) => value + 1);
       } else if (first) {
         setSelectedId(first.id);
@@ -251,21 +267,33 @@ export function App() {
           setSelectedId(poster.activityId);
           setRefineFrom(poster);
           setPosterOpen(true);
+          setMobilePane("poster");
           go("/");
         }}
       />
     );
   }
 
+  const basemapSelect = (
+    <label className="filter map-basemap">
+      Basemap
+      <select value={basemap} onChange={(event) => setBasemap(event.target.value as Basemap)}>
+        <option value="osm">Streets</option>
+        <option value="satellite">Satellite</option>
+        <option value="schematic">Schematic</option>
+      </select>
+    </label>
+  );
+
   return (
-    <div className="app">
+    <div className={`app${isMobile ? " is-mobile" : ""}`}>
       <header className="top">
         <div>
           <p className="brand">Scenic Route</p>
           <h1>Route posters</h1>
         </div>
         <div className="top-actions">
-          {error && (
+          {!isMobile && error && (
             <p className="error banner">
               {error}
               <button type="button" className="text-btn" onClick={() => setError(null)}>
@@ -273,20 +301,24 @@ export function App() {
               </button>
             </p>
           )}
-          <label className="filter">
-            Basemap
-            <select value={basemap} onChange={(event) => setBasemap(event.target.value as Basemap)}>
-              <option value="osm">Streets</option>
-              <option value="satellite">Satellite</option>
-              <option value="schematic">Schematic</option>
-            </select>
-          </label>
+          {!isMobile && basemapSelect}
           <button type="button" className="text-btn" onClick={() => go("/gallery")}>
             Gallery
           </button>
         </div>
       </header>
-      <div className={`workspace ${posterOpen ? "with-poster" : ""}`}>
+      {isMobile && error && (
+        <p className="error banner app-error">
+          {error}
+          <button type="button" className="text-btn" onClick={() => setError(null)}>
+            dismiss
+          </button>
+        </p>
+      )}
+      <div
+        className={`workspace ${posterOpen ? "with-poster" : ""}`}
+        data-mobile-pane={isMobile ? mobilePane : undefined}
+      >
         <ActivityList
           status={status}
           activities={activities}
@@ -299,6 +331,7 @@ export function App() {
             setRefineFrom(null);
             if (activity?.hasGps && activity.streamsSynced) {
               setPosterOpen(true);
+              openMobilePane("map");
               setViewNonce((value) => value + 1);
             } else {
               setPosterOpen(false);
@@ -322,6 +355,7 @@ export function App() {
           onRemove={(ids) => handleRemove(ids)}
         />
         <main className="stage">
+          {isMobile && basemapSelect}
           <MapView
             selectedLatLng={selectedLatLng}
             cropLatLng={posterOpen ? cropLatLng : null}
@@ -335,6 +369,7 @@ export function App() {
             viewNonce={viewNonce}
             labelingEnabled={posterOpen && !routeOnly}
             highlight={posterOpen ? mapHighlight : null}
+            touchUi={isMobile}
             onRemovePoi={(name) => setDismissPoi({ name, nonce: Date.now() })}
             onRemoveArea={(name) => setDismissArea({ name, nonce: Date.now() })}
             onRemoveTrail={(name) => setDismissTrail({ name, nonce: Date.now() })}
@@ -345,11 +380,12 @@ export function App() {
             onRenameTrail={(draft) => setRenameTrail({ name: draft.from, next: draft.name, nonce: Date.now() })}
           />
         </main>
-        {posterOpen && selectedId != null && (
+        {posterOpen && selectedId != null ? (
           <PosterPanel
             activityId={selectedId}
             features={features}
             refineFrom={refineFrom}
+            touchUi={isMobile}
             onClose={() => {
               setPosterOpen(false);
               setRouteOnly(false);
@@ -387,8 +423,46 @@ export function App() {
             placeSection={placeSection}
             renameTrail={renameTrail}
           />
-        )}
+        ) : isMobile ? (
+          <aside className="panel poster-panel poster-empty">
+            <div className="panel-block">
+              <div className="eyebrow">Poster</div>
+              <p className="muted">Pick an activity with GPS to set up a poster.</p>
+              <button type="button" className="button" onClick={() => openMobilePane("activities")}>
+                Activities
+              </button>
+            </div>
+          </aside>
+        ) : null}
       </div>
+      {isMobile && (
+        <nav className="mobile-tabs" aria-label="Workspace">
+          <button
+            type="button"
+            className={mobilePane === "activities" ? "on" : ""}
+            aria-current={mobilePane === "activities" ? "page" : undefined}
+            onClick={() => openMobilePane("activities")}
+          >
+            Activities
+          </button>
+          <button
+            type="button"
+            className={mobilePane === "map" ? "on" : ""}
+            aria-current={mobilePane === "map" ? "page" : undefined}
+            onClick={() => openMobilePane("map")}
+          >
+            Map
+          </button>
+          <button
+            type="button"
+            className={mobilePane === "poster" ? "on" : ""}
+            aria-current={mobilePane === "poster" ? "page" : undefined}
+            onClick={() => openMobilePane("poster")}
+          >
+            Poster
+          </button>
+        </nav>
+      )}
     </div>
   );
 }

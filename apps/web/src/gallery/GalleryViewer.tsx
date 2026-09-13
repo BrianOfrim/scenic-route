@@ -128,6 +128,30 @@ export function GalleryViewer({
           ))}
         </div>
       </div>
+      {posters.length > 1 && (
+        <div className="compare-nav">
+          <button
+            type="button"
+            className="text-btn"
+            onClick={() => {
+              const index = posters.findIndex((item) => item.id === selected.id);
+              onSelectPoster(posters[(index - 1 + posters.length) % posters.length].id);
+            }}
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            className="text-btn"
+            onClick={() => {
+              const index = posters.findIndex((item) => item.id === selected.id);
+              onSelectPoster(posters[(index + 1) % posters.length].id);
+            }}
+          >
+            Next
+          </button>
+        </div>
+      )}
       {compareHint ? <p className="muted compare-hint">{compareHint}</p> : null}
       {expanded &&
         createPortal(
@@ -144,9 +168,35 @@ export function GalleryViewer({
             <img src={expanded.src} alt={expanded.label} onClick={(event) => event.stopPropagation()} />
             <div className="compare-fullscreen-bar" onClick={(event) => event.stopPropagation()}>
               <strong>{expanded.label}</strong>
-              <button type="button" className="text-btn" onClick={() => setExpanded(null)}>
-                Close
-              </button>
+              <div className="compare-nav">
+                {images.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => {
+                        const index = images.findIndex((item) => item.id === expanded.id);
+                        setExpanded(images[(index - 1 + images.length) % images.length]);
+                      }}
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => {
+                        const index = images.findIndex((item) => item.id === expanded.id);
+                        setExpanded(images[(index + 1) % images.length]);
+                      }}
+                    >
+                      Next
+                    </button>
+                  </>
+                )}
+                <button type="button" className="text-btn" onClick={() => setExpanded(null)}>
+                  Close
+                </button>
+              </div>
             </div>
           </div>,
           document.body,

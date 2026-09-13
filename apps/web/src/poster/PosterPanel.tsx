@@ -64,6 +64,7 @@ import {
 } from "./imageModels";
 
 import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
+import { ShareButton } from "../share";
 import {
   AUTO_PALETTE_ID,
   DEFAULT_POSTER_STYLE,
@@ -122,10 +123,69 @@ function chipHighlight(
   };
 }
 
+function LandmarkChip({
+  kind,
+  name,
+  label,
+  title,
+  selected,
+  touchUi,
+  onSelect,
+  onRemove,
+  onHighlightChange,
+}: {
+  kind: "area" | "poi";
+  name: string;
+  label: string;
+  title: string;
+  selected: boolean;
+  touchUi: boolean;
+  onSelect: () => void;
+  onRemove: () => void;
+  onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
+}) {
+  if (!touchUi) {
+    return (
+      <button
+        type="button"
+        className="chip on"
+        title={title}
+        onClick={onRemove}
+        {...chipHighlight(kind, name, onHighlightChange)}
+      >
+        {label} ×
+      </button>
+    );
+  }
+  return (
+    <span
+      className={`chip on${selected ? " is-selected" : ""}`}
+      title={title}
+      {...chipHighlight(kind, name, onHighlightChange)}
+    >
+      <button type="button" className="chip-name" onClick={onSelect}>
+        {label}
+      </button>
+      <button
+        type="button"
+        className="chip-remove"
+        aria-label={`Remove ${name}`}
+        title={`Remove ${name}`}
+        onClick={onRemove}
+      >
+        ×
+      </button>
+    </span>
+  );
+}
+
 function TrailChip({
   trail,
   editing,
   draft,
+  selected,
+  touchUi,
+  onSelect,
   onEdit,
   onDraft,
   onSave,
@@ -136,6 +196,9 @@ function TrailChip({
   trail: NamedWay;
   editing: boolean;
   draft: string;
+  selected?: boolean;
+  touchUi?: boolean;
+  onSelect?: () => void;
   onEdit: () => void;
   onDraft: (value: string) => void;
   onSave: (value: string) => void;
@@ -154,8 +217,9 @@ function TrailChip({
     trail.source === "user" ? "Named by hand on the schematic" : "Named trail on the schematic";
   return (
     <span
-      className="chip on"
+      className={`chip on${selected ? " is-selected" : ""}`}
       title={editing ? undefined : `${title}. Click the name to rename.`}
+      onClick={touchUi ? onSelect : undefined}
       {...chipHighlight("trail", trail.name, onHighlightChange)}
     >
       <span className="chip-swatch" style={{ background: trail.color }} aria-hidden />
@@ -196,7 +260,10 @@ function TrailChip({
         aria-label={`Remove ${trail.name}`}
         title={`Remove ${trail.name}`}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={onRemove}
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove();
+        }}
       >
         ×
       </button>
@@ -318,6 +385,7 @@ type Props = {
   placeSection?: { name: string; start: number; end: number; nonce: number } | null;
   renameTrail?: { name: string; next: string; nonce: number } | null;
   onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
+  touchUi?: boolean;
 };
 
 export function PosterPanel({
@@ -341,6 +409,7 @@ export function PosterPanel({
   placeSection,
   renameTrail: renameTrailEvent,
   onHighlightChange,
+  touchUi = false,
 }: Props) {
   const catalog = FEATURE_CATALOG.map((item) => {
     const remote = features.find((feature) => feature.id === item.id);
@@ -348,6 +417,7 @@ export function PosterPanel({
     return { ...item, ...remote, nearRouteM: remote.nearRouteM ?? item.nearRouteM };
   });
   const seeded = useMemo(() => editorSeed(refineFrom), [refineFrom]);
+  const [selectedChip, setSelectedChip] = useState<{ kind: "area" | "trail" | "poi"; name: string } | null>(null);
   const [context, setContext] = useState<PosterContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1655,16 +1725,24 @@ export function PosterPanel({
             </p>
             <div className="chip-row">
               {selectedNamedAreas.map((area) => (
-                <button
+                <LandmarkChip
                   key={`area-${area.name}`}
-                  type="button"
-                  className="chip on"
+                  kind="area"
+                  name={area.name}
+                  label={`${area.letter} ${area.name}`}
                   title={`Wash ${area.letter} on the schematic`}
-                  onClick={() => removeArea(area.name)}
-                  {...chipHighlight("area", area.name, onHighlightChange)}
-                >
-                  {area.letter} {area.name} ×
-                </button>
+                  selected={selectedChip?.kind === "area" && selectedChip.name === area.name}
+                  touchUi={touchUi}
+                  onSelect={() => {
+                    setSelectedChip({ kind: "area", name: area.name });
+                    onHighlightChange?.({ kind: "area", name: area.name });
+                  }}
+                  onRemove={() => {
+                    removeArea(area.name);
+                    setSelectedChip(null);
+                  }}
+                  onHighlightChange={onHighlightChange}
+                />
               ))}
               {selectedNamedWays.map((trail) => (
                 <TrailChip
@@ -1672,6 +1750,12 @@ export function PosterPanel({
                   trail={trail}
                   editing={editingTrail === trail.name}
                   draft={editingTrail === trail.name ? editingTrailName : trail.name}
+                  selected={selectedChip?.kind === "trail" && selectedChip.name === trail.name}
+                  touchUi={touchUi}
+                  onSelect={() => {
+                    setSelectedChip({ kind: "trail", name: trail.name });
+                    onHighlightChange?.({ kind: "trail", name: trail.name });
+                  }}
                   onEdit={() => {
                     setEditingTrail(trail.name);
                     setEditingTrailName(trail.name);
@@ -1682,25 +1766,36 @@ export function PosterPanel({
                     renameTrail(trail.name, value);
                   }}
                   onCancel={() => setEditingTrail(null)}
-                  onRemove={() => removeTrail(trail.name)}
+                  onRemove={() => {
+                    removeTrail(trail.name);
+                    setSelectedChip(null);
+                  }}
                   onHighlightChange={onHighlightChange}
                 />
               ))}
               {selectedPois.map((poi, index) => (
-                <button
+                <LandmarkChip
                   key={`${poi.name}-${poi.lat}`}
-                  type="button"
-                  className="chip on"
+                  kind="poi"
+                  name={poi.name}
+                  label={`${index + 1} ${poi.name}`}
                   title={
                     poi.source === "user"
                       ? `Disc ${index + 1} · placed on the schematic`
                       : `Disc ${index + 1} on the schematic`
                   }
-                  onClick={() => removePoi(poi.name)}
-                  {...chipHighlight("poi", poi.name, onHighlightChange)}
-                >
-                  {index + 1} {poi.name} ×
-                </button>
+                  selected={selectedChip?.kind === "poi" && selectedChip.name === poi.name}
+                  touchUi={touchUi}
+                  onSelect={() => {
+                    setSelectedChip({ kind: "poi", name: poi.name });
+                    onHighlightChange?.({ kind: "poi", name: poi.name });
+                  }}
+                  onRemove={() => {
+                    removePoi(poi.name);
+                    setSelectedChip(null);
+                  }}
+                  onHighlightChange={onHighlightChange}
+                />
               ))}
             </div>
             {(selectedPois.length > 0 || selectedNamedWays.length > 0 || selectedNamedAreas.length > 0) && (
@@ -2061,6 +2156,7 @@ export function PosterPanel({
                 <a className="button" href={result.url} download={`${result.posterId}.png`}>
                   Download
                 </a>
+                <ShareButton url={result.url} filename={`${result.posterId}.png`} />
                 <a className="text-btn" href={result.url} target="_blank" rel="noreferrer">
                   Open
                 </a>
@@ -2145,6 +2241,7 @@ export function PosterPanel({
               <a className="button" href={result.url} download={`${result.posterId}.png`}>
                 Download selected
               </a>
+              <ShareButton url={result.url} filename={`${result.posterId}.png`} />
             </div>
           </div>
         </div>

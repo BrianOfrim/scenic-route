@@ -32,6 +32,10 @@ const POI_HIT_PX = 18;
 const TRAIL_HIT_PX = 12;
 const ROUTE_SNAP_PX = 16;
 const LANDMARK_DRAG_PX = 5;
+const TOUCH_POI_HIT_PX = 28;
+const TOUCH_TRAIL_HIT_PX = 22;
+const TOUCH_ROUTE_SNAP_PX = 28;
+const TOUCH_LANDMARK_DRAG_PX = 12;
 
 type LandmarkDrag = {
   name: string;
@@ -73,6 +77,7 @@ type Props = {
   viewNonce?: number;
   labelingEnabled?: boolean;
   highlight?: LandmarkHighlight | null;
+  touchUi?: boolean;
   onRemovePoi?: (name: string) => void;
   onRemoveArea?: (name: string) => void;
   onRemoveTrail?: (name: string) => void;
@@ -100,6 +105,7 @@ export function MapView({
   viewNonce = 0,
   labelingEnabled = false,
   highlight = null,
+  touchUi = false,
   onRemovePoi,
   onRemoveArea,
   onRemoveTrail,
@@ -112,6 +118,7 @@ export function MapView({
   const [mode, setMode] = useState<AnnotateMode>("browse");
   const [hint, setHint] = useState<string | null>(null);
   const [draft, setDraft] = useState<NameDraft | null>(null);
+  const [selectedHit, setSelectedHit] = useState<SchematicHover | null>(null);
   const [sectionStart, setSectionStart] = useState<number | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -135,6 +142,7 @@ export function MapView({
   const onMoveLandmarkRef = useRef(onMoveLandmark);
   const onPlaceSectionRef = useRef(onPlaceSection);
   const landmarkDragRef = useRef<LandmarkDrag | null>(null);
+  const skipAnnotateClickRef = useRef(false);
   const onRenameTrailRef = useRef(onRenameTrail);
   const onRenameTrailStartRef = useRef<(name: string, point: { x: number; y: number }) => void>(() => {});
   const basemapRef = useRef(basemap);
@@ -145,6 +153,8 @@ export function MapView({
   const sectionHoverRef = useRef<number | null>(null);
   const labelingRef = useRef(labelingEnabled);
   const highlightRef = useRef(highlight);
+  const touchUiRef = useRef(touchUi);
+  const selectedHitRef = useRef(selectedHit);
   trackRef.current = selectedLatLng;
   cropRef.current = cropLatLng;
   stopsRef.current = cropStops;
@@ -161,6 +171,8 @@ export function MapView({
   onMoveLandmarkRef.current = onMoveLandmark;
   onPlaceSectionRef.current = onPlaceSection;
   highlightRef.current = highlight;
+  touchUiRef.current = touchUi;
+  selectedHitRef.current = selectedHit;
   onRenameTrailRef.current = onRenameTrail;
   onRenameTrailStartRef.current = (name, point) => {
     setMode("browse");
@@ -200,7 +212,7 @@ export function MapView({
       onRemoveTrailRef,
       onRenameTrailStartRef,
     );
-    hover.setActive(basemapRef.current === "schematic");
+    hover.setActive(basemapRef.current === "schematic" && !touchUiRef.current);
     hoverRef.current = hover;
     mapRef.current = map;
     const paint = () => {
@@ -241,10 +253,30 @@ export function MapView({
       lngLat: { lng: number; lat: number };
       originalEvent?: MouseEvent;
     }) => {
+      if (skipAnnotateClickRef.current) {
+        skipAnnotateClickRef.current = false;
+        return;
+      }
       if (!labelingRef.current || basemapRef.current !== "schematic") return;
-      if (modeRef.current === "browse") return;
       const target = event.originalEvent?.target;
       if (target instanceof Element && (target.closest(".map-annotate") || target.closest(".map-schematic-tip"))) return;
+      if (modeRef.current === "browse") {
+        if (!touchUiRef.current) return;
+        const hit = hitTestSchematic(
+          map,
+          event.point,
+          event.lngLat,
+          poisRef.current,
+          namedWaysRef.current,
+          namedAreasRef.current,
+          cropRef.current ?? trackRef.current,
+          touchUiRef.current,
+        );
+        setSelectedHit(hit);
+        hover.hide();
+        return;
+      }
+      setSelectedHit(null);
       const route = cropRef.current ?? trackRef.current;
       if (modeRef.current === "landmark") {
         const keep = draftRef.current?.kind === "landmark" ? draftRef.current.name : "";
@@ -260,7 +292,7 @@ export function MapView({
         map.triggerRepaint();
         return;
       }
-      const hit = nearestRouteIndexPx(map, event.point, route);
+      const hit = nearestRouteIndexPx(map, event.point, route, touchUiRef.current);
       if (!hit) {
         setHint("Click the GPS track to mark a stretch");
         return;
@@ -290,6 +322,10 @@ export function MapView({
       map.triggerRepaint();
     };
     const onHoverMove = (event: { point: { x: number; y: number }; lngLat: { lng: number; lat: number }; originalEvent?: MouseEvent }) => {
+      if (touchUiRef.current) {
+        hover.hide();
+        return;
+      }
       if (basemapRef.current !== "schematic") {
         hover.hide();
         return;
@@ -302,7 +338,7 @@ export function MapView({
       if (modeRef.current !== "browse") {
         hover.hide();
         if (modeRef.current === "section" && sectionStartRef.current != null) {
-          const hit = nearestRouteIndexPx(map, event.point, cropRef.current ?? trackRef.current);
+          const hit = nearestRouteIndexPx(map, event.point, cropRef.current ?? trackRef.current, touchUiRef.current);
           const next = hit?.index ?? sectionHoverRef.current;
           if (next !== sectionHoverRef.current) {
             sectionHoverRef.current = next;
@@ -323,6 +359,7 @@ export function MapView({
         namedWaysRef.current,
         namedAreasRef.current,
         cropRef.current ?? trackRef.current,
+        false,
       );
       map.getCanvas().style.cursor = hit?.kind === "poi" && labelingRef.current ? "grab" : "";
       hover.show(hit, event.point);
@@ -345,7 +382,7 @@ export function MapView({
       const pois = poisWithDrag(poisRef.current, landmarkDragRef.current);
       const poi =
         basemapRef.current === "schematic"
-          ? hitTestPoi(map, event.point, pois)
+          ? hitTestPoi(map, event.point, pois, touchUiRef.current)
           : null;
       if (!poi) return;
       landmarkDragRef.current = {
@@ -363,7 +400,8 @@ export function MapView({
       const drag = landmarkDragRef.current;
       if (!drag) return;
       const dist = Math.hypot(event.point.x - drag.startX, event.point.y - drag.startY);
-      if (!drag.moved && dist < LANDMARK_DRAG_PX) return;
+      const threshold = touchUiRef.current ? TOUCH_LANDMARK_DRAG_PX : LANDMARK_DRAG_PX;
+      if (!drag.moved && dist < threshold) return;
       landmarkDragRef.current = {
         ...drag,
         lat: event.lngLat.lat,
@@ -381,8 +419,17 @@ export function MapView({
       map.dragPan.enable();
       map.getCanvas().style.cursor = "";
       if (drag.moved) {
+        skipAnnotateClickRef.current = true;
         onMoveLandmarkRef.current?.({ name: drag.name, lat: drag.lat, lng: drag.lng });
         setHint(`Moved ${drag.name}`);
+      } else if (touchUiRef.current) {
+        const items = poisRef.current ?? [];
+        const index = items.findIndex((poi) => poi.name === drag.name);
+        setSelectedHit({
+          kind: "poi",
+          name: drag.name,
+          label: index >= 0 ? `${index + 1} ${drag.name}` : drag.name,
+        });
       }
       map.triggerRepaint();
     };
@@ -436,7 +483,7 @@ export function MapView({
     styleReadyRef.current = false;
     basemapRef.current = basemap;
     if (overlayRef.current) overlayRef.current.hidden = false;
-    hoverRef.current?.setActive(basemap === "schematic");
+    hoverRef.current?.setActive(basemap === "schematic" && !touchUiRef.current);
     if (landmarkDragRef.current) {
       landmarkDragRef.current = null;
       map.dragPan.enable();
@@ -451,6 +498,7 @@ export function MapView({
     const map = mapRef.current;
     if (!map) return;
     const apply = () => {
+      map.resize();
       if (basemapRef.current === "schematic") {
         clearMarkers(markersRef);
         map.triggerRepaint();
@@ -521,6 +569,7 @@ export function MapView({
   useEffect(() => {
     setMode("browse");
     setDraft(null);
+    setSelectedHit(null);
     setSectionStart(null);
     setHint(null);
     sectionHoverRef.current = null;
@@ -552,9 +601,13 @@ export function MapView({
   }, [draftAnchor]);
 
   useEffect(() => {
-    if (mode === "browse" && !draft) return;
+    if (mode === "browse" && !draft && !selectedHit) return;
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+      if (selectedHit) {
+        setSelectedHit(null);
+        return;
+      }
       if (draft) {
         setDraft(null);
         setHint(
@@ -583,12 +636,13 @@ export function MapView({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, draft, sectionStart]);
+  }, [mode, draft, sectionStart, selectedHit]);
 
   function toggleMode(next: AnnotateMode) {
     const chosen = mode === next ? "browse" : next;
     setMode(chosen);
     setDraft(null);
+    setSelectedHit(null);
     setSectionStart(null);
     sectionHoverRef.current = null;
     if (landmarkDragRef.current) {
@@ -631,7 +685,7 @@ export function MapView({
   }
 
   return (
-    <div className={`map-root${mode !== "browse" ? ` is-annotate-${mode}` : ""}`}>
+    <div className={`map-root${mode !== "browse" ? ` is-annotate-${mode}` : ""}${touchUi ? " is-touch" : ""}`}>
       <div ref={containerRef} className="map" />
       {labelingEnabled && (
         <div className="map-annotate">
@@ -660,12 +714,49 @@ export function MapView({
                 : hint}
             </p>
           )}
+          {selectedHit && !draft && touchUi && (
+            <div className="map-schematic-select" role="toolbar" aria-label="Selected label">
+              <strong>{selectedHit.label}</strong>
+              {selectedHit.kind === "trail" && (
+                <button
+                  type="button"
+                  className="text-btn"
+                  onClick={() => {
+                    const point = { x: 16, y: 16 };
+                    onRenameTrailStartRef.current(selectedHit.name, point);
+                    setSelectedHit(null);
+                  }}
+                >
+                  Rename
+                </button>
+              )}
+              <button
+                type="button"
+                className="text-btn"
+                onClick={() => {
+                  if (selectedHit.kind === "area") onRemoveAreaRef.current?.(selectedHit.name);
+                  else if (selectedHit.kind === "trail") onRemoveTrailRef.current?.(selectedHit.name);
+                  else onRemovePoiRef.current?.(selectedHit.name);
+                  setSelectedHit(null);
+                }}
+              >
+                Remove
+              </button>
+              <button type="button" className="text-btn" onClick={() => setSelectedHit(null)}>
+                Done
+              </button>
+            </div>
+          )}
           {draft && (
             <form
               className="map-annotate-form"
-              style={{
-                transform: `translate(${Math.max(8, draft.x)}px, ${Math.max(8, draft.y + 12)}px)`,
-              }}
+              style={
+                touchUi
+                  ? undefined
+                  : {
+                      transform: `translate(${Math.max(8, draft.x)}px, ${Math.max(8, draft.y + 12)}px)`,
+                    }
+              }
               onSubmit={submitDraft}
             >
               <label className="map-annotate-label">
@@ -1009,14 +1100,16 @@ function nearestRouteIndexPx(
   map: Map,
   point: { x: number; y: number },
   route: [number, number][] | null | undefined,
+  touch = false,
 ): { index: number; distPx: number } | null {
   if (!route?.length) return null;
+  const snap = touch ? TOUCH_ROUTE_SNAP_PX : ROUTE_SNAP_PX;
   let bestIndex = 0;
   let bestDist = Infinity;
   if (route.length === 1) {
     const projected = map.project([route[0][1], route[0][0]]);
     const dist = Math.hypot(projected.x - point.x, projected.y - point.y);
-    return dist <= ROUTE_SNAP_PX ? { index: 0, distPx: dist } : null;
+    return dist <= snap ? { index: 0, distPx: dist } : null;
   }
   for (let i = 0; i < route.length - 1; i += 1) {
     const from = map.project([route[i][1], route[i][0]]);
@@ -1026,7 +1119,7 @@ function nearestRouteIndexPx(
     bestDist = dist;
     bestIndex = t < 0.5 ? i : i + 1;
   }
-  if (bestDist > ROUTE_SNAP_PX) return null;
+  if (bestDist > snap) return null;
   return { index: bestIndex, distPx: bestDist };
 }
 
@@ -1178,10 +1271,11 @@ function hitTestPoi(
   map: Map,
   point: { x: number; y: number },
   pois: PosterPoi[] | undefined,
+  touch = false,
 ): PosterPoi | null {
   const items = Array.isArray(pois) ? pois : [];
   let best: PosterPoi | null = null;
-  let bestDist = POI_HIT_PX;
+  let bestDist = touch ? TOUCH_POI_HIT_PX : POI_HIT_PX;
   for (const poi of items) {
     const projected = map.project([poi.lng, poi.lat]);
     const dist = Math.hypot(projected.x - point.x, projected.y - point.y);
@@ -1200,13 +1294,14 @@ function hitTestSchematic(
   trails: NamedWay[] | undefined,
   areas: NamedArea[] | undefined,
   route: [number, number][] | null | undefined,
+  touch = false,
 ): SchematicHover | null {
   const items = Array.isArray(pois) ? pois : [];
-  const poi = hitTestPoi(map, point, items);
+  const poi = hitTestPoi(map, point, items, touch);
   if (poi) {
     return { kind: "poi", name: poi.name, label: `${items.indexOf(poi) + 1} ${poi.name}` };
   }
-  const trail = hitTestTrail(map, point, lngLat, trails, route);
+  const trail = hitTestTrail(map, point, lngLat, trails, route, touch);
   if (trail) return trail;
   const match = [...(areas ?? [])].reverse().find((area) => areaContains(area, lngLat.lat, lngLat.lng));
   if (!match) return null;
@@ -1223,12 +1318,14 @@ function hitTestTrail(
   lngLat: { lng: number; lat: number },
   trails: NamedWay[] | undefined,
   route: [number, number][] | null | undefined,
+  touch = false,
 ): SchematicHover | null {
   const items = Array.isArray(trails) ? trails : [];
   if (!items.length) return null;
+  const trailHit = touch ? TOUCH_TRAIL_HIT_PX : TRAIL_HIT_PX;
   let bestOrder = items.length;
   for (let index = 0; index < items.length; index += 1) {
-    if (distToWayPx(map, point, items[index].geometry.coordinates) > TRAIL_HIT_PX) continue;
+    if (distToWayPx(map, point, items[index].geometry.coordinates) > trailHit) continue;
     if (index < bestOrder) bestOrder = index;
   }
   if (bestOrder < items.length) {
@@ -1239,7 +1336,7 @@ function hitTestTrail(
   let nearRoute = false;
   for (const [lat, lng] of route) {
     const projected = map.project([lng, lat]);
-    if (Math.hypot(projected.x - point.x, projected.y - point.y) <= TRAIL_HIT_PX) {
+    if (Math.hypot(projected.x - point.x, projected.y - point.y) <= trailHit) {
       nearRoute = true;
       break;
     }
@@ -1449,6 +1546,13 @@ function syncPoiMarkers(
     const marker = new Marker({ element: root, anchor: "top" }).setLngLat([poi.lng, poi.lat]).addTo(map);
     if (options?.draggable) {
       bindMarkerDrag(map, marker, root, poi.name, options);
+    } else {
+      root.addEventListener("click", () => {
+        for (const el of map.getContainer().querySelectorAll(".map-poi.is-selected")) {
+          if (el !== root) el.classList.remove("is-selected");
+        }
+        root.classList.toggle("is-selected");
+      });
     }
     return marker;
   });
@@ -1473,7 +1577,10 @@ function bindMarkerDrag(
   };
   const onMove = (event: PointerEvent) => {
     const dist = Math.hypot(event.clientX - startX, event.clientY - startY);
-    if (!moved && dist < LANDMARK_DRAG_PX) return;
+    const threshold = window.matchMedia("(pointer: coarse)").matches
+      ? TOUCH_LANDMARK_DRAG_PX
+      : LANDMARK_DRAG_PX;
+    if (!moved && dist < threshold) return;
     moved = true;
     root.classList.add("is-dragging");
     const point = pointFrom(event);
@@ -1484,7 +1591,13 @@ function bindMarkerDrag(
     window.removeEventListener("pointerup", onUp);
     map.dragPan.enable();
     root.classList.remove("is-dragging");
-    if (!moved) return;
+    if (!moved) {
+      for (const el of map.getContainer().querySelectorAll(".map-poi.is-selected")) {
+        if (el !== root) el.classList.remove("is-selected");
+      }
+      root.classList.toggle("is-selected");
+      return;
+    }
     const { lat, lng } = marker.getLngLat();
     options.onMoveLandmark?.current?.({ name, lat, lng });
     options.onMoved?.(name);
@@ -1503,7 +1616,7 @@ function bindMarkerDrag(
   };
   root.addEventListener("pointerdown", onDown);
   for (const handle of root.querySelectorAll(".map-poi-dot, .map-poi-name")) {
-    handle.addEventListener("pointerdown", onDown);
+    handle.addEventListener("pointerdown", onDown as EventListener);
   }
 }
 

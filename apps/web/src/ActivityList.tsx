@@ -157,13 +157,13 @@ export function ActivityList({
               <a href="/api/strava/auth">connect Strava</a>
             ) : null}
           </p>
-          <div className="row">
+          <div className="row activity-toolbar">
             <button type="button" className="button" onClick={onSync} disabled={locked || !strava?.connected}>
               {busy && !importing ? "Syncing…" : "Sync Strava"}
             </button>
             <button
               type="button"
-              className="text-btn"
+              className="text-btn activity-upload"
               onClick={() => fileInput.current?.click()}
               disabled={locked}
             >

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { modifyPoster, type PosterRecord } from "../api";
 import { lineageFamily } from "./galleryRuns";
+import { ShareButton } from "../share";
 
 type Props = {
   source: PosterRecord;
@@ -141,6 +142,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange }: Props
             <a className="text-btn" href={selected.url} download={`${selected.posterId}.png`}>
               Download selected
             </a>
+            <ShareButton url={selected.url} filename={`${selected.posterId}.png`} />
           </div>
         </form>
         <div className="eyebrow">Versions</div>
