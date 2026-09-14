@@ -225,7 +225,7 @@ app.post("/api/poster/landmark", async (c) => {
 app.post("/api/poster/plan", async (c) => {
   try {
     const body = await c.req.json();
-    return c.json(await planPoster(body));
+    return c.json(await planPoster(currentUserId(c), body));
   } catch (error) {
     return fail(c, error);
   }

@@ -17,12 +17,11 @@ let pool: pg.Pool | null = null;
 let ready: Promise<pg.Pool> | null = null;
 
 export function databaseUrl() {
-  return process.env.DATABASE_URL?.trim() || process.env.NEON_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
+  return process.env.DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
 }
 
 export function databaseUrlSource() {
   if (process.env.DATABASE_URL?.trim()) return "DATABASE_URL";
-  if (process.env.NEON_DATABASE_URL?.trim()) return "NEON_DATABASE_URL";
   return "default local";
 }
 
