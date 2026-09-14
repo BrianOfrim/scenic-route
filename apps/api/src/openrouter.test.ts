@@ -7,11 +7,21 @@ import {
   isImageModelId,
   isSchemaRejection,
   jsonResponseFormat,
+  openRouterUser,
   parseImageModels,
   parseImageResponse,
   imageModel,
   resolveImageModel,
 } from "./openrouter";
+
+test("openRouterUser keeps stable non-empty ids", () => {
+  assert.equal(openRouterUser("user_abc"), "user_abc");
+  assert.equal(openRouterUser("  user_abc  "), "user_abc");
+  assert.equal(openRouterUser(""), undefined);
+  assert.equal(openRouterUser("   "), undefined);
+  assert.equal(openRouterUser(null), undefined);
+  assert.equal(openRouterUser(undefined), undefined);
+});
 
 test("jsonResponseFormat prefers strict json_schema when a schema is supplied", () => {
   assert.deepEqual(jsonResponseFormat("poster_spec", { type: "object" }), {

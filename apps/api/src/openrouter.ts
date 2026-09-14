@@ -101,19 +101,34 @@ export function isSchemaRejection(status: number, payload: unknown): boolean {
   return /response_format|json_schema|structured output|schema/.test(message);
 }
 
+/** Stable non-PII end-user id for OpenRouter abuse isolation and analytics. */
+export function openRouterUser(userId?: string | null) {
+  const trimmed = userId?.trim() ?? "";
+  return trimmed || undefined;
+}
+
 export async function chatJson<T>(options: {
   messages: unknown[];
   schemaName?: string;
   schema?: unknown;
   label?: string;
+  /** Authenticated app user id (not email). */
+  user?: string;
 }): Promise<{ value: T; cost: number | null }> {
   const key = requireKey();
   const model = chatModel();
   const strict = jsonResponseFormat(options.schemaName, options.schema);
-  const request: { model: string; messages: unknown[]; response_format: JsonResponseFormat } = {
+  const user = openRouterUser(options.user);
+  const request: {
+    model: string;
+    messages: unknown[];
+    response_format: JsonResponseFormat;
+    user?: string;
+  } = {
     model,
     messages: options.messages,
     response_format: strict,
+    ...(user ? { user } : {}),
   };
   return withLlmTrace(
     {
@@ -179,10 +194,13 @@ export async function createImage(options: {
   model?: string;
   n?: number;
   label?: string;
+  /** Authenticated app user id (not email). */
+  user?: string;
 }): Promise<{ images: GeneratedImage[]; cost: number | null }> {
   const key = requireKey();
   const model = resolveImageModel(options.model);
   const n = clampImageCount(options.n);
+  const user = openRouterUser(options.user);
   const request = {
     model,
     prompt: options.prompt,
@@ -192,6 +210,7 @@ export async function createImage(options: {
       type: "image_url",
       image_url: { url },
     })),
+    ...(user ? { user } : {}),
   };
   return withLlmTrace(
     {

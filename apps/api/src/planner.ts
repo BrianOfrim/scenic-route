@@ -397,12 +397,16 @@ export function assertUsableSpec(spec: PosterSpec) {
   }
 }
 
-export async function planPoster(input: PlannerInput): Promise<{ spec: PosterSpec; cost: number | null }> {
+export async function planPoster(
+  userId: string,
+  input: PlannerInput,
+): Promise<{ spec: PosterSpec; cost: number | null }> {
   const { value, cost } = await chatJson<unknown>({
     messages: buildPlannerMessages(input),
     schemaName: "poster_spec",
     schema: POSTER_SPEC_SCHEMA,
     label: "plan",
+    user: userId,
   });
   const spec = validatePosterSpec(repairPlannerOutput(value, input));
   assertUsableSpec(spec);
