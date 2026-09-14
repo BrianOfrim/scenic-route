@@ -58,3 +58,9 @@ npm run dev
 npm test
 npm run build
 ```
+
+## Production
+
+Production app: [https://scenic-route.ca](https://scenic-route.ca) (Fly.io app `scenic-route`; fallback host `scenic-route.fly.dev`).
+
+Hostname-sensitive config is env-only (`WEB_ORIGIN`, `BETTER_AUTH_URL`, `STRAVA_REDIRECT_URI`, `RESEND_FROM`). After DNS/certs are live, set Fly secrets to the `.ca` values (see deploy notes below). Local defaults in `.env.example` stay on `localhost`.
