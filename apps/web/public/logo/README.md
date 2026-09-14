@@ -1,16 +1,11 @@
-# Scenic Route logo pack (transparent PNG)
+# Scenic Route logo (sage)
 
 Path monogram with start ● at bottom of S and end ○ at bottom of R.
 
-## Masters (use these)
-- `sr-path-sage.png` — rgb(184, 201, 122) / `#b8c97a` (app accent)
-- `sr-path-orange.png` — Strava-like orange
-- `sr-path-copper.png` — `#c4783a` (app accent)
-- `sr-path-charcoal.png` — near-black for light UI
-- `sr-path-teal.png` — teal
-
-Sized: `*-32.png` … `*-512.png` for favicons / app icons.
-
-Prefer the cream-sourced masters (above) on any background. `*-on-dark` files are extras.
+- Color: rgb(184, 201, 122) / `#b8c97a` (app accent)
+- Master: `sr-path-sage.png`
+- Sized: `sr-path-sage-32.png` … `sr-path-sage-512.png`
 
 In Vite: `/logo/sr-path-sage.png`
+
+Favicons live at the web `public/` root (`favicon.ico`, `favicon.png`, etc.) — sage mark on dark forest.
