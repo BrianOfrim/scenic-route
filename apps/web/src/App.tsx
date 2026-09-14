@@ -344,7 +344,7 @@ export function App() {
       <header className="top">
         <div>
           <div className="brand-lockup">
-            <img className="brand-mark" src="/logo/sr-path-sage.png" alt="" width={40} height={40} />
+            <img className="brand-mark" src="/logo/sr-path-sage.svg" alt="" width={40} height={40} />
             <div>
               <p className="brand">Scenic Route</p>
               <h1>Route posters</h1>

@@ -1,6 +1,7 @@
 {
   "id": "sr-path-sage",
   "color": "rgb(184,201,122) / #b8c97a",
+  "svg": "sr-path-sage.svg",
   "master": "sr-path-sage.png",
   "sizes": {
     "32": "sr-path-sage-32.png",
