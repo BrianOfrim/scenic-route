@@ -1,5 +1,3 @@
-export const IMAGE_MODEL = "openai/gpt-image-2.5-sunburst";
-
 const IMAGE_MODELS_KEY = "scenic-route.image-models";
 const LEGACY_MODEL_KEY = "scenic-route.image-model";
 

@@ -50,7 +50,6 @@ import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import { SpecEditor } from "./SpecEditor";
 import {
-  IMAGE_MODEL,
   MAX_VARIANTS,
   formatBatchCost,
   formatCostBreakdown,
@@ -466,11 +465,12 @@ export function PosterPanel({
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(() => asAspectRatio(seeded?.aspectRatio));
   const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
   const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
-  const [modelRefs, setModelRefs] = useState<ModelRef[]>([]);
+  const [, setModelRefs] = useState<ModelRef[]>([]);
   const [sentRefs, setSentRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
-  const imageModelIds = [IMAGE_MODEL];
+  const [imageModelId, setImageModelId] = useState("");
+  const imageModelIds = imageModelId ? [imageModelId] : [];
   const [variants, setVariants] = useState(() => seeded?.variants ?? readStoredVariants());
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
@@ -500,7 +500,10 @@ export function PosterPanel({
   useEffect(() => {
     let cancelled = false;
     void fetchPosterCapabilities().then((caps) => {
-      if (!cancelled) setImageModels(caps.models);
+      if (cancelled) return;
+      setImageModels(caps.models);
+      if (caps.defaultModel) setImageModelId(caps.defaultModel);
+      setMaxRefs(caps.maxReferences);
     });
     return () => {
       cancelled = true;
@@ -508,14 +511,15 @@ export function PosterPanel({
   }, []);
 
   useEffect(() => {
+    if (!imageModelId) return;
     let cancelled = false;
-    void fetchMaxReferences(IMAGE_MODEL).then((value) => {
+    void fetchMaxReferences(imageModelId).then((value) => {
       if (!cancelled) setMaxRefs(value);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [imageModelId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1081,10 +1085,12 @@ export function PosterPanel({
         }),
       );
       const planned = settled.flatMap((item) =>
-        item.spec ? [{ key: item.key, styleId: item.styleId, paletteId: item.paletteId, spec: item.spec, cost: item.cost }] : [],
+        "spec" in item && item.spec
+          ? [{ key: item.key, styleId: item.styleId, paletteId: item.paletteId, spec: item.spec, cost: item.cost }]
+          : [],
       );
       const failures = settled.flatMap((item) =>
-        item.error ? [`${planSlotLabel(item.styleId, item.paletteId)}: ${item.error}`] : [],
+        "error" in item && item.error ? [`${planSlotLabel(item.styleId, item.paletteId)}: ${item.error}`] : [],
       );
       if (!planned.length) throw new Error(failures.join(" · ") || "Planner failed");
       setSpecs((current) => {
@@ -1113,6 +1119,10 @@ export function PosterPanel({
 
   async function handleGenerate() {
     if (!context) return;
+    if (!imageModelIds.length) {
+      setError("Set OPENROUTER_IMAGE_MODEL in .env.local, then restart the API.");
+      return;
+    }
     const jobs = stylePlanSlots(styleIds, paletteIdsByStyle).flatMap((slot) => {
       const planned = specForSlot(specs, slot.styleId, slot.paletteId);
       if (!planned) return [];

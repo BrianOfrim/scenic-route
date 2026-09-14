@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
-import fs from "node:fs";
+import { getActivity } from "./activities";
 import { revisePosterPrompt } from "./modifyPrompt";
 import { createImage, listImageModels, maxImageOutputs, maxImageReferences, resolveImageModel } from "./openrouter";
-import { POSTERS_DIR, isSafePosterId, posterPath } from "./paths";
+import { isSafePosterId } from "./paths";
 import { specToImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
+import { posterStore } from "./storage";
 
 export class PosterError extends Error {
   readonly status: 400 | 401 | 404 | 502 | 504;
@@ -16,6 +17,7 @@ export class PosterError extends Error {
 
 export type PosterRecord = {
   posterId: string;
+  userId?: string;
   activityId: number;
   title: string;
   subtitle: string;
@@ -139,11 +141,15 @@ export function modifyImageReferences(previousPosterUrl: string, groundingUrls: 
   return [previousPosterUrl, ...groundingUrls].filter((item) => item.trim()).slice(0, limit);
 }
 
-export function readPosterGroundingUrls(posterId: string, referenceCount: number): string[] {
+export async function readPosterGroundingUrls(
+  userId: string,
+  posterId: string,
+  referenceCount: number,
+): Promise<string[]> {
   const urls: string[] = [];
   for (let index = 1; index <= referenceCount; index += 1) {
     try {
-      urls.push(pngDataUrl(readPosterRef(posterId, index)));
+      urls.push(pngDataUrl(await readPosterRef(userId, posterId, index)));
     } catch {
       break;
     }
@@ -163,10 +169,13 @@ export function newPosterId() {
   return `${stamp}-${randomBytes(3).toString("hex")}`;
 }
 
-export async function generatePoster(body: GeneratePosterBody): Promise<PosterRecord[]> {
+export async function generatePoster(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
   const activityId = Number(body.activityId);
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new PosterError("activityId is required");
+  }
+  if (!(await getActivity(userId, activityId))) {
+    throw new PosterError("activity not found", 404);
   }
   const spec = validatePosterSpec(body.spec);
   const model = resolveImageModel(body.model);
@@ -203,53 +212,58 @@ export async function generatePoster(body: GeneratePosterBody): Promise<PosterRe
   }));
   if (!images.length) throw new PosterError("OpenRouter did not return image bytes", 502);
 
-  fs.mkdirSync(POSTERS_DIR, { recursive: true });
-  return images.map((image, index) => {
-    const posterId = newPosterId();
-    fs.writeFileSync(posterPath(posterId, "png"), Buffer.from(image.b64, "base64"));
-    decoded.forEach((ref, refIndex) => {
-      fs.writeFileSync(posterPath(posterId, `ref-${refIndex + 1}.png`), ref.bytes);
-    });
-    const record: PosterRecord = {
-      posterId,
-      activityId,
-      title: spec.text.title,
-      subtitle: spec.text.subtitle,
-      spec,
-      prompt,
-      model,
-      modelName,
-      batchId,
-      aspectRatio,
-      cost: image.cost,
-      promptCost: finiteCost(body.promptCost),
-      durationMs: image.durationMs,
-      createdAt: new Date().toISOString(),
-      previousPosterId: body.previousPosterId,
-      refineNotes: body.refineNotes?.trim() || undefined,
-      featureIds: body.featureIds ?? [],
-      labels: body.labels ?? [],
-      stats: body.stats ?? spec.text.stats,
-      styleId: body.styleId ?? "",
-      stylePrompt: body.stylePrompt ?? spec.style.medium,
-      paletteId: body.paletteId?.trim() || undefined,
-      referenceCount: decoded.length,
-      variant: index + 1,
-      url: `/api/posters/${posterId}/image.png`,
-      editor: sanitizePosterEditor(body.editor),
-    };
-    fs.writeFileSync(posterPath(posterId, "json"), JSON.stringify(record, null, 2));
-    return record;
-  });
+  const store = posterStore();
+  return Promise.all(
+    images.map(async (image, index) => {
+      const posterId = newPosterId();
+      const record: PosterRecord = {
+        posterId,
+        userId,
+        activityId,
+        title: spec.text.title,
+        subtitle: spec.text.subtitle,
+        spec,
+        prompt,
+        model,
+        modelName,
+        batchId,
+        aspectRatio,
+        cost: image.cost,
+        promptCost: finiteCost(body.promptCost),
+        durationMs: image.durationMs,
+        createdAt: new Date().toISOString(),
+        previousPosterId: body.previousPosterId,
+        refineNotes: body.refineNotes?.trim() || undefined,
+        featureIds: body.featureIds ?? [],
+        labels: body.labels ?? [],
+        stats: body.stats ?? spec.text.stats,
+        styleId: body.styleId ?? "",
+        stylePrompt: body.stylePrompt ?? spec.style.medium,
+        paletteId: body.paletteId?.trim() || undefined,
+        referenceCount: decoded.length,
+        variant: index + 1,
+        url: `/api/posters/${posterId}/image.png`,
+        editor: sanitizePosterEditor(body.editor),
+      };
+      await store.put(userId, `${posterId}.png`, Buffer.from(image.b64, "base64"), "image/png");
+      await Promise.all(
+        decoded.map((ref, refIndex) =>
+          store.put(userId, `${posterId}.ref-${refIndex + 1}.png`, ref.bytes, ref.mime),
+        ),
+      );
+      await store.put(userId, `${posterId}.json`, Buffer.from(JSON.stringify(record, null, 2)), "application/json");
+      return record;
+    }),
+  );
 }
 
-export async function modifyPoster(body: ModifyPosterBody): Promise<PosterRecord[]> {
+export async function modifyPoster(userId: string, body: ModifyPosterBody): Promise<PosterRecord[]> {
   const request = body.request?.trim() ?? "";
   if (!request) throw new PosterError("a modification request is required");
-  const source = readPosterRecord(body.posterId);
+  const source = await readPosterRecord(userId, body.posterId);
   if (!source) throw new PosterError("poster not found", 404);
-  const previousUrl = pngDataUrl(readPosterPng(source.posterId));
-  const grounding = readPosterGroundingUrls(source.posterId, source.referenceCount);
+  const previousUrl = pngDataUrl(await readPosterPng(userId, source.posterId));
+  const grounding = await readPosterGroundingUrls(userId, source.posterId, source.referenceCount);
   if (!grounding.length) throw new PosterError("previous poster is missing grounding images");
 
   const revised = await revisePosterPrompt({
@@ -259,7 +273,7 @@ export async function modifyPoster(body: ModifyPosterBody): Promise<PosterRecord
   });
   const model = resolveImageModel(body.model ?? source.model);
   const spec: PosterSpec = { ...source.spec, finalPrompt: revised.prompt };
-  return generatePoster({
+  return generatePoster(userId, {
     activityId: source.activityId,
     spec,
     prompt: revised.prompt,
@@ -286,13 +300,11 @@ function newBatchId() {
   return randomBytes(8).toString("hex");
 }
 
-export function listPosters(activityId?: number): PosterRecord[] {
-  if (!fs.existsSync(POSTERS_DIR)) return [];
+export async function listPosters(userId: string, activityId?: number): Promise<PosterRecord[]> {
+  const names = await posterStore().listJsonNames(userId);
   const rows: PosterRecord[] = [];
-  for (const name of fs.readdirSync(POSTERS_DIR)) {
-    if (!name.endsWith(".json")) continue;
-    const id = name.slice(0, -".json".length);
-    const record = readPosterRecord(id);
+  for (const name of names) {
+    const record = await readPosterRecord(userId, name.slice(0, -".json".length));
     if (!record) continue;
     if (activityId != null && record.activityId !== activityId) continue;
     rows.push(record);
@@ -301,14 +313,15 @@ export function listPosters(activityId?: number): PosterRecord[] {
   return rows;
 }
 
-export function readPosterRecord(posterId: string): PosterRecord | null {
+export async function readPosterRecord(userId: string, posterId: string): Promise<PosterRecord | null> {
   if (!isSafePosterId(posterId)) return null;
-  const file = posterPath(posterId, "json");
-  if (!fs.existsSync(file)) return null;
+  const bytes = await posterStore().get(userId, `${posterId}.json`);
+  if (!bytes) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as PosterRecord;
+    const parsed = JSON.parse(bytes.toString("utf8")) as PosterRecord;
     return {
       ...parsed,
+      userId,
       url: parsed.url || `/api/posters/${posterId}/image.png`,
     };
   } catch {
@@ -316,18 +329,18 @@ export function readPosterRecord(posterId: string): PosterRecord | null {
   }
 }
 
-export function readPosterPng(posterId: string): Buffer {
+export async function readPosterPng(userId: string, posterId: string): Promise<Buffer> {
   if (!isSafePosterId(posterId)) throw new PosterError("poster not found", 404);
-  const file = posterPath(posterId, "png");
-  if (!fs.existsSync(file)) throw new PosterError("poster not found", 404);
-  return fs.readFileSync(file);
+  const bytes = await posterStore().get(userId, `${posterId}.png`);
+  if (!bytes) throw new PosterError("poster not found", 404);
+  return bytes;
 }
 
-export function readPosterRef(posterId: string, index: number): Buffer {
+export async function readPosterRef(userId: string, posterId: string, index: number): Promise<Buffer> {
   if (!isSafePosterId(posterId) || index < 1) throw new PosterError("reference not found", 404);
-  const file = posterPath(posterId, `ref-${index}.png`);
-  if (!fs.existsSync(file)) throw new PosterError("reference not found", 404);
-  return fs.readFileSync(file);
+  const bytes = await posterStore().get(userId, `${posterId}.ref-${index}.png`);
+  if (!bytes) throw new PosterError("reference not found", 404);
+  return bytes;
 }
 
 function finiteCost(value: unknown): number | null {
@@ -440,21 +453,17 @@ function sanitizeBatchId(value?: string) {
   return trimmed;
 }
 
-export function setPosterFavorite(posterId: string, favorited: boolean): PosterRecord {
-  const record = readPosterRecord(posterId);
+export async function setPosterFavorite(userId: string, posterId: string, favorited: boolean): Promise<PosterRecord> {
+  const record = await readPosterRecord(userId, posterId);
   if (!record) throw new PosterError("poster not found", 404);
-  const next: PosterRecord = { ...record, favorited };
-  fs.writeFileSync(posterPath(posterId, "json"), JSON.stringify(next, null, 2));
+  const next: PosterRecord = { ...record, userId, favorited };
+  await posterStore().put(userId, `${posterId}.json`, Buffer.from(JSON.stringify(next, null, 2)), "application/json");
   return next;
 }
 
-export function deletePoster(posterId: string) {
+export async function deletePoster(userId: string, posterId: string) {
   if (!isSafePosterId(posterId)) throw new PosterError("poster not found", 404);
-  const record = readPosterRecord(posterId);
+  const record = await readPosterRecord(userId, posterId);
   if (!record) throw new PosterError("poster not found", 404);
-  for (const name of fs.readdirSync(POSTERS_DIR)) {
-    if (name.startsWith(`${posterId}.`)) {
-      fs.unlinkSync(`${POSTERS_DIR}/${name}`);
-    }
-  }
+  await posterStore().removeByPosterId(userId, posterId);
 }

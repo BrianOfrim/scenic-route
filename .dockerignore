@@ -1,0 +1,11 @@
+node_modules
+apps/web/dist
+data
+.git
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vite
+.cursor

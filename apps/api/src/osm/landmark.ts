@@ -26,18 +26,21 @@ export type LandmarkLookupResult = {
   warnings: string[];
 };
 
-export async function lookupLandmark(body: {
-  query: string;
-  activityId: number;
-  bbox?: unknown;
-  latlng?: LatLng[];
-}): Promise<LandmarkLookupResult> {
+export async function lookupLandmark(
+  userId: string,
+  body: {
+    query: string;
+    activityId: number;
+    bbox?: unknown;
+    latlng?: LatLng[];
+  },
+): Promise<LandmarkLookupResult> {
   const query = String(body.query ?? "").trim();
   if (!query) throw new Error("query is required");
   const activityId = Number(body.activityId);
   if (!Number.isFinite(activityId) || activityId <= 0) throw new Error("activityId is required");
 
-  const row = getActivity(activityId);
+  const row = await getActivity(userId, activityId);
   if (!row) throw new Error(`activity ${activityId} not found`);
   const latlng = body.latlng?.length ? body.latlng : parseLatLng(row.latlng);
   if (latlng.length < 2) throw new Error("need a GPS track to rank landmarks");

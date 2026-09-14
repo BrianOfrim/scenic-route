@@ -141,6 +141,7 @@ const WAY_BUCKETS = [
 ] as const;
 
 export async function loadRouteFeatures(
+  userId: string,
   activityId: number,
   featureIds?: string[],
   nearRouteM?: Record<string, number>,
@@ -148,7 +149,7 @@ export async function loadRouteFeatures(
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new Error("activityId is required");
   }
-  const row = getActivity(activityId);
+  const row = await getActivity(userId, activityId);
   if (!row) throw new Error(`activity ${activityId} not found`);
   const latlng = parseLatLng(row.latlng);
   if (latlng.length < 2) throw new Error(`activity ${activityId} has no GPS track`);
@@ -178,7 +179,7 @@ export async function loadRouteFeatures(
     namedAreaFeatures.length
       ? queryOverpass(unionQuery(namedAreaFeatures.flatMap((item) => item.selectors)), padded, warnings, "named areas")
       : Promise.resolve(emptyCollection()),
-    wantStravaWays ? loadActivitySegmentEfforts(activityId, warnings) : Promise.resolve([]),
+    wantStravaWays ? loadActivitySegmentEfforts(userId, activityId, warnings) : Promise.resolve([]),
   ]);
 
   const ways = splitWays(waysFc, geoFeatures);
