@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { deletePoster, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
 import { type CompareImage } from "../compare/BatchCompare";
 import { formatBatchCost, formatCostBreakdown, formatDurationMs, posterVariantLabel, shortModelLabel } from "../poster/imageModels";
@@ -11,6 +11,7 @@ import { ShareButton } from "../share";
 type Props = {
   onBack: () => void;
   onEditSetup: (poster: PosterRecord) => void;
+  account?: ReactNode;
 };
 
 function posterLabel(
@@ -183,7 +184,7 @@ function GalleryRun({
   );
 }
 
-export function Gallery({ onBack, onEditSetup }: Props) {
+export function Gallery({ onBack, onEditSetup, account }: Props) {
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [studioFrom, setStudioFrom] = useState<PosterRecord | null>(null);
@@ -349,6 +350,7 @@ export function Gallery({ onBack, onEditSetup }: Props) {
           <button type="button" className="text-btn" onClick={onBack}>
             Back to map
           </button>
+          {account}
         </div>
       </header>
       {error && <p className="error banner">{error}</p>}

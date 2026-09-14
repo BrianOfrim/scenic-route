@@ -40,7 +40,21 @@ export type SyncProgress = {
   retryAfter?: number;
 };
 
+export type SessionUser = {
+  id: string;
+  email: string;
+  name?: string | null;
+};
+
+export class AuthRequiredError extends Error {
+  constructor() {
+    super("sign in required");
+    this.name = "AuthRequiredError";
+  }
+}
+
 export type StatusPayload = {
+  user?: SessionUser;
   strava: {
     configured: boolean;
     connected: boolean;
@@ -180,6 +194,7 @@ export type PosterSpec = {
 
 export type PosterRecord = {
   posterId: string;
+  userId?: string;
   activityId: number;
   title: string;
   subtitle: string;
@@ -237,26 +252,59 @@ export type PosterEditorSnapshot = {
   landmarkNearM?: Record<string, number>;
 };
 
+function apiFetch(input: string, init?: RequestInit) {
+  return fetch(input, { ...init, credentials: "include" });
+}
+
 async function readJson<T>(response: Response): Promise<T> {
+  if (response.status === 401) throw new AuthRequiredError();
   const text = await response.text();
-  let body: T & { error?: string };
+  let body: T & { error?: string; message?: string };
   try {
-    body = JSON.parse(text) as T & { error?: string };
+    body = JSON.parse(text) as T & { error?: string; message?: string };
   } catch {
     throw new Error(
       response.ok ? "Server returned an invalid response" : `Request failed (${response.status})`,
     );
   }
-  if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
+  if (!response.ok) {
+    throw new Error(body.error ?? body.message ?? `Request failed (${response.status})`);
+  }
   return body;
 }
 
+export async function fetchSession(): Promise<SessionUser | null> {
+  const response = await apiFetch("/api/auth/get-session");
+  if (!response.ok) return null;
+  const body = (await response.json()) as { user?: SessionUser } | null;
+  if (!body?.user?.id || !body.user.email) return null;
+  return { id: body.user.id, email: body.user.email, name: body.user.name };
+}
+
+export async function requestMagicLink(email: string) {
+  return readJson<{ status: boolean }>(
+    await apiFetch("/api/auth/sign-in/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, callbackURL: "/" }),
+    }),
+  );
+}
+
+export async function signOut() {
+  await apiFetch("/api/auth/sign-out", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+}
+
 export async function fetchStatus(): Promise<StatusPayload> {
-  return readJson(await fetch("/api/status"));
+  return readJson(await apiFetch("/api/status"));
 }
 
 export async function fetchActivities(): Promise<ActivitySummary[]> {
-  const body = await readJson<{ activities: ActivitySummary[] }>(await fetch("/api/activities"));
+  const body = await readJson<{ activities: ActivitySummary[] }>(await apiFetch("/api/activities"));
   return body.activities;
 }
 
@@ -271,7 +319,7 @@ export async function importGpxFiles(files: File[] | FileList): Promise<{
     activities: ActivitySummary[];
     errors?: Array<{ filename: string; error: string }>;
     skipped?: number;
-  }>(await fetch("/api/activities/import", { method: "POST", body: form }));
+  }>(await apiFetch("/api/activities/import", { method: "POST", body: form }));
   return {
     activities: body.activities,
     errors: body.errors ?? [],
@@ -284,7 +332,7 @@ export async function removeActivities(ids: number[]): Promise<{
   skipped: number;
 }> {
   return readJson(
-    await fetch("/api/activities/remove", {
+    await apiFetch("/api/activities/remove", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids }),
@@ -297,18 +345,19 @@ export async function fetchActivityTrack(id: number): Promise<{
   latlng: [number, number][];
   track: FeatureCollection<LineString>;
 }> {
-  return readJson(await fetch(`/api/activities/${id}`));
+  return readJson(await apiFetch(`/api/activities/${id}`));
 }
 
 export async function syncStrava(): Promise<SyncProgress> {
-  const response = await fetch("/api/strava/sync", { method: "POST" });
+  const response = await apiFetch("/api/strava/sync", { method: "POST" });
+  if (response.status === 401) throw new AuthRequiredError();
   const body = (await response.json()) as SyncProgress & { error?: string };
   if (!response.ok && !body.rateLimited) throw new Error(body.error ?? "Sync failed");
   return body;
 }
 
 export async function fetchFeatures(): Promise<FeatureOption[]> {
-  const body = await readJson<{ features: FeatureOption[] }>(await fetch("/api/features"));
+  const body = await readJson<{ features: FeatureOption[] }>(await apiFetch("/api/features"));
   return body.features;
 }
 
@@ -319,7 +368,7 @@ export async function fetchPosterContext(
 ): Promise<PosterContext> {
   const encoded = featureQuery ?? featureIds.join(",");
   const qs = encoded ? `?features=${encodeURIComponent(encoded)}` : "";
-  return readJson(await fetch(`/api/poster/context/${activityId}${qs}`));
+  return readJson(await apiFetch(`/api/poster/context/${activityId}${qs}`));
 }
 
 export async function lookupPosterLandmark(body: {
@@ -334,7 +383,7 @@ export async function lookupPosterLandmark(body: {
     picked: PosterPoi | null;
     warnings: string[];
   }>(
-    await fetch("/api/poster/landmark", {
+    await apiFetch("/api/poster/landmark", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -344,7 +393,7 @@ export async function lookupPosterLandmark(body: {
 
 export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cost: number | null }> {
   return readJson(
-    await fetch("/api/poster/plan", {
+    await apiFetch("/api/poster/plan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -354,7 +403,7 @@ export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cos
 
 export async function generatePoster(body: unknown): Promise<PosterRecord[]> {
   const payload = await readJson<{ posters?: PosterRecord[] } & Partial<PosterRecord>>(
-    await fetch("/api/poster/generate", {
+    await apiFetch("/api/poster/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -372,7 +421,7 @@ export async function modifyPoster(body: {
   model?: string;
 }): Promise<PosterRecord[]> {
   const payload = await readJson<{ posters?: PosterRecord[] }>(
-    await fetch("/api/poster/modify", {
+    await apiFetch("/api/poster/modify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -383,21 +432,21 @@ export async function modifyPoster(body: {
 
 export async function fetchPosters(activityId?: number): Promise<PosterRecord[]> {
   const qs = activityId != null ? `?activityId=${activityId}` : "";
-  const body = await readJson<{ posters: PosterRecord[] }>(await fetch(`/api/posters${qs}`));
+  const body = await readJson<{ posters: PosterRecord[] }>(await apiFetch(`/api/posters${qs}`));
   return body.posters ?? [];
 }
 
 export async function fetchPoster(id: string): Promise<PosterRecord> {
-  return readJson(await fetch(`/api/posters/${id}`));
+  return readJson(await apiFetch(`/api/posters/${id}`));
 }
 
 export async function deletePoster(id: string): Promise<void> {
-  await readJson(await fetch(`/api/posters/${id}`, { method: "DELETE" }));
+  await readJson(await apiFetch(`/api/posters/${id}`, { method: "DELETE" }));
 }
 
 export async function setPosterFavorite(id: string, favorited: boolean): Promise<PosterRecord> {
   return readJson(
-    await fetch(`/api/posters/${id}`, {
+    await apiFetch(`/api/posters/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ favorited }),
@@ -420,7 +469,7 @@ export type PosterCapabilities = {
 
 export async function fetchPosterCapabilities(): Promise<PosterCapabilities> {
   try {
-    const body = await readJson<Partial<PosterCapabilities>>(await fetch("/api/poster/capabilities"));
+    const body = await readJson<Partial<PosterCapabilities>>(await apiFetch("/api/poster/capabilities"));
     return {
       defaultModel: body.defaultModel || "",
       maxReferences: body.maxReferences || 3,
@@ -434,7 +483,7 @@ export async function fetchPosterCapabilities(): Promise<PosterCapabilities> {
 export async function fetchMaxReferences(model?: string): Promise<number> {
   try {
     const qs = model ? `?model=${encodeURIComponent(model)}` : "";
-    const body = await readJson<{ maxReferences: number }>(await fetch(`/api/poster/capabilities${qs}`));
+    const body = await readJson<{ maxReferences: number }>(await apiFetch(`/api/poster/capabilities${qs}`));
     return body.maxReferences || 3;
   } catch {
     return 3;

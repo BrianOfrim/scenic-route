@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  AuthRequiredError,
   fetchActivities,
   fetchActivityTrack,
   fetchFeatures,
   fetchPoster,
+  fetchSession,
   fetchStatus,
   importGpxFiles,
   removeActivities,
+  signOut,
   syncStrava,
   type ActivitySummary,
   type FeatureOption,
@@ -15,10 +18,12 @@ import {
   type PosterPoi,
   type PosterRecord,
   type PosterWays,
+  type SessionUser,
   type StatusPayload,
 } from "./api";
 import { ActivityList } from "./ActivityList";
 import { Gallery } from "./gallery/Gallery";
+import { SignIn } from "./SignIn";
 import { MapView, type Basemap, type LandmarkHighlight } from "./MapView";
 import { PosterPanel } from "./poster/PosterPanel";
 import type { SchematicLayers } from "./poster/grounding/renderSchematic";
@@ -77,6 +82,7 @@ export function App() {
     next: string;
     nonce: number;
   } | null>(null);
+  const [session, setSession] = useState<SessionUser | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,15 +107,23 @@ export function App() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [nextStatus, nextActivities, nextFeatures] = await Promise.all([
-      fetchStatus(),
-      fetchActivities(),
-      fetchFeatures().catch(() => []),
-    ]);
-    setStatus(nextStatus);
-    setActivities(nextActivities);
-    setFeatures(nextFeatures);
-    return nextStatus;
+    try {
+      const [nextStatus, nextActivities, nextFeatures] = await Promise.all([
+        fetchStatus(),
+        fetchActivities(),
+        fetchFeatures().catch(() => []),
+      ]);
+      setStatus(nextStatus);
+      setActivities(nextActivities);
+      setFeatures(nextFeatures);
+      return nextStatus;
+    } catch (err) {
+      if (err instanceof AuthRequiredError) {
+        setSession(null);
+        throw err;
+      }
+      throw err;
+    }
   }, []);
 
   useEffect(() => {
@@ -130,6 +144,10 @@ export function App() {
     }
     let cancelled = false;
     async function boot() {
+      const user = await fetchSession();
+      if (cancelled) return;
+      setSession(user);
+      if (!user) return;
       const next = await refresh();
       if (refineId) {
         const poster = await fetchPoster(refineId);
@@ -146,7 +164,12 @@ export function App() {
       }
     }
     boot().catch((err: unknown) => {
-      if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
+      if (cancelled) return;
+      if (err instanceof AuthRequiredError) {
+        setSession(null);
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Failed to load");
     });
     return () => {
       cancelled = true;
@@ -259,9 +282,40 @@ export function App() {
     }
   }
 
+  async function handleSignOut() {
+    await signOut();
+    setSession(null);
+    setStatus(null);
+    setActivities([]);
+    setSelectedId(null);
+    setPosterOpen(false);
+  }
+
+  if (session === undefined) {
+    return (
+      <div className="sign-in">
+        <p className="muted">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <SignIn />;
+  }
+
+  const accountChip = (
+    <div className="account-chip">
+      <span>{session.email}</span>
+      <button type="button" className="text-btn" onClick={() => void handleSignOut()}>
+        Sign out
+      </button>
+    </div>
+  );
+
   if (path.startsWith("/gallery")) {
     return (
       <Gallery
+        account={accountChip}
         onBack={() => go("/")}
         onEditSetup={(poster) => {
           setSelectedId(poster.activityId);
@@ -305,6 +359,7 @@ export function App() {
           <button type="button" className="text-btn" onClick={() => go("/gallery")}>
             Gallery
           </button>
+          {accountChip}
         </div>
       </header>
       {isMobile && error && (

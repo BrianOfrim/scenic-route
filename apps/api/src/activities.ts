@@ -96,7 +96,7 @@ export function isImported(row: Pick<ActivityRow, "source" | "imported" | "id">)
   );
 }
 
-export async function listActivities(): Promise<ActivitySummary[]> {
+export async function listActivities(userId: string): Promise<ActivitySummary[]> {
   const rows = await query<
     Pick<
       ActivityRow,
@@ -119,17 +119,27 @@ export async function listActivities(): Promise<ActivitySummary[]> {
     `SELECT id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
             total_elevation_gain, average_speed, has_gps, streams_synced, source, imported
      FROM activities
+     WHERE user_id = $1
      ORDER BY start_date DESC`,
+    [userId],
   );
 
   return rows.map(toActivitySummary);
 }
 
-export async function getActivity(id: number, client?: SqlClient): Promise<ActivityRow | null> {
-  return (await queryOne<ActivityRow>("SELECT * FROM activities WHERE id = $1", [id], client)) ?? null;
+export async function getActivity(
+  userId: string,
+  id: number,
+  client?: SqlClient,
+): Promise<ActivityRow | null> {
+  return (
+    (await queryOne<ActivityRow>("SELECT * FROM activities WHERE user_id = $1 AND id = $2", [userId, id], client)) ??
+    null
+  );
 }
 
 export async function deleteImportedByIds(
+  userId: string,
   ids: number[],
 ): Promise<{ deleted: ActivitySummary[]; skipped: number }> {
   const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
@@ -137,13 +147,13 @@ export async function deleteImportedByIds(
     const deleted: ActivitySummary[] = [];
     let skipped = 0;
     for (const id of unique) {
-      const row = await getActivity(id, client);
+      const row = await getActivity(userId, id, client);
       if (!row) continue;
       if (!isImported(row)) {
         skipped += 1;
         continue;
       }
-      await query("DELETE FROM activities WHERE id = $1", [id], client);
+      await query("DELETE FROM activities WHERE user_id = $1 AND id = $2", [userId, id], client);
       deleted.push(toActivitySummary(row));
     }
     return { deleted, skipped };
@@ -206,16 +216,18 @@ export function getCachedSegmentEfforts(row: ActivityRow): unknown[] | null {
   }
 }
 
-export async function setCachedSegmentEfforts(activityId: number, efforts: unknown[]) {
-  await query("UPDATE activities SET segment_efforts = $1 WHERE id = $2", [
+export async function setCachedSegmentEfforts(userId: string, activityId: number, efforts: unknown[]) {
+  await query("UPDATE activities SET segment_efforts = $1 WHERE user_id = $2 AND id = $3", [
     JSON.stringify(efforts),
+    userId,
     activityId,
   ]);
 }
 
-export async function listSportTypes(): Promise<string[]> {
+export async function listSportTypes(userId: string): Promise<string[]> {
   const rows = await query<{ sport_type: string }>(
-    "SELECT DISTINCT sport_type FROM activities ORDER BY sport_type",
+    "SELECT DISTINCT sport_type FROM activities WHERE user_id = $1 ORDER BY sport_type",
+    [userId],
   );
   return rows.map((row) => row.sport_type);
 }

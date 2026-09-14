@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  DEFAULT_IMAGE_MODEL,
+  OpenRouterError,
   extractMaxImages,
   extractMaxRefs,
   isImageModelId,
@@ -9,6 +9,7 @@ import {
   jsonResponseFormat,
   parseImageModels,
   parseImageResponse,
+  imageModel,
   resolveImageModel,
 } from "./openrouter";
 
@@ -96,5 +97,24 @@ test("resolveImageModel accepts OpenRouter slugs", () => {
   assert.equal(isImageModelId("openai/gpt-5-image:free"), true);
   assert.equal(isImageModelId("not-a-model"), false);
   assert.equal(resolveImageModel("google/gemini-3-pro-image-preview"), "google/gemini-3-pro-image-preview");
-  assert.equal(resolveImageModel("nope"), process.env.OPENROUTER_IMAGE_MODEL?.trim() || DEFAULT_IMAGE_MODEL);
+  const previous = process.env.OPENROUTER_IMAGE_MODEL;
+  process.env.OPENROUTER_IMAGE_MODEL = "openai/gpt-image-test";
+  try {
+    assert.equal(resolveImageModel("nope"), "openai/gpt-image-test");
+    assert.equal(resolveImageModel(""), "openai/gpt-image-test");
+  } finally {
+    if (previous == null) delete process.env.OPENROUTER_IMAGE_MODEL;
+    else process.env.OPENROUTER_IMAGE_MODEL = previous;
+  }
+});
+
+test("imageModel requires OPENROUTER_IMAGE_MODEL", () => {
+  const previous = process.env.OPENROUTER_IMAGE_MODEL;
+  delete process.env.OPENROUTER_IMAGE_MODEL;
+  try {
+    assert.throws(() => imageModel(), OpenRouterError);
+  } finally {
+    if (previous == null) delete process.env.OPENROUTER_IMAGE_MODEL;
+    else process.env.OPENROUTER_IMAGE_MODEL = previous;
+  }
 });

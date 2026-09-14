@@ -18,14 +18,14 @@ export type ImportResult = {
   skipped: number;
 };
 
-export async function importTrackFiles(files: ImportFile[]): Promise<ImportResult> {
+export async function importTrackFiles(userId: string, files: ImportFile[]): Promise<ImportResult> {
   return withTransaction(async (client) => {
     const activities: ActivitySummary[] = [];
     const errors: Array<{ filename: string; error: string }> = [];
     let skipped = 0;
     for (const file of expandUploads(files)) {
       try {
-        const imported = await insertImportedTrack(file, file.filename, client);
+        const imported = await insertImportedTrack(userId, file, file.filename, client);
         if (imported === "skipped") skipped += 1;
         else activities.push(imported);
       } catch (error) {
@@ -40,6 +40,7 @@ export async function importTrackFiles(files: ImportFile[]): Promise<ImportResul
 }
 
 export async function insertImportedTrack(
+  userId: string,
   bytesOrFile: Uint8Array | ArchiveTrack,
   filename = "upload",
   client?: SqlClient,
@@ -63,7 +64,7 @@ export async function insertImportedTrack(
         ? parseTcx(bytesToText(file.bytes))
         : parseGpx(bytesToText(file.bytes));
   const fields = overlayArchiveMeta(gpxToActivityFields(parsed, file.filename), file);
-  return insertImportedFields(fields, file.stravaId ? "strava" : source, file.stravaId, client);
+  return insertImportedFields(userId, fields, file.stravaId ? "strava" : source, file.stravaId, client);
 }
 
 export function overlayArchiveMeta(fields: GpxActivityFields, meta: Pick<ArchiveTrack, "name" | "type" | "startDate">): GpxActivityFields {
@@ -117,13 +118,14 @@ function bytesToText(bytes: Uint8Array): string {
 }
 
 async function insertImportedFields(
+  userId: string,
   fields: GpxActivityFields,
   source: ActivitySource,
   preferredId?: number | null,
   client?: SqlClient,
 ): Promise<ActivitySummary | "skipped"> {
-  const id = preferredId && preferredId > 0 ? preferredId : await nextImportedId(client);
-  const existing = preferredId && preferredId > 0 ? await getActivity(preferredId, client) : null;
+  const id = preferredId && preferredId > 0 ? preferredId : await nextImportedId(userId, client);
+  const existing = preferredId && preferredId > 0 ? await getActivity(userId, preferredId, client) : null;
   if (existing) {
     if (hasSyncedGps(existing)) return "skipped";
     await query(
@@ -131,7 +133,7 @@ async function insertImportedFields(
          distance = $1, moving_time = $2, elapsed_time = $3, total_elevation_gain = $4,
          average_speed = $5, max_speed = $6, has_gps = 1, streams_synced = 1, imported = 1,
          latlng = $7, "time" = $8, velocity = $9, altitude = $10, bbox = $11
-       WHERE id = $12`,
+       WHERE user_id = $12 AND id = $13`,
       [
         fields.distance,
         fields.movingTime,
@@ -144,21 +146,23 @@ async function insertImportedFields(
         fields.velocity ? JSON.stringify(fields.velocity) : null,
         fields.altitude ? JSON.stringify(fields.altitude) : null,
         JSON.stringify(fields.bbox),
+        userId,
         existing.id,
       ],
       client,
     );
-    const updated = await getActivity(existing.id, client);
+    const updated = await getActivity(userId, existing.id, client);
     if (!updated) throw new Error("imported activity was not saved");
     return toActivitySummary(updated);
   }
   await query(
     `INSERT INTO activities (
-       id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
+       user_id, id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
        total_elevation_gain, average_speed, max_speed, trainer, has_gps, streams_synced,
        latlng, "time", velocity, altitude, bbox, source, imported
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 1, 1, $12, $13, $14, $15, $16, $17, 1)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, 1, 1, $13, $14, $15, $16, $17, $18, 1)`,
     [
+      userId,
       id,
       fields.name,
       fields.type,
@@ -179,7 +183,11 @@ async function insertImportedFields(
     ],
     client,
   );
-  const row = await queryOne<ActivityRow>("SELECT * FROM activities WHERE id = $1", [id], client);
+  const row = await queryOne<ActivityRow>(
+    "SELECT * FROM activities WHERE user_id = $1 AND id = $2",
+    [userId, id],
+    client,
+  );
   if (!row) throw new Error("imported activity was not saved");
   return toActivitySummary(row);
 }
@@ -188,10 +196,10 @@ function hasSyncedGps(row: ActivityRow): boolean {
   return row.streams_synced === 1 && parseLatLng(row.latlng).length >= 2;
 }
 
-async function nextImportedId(client?: SqlClient): Promise<number> {
+async function nextImportedId(userId: string, client?: SqlClient): Promise<number> {
   const row = await queryOne<{ maxId: number | null }>(
-    `SELECT MAX(id) AS "maxId" FROM activities WHERE id >= $1`,
-    [IMPORTED_ID_BASE],
+    `SELECT MAX(id) AS "maxId" FROM activities WHERE user_id = $1 AND id >= $2`,
+    [userId, IMPORTED_ID_BASE],
     client,
   );
   return (row?.maxId ?? IMPORTED_ID_BASE - 1) + 1;

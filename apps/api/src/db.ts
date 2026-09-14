@@ -9,13 +9,21 @@ types.setTypeParser(types.builtins.NUMERIC, (value) => Number(value));
 
 export type SqlClient = Pick<pg.Pool | pg.PoolClient, "query">;
 
+export const PENDING_USER_ID = "__pending__";
+
 const DEFAULT_DATABASE_URL = "postgres://scenic:scenic@127.0.0.1:5432/scenic_route";
 
 let pool: pg.Pool | null = null;
 let ready: Promise<pg.Pool> | null = null;
 
 export function databaseUrl() {
-  return process.env.DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
+  return process.env.DATABASE_URL?.trim() || process.env.NEON_DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
+}
+
+export function databaseUrlSource() {
+  if (process.env.DATABASE_URL?.trim()) return "DATABASE_URL";
+  if (process.env.NEON_DATABASE_URL?.trim()) return "NEON_DATABASE_URL";
+  return "default local";
 }
 
 function redactUrl(url: string) {
@@ -148,8 +156,65 @@ async function migrate(client: SqlClient) {
 
     CREATE INDEX IF NOT EXISTS activities_streams_synced ON activities (streams_synced);
     CREATE INDEX IF NOT EXISTS activities_start_date ON activities (start_date);
+
+    CREATE TABLE IF NOT EXISTS "user" (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      "emailVerified" BOOLEAN NOT NULL,
+      image TEXT,
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS session (
+      id TEXT PRIMARY KEY,
+      "expiresAt" TIMESTAMPTZ NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+      "ipAddress" TEXT,
+      "userAgent" TEXT,
+      "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS account (
+      id TEXT PRIMARY KEY,
+      "accountId" TEXT NOT NULL,
+      "providerId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      "accessToken" TEXT,
+      "refreshToken" TEXT,
+      "idToken" TEXT,
+      "accessTokenExpiresAt" TIMESTAMPTZ,
+      "refreshTokenExpiresAt" TIMESTAMPTZ,
+      scope TEXT,
+      password TEXT,
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS verification (
+      id TEXT PRIMARY KEY,
+      identifier TEXT NOT NULL,
+      value TEXT NOT NULL,
+      "expiresAt" TIMESTAMPTZ NOT NULL,
+      "createdAt" TIMESTAMPTZ DEFAULT now(),
+      "updatedAt" TIMESTAMPTZ DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS strava_connections (
+      user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      athlete_id BIGINT UNIQUE,
+      athlete JSONB,
+      sync_state JSONB NOT NULL DEFAULT '{}'::jsonb
+    );
   `);
 
+  await ensureActivitiesTenancy(client);
   await ensureColumn(client, "activities", "segment_efforts", "TEXT");
   await ensureColumn(client, "activities", "source", "TEXT NOT NULL DEFAULT 'strava'");
   if (await ensureColumn(client, "activities", "imported", "INTEGER NOT NULL DEFAULT 0")) {
@@ -164,6 +229,43 @@ async function migrate(client: SqlClient) {
     );
     if (!tokens) await client.query("UPDATE activities SET imported = 1");
   }
+}
+
+async function ensureActivitiesTenancy(client: SqlClient) {
+  await ensureColumn(client, "activities", "user_id", "TEXT");
+  await client.query("UPDATE activities SET user_id = $1 WHERE user_id IS NULL", [PENDING_USER_ID]);
+  await client.query("ALTER TABLE activities ALTER COLUMN user_id SET NOT NULL");
+
+  const pkCols = await query<{ column_name: string }>(
+    `SELECT kcu.column_name
+     FROM information_schema.table_constraints tc
+     JOIN information_schema.key_column_usage kcu
+       ON tc.constraint_name = kcu.constraint_name
+      AND tc.table_schema = kcu.table_schema
+     WHERE tc.table_schema = 'public'
+       AND tc.table_name = 'activities'
+       AND tc.constraint_type = 'PRIMARY KEY'
+     ORDER BY kcu.ordinal_position`,
+    [],
+    client,
+  );
+  const names = pkCols.map((row) => row.column_name);
+  if (!(names.includes("user_id") && names.includes("id") && names.length === 2)) {
+    const constraint = await queryOne<{ constraint_name: string }>(
+      `SELECT constraint_name
+       FROM information_schema.table_constraints
+       WHERE table_schema = 'public' AND table_name = 'activities' AND constraint_type = 'PRIMARY KEY'`,
+      [],
+      client,
+    );
+    if (constraint?.constraint_name) {
+      await client.query(`ALTER TABLE activities DROP CONSTRAINT ${constraint.constraint_name}`);
+    }
+    await client.query("ALTER TABLE activities ADD PRIMARY KEY (user_id, id)");
+  }
+
+  await client.query("DROP INDEX IF EXISTS activities_start_date");
+  await client.query("CREATE INDEX IF NOT EXISTS activities_user_start_date ON activities (user_id, start_date)");
 }
 
 async function ensureColumn(
@@ -218,14 +320,15 @@ async function maybeImportSqlite(client: SqlClient) {
     for (const row of activityRows) {
       await client.query(
         `INSERT INTO activities (
-           id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
+           user_id, id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
            total_elevation_gain, average_speed, max_speed, trainer, has_gps, streams_synced,
            latlng, "time", velocity, altitude, bbox, segment_efforts, source, imported
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-           $15, $16, $17, $18, $19, $20, $21, $22
-         ) ON CONFLICT (id) DO NOTHING`,
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+           $16, $17, $18, $19, $20, $21, $22, $23
+         ) ON CONFLICT (user_id, id) DO NOTHING`,
         [
+          PENDING_USER_ID,
           row.id,
           row.name,
           row.type,
@@ -279,6 +382,10 @@ export async function getJsonSetting<T>(key: string, client?: SqlClient): Promis
 
 export async function setJsonSetting(key: string, value: unknown, client?: SqlClient) {
   await setSetting(key, JSON.stringify(value), client);
+}
+
+export async function deleteSetting(key: string, client?: SqlClient) {
+  await query("DELETE FROM settings WHERE key = $1", [key], client);
 }
 
 export async function closeDb() {

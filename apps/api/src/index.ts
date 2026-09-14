@@ -1,9 +1,13 @@
+import fs from "node:fs";
 import path from "node:path";
 import { config } from "dotenv";
 import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
+import { getAuth, requireUser, type AuthUser } from "./auth";
 import { LLM_TRACES_DIR, REPO_ROOT, isSafePosterId } from "./paths";
+import { posterStore } from "./storage";
 
 config({ path: path.join(REPO_ROOT, ".env.local") });
 config({ path: path.join(REPO_ROOT, ".env") });
@@ -16,7 +20,7 @@ import {
   listSportTypes,
   toActivitySummary,
 } from "./activities";
-import { initDb } from "./db";
+import { databaseUrlSource, initDb } from "./db";
 import { ImportError } from "./gpx";
 import { importTrackFiles } from "./importActivity";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
@@ -36,6 +40,7 @@ import {
   setPosterFavorite,
 } from "./poster";
 import {
+  StravaAthleteTakenError,
   StravaConfigError,
   StravaRateLimitError,
   disconnectStrava,
@@ -43,6 +48,7 @@ import {
   getAuthorizeUrl,
   getTokens,
   isStravaConfigured,
+  verifyStravaState,
 } from "./strava";
 import { getSyncProgress, runSync } from "./sync";
 import { fetchTile, isTileSource } from "./tiles";
@@ -50,15 +56,34 @@ import { fetchTile, isTileSource } from "./tiles";
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? "http://localhost:5174";
 const PORT = Number(process.env.PORT ?? 8790);
 
-const app = new Hono();
+type AppEnv = {
+  Variables: {
+    user: AuthUser;
+  };
+};
+
+const app = new Hono<AppEnv>();
 
 app.use(
   "*",
   cors({
     origin: WEB_ORIGIN,
+    allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    credentials: true,
   }),
 );
+
+app.on(["GET", "POST"], "/api/auth/*", async (c) => {
+  const auth = await getAuth();
+  return auth.handler(c.req.raw);
+});
+
+app.use("/api/*", requireUser);
+
+function currentUserId(c: Context<AppEnv>) {
+  return c.get("user").id;
+}
 
 app.get("/api/health", async (c) => {
   await initDb();
@@ -66,23 +91,27 @@ app.get("/api/health", async (c) => {
 });
 
 app.get("/api/status", async (c) => {
-  const tokens = await getTokens();
+  const user = c.get("user");
+  const tokens = await getTokens(user.id);
   return c.json({
+    user: { id: user.id, email: user.email },
     strava: {
       configured: isStravaConfigured(),
       connected: Boolean(tokens),
       athlete: tokens?.athlete ?? null,
-      sync: await getSyncProgress(),
+      sync: await getSyncProgress(user.id),
     },
     openrouter: {
       configured: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+      chatModel: process.env.OPENROUTER_MODEL?.trim() || null,
+      imageModel: process.env.OPENROUTER_IMAGE_MODEL?.trim() || null,
     },
   });
 });
 
 app.get("/api/strava/auth", (c) => {
   try {
-    return c.redirect(getAuthorizeUrl());
+    return c.redirect(getAuthorizeUrl(currentUserId(c)));
   } catch (error) {
     if (error instanceof StravaConfigError) return c.json({ error: error.message }, 400);
     throw error;
@@ -91,30 +120,34 @@ app.get("/api/strava/auth", (c) => {
 
 app.get("/api/strava/callback", async (c) => {
   const code = c.req.query("code");
-  if (!code) return c.redirect(`${WEB_ORIGIN}/?strava=error`);
+  const state = c.req.query("state");
+  if (!code || !state) return c.redirect(`${WEB_ORIGIN}/?strava=error`);
   try {
-    await exchangeCode(code);
+    const userId = verifyStravaState(state);
+    await exchangeCode(userId, code);
     return c.redirect(`${WEB_ORIGIN}/?strava=connected`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "callback failed";
-    return c.redirect(`${WEB_ORIGIN}/?strava=error&message=${encodeURIComponent(message)}`);
+    const status = error instanceof StravaAthleteTakenError ? "taken" : "error";
+    return c.redirect(`${WEB_ORIGIN}/?strava=${status}&message=${encodeURIComponent(message)}`);
   }
 });
 
 app.post("/api/strava/disconnect", async (c) => {
-  await disconnectStrava();
+  await disconnectStrava(currentUserId(c));
   return c.json({ ok: true });
 });
 
 app.post("/api/strava/sync", async (c) => {
-  if (!(await getTokens())) return c.json({ error: "Strava is not connected" }, 401);
+  const userId = currentUserId(c);
+  if (!(await getTokens(userId))) return c.json({ error: "Strava is not connected" }, 401);
   try {
-    return c.json(await runSync());
+    return c.json(await runSync(userId));
   } catch (error) {
     if (error instanceof StravaRateLimitError) {
       return c.json(
         {
-          ...(await getSyncProgress()),
+          ...(await getSyncProgress(userId)),
           connected: true,
           done: false,
           rateLimited: true,
@@ -127,13 +160,13 @@ app.post("/api/strava/sync", async (c) => {
   }
 });
 
-app.get("/api/activities", async (c) => c.json({ activities: await listActivities() }));
+app.get("/api/activities", async (c) => c.json({ activities: await listActivities(currentUserId(c)) }));
 
 app.post("/api/activities/remove", async (c) => {
   try {
     const body = (await c.req.json()) as { ids?: unknown };
     const ids = Array.isArray(body.ids) ? body.ids.map((id) => Number(id)) : [];
-    return c.json(await deleteImportedByIds(ids));
+    return c.json(await deleteImportedByIds(currentUserId(c), ids));
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "remove failed" }, 400);
   }
@@ -143,7 +176,7 @@ app.post("/api/activities/import", async (c) => {
   try {
     const files = await readImportFiles(c);
     if (!files.length) return c.json({ error: "Choose a GPX, FIT, TCX, or Strava export zip" }, 400);
-    const result = await importTrackFiles(files);
+    const result = await importTrackFiles(currentUserId(c), files);
     if (!result.activities.length && !result.skipped) {
       return c.json(
         { error: result.errors[0]?.error ?? "Could not import file", errors: result.errors, skipped: result.skipped },
@@ -159,7 +192,7 @@ app.post("/api/activities/import", async (c) => {
 
 app.get("/api/activities/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  const row = await getActivity(id);
+  const row = await getActivity(currentUserId(c), id);
   if (!row) return c.json({ error: "not found" }, 404);
   return c.json({
     activity: toActivitySummary(row),
@@ -168,14 +201,14 @@ app.get("/api/activities/:id", async (c) => {
   });
 });
 
-app.get("/api/sports", async (c) => c.json({ sports: await listSportTypes() }));
+app.get("/api/sports", async (c) => c.json({ sports: await listSportTypes(currentUserId(c)) }));
 app.get("/api/features", (c) => c.json({ features: catalogPublic() }));
 
 app.get("/api/poster/context/:activityId", async (c) => {
   try {
     const activityId = Number(c.req.param("activityId"));
     const parsed = parseFeatureSelection(c.req.query("features"));
-    return c.json(await loadRouteFeatures(activityId, parsed.ids, parsed.nearRouteM));
+    return c.json(await loadRouteFeatures(currentUserId(c), activityId, parsed.ids, parsed.nearRouteM));
   } catch (error) {
     return fail(c, error);
   }
@@ -183,7 +216,7 @@ app.get("/api/poster/context/:activityId", async (c) => {
 
 app.post("/api/poster/landmark", async (c) => {
   try {
-    return c.json(await lookupLandmark(await c.req.json()));
+    return c.json(await lookupLandmark(currentUserId(c), await c.req.json()));
   } catch (error) {
     return fail(c, error);
   }
@@ -200,7 +233,7 @@ app.post("/api/poster/plan", async (c) => {
 
 app.post("/api/poster/generate", async (c) => {
   try {
-    return c.json({ posters: await generatePoster(await c.req.json()) });
+    return c.json({ posters: await generatePoster(currentUserId(c), await c.req.json()) });
   } catch (error) {
     return fail(c, error);
   }
@@ -208,7 +241,7 @@ app.post("/api/poster/generate", async (c) => {
 
 app.post("/api/poster/modify", async (c) => {
   try {
-    return c.json({ posters: await modifyPoster(await c.req.json()) });
+    return c.json({ posters: await modifyPoster(currentUserId(c), await c.req.json()) });
   } catch (error) {
     return fail(c, error);
   }
@@ -216,7 +249,13 @@ app.post("/api/poster/modify", async (c) => {
 
 app.get("/api/poster/capabilities", async (c) => {
   const requested = c.req.query("model") || undefined;
-  const fallback = imageModel();
+  let fallback = "";
+  try {
+    fallback = imageModel();
+  } catch (error) {
+    if (error instanceof OpenRouterError) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
   try {
     if (requested) {
       return c.json({
@@ -240,33 +279,33 @@ app.get("/api/poster/capabilities", async (c) => {
   }
 });
 
-app.get("/api/posters", (c) => {
+app.get("/api/posters", async (c) => {
   const raw = c.req.query("activityId");
   const activityId = raw != null && raw !== "" ? Number(raw) : undefined;
   if (activityId != null && !Number.isFinite(activityId)) {
     return c.json({ error: "activityId must be a number" }, 400);
   }
-  return c.json({ posters: listPosters(activityId) });
+  return c.json({ posters: await listPosters(currentUserId(c), activityId) });
 });
 
-app.get("/api/posters/:id", (c) => {
-  const record = readPosterRecord(c.req.param("id"));
+app.get("/api/posters/:id", async (c) => {
+  const record = await readPosterRecord(currentUserId(c), c.req.param("id"));
   if (!record) return c.json({ error: "not found" }, 404);
   return c.json(record);
 });
 
-app.get("/api/posters/:id/image.png", (c) => {
+app.get("/api/posters/:id/image.png", async (c) => {
   try {
-    return png(readPosterPng(c.req.param("id")));
+    return png(await readPosterPng(currentUserId(c), c.req.param("id")));
   } catch (error) {
     return fail(c, error);
   }
 });
 
-app.get("/api/posters/:id/ref-:n", (c) => {
+app.get("/api/posters/:id/ref-:n", async (c) => {
   try {
     const index = Number(String(c.req.param("n")).replace(/\.png$/i, ""));
-    return png(readPosterRef(c.req.param("id"), index));
+    return png(await readPosterRef(currentUserId(c), c.req.param("id"), index));
   } catch (error) {
     return fail(c, error);
   }
@@ -280,17 +319,17 @@ app.patch("/api/posters/:id", async (c) => {
     if (typeof body.favorited !== "boolean") {
       return c.json({ error: "favorited must be a boolean" }, 400);
     }
-    return c.json(setPosterFavorite(id, body.favorited));
+    return c.json(await setPosterFavorite(currentUserId(c), id, body.favorited));
   } catch (error) {
     return fail(c, error);
   }
 });
 
-app.delete("/api/posters/:id", (c) => {
+app.delete("/api/posters/:id", async (c) => {
   try {
     const id = c.req.param("id");
     if (!isSafePosterId(id)) return c.json({ error: "not found" }, 404);
-    deletePoster(id);
+    await deletePoster(currentUserId(c), id);
     return c.json({ ok: true });
   } catch (error) {
     return fail(c, error);
@@ -312,6 +351,12 @@ app.get("/api/tiles/:source/:z/:x/:y", async (c) => {
     return c.json({ error: error instanceof Error ? error.message : "tile failed" }, 502);
   }
 });
+
+const WEB_DIST = path.join(REPO_ROOT, "apps/web/dist");
+if (fs.existsSync(path.join(WEB_DIST, "index.html"))) {
+  app.use("/*", serveStatic({ root: WEB_DIST }));
+  app.get("*", (c) => c.html(fs.readFileSync(path.join(WEB_DIST, "index.html"), "utf8")));
+}
 
 const MAX_IMPORT_FILES = 25;
 const MAX_TRACK_BYTES = 15 * 1024 * 1024;
@@ -401,9 +446,10 @@ try {
   process.exit(1);
 }
 
-serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`scenic-route api http://127.0.0.1:${info.port}`);
-  console.log(`postgres: ${process.env.DATABASE_URL ? "DATABASE_URL" : "default local"}`);
+serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" }, (info) => {
+  console.log(`scenic-route api http://${info.address}:${info.port}`);
+  console.log(`postgres: ${databaseUrlSource()}`);
+  console.log(`posters: ${posterStore().kind}`);
   console.log(`strava configured: ${isStravaConfigured() ? "yes" : "no"}`);
   console.log(`llm traces: ${LLM_TRACES_DIR}`);
 });

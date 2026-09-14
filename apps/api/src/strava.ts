@@ -1,8 +1,11 @@
-import { getJsonSetting, query, setJsonSetting } from "./db";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { authSecret } from "./auth";
+import { query, queryOne } from "./db";
 
 const STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize";
 const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token";
 const STRAVA_API = "https://www.strava.com/api/v3";
+const STATE_MAX_AGE_MS = 30 * 60 * 1000;
 
 export type StravaTokens = {
   access_token: string;
@@ -57,6 +60,15 @@ type RateLimit = {
   dailyUsage: number;
 };
 
+type ConnectionRow = {
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
+  athlete_id: number | null;
+  athlete: StravaTokens["athlete"] | null;
+  sync_state: SyncState | null;
+};
+
 export class StravaRateLimitError extends Error {
   retryAfter: number;
   constructor(retryAfter: number) {
@@ -73,6 +85,13 @@ export class StravaConfigError extends Error {
   }
 }
 
+export class StravaAthleteTakenError extends Error {
+  constructor() {
+    super("This Strava account is already connected to another user");
+    this.name = "StravaAthleteTakenError";
+  }
+}
+
 function requireConfig() {
   const clientId = process.env.STRAVA_CLIENT_ID;
   const clientSecret = process.env.STRAVA_CLIENT_SECRET;
@@ -86,17 +105,70 @@ export function isStravaConfigured() {
   return Boolean(process.env.STRAVA_CLIENT_ID && process.env.STRAVA_CLIENT_SECRET);
 }
 
-export async function getTokens() {
-  return getJsonSetting<StravaTokens>("strava_tokens");
+function rowToTokens(row: ConnectionRow | undefined): StravaTokens | null {
+  if (!row) return null;
+  return {
+    access_token: row.access_token,
+    refresh_token: row.refresh_token,
+    expires_at: row.expires_at,
+    athlete: row.athlete ?? undefined,
+  };
 }
 
-export async function getSyncState(): Promise<SyncState> {
-  return (
-    (await getJsonSetting<SyncState>("sync_state")) ?? {
-      listComplete: false,
-      listPage: 1,
-    }
+export async function getTokens(userId: string) {
+  const row = await queryOne<ConnectionRow>(
+    `SELECT access_token, refresh_token, expires_at, athlete_id, athlete, sync_state
+     FROM strava_connections WHERE user_id = $1`,
+    [userId],
   );
+  return rowToTokens(row);
+}
+
+export async function getSyncState(userId: string): Promise<SyncState> {
+  const row = await queryOne<{ sync_state: SyncState | null }>(
+    "SELECT sync_state FROM strava_connections WHERE user_id = $1",
+    [userId],
+  );
+  return row?.sync_state ?? { listComplete: false, listPage: 1 };
+}
+
+export async function setSyncState(userId: string, state: SyncState) {
+  await query("UPDATE strava_connections SET sync_state = $2::jsonb WHERE user_id = $1", [
+    userId,
+    JSON.stringify(state),
+  ]);
+}
+
+export function signStravaState(userId: string, now = Date.now()) {
+  const nonce = randomBytes(16).toString("hex");
+  const payload = `${userId}.${nonce}.${now}`;
+  const sig = createHmac("sha256", authSecret()).update(payload).digest("hex");
+  return Buffer.from(`${payload}.${sig}`).toString("base64url");
+}
+
+export function verifyStravaState(state: string, now = Date.now()): string {
+  let decoded: string;
+  try {
+    decoded = Buffer.from(state, "base64url").toString("utf8");
+  } catch {
+    throw new Error("invalid Strava state");
+  }
+  const parts = decoded.split(".");
+  if (parts.length < 4) throw new Error("invalid Strava state");
+  const sig = parts.pop()!;
+  const issuedAt = Number(parts.pop());
+  const nonce = parts.pop();
+  const userId = parts.join(".");
+  if (!userId || !nonce || !Number.isFinite(issuedAt)) throw new Error("invalid Strava state");
+  if (now - issuedAt > STATE_MAX_AGE_MS) throw new Error("Strava state expired");
+  const payload = `${userId}.${nonce}.${issuedAt}`;
+  const expected = createHmac("sha256", authSecret()).update(payload).digest("hex");
+  const left = Buffer.from(sig);
+  const right = Buffer.from(expected);
+  if (left.length !== right.length || !timingSafeEqual(left, right)) {
+    throw new Error("invalid Strava state");
+  }
+  return userId;
 }
 
 function parseRateLimit(headers: Headers): RateLimit {
@@ -116,7 +188,41 @@ function assertBudget(limit: RateLimit) {
   }
 }
 
-async function tokenRequest(body: Record<string, string>) {
+async function saveTokens(userId: string, tokens: StravaTokens, existing: StravaTokens | null) {
+  const athlete = tokens.athlete ?? existing?.athlete;
+  const athleteId = athlete?.id ?? null;
+  if (athleteId != null) {
+    const owner = await queryOne<{ user_id: string }>(
+      "SELECT user_id FROM strava_connections WHERE athlete_id = $1",
+      [athleteId],
+    );
+    if (owner && owner.user_id !== userId) throw new StravaAthleteTakenError();
+  }
+  await query(
+    `INSERT INTO strava_connections (
+       user_id, access_token, refresh_token, expires_at, athlete_id, athlete, sync_state
+     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, COALESCE(
+       (SELECT sync_state FROM strava_connections WHERE user_id = $1),
+       '{}'::jsonb
+     ))
+     ON CONFLICT (user_id) DO UPDATE SET
+       access_token = EXCLUDED.access_token,
+       refresh_token = EXCLUDED.refresh_token,
+       expires_at = EXCLUDED.expires_at,
+       athlete_id = EXCLUDED.athlete_id,
+       athlete = EXCLUDED.athlete`,
+    [
+      userId,
+      tokens.access_token,
+      tokens.refresh_token,
+      tokens.expires_at,
+      athleteId,
+      athlete ? JSON.stringify(athlete) : null,
+    ],
+  );
+}
+
+async function tokenRequest(userId: string, body: Record<string, string>) {
   const { clientId, clientSecret } = requireConfig();
   const response = await fetch(STRAVA_TOKEN_URL, {
     method: "POST",
@@ -132,17 +238,12 @@ async function tokenRequest(body: Record<string, string>) {
     throw new Error(`Strava token exchange failed: ${response.status} ${text}`);
   }
   const tokens = (await response.json()) as StravaTokens;
-  const existing = await getTokens();
-  await setJsonSetting("strava_tokens", {
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token,
-    expires_at: tokens.expires_at,
-    athlete: tokens.athlete ?? existing?.athlete,
-  });
+  const existing = await getTokens(userId);
+  await saveTokens(userId, tokens, existing);
   return tokens;
 }
 
-export function getAuthorizeUrl() {
+export function getAuthorizeUrl(userId: string) {
   const { clientId, redirectUri } = requireConfig();
   const params = new URLSearchParams({
     client_id: clientId,
@@ -150,38 +251,40 @@ export function getAuthorizeUrl() {
     response_type: "code",
     approval_prompt: "auto",
     scope: "read,activity:read_all",
+    state: signStravaState(userId),
   });
   return `${STRAVA_AUTH_URL}?${params.toString()}`;
 }
 
-export async function exchangeCode(code: string) {
-  return tokenRequest({
+export async function exchangeCode(userId: string, code: string) {
+  return tokenRequest(userId, {
     code,
     grant_type: "authorization_code",
   });
 }
 
-async function refreshTokens(tokens: StravaTokens) {
-  return tokenRequest({
+async function refreshTokens(userId: string, tokens: StravaTokens) {
+  return tokenRequest(userId, {
     grant_type: "refresh_token",
     refresh_token: tokens.refresh_token,
   });
 }
 
-async function getValidTokens(): Promise<StravaTokens> {
-  const tokens = await getTokens();
+async function getValidTokens(userId: string): Promise<StravaTokens> {
+  const tokens = await getTokens(userId);
   if (!tokens) throw new Error("Strava is not connected");
   if (tokens.expires_at * 1000 < Date.now() + 60_000) {
-    return refreshTokens(tokens);
+    return refreshTokens(userId, tokens);
   }
   return tokens;
 }
 
 export async function stravaFetch<T>(
+  userId: string,
   path: string,
   init: RequestInit = {},
 ): Promise<{ data: T; rateLimit: RateLimit }> {
-  const tokens = await getValidTokens();
+  const tokens = await getValidTokens(userId);
   const response = await fetch(`${STRAVA_API}${path}`, {
     ...init,
     headers: {
@@ -192,8 +295,8 @@ export async function stravaFetch<T>(
   const rateLimit = parseRateLimit(response.headers);
 
   if (response.status === 401) {
-    await refreshTokens(tokens);
-    return stravaFetch<T>(path, init);
+    await refreshTokens(userId, tokens);
+    return stravaFetch<T>(userId, path, init);
   }
   if (response.status === 429) {
     const retryAfter = Number(response.headers.get("Retry-After") ?? 900);
@@ -208,10 +311,12 @@ export async function stravaFetch<T>(
 }
 
 export async function getActivitySegmentEfforts(
+  userId: string,
   activityId: number,
 ): Promise<StravaSegmentEffort[] | null> {
-  if (!(await getTokens())) return null;
+  if (!(await getTokens(userId))) return null;
   const { data } = await stravaFetch<{ segment_efforts?: StravaSegmentEffort[] }>(
+    userId,
     `/activities/${activityId}?include_all_efforts=true`,
   );
   return data.segment_efforts ?? [];
@@ -227,6 +332,6 @@ export function activityHasGps(activity: StravaActivitySummary) {
   return Boolean(polyline) || (Array.isArray(start) && start.length >= 2);
 }
 
-export async function disconnectStrava() {
-  await query("DELETE FROM settings WHERE key = $1", ["strava_tokens"]);
+export async function disconnectStrava(userId: string) {
+  await query("DELETE FROM strava_connections WHERE user_id = $1", [userId]);
 }

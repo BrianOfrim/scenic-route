@@ -544,7 +544,7 @@ function simplifyColored(
   for (let index = 0; index < maxPoints; index += 1) {
     const i = Math.round(index * step);
     nextLat.push(latlng[i]);
-    nextColors?.push(colors[i] ?? null);
+    if (nextColors && colors) nextColors.push(colors[i] ?? null);
   }
   return { latlng: nextLat, colors: nextColors };
 }

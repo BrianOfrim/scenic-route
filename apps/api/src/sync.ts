@@ -1,8 +1,9 @@
-import { query, queryOne, setJsonSetting } from "./db";
+import { query, queryOne } from "./db";
 import { bboxFromLatLng } from "./geo";
 import {
   activityHasGps,
   getSyncState,
+  setSyncState,
   stravaFetch,
   type StravaActivitySummary,
   type SyncState,
@@ -30,7 +31,7 @@ export type SyncProgress = {
   retryAfter?: number;
 };
 
-async function activityCounts() {
+async function activityCounts(userId: string) {
   const row = (await queryOne<{
     listed: number;
     synced: number;
@@ -42,7 +43,9 @@ async function activityCounts() {
         COALESCE(SUM(CASE WHEN streams_synced = 1 THEN 1 ELSE 0 END), 0)::int AS synced,
         COALESCE(SUM(CASE WHEN streams_synced = 0 AND has_gps = 1 THEN 1 ELSE 0 END), 0)::int AS pending,
         COALESCE(SUM(CASE WHEN has_gps = 0 OR streams_synced = 2 THEN 1 ELSE 0 END), 0)::int AS skipped
-      FROM activities`,
+      FROM activities
+      WHERE user_id = $1`,
+    [userId],
   )) ?? { listed: 0, synced: 0, pending: 0, skipped: 0 };
   return {
     listed: row.listed ?? 0,
@@ -52,7 +55,7 @@ async function activityCounts() {
   };
 }
 
-async function upsertActivity(activity: StravaActivitySummary) {
+async function upsertActivity(userId: string, activity: StravaActivitySummary) {
   const hasGps = activityHasGps(activity) ? 1 : 0;
   const start = activity.start_latlng;
   const startBbox =
@@ -61,10 +64,10 @@ async function upsertActivity(activity: StravaActivitySummary) {
       : null;
   await query(
     `INSERT INTO activities (
-       id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
+       user_id, id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
        total_elevation_gain, average_speed, max_speed, trainer, has_gps, streams_synced, bbox
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-     ON CONFLICT (id) DO UPDATE SET
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+     ON CONFLICT (user_id, id) DO UPDATE SET
        name = EXCLUDED.name,
        "type" = EXCLUDED."type",
        sport_type = EXCLUDED.sport_type,
@@ -79,6 +82,7 @@ async function upsertActivity(activity: StravaActivitySummary) {
        has_gps = EXCLUDED.has_gps,
        bbox = COALESCE(activities.bbox, EXCLUDED.bbox)`,
     [
+      userId,
       activity.id,
       activity.name ?? "Untitled",
       activity.type ?? "Unknown",
@@ -98,14 +102,17 @@ async function upsertActivity(activity: StravaActivitySummary) {
   );
 }
 
-async function syncActivityList(state: SyncState): Promise<SyncState> {
+async function syncActivityList(userId: string, state: SyncState): Promise<SyncState> {
   let page = state.listComplete ? 1 : state.listPage;
   let listComplete = state.listComplete;
-  const existing = new Set((await query<{ id: number }>("SELECT id FROM activities")).map((row) => row.id));
+  const existing = new Set(
+    (await query<{ id: number }>("SELECT id FROM activities WHERE user_id = $1", [userId])).map((row) => row.id),
+  );
   const maxPages = listComplete ? 3 : 8;
 
   for (let i = 0; i < maxPages; i += 1) {
     const { data } = await stravaFetch<StravaActivitySummary[]>(
+      userId,
       `/athlete/activities?per_page=${PAGE_SIZE}&page=${page}`,
     );
     if (data.length === 0) {
@@ -116,7 +123,7 @@ async function syncActivityList(state: SyncState): Promise<SyncState> {
     for (const activity of data) {
       if (!existing.has(activity.id)) {
         allKnown = false;
-        await upsertActivity(activity);
+        await upsertActivity(userId, activity);
         existing.add(activity.id);
       }
     }
@@ -129,24 +136,26 @@ async function syncActivityList(state: SyncState): Promise<SyncState> {
   }
 
   const next: SyncState = { listComplete, listPage: listComplete ? 1 : page };
-  await setJsonSetting("sync_state", next);
+  await setSyncState(userId, next);
   return next;
 }
 
-async function syncStreams() {
+async function syncStreams(userId: string) {
   const pending = await query<{ id: number }>(
-    "SELECT id FROM activities WHERE streams_synced = 0 AND has_gps = 1 LIMIT $1",
-    [STREAMS_PER_CALL],
+    "SELECT id FROM activities WHERE user_id = $1 AND streams_synced = 0 AND has_gps = 1 LIMIT $2",
+    [userId, STREAMS_PER_CALL],
   );
 
   for (const activity of pending) {
     try {
       const { data } = await stravaFetch<StreamPayload>(
+        userId,
         `/activities/${activity.id}/streams?keys=latlng,time,velocity_smooth,altitude&key_by_type=true`,
       );
       const points = data.latlng?.data ?? [];
       if (points.length < 2) {
-        await query("UPDATE activities SET streams_synced = 2, has_gps = 0 WHERE id = $1", [
+        await query("UPDATE activities SET streams_synced = 2, has_gps = 0 WHERE user_id = $1 AND id = $2", [
+          userId,
           activity.id,
         ]);
         continue;
@@ -154,20 +163,22 @@ async function syncStreams() {
       await query(
         `UPDATE activities
          SET streams_synced = 1, latlng = $1, "time" = $2, velocity = $3, altitude = $4, bbox = $5, has_gps = 1
-         WHERE id = $6`,
+         WHERE user_id = $6 AND id = $7`,
         [
           JSON.stringify(points),
           data.time?.data ? JSON.stringify(data.time.data) : null,
           data.velocity_smooth?.data ? JSON.stringify(data.velocity_smooth.data) : null,
           data.altitude?.data ? JSON.stringify(data.altitude.data) : null,
           JSON.stringify(bboxFromLatLng(points)),
+          userId,
           activity.id,
         ],
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       if (message.includes("404")) {
-        await query("UPDATE activities SET streams_synced = 2, has_gps = 0 WHERE id = $1", [
+        await query("UPDATE activities SET streams_synced = 2, has_gps = 0 WHERE user_id = $1 AND id = $2", [
+          userId,
           activity.id,
         ]);
         continue;
@@ -177,10 +188,10 @@ async function syncStreams() {
   }
 }
 
-export async function runSync(): Promise<SyncProgress> {
-  const state = await syncActivityList(await getSyncState());
-  await syncStreams();
-  const counts = await activityCounts();
+export async function runSync(userId: string): Promise<SyncProgress> {
+  const state = await syncActivityList(userId, await getSyncState(userId));
+  await syncStreams(userId);
+  const counts = await activityCounts(userId);
   return {
     connected: true,
     listComplete: state.listComplete,
@@ -189,10 +200,10 @@ export async function runSync(): Promise<SyncProgress> {
   };
 }
 
-export async function getSyncProgress() {
-  const state = await getSyncState();
+export async function getSyncProgress(userId: string) {
+  const state = await getSyncState(userId);
   return {
     listComplete: state.listComplete,
-    ...(await activityCounts()),
+    ...(await activityCounts(userId)),
   };
 }

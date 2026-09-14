@@ -2,8 +2,6 @@ import { withLlmTrace } from "./llmTrace";
 
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
-export const DEFAULT_CHAT_MODEL = "anthropic/claude-sonnet-4";
-export const DEFAULT_IMAGE_MODEL = "openai/gpt-image-2.5-sunburst";
 export const KEY_HINT =
   "Set OPENROUTER_API_KEY in .env.local, then restart the API.";
 
@@ -25,12 +23,18 @@ export function requireKey(): string {
   return key;
 }
 
+function requireEnv(name: string) {
+  const value = process.env[name]?.trim() ?? "";
+  if (!value) throw new OpenRouterError(`Set ${name} in .env.local, then restart the API.`, 400);
+  return value;
+}
+
 export function chatModel() {
-  return process.env.OPENROUTER_MODEL?.trim() || DEFAULT_CHAT_MODEL;
+  return requireEnv("OPENROUTER_MODEL");
 }
 
 export function imageModel() {
-  return process.env.OPENROUTER_IMAGE_MODEL?.trim() || DEFAULT_IMAGE_MODEL;
+  return requireEnv("OPENROUTER_IMAGE_MODEL");
 }
 
 const MODEL_ID = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/i;
