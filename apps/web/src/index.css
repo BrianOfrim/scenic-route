@@ -54,6 +54,24 @@ a {
   color: var(--accent-2);
 }
 
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-mark {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: block;
+  object-fit: contain;
+}
+
+.brand-lockup h1 {
+  margin: 2px 0 0;
+}
+
 .account-chip {
   display: flex;
   align-items: center;

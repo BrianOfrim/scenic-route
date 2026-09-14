@@ -1,0 +1,13 @@
+{
+  "id": "sr-path-sage",
+  "color": "rgb(184,201,122) / #b8c97a",
+  "svg": "sr-path-sage.svg",
+  "master": "sr-path-sage.png",
+  "sizes": {
+    "32": "sr-path-sage-32.png",
+    "64": "sr-path-sage-64.png",
+    "128": "sr-path-sage-128.png",
+    "256": "sr-path-sage-256.png",
+    "512": "sr-path-sage-512.png"
+  }
+}
