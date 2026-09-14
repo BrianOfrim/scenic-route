@@ -1,0 +1,90 @@
+{
+  "colors": {
+    "orange": "Strava-like orange",
+    "sage": "rgb(184,201,122) / #b8c97a app accent",
+    "copper": "#c4783a app accent",
+    "charcoal": "near-black for light UI",
+    "teal": "teal variant",
+    "sage-on-dark / orange-on-dark": "prefer cream masters on dark UI (true transparent)"
+  },
+  "note": "Prefer cream-background masters (orange/sage/copper/charcoal/teal) for transparent use on any UI. Dark-source files may have residual fringe.",
+  "files": [
+    {
+      "id": "sr-path-orange",
+      "master": "sr-path-orange.png",
+      "sizes": {
+        "32": "sr-path-orange-32.png",
+        "64": "sr-path-orange-64.png",
+        "128": "sr-path-orange-128.png",
+        "256": "sr-path-orange-256.png",
+        "512": "sr-path-orange-512.png"
+      }
+    },
+    {
+      "id": "sr-path-sage",
+      "master": "sr-path-sage.png",
+      "sizes": {
+        "32": "sr-path-sage-32.png",
+        "64": "sr-path-sage-64.png",
+        "128": "sr-path-sage-128.png",
+        "256": "sr-path-sage-256.png",
+        "512": "sr-path-sage-512.png"
+      }
+    },
+    {
+      "id": "sr-path-copper",
+      "master": "sr-path-copper.png",
+      "sizes": {
+        "32": "sr-path-copper-32.png",
+        "64": "sr-path-copper-64.png",
+        "128": "sr-path-copper-128.png",
+        "256": "sr-path-copper-256.png",
+        "512": "sr-path-copper-512.png"
+      }
+    },
+    {
+      "id": "sr-path-charcoal",
+      "master": "sr-path-charcoal.png",
+      "sizes": {
+        "32": "sr-path-charcoal-32.png",
+        "64": "sr-path-charcoal-64.png",
+        "128": "sr-path-charcoal-128.png",
+        "256": "sr-path-charcoal-256.png",
+        "512": "sr-path-charcoal-512.png"
+      }
+    },
+    {
+      "id": "sr-path-teal",
+      "master": "sr-path-teal.png",
+      "sizes": {
+        "32": "sr-path-teal-32.png",
+        "64": "sr-path-teal-64.png",
+        "128": "sr-path-teal-128.png",
+        "256": "sr-path-teal-256.png",
+        "512": "sr-path-teal-512.png"
+      }
+    },
+    {
+      "id": "sr-path-sage-on-dark",
+      "master": "sr-path-sage-on-dark.png",
+      "sizes": {
+        "32": "sr-path-sage-on-dark-32.png",
+        "64": "sr-path-sage-on-dark-64.png",
+        "128": "sr-path-sage-on-dark-128.png",
+        "256": "sr-path-sage-on-dark-256.png",
+        "512": "sr-path-sage-on-dark-512.png"
+      }
+    },
+    {
+      "id": "sr-path-orange-on-dark",
+      "master": "sr-path-orange-on-dark.png",
+      "sizes": {
+        "32": "sr-path-orange-on-dark-32.png",
+        "64": "sr-path-orange-on-dark-64.png",
+        "128": "sr-path-orange-on-dark-128.png",
+        "256": "sr-path-orange-on-dark-256.png",
+        "512": "sr-path-orange-on-dark-512.png"
+      }
+    }
+  ]
+}

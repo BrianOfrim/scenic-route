@@ -335,8 +335,13 @@ export function Gallery({ onBack, onEditSetup, account }: Props) {
     <div className="gallery">
       <header className="top">
         <div>
-          <p className="brand">Scenic Route</p>
-          <h1>Poster gallery</h1>
+          <div className="brand-lockup">
+            <img className="brand-mark" src="/logo/sr-path-sage.png" alt="" width={40} height={40} />
+            <div>
+              <p className="brand">Scenic Route</p>
+              <h1>Poster gallery</h1>
+            </div>
+          </div>
         </div>
         <div className="top-actions">
           <button
