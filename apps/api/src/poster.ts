@@ -202,6 +202,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
     model,
     n: count,
     label: body.label ?? "generate",
+    user: userId,
   });
   const durationMs = Date.now() - startedAt;
   const share = result.images.length;
@@ -270,6 +271,7 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
     imageUrl: previousUrl,
     previousPrompt: source.prompt,
     request,
+    userId,
   });
   const model = resolveImageModel(body.model ?? source.model);
   const spec: PosterSpec = { ...source.spec, finalPrompt: revised.prompt };

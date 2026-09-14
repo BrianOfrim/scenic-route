@@ -17,6 +17,7 @@ export type ModifyPromptInput = {
   imageUrl: string;
   previousPrompt: string;
   request: string;
+  userId?: string;
 };
 
 export function buildModifyMessages(input: ModifyPromptInput) {
@@ -75,6 +76,7 @@ export async function revisePosterPrompt(input: ModifyPromptInput): Promise<{ pr
     schemaName: "poster_prompt_revision",
     schema: MODIFY_PROMPT_SCHEMA,
     label: "revise-prompt",
+    user: input.userId,
   });
   const prompt = typeof value?.prompt === "string" ? value.prompt.trim() : "";
   if (!prompt) throw new OpenRouterError("Modifier did not return a revised prompt", 502);
