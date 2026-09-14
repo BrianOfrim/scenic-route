@@ -134,11 +134,17 @@ export function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("strava") === "error") {
-      setError(params.get("message") ?? "Strava connection failed");
+    const stravaStatus = params.get("strava");
+    if (stravaStatus === "error" || stravaStatus === "taken") {
+      const message = params.get("message");
+      setError(
+        stravaStatus === "taken"
+          ? (message ?? "That Strava account is already connected to another Scenic Route user")
+          : (message ?? "Strava connection failed"),
+      );
     }
     const refineId = params.get("refine");
-    if (params.get("strava") || refineId) {
+    if (stravaStatus || refineId) {
       window.history.replaceState({}, "", "/");
       setPath("/");
     }
