@@ -22,6 +22,7 @@ body,
   margin: 0;
   height: 100%;
   height: 100dvh;
+  overflow: hidden;
 }
 
 a {
@@ -35,6 +36,8 @@ a {
   display: flex;
   flex-direction: column;
   padding-top: env(safe-area-inset-top);
+  overflow: hidden;
+  min-height: 0;
 }
 
 .top {
@@ -137,10 +140,16 @@ h1 {
   display: grid;
   grid-template-columns: 300px 1fr;
   min-height: 0;
+  overflow: hidden;
 }
 
 .workspace.with-poster {
   grid-template-columns: 300px 1fr 360px;
+}
+
+.workspace > * {
+  min-width: 0;
+  min-height: 0;
 }
 
 .panel {
@@ -413,6 +422,8 @@ textarea {
 .stage {
   position: relative;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .map-root,
