@@ -104,21 +104,25 @@ test("buildPlannerMessages in route-only mode drops named features", () => {
   assert.deepEqual(user.landmarks, []);
   assert.deepEqual(user.namedTrails, []);
   assert.deepEqual(user.namedRegions, []);
-  assert.deepEqual(user.geographyLayers, []);
-  assert.match(system, /route-only poster/);
-  assert.match(system, /geography and landmarks must be empty/);
+  assert.deepEqual(user.geographyLayers, input.geography);
+  assert.match(system, /no annotations/);
+  assert.match(system, /landmarks must be empty/);
+  assert.match(system, /geography may describe unlabeled layers/);
   assert.doesNotMatch(system, /Named trails recolor stretches/);
   assert.doesNotMatch(system, /Named regions are pale ochre washes/);
   assert.doesNotMatch(system, /numbered discs as a private index/);
 });
 
-test("repairPlannerOutput in route-only mode strips landmarks and geography", () => {
+test("repairPlannerOutput in route-only mode strips landmarks and named geography", () => {
   const repaired = repairPlannerOutput(
     {
       style: { name: "Swiss", medium: "print", palette: ["red"], typography: "", texture: "", references: "" },
       composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
       route: { treatment: "line", color: "red", startMarker: "dot", finishMarker: "dot", shapeNotes: "" },
-      geography: [{ kind: "trail", name: "River Valley Trail", placement: "along route", treatment: "write the name" }],
+      geography: [
+        { kind: "trail", name: "River Valley Trail", placement: "along route", treatment: "write the name" },
+        { kind: "water", name: "", placement: "", treatment: "flat blue lakes" },
+      ],
       landmarks: [{ name: "Norsemen Inn", kind: "pub", placement: "upper-left", icon: "pub", pin: 1 }],
       text: { title: "T", subtitle: "S", stats: [], rules: "" },
       grounding: { images: [], rules: [] },
@@ -129,7 +133,10 @@ test("repairPlannerOutput in route-only mode strips landmarks and geography", ()
   );
   const spec = validatePosterSpec(repaired);
   assert.deepEqual(spec.landmarks, []);
-  assert.deepEqual(spec.geography, []);
+  assert.deepEqual(
+    spec.geography.map((item) => [item.kind, item.name, item.treatment]),
+    [["water", "", "flat blue lakes"]],
+  );
 });
 
 test("repairPlannerOutput coerces prose fields into the nested shape", () => {

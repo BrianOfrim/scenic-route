@@ -36,7 +36,7 @@ export type PlannerInput = {
   grounding: Array<{ index: number; role: string; legend: string }>;
   refineNotes?: string;
   previousSpec?: PosterSpec;
-  /** No landmarks, trail names, or named districts — only the GPS track and start/finish. */
+  /** No landmarks, trail names, or named districts — geography layers may still be included. */
   routeOnly?: boolean;
 };
 
@@ -117,7 +117,7 @@ export function buildPlannerMessages(input: PlannerInput) {
     paletteInstruction: paletteInstruction(input.style),
     customStylePrompt: input.customStylePrompt?.trim() || null,
     aspectRatio: input.aspectRatio,
-    geographyLayers: input.routeOnly ? [] : input.geography,
+    geographyLayers: input.geography,
     landmarks,
     namedTrails,
     namedRegions,
@@ -137,8 +137,8 @@ export function buildPlannerMessages(input: PlannerInput) {
         "Copy title, subtitle, stats, and groundingImages from the input into text and grounding verbatim.",
         ...(input.routeOnly
           ? [
-              "This is a route-only poster. geography and landmarks must be empty arrays. Do not invent landmarks, trail names, named districts, road labels, water names, or any other place names. The schematic shows only the GPS track and optional start/finish markers. Style that line and the title block. Title and stats belong only in the title block.",
-              "If previousSpec is present, keep its style direction but drop every landmark, trail, and district.",
+              "This poster has no annotations. landmarks must be empty. Do not invent landmarks, trail names, named districts, road labels, water names, or any other place names. geography may describe unlabeled layers from geographyLayers (roads, water, forest, parks, and similar) that appear on the schematic — style those shapes without naming places. The schematic shows the GPS track, optional start/finish markers, and those geography layers. Title and stats belong only in the title block.",
+              "If previousSpec is present, keep its style direction but drop every landmark, trail, and district name.",
             ]
           : [
               "Landmarks: one entry per supplied landmark, exact spelling, pin copied from the list so the image prompt can look up locations. The schematic uses numbered discs as a private index only. The finished poster may put a small marker on the route at that disc. Landmark names and icons sit beside the path, not on it, and must never occlude, break, or replace the route. Do not describe large pictorial icons as sitting on the GPS track. The finished poster must write each landmark name on the map near that disc and must never copy the numbers or add a number-to-name legend. Do not describe numbered discs as a poster feature. Do not forbid printed landmark names. placement copied as the short phrase given (e.g. 'upper-left, west of the route'); do not add distances or percentages.",
@@ -149,7 +149,7 @@ export function buildPlannerMessages(input: PlannerInput) {
         "Keep field values concise. Skip or keep finalPrompt short; a complete image prompt is assembled from the structured fields.",
         "The attached grounding images (described by index and role) are the geographic source of truth.",
         input.routeOnly
-          ? "The GPS track on the schematic is exact. There are no colored trail stretches, numbered discs, or region washes. Every separate stroke of the red line is a required segment. The finished poster must reproduce that path shape exactly: every bend, switchback, out-and-back, and crossing. Style the line as one color; do not copy the schematic's red."
+          ? "The GPS track on the schematic is exact. There are no colored trail stretches, numbered discs, or region washes. Geography layers on the schematic (roads, water, forest, parks) are shapes to style, not places to name. Every separate stroke of the red line is a required segment. The finished poster must reproduce that path shape exactly: every bend, switchback, out-and-back, and crossing, in the same place relative to water, roads, and land cover when those appear. Style the line as one color; do not copy the schematic's red."
           : "The GPS track on the schematic is exact. Colored stretches identify named trails for lookup only. If a satellite image is attached, it is real aerial photography of the same extent with that same red GPS track overlaid. Use it to read land cover, water, vegetation, and built form, and to confirm every bend, parallel, and shore hug. Every separate stroke of the red line is a required segment. Do not copy the photograph or its colors; the finished poster stays stylized. The finished poster must reproduce that path shape exactly: every bend, switchback, out-and-back, and crossing, in the same place relative to water, roads, and landmarks. Style the line as one color; do not copy the schematic's route colors.",
         "Never write route.shapeNotes or finalPrompt that describe a different, simpler, or idealized path, or that tell the image model to keep the schematic's route colors. Style the line; do not redesign it.",
         input.routeOnly
@@ -199,6 +199,19 @@ function splitList(value: unknown): string[] {
     .split(/[;\n]|,\s(?=[A-Za-z])/)
     .map((part) => part.replace(/^[-•*\s]+/, "").trim())
     .filter(Boolean);
+}
+
+/** Drop named trails/districts; keep unlabeled layer treatments (roads, water, etc.). */
+function stripNamedGeography(geography: unknown[]) {
+  return geography.filter(isRecord).filter((item) => {
+    if (str(item.name)) return false;
+    if (str(item.color)) return false;
+    if (/^trail$/i.test(str(item.kind))) return false;
+    if (/stretch of the GPS track|pale wash|across the (region|district)|not a pin/i.test(str(item.treatment))) {
+      return false;
+    }
+    return Boolean(str(item.kind) || str(item.treatment));
+  });
 }
 
 /** "Castle Mountain — peak, upper-right" | "Castle Mountain (upper-right)" | "Castle Mountain: upper-right" */
@@ -336,8 +349,16 @@ export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<s
   record.route = route;
 
   if (input.routeOnly) {
-    record.geography = [];
     record.landmarks = [];
+    if (!Array.isArray(record.geography)) {
+      record.geography = splitList(record.geography).map((treatment) => ({
+        kind: "geography",
+        name: "",
+        placement: "",
+        treatment,
+      }));
+    }
+    record.geography = stripNamedGeography(Array.isArray(record.geography) ? record.geography : []);
   } else {
     if (!Array.isArray(record.geography)) {
       record.geography = splitList(record.geography).map((treatment) => ({

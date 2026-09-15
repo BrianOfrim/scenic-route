@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   fetchMaxReferences,
   fetchPosterCapabilities,
@@ -102,6 +102,8 @@ const EMPTY_AREAS: NamedArea[] = [];
 
 const SCHEMATIC_LEGEND =
   "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; blue = water; green = forest; ochre wash + letter = named district, private region index, copy the footprint not the ochre or letter; numbered discs = private location index, do not copy";
+
+const GEOGRAPHY_LEGEND = "red = GPS track; grey = roads; blue = water; green = forest/parks";
 
 const ROUTE_ONLY_LEGEND = "red = GPS track";
 
@@ -294,8 +296,12 @@ function routeMarkerMode(show: boolean, latlng: [number, number][]): false | "en
   return isClosedLoop(latlng) ? "loop" : "ends";
 }
 
-function schematicLegend(markers: false | "ends" | "loop", routeOnly = false) {
-  const base = routeOnly ? ROUTE_ONLY_LEGEND : SCHEMATIC_LEGEND;
+function schematicLegend(
+  markers: false | "ends" | "loop",
+  annotations = true,
+  hasGeography = false,
+) {
+  const base = annotations ? SCHEMATIC_LEGEND : hasGeography ? GEOGRAPHY_LEGEND : ROUTE_ONLY_LEGEND;
   if (markers === "loop") return `${base}; gold/green = combined start/finish`;
   if (markers === "ends") return `${base}; green/black dots = start/finish`;
   return base;
@@ -307,17 +313,18 @@ function groundingLayers(
   maxRefs: number,
   latlng: [number, number][],
   showMarkers: boolean,
-  routeOnly = false,
+  annotations = true,
+  hasGeography = false,
 ): GroundingLayer[] {
   if (!schematicUrl) return [];
   const layers: GroundingLayer[] = [
     {
       role: "schematic",
-      legend: schematicLegend(routeMarkerMode(showMarkers, latlng), routeOnly),
+      legend: schematicLegend(routeMarkerMode(showMarkers, latlng), annotations, hasGeography),
       dataUrl: schematicUrl,
     },
   ];
-  if (!routeOnly && maxRefs >= 2 && satelliteUrl) {
+  if (maxRefs >= 2 && satelliteUrl) {
     layers.push({
       role: "satellite",
       legend: SATELLITE_LEGEND,
@@ -344,9 +351,54 @@ function FeatureQueryHint({ label }: { label: string }) {
   );
 }
 
-function sentRefsHint(maxRefs: number, hasSatellite: boolean, satellitePending: boolean, routeOnly = false) {
+function PosterSection({
+  title,
+  accordion,
+  children,
+  className = "",
+  hint,
+  open,
+  busy,
+}: {
+  title: string;
+  accordion: boolean;
+  children: ReactNode;
+  className?: string;
+  hint?: ReactNode;
+  open?: boolean;
+  busy?: boolean;
+}) {
+  if (accordion) {
+    return (
+      <div className={`panel-block ${className}`.trim()} aria-busy={busy || undefined}>
+        <details className="poster-section-details" defaultOpen={open}>
+          <summary>
+            <span className="eyebrow">{title}</span>
+            {hint}
+          </summary>
+          {children}
+        </details>
+      </div>
+    );
+  }
+  return (
+    <div className={`panel-block ${className}`.trim()} aria-busy={busy || undefined}>
+      {hint ? (
+        <div className="eyebrow-row">
+          <div className="eyebrow">{title}</div>
+          {hint}
+        </div>
+      ) : (
+        <div className="eyebrow">{title}</div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function sentRefsHint(maxRefs: number, hasSatellite: boolean, satellitePending: boolean) {
   const parts = ["schematic"];
-  if (!routeOnly && maxRefs >= 2) {
+  if (maxRefs >= 2) {
     if (hasSatellite) parts.push("satellite");
     else if (satellitePending) parts.push("satellite (loading)");
   }
@@ -355,6 +407,10 @@ function sentRefsHint(maxRefs: number, hasSatellite: boolean, satellitePending: 
 }
 
 type ModelRef = { role: string; legend?: string; dataUrl: string };
+
+export type PosterSheetSnap = "peek" | "half" | "full";
+
+const SHEET_ORDER: PosterSheetSnap[] = ["peek", "half", "full"];
 
 function savedModelRefs(record: PosterRecord): ModelRef[] {
   return Array.from({ length: record.referenceCount }, (_, index) => ({
@@ -385,6 +441,9 @@ type Props = {
   renameTrail?: { name: string; next: string; nonce: number } | null;
   onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
   touchUi?: boolean;
+  sheetSnap?: PosterSheetSnap | null;
+  onSheetSnapChange?: (snap: PosterSheetSnap) => void;
+  onSheetHeightChange?: (heightPx: number) => void;
 };
 
 export function PosterPanel({
@@ -409,6 +468,9 @@ export function PosterPanel({
   renameTrail: renameTrailEvent,
   onHighlightChange,
   touchUi = false,
+  sheetSnap = null,
+  onSheetSnapChange,
+  onSheetHeightChange,
 }: Props) {
   const catalog = FEATURE_CATALOG.map((item) => {
     const remote = features.find((feature) => feature.id === item.id);
@@ -429,14 +491,21 @@ export function PosterPanel({
   const dismissedAutoNames = useRef({ pois: new Set<string>(), trails: new Set<string>(), areas: new Set<string>() });
   const enabledFeatureIds = useRef<string[] | null>(null);
   const nearDebounce = useRef<number | null>(null);
-  const [styleIds, setStyleIds] = useState<string[]>(() => seeded?.styleIds ?? [styleIdFromRecord(refineFrom)]);
+  const [styleIds, setStyleIds] = useState<string[]>(() => {
+    if (seeded?.styleIds?.length) return seeded.styleIds;
+    if (refineFrom) return [styleIdFromRecord(refineFrom)];
+    return [];
+  });
   const [stylePrompt, setStylePrompt] = useState(seeded?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
   const [paletteIdsByStyle, setPaletteIdsByStyle] = useState<Record<string, string[]>>(
     () => seeded?.paletteIdsByStyle ?? {},
   );
-  const [activeStyleId, setActiveStyleId] = useState(() => seeded?.styleIds[0] ?? styleIdFromRecord(refineFrom));
+  const [activeStyleId, setActiveStyleId] = useState(
+    () => seeded?.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : ""),
+  );
   const [activePlanKey, setActivePlanKey] = useState(() => {
-    const id = seeded?.styleIds[0] ?? styleIdFromRecord(refineFrom);
+    const id = seeded?.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : "");
+    if (!id) return "";
     const paletteId = seeded?.paletteIdsByStyle?.[id]?.[0] ?? AUTO_PALETTE_ID;
     return planSlotKey(id, paletteId);
   });
@@ -457,7 +526,7 @@ export function PosterPanel({
   const [cropStart, setCropStart] = useState(0);
   const [cropEnd, setCropEnd] = useState(1);
   const [showRouteMarkers, setShowRouteMarkers] = useState(seeded?.showRouteMarkers ?? true);
-  const [routeOnly, setRouteOnly] = useState(seeded?.routeOnly ?? false);
+  const [routeOnly, setRouteOnly] = useState(seeded?.routeOnly ?? true);
   const [landmarkQuery, setLandmarkQuery] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
   const [landmarkChoices, setLandmarkChoices] = useState<PosterPoi[] | null>(null);
@@ -580,10 +649,13 @@ export function PosterPanel({
             setStyleIds(restored.styleIds);
             setStylePrompt(restored.stylePrompt);
             setPaletteIdsByStyle(restored.paletteIdsByStyle);
-            setActiveStyleId(restored.styleIds[0] ?? styleIdFromRecord(refineFrom));
-            const first = restored.styleIds[0] ?? styleIdFromRecord(refineFrom);
+            const first =
+              restored.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : "");
+            setActiveStyleId(first);
             setActivePlanKey(
-              planSlotKey(first, restored.paletteIdsByStyle[first]?.[0] ?? AUTO_PALETTE_ID),
+              first
+                ? planSlotKey(first, restored.paletteIdsByStyle[first]?.[0] ?? AUTO_PALETTE_ID)
+                : "",
             );
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
@@ -691,15 +763,17 @@ export function PosterPanel({
   const posterPois = routeOnly ? EMPTY_POIS : selectedPois;
   const posterWays = routeOnly ? EMPTY_WAYS : selectedNamedWays;
   const posterAreas = routeOnly ? EMPTY_AREAS : selectedNamedAreas;
-
-  const schematicLayers = useMemo(
-    () =>
-      schematicLayersFromFeatureIds(
-        routeOnly ? [] : featureIds,
-        routeMarkerMode(showRouteMarkers, croppedLatLng),
-      ),
-    [featureIds, showRouteMarkers, croppedLatLng, routeOnly],
+  const hasGeographyLayers = catalog.some(
+    (item) => item.group === "geography" && featureIds.includes(item.id),
   );
+
+  const schematicLayers = useMemo(() => {
+    const layers = schematicLayersFromFeatureIds(
+      featureIds,
+      routeMarkerMode(showRouteMarkers, croppedLatLng),
+    );
+    return { ...layers, labels: !routeOnly };
+  }, [featureIds, showRouteMarkers, croppedLatLng, routeOnly]);
 
   const displayBbox = useMemo(() => {
     if (croppedLatLng.length < 2) return context?.bbox ?? null;
@@ -929,7 +1003,7 @@ export function PosterPanel({
   }, [context, croppedLatLng, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
 
   useEffect(() => {
-    if (routeOnly || croppedLatLng.length < 2 || !groundingBbox || maxRefs < 2) {
+    if (croppedLatLng.length < 2 || !groundingBbox || maxRefs < 2) {
       setSatelliteUrl(null);
       return;
     }
@@ -950,7 +1024,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [croppedLatLng, groundingBbox, aspectRatio, showRouteMarkers, maxRefs, routeOnly]);
+  }, [croppedLatLng, groundingBbox, aspectRatio, showRouteMarkers, maxRefs]);
 
   useEffect(() => {
     const layers = groundingLayers(
@@ -959,7 +1033,8 @@ export function PosterPanel({
       maxRefs,
       croppedLatLng,
       showRouteMarkers,
-      routeOnly,
+      !routeOnly,
+      hasGeographyLayers,
     );
     if (!layers.length) {
       setModelRefs([]);
@@ -972,7 +1047,16 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [schematicUrl, satelliteUrl, maxRefs, aspectRatio, showRouteMarkers, croppedLatLng, routeOnly]);
+  }, [
+    schematicUrl,
+    satelliteUrl,
+    maxRefs,
+    aspectRatio,
+    showRouteMarkers,
+    croppedLatLng,
+    routeOnly,
+    hasGeographyLayers,
+  ]);
 
   useEffect(() => {
     setModelRuns([]);
@@ -989,7 +1073,7 @@ export function PosterPanel({
   }, [generating, planning]);
 
   async function ensureSatellite(): Promise<string | null> {
-    if (routeOnly || maxRefs < 2 || croppedLatLng.length < 2 || !groundingBbox) return null;
+    if (maxRefs < 2 || croppedLatLng.length < 2 || !groundingBbox) return null;
     if (satelliteUrl) return satelliteUrl;
     try {
       return await snapshotTiles({
@@ -1012,7 +1096,8 @@ export function PosterPanel({
       maxRefs,
       croppedLatLng,
       showRouteMarkers,
-      routeOnly,
+      !routeOnly,
+      hasGeographyLayers,
     );
   }
 
@@ -1042,14 +1127,12 @@ export function PosterPanel({
         subtitle,
         stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
         aspectRatio,
-        geography: routeOnly
-          ? []
-          : catalog
-              .filter(
-                (item) =>
-                  (item.group === "geography" || item.id === "cemeteries") && featureIds.includes(item.id),
-              )
-              .map((item) => ({ id: item.id, label: item.label })),
+        geography: catalog
+          .filter(
+            (item) =>
+              (item.group === "geography" || item.id === "cemeteries") && featureIds.includes(item.id),
+          )
+          .map((item) => ({ id: item.id, label: item.label })),
         pois: posterPois,
         namedWays: posterWays,
         namedAreas: posterAreas,
@@ -1398,9 +1481,8 @@ export function PosterPanel({
   function toggleStyle(id: string) {
     setStyleIds((current) => {
       if (current.includes(id)) {
-        if (current.length === 1) return current;
         const next = current.filter((item) => item !== id);
-        setActiveStyleId((active) => (active === id ? next[0] : active));
+        setActiveStyleId((active) => (active === id ? next[0] ?? "" : active));
         setPaletteIdsByStyle((map) => {
           const copy = { ...map };
           delete copy[id];
@@ -1410,7 +1492,9 @@ export function PosterPanel({
           dropSlot(id, paletteId);
         }
         const first = next[0];
-        setActivePlanKey(planSlotKey(first, paletteIdsForStyle(styleById(first), paletteIdsByStyle[first])[0]));
+        setActivePlanKey(
+          first ? planSlotKey(first, paletteIdsForStyle(styleById(first), paletteIdsByStyle[first])[0]) : "",
+        );
         return next;
       }
       setActiveStyleId(id);
@@ -1528,20 +1612,109 @@ export function PosterPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [compareOpen, preview]);
 
+  const sheetMode = sheetSnap != null;
+  const labelCount = selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length;
+  const peekStatus =
+    loading && !showEditor
+      ? "Loading…"
+      : generating
+        ? `Generating… ${elapsed}s`
+        : planning
+          ? `Planning… ${elapsed}s`
+          : result
+            ? "Result ready"
+            : showEditor
+              ? `${formatKm(croppedKm)}${!routeOnly && labelCount ? ` · ${labelCount} label${labelCount === 1 ? "" : "s"}` : ""}`
+              : "";
+
+  const sheetDrag = useRef<{ y: number; snap: PosterSheetSnap } | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!sheetMode || !onSheetHeightChange) return;
+    const el = panelRef.current;
+    if (!el) return;
+    const notify = () => onSheetHeightChange(el.getBoundingClientRect().height);
+    notify();
+    const observer = new ResizeObserver(notify);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [sheetMode, sheetSnap, onSheetHeightChange, showEditor, loading, error]);
+
+  function nudgeSheet(delta: number) {
+    if (!sheetSnap || !onSheetSnapChange) return;
+    const index = SHEET_ORDER.indexOf(sheetSnap);
+    const next = SHEET_ORDER[Math.max(0, Math.min(SHEET_ORDER.length - 1, index + delta))];
+    if (next && next !== sheetSnap) onSheetSnapChange(next);
+  }
+
+  function onSheetPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!sheetSnap) return;
+    sheetDrag.current = { y: event.clientY, snap: sheetSnap };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function onSheetPointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = sheetDrag.current;
+    sheetDrag.current = null;
+    if (!drag || !onSheetSnapChange) return;
+    const dy = drag.y - event.clientY;
+    if (Math.abs(dy) < 10) {
+      nudgeSheet(sheetSnap === "full" ? -1 : 1);
+      return;
+    }
+    if (dy > 48) nudgeSheet(1);
+    else if (dy < -48) nudgeSheet(-1);
+  }
+
   return (
     <>
-    <aside className="panel poster-panel">
-      <div className="panel-block poster-head">
-        <div>
-          <div className="eyebrow">Poster</div>
-          <strong>{context?.activity.name ?? "Create poster"}</strong>
+    <aside
+      ref={panelRef}
+      className={`panel poster-panel${sheetMode ? " is-sheet" : ""}`}
+      data-sheet={sheetSnap ?? undefined}
+    >
+      {sheetMode ? (
+        <div className="poster-sheet-chrome">
+          <button
+            type="button"
+            className="poster-sheet-handle"
+            aria-label="Resize poster sheet"
+            onPointerDown={onSheetPointerDown}
+            onPointerUp={onSheetPointerUp}
+          >
+            <span />
+          </button>
+          <div className="poster-sheet-peek">
+            <div className="poster-sheet-peek-text">
+              <strong>{context?.activity.name ?? "Create poster"}</strong>
+              {peekStatus ? <p className="muted">{peekStatus}</p> : null}
+            </div>
+            {sheetSnap === "peek" && (
+              <div className="poster-sheet-peek-actions">
+                <button type="button" className="text-btn" onClick={() => onSheetSnapChange?.("half")}>
+                  Edit
+                </button>
+                <button type="button" className="text-btn" onClick={onClose}>
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-        <button type="button" className="text-btn" onClick={onClose}>
-          Close
-        </button>
-      </div>
+      ) : (
+        <div className="panel-block poster-head">
+          <div>
+            <div className="eyebrow">Poster</div>
+            <strong>{context?.activity.name ?? "Create poster"}</strong>
+          </div>
+          <button type="button" className="text-btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      )}
       {loading && !showEditor && (
-        <div className="panel-block">
+        <div className="panel-block sheet-from-half">
           <p className="muted feature-query-block">
             <span className="spinner" aria-hidden="true" />
             Loading nearby features…
@@ -1549,38 +1722,13 @@ export function PosterPanel({
         </div>
       )}
       {error && (
-        <div className="panel-block">
+        <div className="panel-block sheet-from-half">
           <p className="error">{error}</p>
         </div>
       )}
       {showEditor && context && (
         <div className="poster-body">
-          <div className="panel-block">
-            <div className="eyebrow">Content</div>
-            <div className="chip-row">
-              <button
-                type="button"
-                className={`chip ${routeOnly ? "" : "on"}`}
-                onClick={() => applyRouteOnly(false)}
-              >
-                Route + landmarks
-              </button>
-              <button
-                type="button"
-                className={`chip ${routeOnly ? "on" : ""}`}
-                onClick={() => applyRouteOnly(true)}
-              >
-                Route only
-              </button>
-            </div>
-            <p className="muted">
-              {routeOnly
-                ? "GPS track and start/finish markers only. Title and stats stay in the title block."
-                : "Geography, landmarks, named trails, and districts on the map."}
-            </p>
-          </div>
-          <div className="panel-block">
-            <div className="eyebrow">Crop track</div>
+          <PosterSection title="Crop track" accordion={sheetMode} className="sheet-from-half" open={sheetMode || undefined}>
             <label className="poster-crop-row">
               <span>Start</span>
               <input
@@ -1622,7 +1770,7 @@ export function PosterPanel({
               />
               Start / finish markers
             </label>
-            <div className="poster-place-fields">
+            <div className="poster-place-fields sheet-from-full">
               {samePlace ? (
                 <input
                   className="search"
@@ -1658,7 +1806,7 @@ export function PosterPanel({
                 </>
               )}
             </div>
-            <p className="muted">
+            <p className="muted sheet-from-full">
               {showRouteMarkers
                 ? isClosedLoop(croppedLatLng)
                   ? "Start and finish are the same place — one combined marker. "
@@ -1666,194 +1814,295 @@ export function PosterPanel({
                 : ""}
               The finished poster writes this name at the start/finish marker.
             </p>
-          </div>
+          </PosterSection>
 
-          {!routeOnly && (
-          <>
-          <div className="panel-block" aria-busy={featuresRefreshing}>
-            <div className="eyebrow-row">
-              <div className="eyebrow">Geography</div>
-              {featuresRefreshing && <FeatureQueryHint label="Querying OpenStreetMap…" />}
+          <PosterSection
+            title="Geography"
+            accordion={sheetMode}
+            className="sheet-from-full"
+            hint={featuresRefreshing ? <FeatureQueryHint label="Querying OpenStreetMap…" /> : undefined}
+          >
+            <div className="poster-geo-grid">
+              {catalog
+                .filter((item) => item.group === "geography")
+                .map((item) => (
+                  <label key={item.id} className="check">
+                    <input
+                      type="checkbox"
+                      checked={featureIds.includes(item.id)}
+                      onChange={() => toggleFeature(item.id)}
+                    />
+                    {item.label}
+                  </label>
+                ))}
             </div>
-            {catalog
-              .filter((item) => item.group === "geography")
-              .map((item) => (
-                <label key={item.id} className="check">
-                  <input
-                    type="checkbox"
-                    checked={featureIds.includes(item.id)}
-                    onChange={() => toggleFeature(item.id)}
+          </PosterSection>
+
+          {(sheetMode &&
+            !routeOnly &&
+            (selectedNamedAreas.length > 0 || selectedNamedWays.length > 0 || selectedPois.length > 0)) && (
+            <PosterSection title="On map" accordion className="sheet-from-half">
+              <div className="chip-row">
+                {selectedNamedAreas.map((area) => (
+                  <LandmarkChip
+                    key={`area-${area.name}`}
+                    kind="area"
+                    name={area.name}
+                    label={`${area.letter} ${area.name}`}
+                    title={`Wash ${area.letter} on the schematic`}
+                    selected={selectedChip?.kind === "area" && selectedChip.name === area.name}
+                    touchUi={touchUi}
+                    onSelect={() => {
+                      setSelectedChip({ kind: "area", name: area.name });
+                      onHighlightChange?.({ kind: "area", name: area.name });
+                    }}
+                    onRemove={() => {
+                      removeArea(area.name);
+                      setSelectedChip(null);
+                    }}
+                    onHighlightChange={onHighlightChange}
                   />
-                  {item.label}
-                </label>
-              ))}
-          </div>
-
-          <div className="panel-block" aria-busy={featuresRefreshing}>
-            <div className="eyebrow-row">
-              <div className="eyebrow">Landmarks</div>
-              {featuresRefreshing && <FeatureQueryHint label="Querying OpenStreetMap…" />}
-            </div>
-            {catalog
-              .filter((item) => item.group === "landmarks")
-              .map((item) => {
-                const meters = landmarkNearValue(item.id, item.nearRouteM);
-                return (
-                  <div key={item.id} className="landmark-row">
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={featureIds.includes(item.id)}
-                        onChange={() => toggleFeature(item.id)}
-                      />
-                      {item.label}
-                    </label>
-                    <label className="near-route">
-                      <span className="sr-only">Auto-add distance for {item.label}</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={MAX_NEAR_ROUTE_M}
-                        step={50}
-                        value={nearDrafts[item.id] ?? meters}
-                        onChange={(event) => draftLandmarkNear(item.id, event.target.value)}
-                        onBlur={(event) => commitLandmarkNear(item.id, event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            commitLandmarkNear(item.id, event.currentTarget.value);
-                          }
-                        }}
-                      />
-                      m
-                    </label>
-                  </div>
-                );
-              })}
-            <p className="muted">
-              Auto-added if within this many metres of the route.
-            </p>
-            <div className="chip-row">
-              {selectedNamedAreas.map((area) => (
-                <LandmarkChip
-                  key={`area-${area.name}`}
-                  kind="area"
-                  name={area.name}
-                  label={`${area.letter} ${area.name}`}
-                  title={`Wash ${area.letter} on the schematic`}
-                  selected={selectedChip?.kind === "area" && selectedChip.name === area.name}
-                  touchUi={touchUi}
-                  onSelect={() => {
-                    setSelectedChip({ kind: "area", name: area.name });
-                    onHighlightChange?.({ kind: "area", name: area.name });
-                  }}
-                  onRemove={() => {
-                    removeArea(area.name);
-                    setSelectedChip(null);
-                  }}
-                  onHighlightChange={onHighlightChange}
-                />
-              ))}
-              {selectedNamedWays.map((trail) => (
-                <TrailChip
-                  key={`trail-${trailSourceName(trail.name, trailAliases)}`}
-                  trail={trail}
-                  editing={editingTrail === trail.name}
-                  draft={editingTrail === trail.name ? editingTrailName : trail.name}
-                  selected={selectedChip?.kind === "trail" && selectedChip.name === trail.name}
-                  touchUi={touchUi}
-                  onSelect={() => {
-                    setSelectedChip({ kind: "trail", name: trail.name });
-                    onHighlightChange?.({ kind: "trail", name: trail.name });
-                  }}
-                  onEdit={() => {
-                    setEditingTrail(trail.name);
-                    setEditingTrailName(trail.name);
-                  }}
-                  onDraft={setEditingTrailName}
-                  onSave={(value) => {
-                    if (editingTrail !== trail.name) return;
-                    renameTrail(trail.name, value);
-                  }}
-                  onCancel={() => setEditingTrail(null)}
-                  onRemove={() => {
-                    removeTrail(trail.name);
-                    setSelectedChip(null);
-                  }}
-                  onHighlightChange={onHighlightChange}
-                />
-              ))}
-              {selectedPois.map((poi, index) => (
-                <LandmarkChip
-                  key={`${poi.name}-${poi.lat}`}
-                  kind="poi"
-                  name={poi.name}
-                  label={`${index + 1} ${poi.name}`}
-                  title={
-                    poi.source === "user"
-                      ? `Disc ${index + 1} · placed on the schematic`
-                      : `Disc ${index + 1} on the schematic`
-                  }
-                  selected={selectedChip?.kind === "poi" && selectedChip.name === poi.name}
-                  touchUi={touchUi}
-                  onSelect={() => {
-                    setSelectedChip({ kind: "poi", name: poi.name });
-                    onHighlightChange?.({ kind: "poi", name: poi.name });
-                  }}
-                  onRemove={() => {
-                    removePoi(poi.name);
-                    setSelectedChip(null);
-                  }}
-                  onHighlightChange={onHighlightChange}
-                />
-              ))}
-            </div>
-            {(selectedPois.length > 0 || selectedNamedWays.length > 0 || selectedNamedAreas.length > 0) && (
-              <p className="muted">
-                Neighbourhoods, campuses, and large named parks are ochre washes with a letter,
-                not pins. The wash is the exact area to label on the poster. Letters and trail
-                colors are a private index — look up the name, then discard the letter and the
-                schematic colors. Parks stay green; other districts should not be brown just
-                because the schematic wash is ochre. Numbered discs are a location index. The
-                poster should show the names, not the letters, numbers, schematic colors, or a
-                legend.
-              </p>
-            )}
-            {selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length > MAX_LABELS && (
-              <p className="warn">
-                {selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length} labels
-                selected. Image models often drop, merge, or misspell names past {MAX_LABELS}.
-              </p>
-            )}
-            <form className="poster-lookup" onSubmit={(event) => void handleLookup(event)}>
-              <input
-                className="search"
-                value={landmarkQuery}
-                onChange={(event) => setLandmarkQuery(event.target.value)}
-                placeholder="Search OSM for a landmark"
-                disabled={lookingUp}
-              />
-              <button className="text-btn" type="submit" disabled={lookingUp || !landmarkQuery.trim()}>
-                {lookingUp ? "Looking up…" : "Add"}
-              </button>
-            </form>
-            <p className="muted">
-              Places that are not on OSM, and stretches that are not on Strava, are labeled on
-              the schematic: Place landmark or Name stretch. Drag a numbered landmark to move it.
-              Click a named stretch — or its chip — to rename a Strava or hand-named trail.
-            </p>
-            {landmarkHint && <p className="muted">{landmarkHint}</p>}
-            {landmarkChoices?.map((poi) => (
-              <button key={`${poi.name}-${poi.lat}`} type="button" className="chip" onClick={() => addCustom(poi)}>
-                {poi.name}
-              </button>
-            ))}
-          </div>
-          </>
+                ))}
+                {selectedNamedWays.map((trail) => (
+                  <TrailChip
+                    key={`trail-${trailSourceName(trail.name, trailAliases)}`}
+                    trail={trail}
+                    editing={editingTrail === trail.name}
+                    draft={editingTrail === trail.name ? editingTrailName : trail.name}
+                    selected={selectedChip?.kind === "trail" && selectedChip.name === trail.name}
+                    touchUi={touchUi}
+                    onSelect={() => {
+                      setSelectedChip({ kind: "trail", name: trail.name });
+                      onHighlightChange?.({ kind: "trail", name: trail.name });
+                    }}
+                    onEdit={() => {
+                      setEditingTrail(trail.name);
+                      setEditingTrailName(trail.name);
+                    }}
+                    onDraft={setEditingTrailName}
+                    onSave={(value) => {
+                      if (editingTrail !== trail.name) return;
+                      renameTrail(trail.name, value);
+                    }}
+                    onCancel={() => setEditingTrail(null)}
+                    onRemove={() => {
+                      removeTrail(trail.name);
+                      setSelectedChip(null);
+                    }}
+                    onHighlightChange={onHighlightChange}
+                  />
+                ))}
+                {selectedPois.map((poi, index) => (
+                  <LandmarkChip
+                    key={`${poi.name}-${poi.lat}`}
+                    kind="poi"
+                    name={poi.name}
+                    label={`${index + 1} ${poi.name}`}
+                    title={
+                      poi.source === "user"
+                        ? `Disc ${index + 1} · placed on the schematic`
+                        : `Disc ${index + 1} on the schematic`
+                    }
+                    selected={selectedChip?.kind === "poi" && selectedChip.name === poi.name}
+                    touchUi={touchUi}
+                    onSelect={() => {
+                      setSelectedChip({ kind: "poi", name: poi.name });
+                      onHighlightChange?.({ kind: "poi", name: poi.name });
+                    }}
+                    onRemove={() => {
+                      removePoi(poi.name);
+                      setSelectedChip(null);
+                    }}
+                    onHighlightChange={onHighlightChange}
+                  />
+                ))}
+              </div>
+            </PosterSection>
           )}
 
-          <div className="panel-block">
-            <div className="eyebrow">Themes</div>
+          <PosterSection
+            title="Annotations"
+            accordion={sheetMode}
+            className="sheet-from-full"
+            busy={featuresRefreshing}
+            hint={featuresRefreshing ? <FeatureQueryHint label="Querying OpenStreetMap…" /> : undefined}
+          >
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={!routeOnly}
+                onChange={(event) => applyRouteOnly(!event.target.checked)}
+              />
+              Annotations
+            </label>
+            <p className="muted">
+              {routeOnly
+                ? "Landmarks, named trails, and districts stay off the map."
+                : "Landmarks, named trails, and districts on the map."}
+            </p>
+            {!routeOnly && (
+              <>
+                {catalog
+                  .filter((item) => item.group === "landmarks")
+                  .map((item) => {
+                    const meters = landmarkNearValue(item.id, item.nearRouteM);
+                    return (
+                      <div key={item.id} className="landmark-row">
+                        <label className="check">
+                          <input
+                            type="checkbox"
+                            checked={featureIds.includes(item.id)}
+                            onChange={() => toggleFeature(item.id)}
+                          />
+                          {item.label}
+                        </label>
+                        <label className="near-route">
+                          <span className="sr-only">Auto-add distance for {item.label}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={MAX_NEAR_ROUTE_M}
+                            step={50}
+                            value={nearDrafts[item.id] ?? meters}
+                            onChange={(event) => draftLandmarkNear(item.id, event.target.value)}
+                            onBlur={(event) => commitLandmarkNear(item.id, event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                commitLandmarkNear(item.id, event.currentTarget.value);
+                              }
+                            }}
+                          />
+                          m
+                        </label>
+                      </div>
+                    );
+                  })}
+                <p className="muted">
+                  Auto-added if within this many metres of the route.
+                </p>
+                {!sheetMode && (
+                  <div className="chip-row">
+                    {selectedNamedAreas.map((area) => (
+                      <LandmarkChip
+                        key={`area-${area.name}`}
+                        kind="area"
+                        name={area.name}
+                        label={`${area.letter} ${area.name}`}
+                        title={`Wash ${area.letter} on the schematic`}
+                        selected={selectedChip?.kind === "area" && selectedChip.name === area.name}
+                        touchUi={touchUi}
+                        onSelect={() => {
+                          setSelectedChip({ kind: "area", name: area.name });
+                          onHighlightChange?.({ kind: "area", name: area.name });
+                        }}
+                        onRemove={() => {
+                          removeArea(area.name);
+                          setSelectedChip(null);
+                        }}
+                        onHighlightChange={onHighlightChange}
+                      />
+                    ))}
+                    {selectedNamedWays.map((trail) => (
+                      <TrailChip
+                        key={`trail-${trailSourceName(trail.name, trailAliases)}`}
+                        trail={trail}
+                        editing={editingTrail === trail.name}
+                        draft={editingTrail === trail.name ? editingTrailName : trail.name}
+                        selected={selectedChip?.kind === "trail" && selectedChip.name === trail.name}
+                        touchUi={touchUi}
+                        onSelect={() => {
+                          setSelectedChip({ kind: "trail", name: trail.name });
+                          onHighlightChange?.({ kind: "trail", name: trail.name });
+                        }}
+                        onEdit={() => {
+                          setEditingTrail(trail.name);
+                          setEditingTrailName(trail.name);
+                        }}
+                        onDraft={setEditingTrailName}
+                        onSave={(value) => {
+                          if (editingTrail !== trail.name) return;
+                          renameTrail(trail.name, value);
+                        }}
+                        onCancel={() => setEditingTrail(null)}
+                        onRemove={() => {
+                          removeTrail(trail.name);
+                          setSelectedChip(null);
+                        }}
+                        onHighlightChange={onHighlightChange}
+                      />
+                    ))}
+                    {selectedPois.map((poi, index) => (
+                      <LandmarkChip
+                        key={`${poi.name}-${poi.lat}`}
+                        kind="poi"
+                        name={poi.name}
+                        label={`${index + 1} ${poi.name}`}
+                        title={
+                          poi.source === "user"
+                            ? `Disc ${index + 1} · placed on the schematic`
+                            : `Disc ${index + 1} on the schematic`
+                        }
+                        selected={selectedChip?.kind === "poi" && selectedChip.name === poi.name}
+                        touchUi={touchUi}
+                        onSelect={() => {
+                          setSelectedChip({ kind: "poi", name: poi.name });
+                          onHighlightChange?.({ kind: "poi", name: poi.name });
+                        }}
+                        onRemove={() => {
+                          removePoi(poi.name);
+                          setSelectedChip(null);
+                        }}
+                        onHighlightChange={onHighlightChange}
+                      />
+                    ))}
+                  </div>
+                )}
+                {(selectedPois.length > 0 || selectedNamedWays.length > 0 || selectedNamedAreas.length > 0) && (
+                  <p className="muted">
+                    Neighbourhoods, campuses, and large named parks are ochre washes with a letter,
+                    not pins. The wash is the exact area to label on the poster. Letters and trail
+                    colors are a private index — look up the name, then discard the letter and the
+                    schematic colors. Parks stay green; other districts should not be brown just
+                    because the schematic wash is ochre. Numbered discs are a location index. The
+                    poster should show the names, not the letters, numbers, schematic colors, or a
+                    legend.
+                  </p>
+                )}
+                {selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length > MAX_LABELS && (
+                  <p className="warn">
+                    {selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length} labels
+                    selected. Image models often drop, merge, or misspell names past {MAX_LABELS}.
+                  </p>
+                )}
+                <form className="poster-lookup" onSubmit={(event) => void handleLookup(event)}>
+                  <input
+                    className="search"
+                    value={landmarkQuery}
+                    onChange={(event) => setLandmarkQuery(event.target.value)}
+                    placeholder="Search OSM for a landmark"
+                    disabled={lookingUp}
+                  />
+                  <button className="text-btn" type="submit" disabled={lookingUp || !landmarkQuery.trim()}>
+                    {lookingUp ? "Looking up…" : "Add"}
+                  </button>
+                </form>
+                <p className="muted">
+                  Places that are not on OSM, and stretches that are not on Strava, are labeled on
+                  the schematic: Place landmark or Name stretch. Drag a numbered landmark to move it.
+                  Click a named stretch — or its chip — to rename a Strava or hand-named trail.
+                </p>
+                {landmarkHint && <p className="muted">{landmarkHint}</p>}
+                {landmarkChoices?.map((poi) => (
+                  <button key={`${poi.name}-${poi.lat}`} type="button" className="chip" onClick={() => addCustom(poi)}>
+                    {poi.name}
+                  </button>
+                ))}
+              </>
+            )}
+          </PosterSection>
+
+          <PosterSection title="Themes" accordion={sheetMode} className="sheet-from-full">
             <div className="chip-row">
               {POSTER_STYLES.map((style) => (
                 <button
@@ -1867,9 +2116,11 @@ export function PosterPanel({
               ))}
             </div>
             <p className="muted">
-              {planSlots.length > 1
-                ? `${planSlots.length} prompts — one per selected theme and palette`
-                : "Select more themes or palettes to compare"}
+              {!styleIds.length
+                ? "Select a theme to plan"
+                : planSlots.length > 1
+                  ? `${planSlots.length} prompts — one per selected theme and palette`
+                  : "Select more themes or palettes to compare"}
             </p>
             {paletteStyles.map((style) => {
               const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
@@ -1928,10 +2179,9 @@ export function PosterPanel({
             {styleIds.length > 1 && editingCustom && (
               <p className="muted">Custom uses this prompt; other themes use their presets.</p>
             )}
-          </div>
+          </PosterSection>
 
-          <div className="panel-block">
-            <div className="eyebrow">Stats on poster</div>
+          <PosterSection title="Stats on poster" accordion={sheetMode} className="sheet-from-full">
             {listedStats.map((stat) => (
               <label key={stat.id} className="check">
                 <input
@@ -1951,9 +2201,9 @@ export function PosterPanel({
             ))}
             <input className="search" value={title} onChange={(event) => setTitle(event.target.value)} />
             <p className="muted">{subtitle || "No stats selected"}</p>
-          </div>
+          </PosterSection>
 
-          <div className="panel-block">
+          <PosterSection title="Output" accordion={sheetMode} className="sheet-from-full">
             <div className="poster-option-row">
               <label className="poster-field">
                 Aspect
@@ -1986,14 +2236,14 @@ export function PosterPanel({
                   : `${variants} images per prompt, one request`}
               </p>
             ) : null}
-            {schematicUrl ? (
+            {!sheetMode && schematicUrl ? (
               <div className="preview-grid">
                 <GroundingThumb
                   src={schematicUrl}
                   label="schematic"
                   onOpen={() => setPreview({ src: schematicUrl, label: "schematic" })}
                 />
-                {!routeOnly && maxRefs >= 2 && satelliteUrl && (
+                {maxRefs >= 2 && satelliteUrl && (
                   <GroundingThumb
                     src={satelliteUrl}
                     label="satellite"
@@ -2002,18 +2252,19 @@ export function PosterPanel({
                 )}
               </div>
             ) : null}
-            <p className="muted">
-              {sentRefsHint(
-                maxRefs,
-                Boolean(satelliteUrl),
-                maxRefs >= 2 && Boolean(schematicUrl) && !satelliteUrl,
-                routeOnly,
-              )}
-            </p>
+            {!sheetMode && (
+              <p className="muted">
+                {sentRefsHint(
+                  maxRefs,
+                  Boolean(satelliteUrl),
+                  maxRefs >= 2 && Boolean(schematicUrl) && !satelliteUrl,
+                )}
+              </p>
+            )}
             {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
-          </div>
+          </PosterSection>
 
-          <div className="panel-block">
+          <div className="panel-block sheet-from-full">
             <button className="button" type="button" disabled={busy || !title.trim() || !styleIds.length} onClick={() => void handlePlan()}>
               {planning
                 ? planProgress.total > 1
@@ -2033,7 +2284,7 @@ export function PosterPanel({
           </div>
 
           {spec && specSlot && (
-            <div className="panel-block">
+            <PosterSection title="Prompt" accordion={sheetMode} className="sheet-from-full" open={sheetMode || undefined}>
               {plannedSlots.length > 1 && (
                 <div className="chip-row">
                   {plannedSlots.map((slot) => (
@@ -2111,12 +2362,16 @@ export function PosterPanel({
                   ) : null}
                 </ul>
               )}
-            </div>
+            </PosterSection>
           )}
 
           {result && (
-            <div className="panel-block">
-              <div className="eyebrow">{batchResults.length > 1 ? "Compare results" : "Result"}</div>
+            <PosterSection
+              title={batchResults.length > 1 ? "Compare results" : "Result"}
+              accordion={sheetMode}
+              className="sheet-from-full"
+              open={sheetMode || undefined}
+            >
               <div className="result-compare">
                 {schematicSrc && (
                   <figure className="result-compare-card">
@@ -2200,8 +2455,15 @@ export function PosterPanel({
                   Setup restored from this poster. Change landmarks, crop, or themes, then Plan + Generate.
                 </p>
               )}
-            </div>
+            </PosterSection>
           )}
+        </div>
+      )}
+      {sheetMode && sheetSnap === "half" && showEditor && context && (
+        <div className="poster-sheet-cta sheet-from-half">
+          <button type="button" className="button" onClick={() => onSheetSnapChange?.("full")}>
+            Themes, plan &amp; generate
+          </button>
         </div>
       )}
     </aside>

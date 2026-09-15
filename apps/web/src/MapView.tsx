@@ -116,6 +116,7 @@ export function MapView({
   onRenameTrail,
 }: Props) {
   const [mode, setMode] = useState<AnnotateMode>("browse");
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [draft, setDraft] = useState<NameDraft | null>(null);
   const [selectedHit, setSelectedHit] = useState<SchematicHover | null>(null);
@@ -568,6 +569,7 @@ export function MapView({
 
   useEffect(() => {
     setMode("browse");
+    setToolsOpen(false);
     setDraft(null);
     setSelectedHit(null);
     setSectionStart(null);
@@ -632,6 +634,7 @@ export function MapView({
         return;
       }
       setMode("browse");
+      setToolsOpen(false);
       setHint(null);
     }
     window.addEventListener("keydown", onKey);
@@ -652,11 +655,35 @@ export function MapView({
     if (chosen === "browse") {
       setHint(null);
     } else {
+      setToolsOpen(true);
       onNeedSchematicRef.current?.();
       setHint(chosen === "landmark" ? "Click the schematic to place a landmark" : "Click the start of the stretch");
     }
     mapRef.current?.triggerRepaint();
   }
+
+  function toggleTools() {
+    if (toolsOpen || mode !== "browse") {
+      if (mode !== "browse") {
+        setMode("browse");
+        setDraft(null);
+        setSelectedHit(null);
+        setSectionStart(null);
+        sectionHoverRef.current = null;
+        if (landmarkDragRef.current) {
+          landmarkDragRef.current = null;
+          mapRef.current?.dragPan.enable();
+        }
+        setHint(null);
+        mapRef.current?.triggerRepaint();
+      }
+      setToolsOpen(false);
+      return;
+    }
+    setToolsOpen(true);
+  }
+
+  const showAnnotateTools = toolsOpen || mode !== "browse";
 
   function submitDraft(event: FormEvent) {
     event.preventDefault();
@@ -689,23 +716,50 @@ export function MapView({
       <div ref={containerRef} className="map" />
       {labelingEnabled && (
         <div className="map-annotate">
-          <div className="map-annotate-tools" role="toolbar" aria-label="Schematic labels">
+          <div
+            className={`map-annotate-tools${showAnnotateTools ? " is-open" : ""}`}
+            role="toolbar"
+            aria-label="Schematic labels"
+          >
             <button
               type="button"
-              className={`text-btn${mode === "landmark" ? " on" : ""}`}
-              aria-pressed={mode === "landmark"}
-              onClick={() => toggleMode("landmark")}
+              className={`map-annotate-toggle${showAnnotateTools ? " on" : ""}`}
+              aria-expanded={showAnnotateTools}
+              aria-label={showAnnotateTools ? "Hide label tools" : "Label tools"}
+              title={showAnnotateTools ? "Hide label tools" : "Label tools"}
+              onClick={toggleTools}
             >
-              Place landmark
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 3.5 5.5 7v5.2c0 4.2 2.8 8.1 6.5 9.3 3.7-1.2 6.5-5.1 6.5-9.3V7L12 3.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinejoin="round"
+                />
+                <circle cx="12" cy="11" r="2.2" fill="currentColor" />
+              </svg>
             </button>
-            <button
-              type="button"
-              className={`text-btn${mode === "section" ? " on" : ""}`}
-              aria-pressed={mode === "section"}
-              onClick={() => toggleMode("section")}
-            >
-              Name stretch
-            </button>
+            {showAnnotateTools && (
+              <>
+                <button
+                  type="button"
+                  className={`text-btn${mode === "landmark" ? " on" : ""}`}
+                  aria-pressed={mode === "landmark"}
+                  onClick={() => toggleMode("landmark")}
+                >
+                  Place landmark
+                </button>
+                <button
+                  type="button"
+                  className={`text-btn${mode === "section" ? " on" : ""}`}
+                  aria-pressed={mode === "section"}
+                  onClick={() => toggleMode("section")}
+                >
+                  Name stretch
+                </button>
+              </>
+            )}
           </div>
           {(hint || (mode !== "browse" && basemap !== "schematic")) && (
             <p className="map-annotate-hint">
