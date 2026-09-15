@@ -274,6 +274,22 @@ test("specToImagePrompt describes a route-only poster when there are no named fe
   assert.doesNotMatch(prompt, /listed landmark, trail, region/);
 });
 
+test("specToImagePrompt keeps geography without annotations when layers have no names", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      geography: [{ kind: "water", name: "", placement: "", treatment: "flat blue lakes", color: "", letter: "" }],
+      landmarks: [],
+    }),
+  );
+  assert.match(prompt, /no landmarks, trail names, or named districts/);
+  assert.match(prompt, /Style roads, water, forest/);
+  assert.match(prompt, /flat blue lakes/);
+  assert.match(prompt, /relative to water, roads, and land cover/);
+  assert.doesNotMatch(prompt, /route-only poster: only the GPS track/i);
+  assert.doesNotMatch(prompt, /Castle Mountain/);
+});
+
 test("specToImagePrompt explains a route-only reference when present", () => {
   const prompt = specToImagePrompt(
     validatePosterSpec({

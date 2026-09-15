@@ -339,14 +339,19 @@ export const ROUTE_TRACE_RULE =
 export const ROUTE_ONLY_TRACE_RULE =
   "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Paint the whole path as one styled route of even thickness. Never interrupt the line for a label, icon, or decoration. This poster has no landmarks, trail names, or named districts. A prettier wrong path is a failed poster. North is up.";
 
+export const GEOGRAPHY_NO_ANNOTATIONS_TRACE_RULE =
+  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and land cover. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Paint the whole path as one styled route of even thickness. Never interrupt the line for a label, icon, or decoration. Style geography from the schematic without inventing place names. This poster has no landmarks, trail names, or named districts. A prettier wrong path is a failed poster. North is up.";
+
 const t = (value?: string) => (value ?? "").trim();
 
 export function isRouteOnlyPoster(spec: PosterSpec) {
   const namedLandmarks = spec.landmarks.some((item) => t(item.name));
-  const namedGeography = spec.geography.some(
-    (item) => t(item.name) || t(item.kind) || t(item.treatment),
-  );
+  const namedGeography = spec.geography.some((item) => t(item.name));
   return !namedLandmarks && !namedGeography;
+}
+
+function hasGeographyLayers(spec: PosterSpec) {
+  return spec.geography.some((item) => t(item.kind) || t(item.treatment) || t(item.name));
 }
 const sentence = (value: string) => {
   const text = t(value);
@@ -382,13 +387,22 @@ function scrubIndexLanguage(text: string) {
 export function specToImagePrompt(spec: PosterSpec): string {
   const sections: string[] = [];
   const routeOnly = isRouteOnlyPoster(spec);
+  const geographyOnly = routeOnly && hasGeographyLayers(spec);
 
   const lead = scrubIndexLanguage(t(spec.finalPrompt) || fallbackPrompt(spec));
   sections.push(sentence(lead));
-  sections.push(routeOnly ? ROUTE_ONLY_TRACE_RULE : ROUTE_TRACE_RULE);
+  sections.push(
+    routeOnly
+      ? geographyOnly
+        ? GEOGRAPHY_NO_ANNOTATIONS_TRACE_RULE
+        : ROUTE_ONLY_TRACE_RULE
+      : ROUTE_TRACE_RULE,
+  );
   if (routeOnly) {
     sections.push(
-      "This is a route-only poster: only the GPS track, optional start/finish markers, and the title block. Do not add landmark names, trail names, district labels, or invented place names.",
+      geographyOnly
+        ? "This poster has no landmarks, trail names, or named districts. Style roads, water, forest, and other geography from the schematic. Do not invent place names."
+        : "This is a route-only poster: only the GPS track, optional start/finish markers, and the title block. Do not add landmark names, trail names, district labels, or invented place names.",
     );
   }
 
@@ -477,7 +491,9 @@ export function specToImagePrompt(spec: PosterSpec): string {
     paragraph([
       images.length ? `Reference images: ${images.join("; ")}.` : "",
       routeOnly
-        ? "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns; north is up. Paint that path as one styled line. Do not copy the schematic's red."
+        ? geographyOnly
+          ? "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and land cover; north is up. Paint that path as one styled line. Do not copy the schematic's red."
+          : "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns; north is up. Paint that path as one styled line. Do not copy the schematic's red."
         : "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and landmarks; north is up. Paint that path as one styled line. Do not copy the schematic's route colors.",
       hasRouteOnly
         ? "The route-only image is the same red GPS track as the schematic, with geography removed. Every separate red stroke on it is a required segment — including lines that run parallel, hug a shore, or almost touch. Do not drop a stroke because water or another part of the route is nearby."
