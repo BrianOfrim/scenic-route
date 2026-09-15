@@ -9,9 +9,9 @@ import { RefineStudio } from "./RefineStudio";
 import { ShareButton } from "../share";
 
 type Props = {
-  onBack: () => void;
   onEditSetup: (poster: PosterRecord) => void;
   account?: ReactNode;
+  tabs?: ReactNode;
 };
 
 function posterLabel(
@@ -184,7 +184,7 @@ function GalleryRun({
   );
 }
 
-export function Gallery({ onBack, onEditSetup, account }: Props) {
+export function Gallery({ onEditSetup, account, tabs }: Props) {
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [studioFrom, setStudioFrom] = useState<PosterRecord | null>(null);
@@ -351,9 +351,6 @@ export function Gallery({ onBack, onEditSetup, account }: Props) {
             onClick={() => setFavoritesOnly((value) => !value)}
           >
             Favourites{favoriteCount ? ` · ${favoriteCount}` : ""}
-          </button>
-          <button type="button" className="text-btn" onClick={onBack}>
-            Back to map
           </button>
           {account}
         </div>
@@ -540,6 +537,7 @@ export function Gallery({ onBack, onEditSetup, account }: Props) {
           </div>
         </div>
       )}
+      {tabs}
     </div>
   );
 }

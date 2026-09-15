@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import {
   AuthRequiredError,
   fetchActivities,
@@ -22,14 +22,57 @@ import {
   type StatusPayload,
 } from "./api";
 import { ActivityList } from "./ActivityList";
+import { BasemapControl } from "./BasemapControl";
 import { Gallery } from "./gallery/Gallery";
+import { ProfileMenu } from "./ProfileMenu";
 import { SignIn } from "./SignIn";
 import { MapView, type Basemap, type LandmarkHighlight } from "./MapView";
-import { PosterPanel } from "./poster/PosterPanel";
+import { PosterPanel, type PosterSheetSnap } from "./poster/PosterPanel";
 import type { SchematicLayers } from "./poster/grounding/renderSchematic";
 import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
 
-type MobilePane = "activities" | "map" | "poster";
+type MobilePane = "activities" | "map";
+type AppTab = MobilePane | "gallery";
+
+const SHEET_OFFSET_FALLBACK: Record<PosterSheetSnap, string> = {
+  peek: "96px",
+  half: "260px",
+  full: "calc(100% - 52px)",
+};
+
+function AppTabs({
+  active,
+  isMobile,
+  onSelect,
+}: {
+  active: AppTab;
+  isMobile: boolean;
+  onSelect: (tab: AppTab) => void;
+}) {
+  const tabs: { id: AppTab; label: string; mobileOnly?: boolean }[] = [
+    { id: "activities", label: "Activities", mobileOnly: true },
+    { id: "map", label: "Map" },
+    { id: "gallery", label: "Gallery" },
+  ];
+
+  return (
+    <nav className="app-tabs" aria-label="Primary">
+      {tabs
+        .filter((tab) => isMobile || !tab.mobileOnly)
+        .map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={active === tab.id ? "on" : ""}
+            aria-current={active === tab.id ? "page" : undefined}
+            onClick={() => onSelect(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+    </nav>
+  );
+}
 
 const EMPTY_POIS: PosterPoi[] = [];
 const EMPTY_WAYS: NamedWay[] = [];
@@ -43,6 +86,8 @@ export function App() {
   const isMobile = useMediaQuery(MOBILE_QUERY);
   const [path, setPath] = useState(currentPath);
   const [mobilePane, setMobilePane] = useState<MobilePane>("activities");
+  const [posterSheet, setPosterSheet] = useState<PosterSheetSnap>("half");
+  const [posterSheetOffset, setPosterSheetOffset] = useState(SHEET_OFFSET_FALLBACK.half);
   const [status, setStatus] = useState<StatusPayload | null>(null);
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
   const [features, setFeatures] = useState<FeatureOption[]>([]);
@@ -87,7 +132,7 @@ export function App() {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posterOpen, setPosterOpen] = useState(false);
-  const [routeOnly, setRouteOnly] = useState(false);
+  const [routeOnly, setRouteOnly] = useState(true);
   const [refineFrom, setRefineFrom] = useState<PosterRecord | null>(null);
   const [basemap, setBasemap] = useState<Basemap>("osm");
   const [viewNonce, setViewNonce] = useState(0);
@@ -104,6 +149,58 @@ export function App() {
       }
       return next;
     });
+  }, []);
+
+  const setPosterSheetSnap = useCallback((next: PosterSheetSnap) => {
+    setPosterSheet((current) => {
+      if (current === next) return current;
+      setPosterSheetOffset(SHEET_OFFSET_FALLBACK[next]);
+      setViewNonce((value) => value + 1);
+      return next;
+    });
+  }, []);
+
+  const onPosterSheetHeight = useCallback((heightPx: number) => {
+    setPosterSheetOffset(`${Math.round(heightPx)}px`);
+  }, []);
+
+  const openPosterOnMobile = useCallback(() => {
+    setPosterOpen(true);
+    setPosterSheet("half");
+    setPosterSheetOffset(SHEET_OFFSET_FALLBACK.half);
+    openMobilePane("map");
+    setViewNonce((value) => value + 1);
+  }, [openMobilePane]);
+
+  const activityReadyForPoster = useCallback(
+    (id: number | null) => {
+      if (id == null) return false;
+      const activity = activities.find((item) => item.id === id);
+      return Boolean(activity?.hasGps && activity.streamsSynced);
+    },
+    [activities],
+  );
+
+  const closePoster = useCallback(() => {
+    setPosterOpen(false);
+    setSelectedId(null);
+    setRouteOnly(true);
+    setCropLatLng(null);
+    setCropStops([]);
+    setPois([]);
+    setNamedWays([]);
+    setNamedAreas([]);
+    setMapHighlight(null);
+    setWays(null);
+    setSchematicLayers(null);
+    setDismissPoi(null);
+    setDismissArea(null);
+    setDismissTrail(null);
+    setPlaceLandmark(null);
+    setMoveLandmark(null);
+    setPlaceSection(null);
+    setRenameTrail(null);
+    setRefineFrom(null);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -161,7 +258,9 @@ export function App() {
           setSelectedId(poster.activityId);
           setRefineFrom(poster);
           setPosterOpen(true);
-          setMobilePane("poster");
+          setPosterSheet("half");
+          setMobilePane("map");
+          setViewNonce((value) => value + 1);
         }
       }
       const sync = next.strava.sync;
@@ -260,9 +359,7 @@ export function App() {
       if (first && result.activities.length === 1 && !result.skipped) {
         setSelectedId(first.id);
         setRefineFrom(null);
-        setPosterOpen(true);
-        setMobilePane("poster");
-        setViewNonce((value) => value + 1);
+        openPosterOnMobile();
       } else if (first) {
         setSelectedId(first.id);
       }
@@ -309,41 +406,41 @@ export function App() {
     return <SignIn />;
   }
 
-  const accountChip = (
-    <div className="account-chip">
-      <span>{session.email}</span>
-      <button type="button" className="text-btn" onClick={() => void handleSignOut()}>
-        Sign out
-      </button>
-    </div>
+  const profileMenu = (
+    <ProfileMenu email={session.email} onSignOut={() => void handleSignOut()} />
   );
+
+  const selectTab = (tab: AppTab) => {
+    if (tab === "gallery") {
+      go("/gallery");
+      return;
+    }
+    if (path.startsWith("/gallery")) go("/");
+    if (isMobile) {
+      if (tab === "map" && activityReadyForPoster(selectedId)) {
+        openPosterOnMobile();
+      } else {
+        openMobilePane(tab);
+      }
+    }
+  };
 
   if (path.startsWith("/gallery")) {
     return (
       <Gallery
-        account={accountChip}
-        onBack={() => go("/")}
+        account={profileMenu}
+        tabs={<AppTabs active="gallery" isMobile={isMobile} onSelect={selectTab} />}
         onEditSetup={(poster) => {
           setSelectedId(poster.activityId);
           setRefineFrom(poster);
-          setPosterOpen(true);
-          setMobilePane("poster");
+          openPosterOnMobile();
           go("/");
         }}
       />
     );
   }
 
-  const basemapSelect = (
-    <label className="filter map-basemap">
-      Basemap
-      <select value={basemap} onChange={(event) => setBasemap(event.target.value as Basemap)}>
-        <option value="osm">Streets</option>
-        <option value="satellite">Satellite</option>
-        <option value="schematic">Schematic</option>
-      </select>
-    </label>
-  );
+  const basemapSelect = <BasemapControl value={basemap} onChange={setBasemap} />;
 
   return (
     <div className={`app${isMobile ? " is-mobile" : ""}`}>
@@ -366,11 +463,7 @@ export function App() {
               </button>
             </p>
           )}
-          {!isMobile && basemapSelect}
-          <button type="button" className="text-btn" onClick={() => go("/gallery")}>
-            Gallery
-          </button>
-          {accountChip}
+          {profileMenu}
         </div>
       </header>
       {isMobile && error && (
@@ -384,6 +477,12 @@ export function App() {
       <div
         className={`workspace ${posterOpen ? "with-poster" : ""}`}
         data-mobile-pane={isMobile ? mobilePane : undefined}
+        data-poster-sheet={isMobile && posterOpen ? posterSheet : undefined}
+        style={
+          isMobile && posterOpen && mobilePane === "map"
+            ? ({ "--poster-sheet-h": posterSheetOffset } as CSSProperties)
+            : undefined
+        }
       >
         <ActivityList
           status={status}
@@ -396,12 +495,10 @@ export function App() {
             setSelectedId(id);
             setRefineFrom(null);
             if (activity?.hasGps && activity.streamsSynced) {
-              setPosterOpen(true);
-              openMobilePane("map");
-              setViewNonce((value) => value + 1);
+              openPosterOnMobile();
             } else {
               setPosterOpen(false);
-              setRouteOnly(false);
+              setRouteOnly(true);
               setCropLatLng(null);
               setCropStops([]);
               setPois([]);
@@ -421,7 +518,7 @@ export function App() {
           onRemove={(ids) => handleRemove(ids)}
         />
         <main className="stage">
-          {isMobile && basemapSelect}
+          {basemapSelect}
           <MapView
             selectedLatLng={selectedLatLng}
             cropLatLng={posterOpen ? cropLatLng : null}
@@ -452,26 +549,10 @@ export function App() {
             features={features}
             refineFrom={refineFrom}
             touchUi={isMobile}
-            onClose={() => {
-              setPosterOpen(false);
-              setRouteOnly(false);
-              setCropLatLng(null);
-              setCropStops([]);
-              setPois([]);
-              setNamedWays([]);
-              setNamedAreas([]);
-              setMapHighlight(null);
-              setWays(null);
-              setSchematicLayers(null);
-              setDismissPoi(null);
-              setDismissArea(null);
-              setDismissTrail(null);
-              setPlaceLandmark(null);
-              setMoveLandmark(null);
-              setPlaceSection(null);
-              setRenameTrail(null);
-              setRefineFrom(null);
-            }}
+            sheetSnap={isMobile ? posterSheet : null}
+            onSheetSnapChange={isMobile ? setPosterSheetSnap : undefined}
+            onSheetHeightChange={isMobile ? onPosterSheetHeight : undefined}
+            onClose={closePoster}
             onCropChange={setCropLatLng}
             onStopsChange={setCropStops}
             onPoisChange={setPois}
@@ -489,46 +570,13 @@ export function App() {
             placeSection={placeSection}
             renameTrail={renameTrail}
           />
-        ) : isMobile ? (
-          <aside className="panel poster-panel poster-empty">
-            <div className="panel-block">
-              <div className="eyebrow">Poster</div>
-              <p className="muted">Pick an activity with GPS to set up a poster.</p>
-              <button type="button" className="button" onClick={() => openMobilePane("activities")}>
-                Activities
-              </button>
-            </div>
-          </aside>
         ) : null}
       </div>
-      {isMobile && (
-        <nav className="mobile-tabs" aria-label="Workspace">
-          <button
-            type="button"
-            className={mobilePane === "activities" ? "on" : ""}
-            aria-current={mobilePane === "activities" ? "page" : undefined}
-            onClick={() => openMobilePane("activities")}
-          >
-            Activities
-          </button>
-          <button
-            type="button"
-            className={mobilePane === "map" ? "on" : ""}
-            aria-current={mobilePane === "map" ? "page" : undefined}
-            onClick={() => openMobilePane("map")}
-          >
-            Map
-          </button>
-          <button
-            type="button"
-            className={mobilePane === "poster" ? "on" : ""}
-            aria-current={mobilePane === "poster" ? "page" : undefined}
-            onClick={() => openMobilePane("poster")}
-          >
-            Poster
-          </button>
-        </nav>
-      )}
+      <AppTabs
+        active={isMobile ? mobilePane : "map"}
+        isMobile={isMobile}
+        onSelect={selectTab}
+      />
     </div>
   );
 }
