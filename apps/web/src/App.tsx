@@ -40,6 +40,12 @@ const SHEET_OFFSET_FALLBACK: Record<PosterSheetSnap, string> = {
   full: "calc(100% - 52px)",
 };
 
+const SHEET_OFFSET_FALLBACK_PX: Record<PosterSheetSnap, number> = {
+  peek: 96,
+  half: 260,
+  full: 520,
+};
+
 function AppTabs({
   active,
   isMobile,
@@ -88,6 +94,7 @@ export function App() {
   const [mobilePane, setMobilePane] = useState<MobilePane>("activities");
   const [posterSheet, setPosterSheet] = useState<PosterSheetSnap>("half");
   const [posterSheetOffset, setPosterSheetOffset] = useState(SHEET_OFFSET_FALLBACK.half);
+  const [posterSheetHeightPx, setPosterSheetHeightPx] = useState(SHEET_OFFSET_FALLBACK_PX.half);
   const [status, setStatus] = useState<StatusPayload | null>(null);
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
   const [features, setFeatures] = useState<FeatureOption[]>([]);
@@ -155,19 +162,23 @@ export function App() {
     setPosterSheet((current) => {
       if (current === next) return current;
       setPosterSheetOffset(SHEET_OFFSET_FALLBACK[next]);
+      setPosterSheetHeightPx(SHEET_OFFSET_FALLBACK_PX[next]);
       setViewNonce((value) => value + 1);
       return next;
     });
   }, []);
 
   const onPosterSheetHeight = useCallback((heightPx: number) => {
-    setPosterSheetOffset(`${Math.round(heightPx)}px`);
+    const rounded = Math.round(heightPx);
+    setPosterSheetOffset(`${rounded}px`);
+    setPosterSheetHeightPx((prev) => (Math.abs(prev - rounded) < 4 ? prev : rounded));
   }, []);
 
   const openPosterOnMobile = useCallback(() => {
     setPosterOpen(true);
     setPosterSheet("half");
     setPosterSheetOffset(SHEET_OFFSET_FALLBACK.half);
+    setPosterSheetHeightPx(SHEET_OFFSET_FALLBACK_PX.half);
     openMobilePane("map");
     setViewNonce((value) => value + 1);
   }, [openMobilePane]);
@@ -533,6 +544,9 @@ export function App() {
             labelingEnabled={posterOpen && !routeOnly}
             highlight={posterOpen ? mapHighlight : null}
             touchUi={isMobile}
+            fitPaddingBottom={
+              isMobile && posterOpen && mobilePane === "map" ? posterSheetHeightPx : 0
+            }
             onRemovePoi={(name) => setDismissPoi({ name, nonce: Date.now() })}
             onRemoveArea={(name) => setDismissArea({ name, nonce: Date.now() })}
             onRemoveTrail={(name) => setDismissTrail({ name, nonce: Date.now() })}
