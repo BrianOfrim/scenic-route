@@ -483,6 +483,7 @@ function PosterSection({
   hint,
   open,
   busy,
+  showTitle = true,
 }: {
   title: string;
   accordion: boolean;
@@ -491,6 +492,7 @@ function PosterSection({
   hint?: ReactNode;
   open?: boolean;
   busy?: boolean;
+  showTitle?: boolean;
 }) {
   const [expanded, setExpanded] = useState(Boolean(open));
   if (accordion) {
@@ -512,13 +514,17 @@ function PosterSection({
   }
   return (
     <div className={`panel-block ${className}`.trim()} aria-busy={busy || undefined}>
-      {hint ? (
-        <div className="eyebrow-row">
+      {showTitle ? (
+        hint ? (
+          <div className="eyebrow-row">
+            <div className="eyebrow">{title}</div>
+            {hint}
+          </div>
+        ) : (
           <div className="eyebrow">{title}</div>
-          {hint}
-        </div>
+        )
       ) : (
-        <div className="eyebrow">{title}</div>
+        hint
       )}
       {children}
     </div>
@@ -540,6 +546,19 @@ type ModelRef = { role: string; legend?: string; dataUrl: string };
 export type PosterSheetSnap = "peek" | "half" | "full";
 
 const SHEET_ORDER: PosterSheetSnap[] = ["peek", "half", "full"];
+
+type PosterWorkflowStep =
+  | "crop"
+  | "geography"
+  | "on-map"
+  | "annotations"
+  | "themes"
+  | "stats"
+  | "output"
+  | "prompt"
+  | "result";
+
+const MAP_WORKFLOW_STEPS = new Set<PosterWorkflowStep>(["crop", "on-map"]);
 
 function savedModelRefs(record: PosterRecord): ModelRef[] {
   return Array.from({ length: record.referenceCount }, (_, index) => ({
@@ -670,6 +689,7 @@ export function PosterPanel({
   const [imageModelId, setImageModelId] = useState("");
   const imageModelIds = imageModelId ? [imageModelId] : [];
   const [variants, setVariants] = useState(() => seeded?.variants ?? readStoredVariants());
+  const [workflowStep, setWorkflowStep] = useState<PosterWorkflowStep>("crop");
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
   const [planning, setPlanning] = useState(false);
@@ -741,6 +761,7 @@ export function PosterPanel({
         forgetDismissedForLayers(dismissedAutoNames.current.areas, next.namedAreas ?? [], newlyEnabled);
         if (activityChanged) {
           cropActivityId.current = activityId;
+          setWorkflowStep(refineFrom ? "result" : "crop");
           setEditingTrail(null);
           setLandmarkQuery("");
           setLandmarkChoices(null);
@@ -1322,6 +1343,10 @@ export function PosterPanel({
       if (failures.length) {
         setError(`${failures.length} theme${failures.length === 1 ? "" : "s"} failed to plan. ${failures.join(" · ")}`);
       }
+      if (sheetSnap != null) {
+        setWorkflowStep("prompt");
+        onSheetSnapChange?.("full");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Planner failed");
     } finally {
@@ -1455,6 +1480,10 @@ export function PosterPanel({
       setActiveStyleId(records[0].styleId || activeStyleId);
       if (failures.length) {
         setError(`${failures.length} poster${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
+      }
+      if (sheetSnap != null) {
+        setWorkflowStep("result");
+        onSheetSnapChange?.("full");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Poster generation failed");
@@ -1664,6 +1693,17 @@ export function PosterPanel({
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
   const croppedKm = trackDistanceM(croppedLatLng);
   const busy = planning || generating;
+  const planDisabledHint = planning
+    ? null
+    : generating
+      ? "Wait until generation finishes."
+      : !styleIds.length && !title.trim()
+        ? "Select a theme and add a title in Stats before planning."
+        : !styleIds.length
+          ? "Select a theme before planning."
+          : !title.trim()
+            ? "Add a title in Stats before planning."
+            : null;
   const planSlots = stylePlanSlots(styleIds, paletteIdsByStyle);
   const plannedSlots = planSlots.filter((slot) => specForSlot(specs, slot.styleId, slot.paletteId));
   const specSlot = plannedSlots.find((slot) => slot.key === activePlanKey) ?? plannedSlots[0];
@@ -1743,6 +1783,26 @@ export function PosterPanel({
 
   const sheetMode = sheetSnap != null;
   const labelCount = selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length;
+  const showOnMapStep =
+    sheetMode &&
+    !routeOnly &&
+    (selectedNamedAreas.length > 0 || selectedNamedWays.length > 0 || selectedPois.length > 0);
+  const workflowSteps = useMemo(() => {
+    const steps: { id: PosterWorkflowStep; label: string }[] = [
+      { id: "crop", label: "Crop" },
+      { id: "geography", label: "Geography" },
+    ];
+    if (showOnMapStep) steps.push({ id: "on-map", label: "On map" });
+    steps.push(
+      { id: "annotations", label: "Annotations" },
+      { id: "themes", label: "Themes" },
+      { id: "stats", label: "Stats" },
+      { id: "output", label: "Output" },
+    );
+    if (spec && specSlot) steps.push({ id: "prompt", label: "Prompt" });
+    if (result) steps.push({ id: "result", label: batchResults.length > 1 ? "Results" : "Result" });
+    return steps;
+  }, [showOnMapStep, spec, specSlot, result, batchResults.length]);
   const peekStatus =
     loading && !showEditor
       ? "Loading…"
@@ -1768,7 +1828,28 @@ export function PosterPanel({
     const observer = new ResizeObserver(notify);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [sheetMode, sheetSnap, onSheetHeightChange, showEditor, loading, error]);
+  }, [sheetMode, sheetSnap, onSheetHeightChange, showEditor, loading, error, workflowStep]);
+
+  useEffect(() => {
+    if (!sheetMode) return;
+    if (workflowSteps.some((step) => step.id === workflowStep)) return;
+    setWorkflowStep(workflowSteps[0]?.id ?? "crop");
+  }, [sheetMode, workflowStep, workflowSteps]);
+
+  function selectWorkflowStep(id: PosterWorkflowStep) {
+    setWorkflowStep(id);
+    if (!onSheetSnapChange) return;
+    if (MAP_WORKFLOW_STEPS.has(id)) {
+      if (sheetSnap !== "half") onSheetSnapChange("half");
+    } else if (sheetSnap !== "full") {
+      onSheetSnapChange("full");
+    }
+  }
+
+  function workflowPane(step: PosterWorkflowStep) {
+    if (!sheetMode) return "";
+    return `poster-workflow-pane${workflowStep === step ? " is-active" : ""}`;
+  }
 
   function nudgeSheet(delta: number) {
     if (!sheetSnap || !onSheetSnapChange) return;
@@ -1819,17 +1900,22 @@ export function PosterPanel({
               <strong>{context?.activity.name ?? "Create poster"}</strong>
               {peekStatus ? <p className="muted">{peekStatus}</p> : null}
             </div>
-            {sheetSnap === "peek" && (
-              <div className="poster-sheet-peek-actions">
-                <button type="button" className="text-btn" onClick={() => onSheetSnapChange?.("half")}>
-                  Edit
-                </button>
-                <button type="button" className="text-btn" onClick={onClose}>
-                  Close
-                </button>
-              </div>
-            )}
           </div>
+          {showEditor && context && sheetSnap !== "peek" && (
+            <nav className="poster-workflow-nav" aria-label="Poster steps">
+              {workflowSteps.map((step) => (
+                <button
+                  key={step.id}
+                  type="button"
+                  className={workflowStep === step.id ? "on" : undefined}
+                  aria-current={workflowStep === step.id ? "step" : undefined}
+                  onClick={() => selectWorkflowStep(step.id)}
+                >
+                  {step.label}
+                </button>
+              ))}
+            </nav>
+          )}
         </div>
       ) : (
         <div className="panel-block poster-head">
@@ -1857,7 +1943,12 @@ export function PosterPanel({
       )}
       {showEditor && context && (
         <div className="poster-body">
-          <PosterSection title="Crop track" accordion={sheetMode} className="sheet-from-half" open={sheetMode || undefined}>
+          <PosterSection
+            title="Crop track"
+            accordion={false}
+            showTitle={!sheetMode}
+            className={workflowPane("crop")}
+          >
             {sheetMode ? (
               <CropRangeSlider
                 start={cropStart}
@@ -1911,7 +2002,7 @@ export function PosterPanel({
               />
               Start / finish markers
             </label>
-            <div className="poster-place-fields sheet-from-full">
+            <div className="poster-place-fields">
               {samePlace ? (
                 <input
                   className="search"
@@ -1947,7 +2038,7 @@ export function PosterPanel({
                 </>
               )}
             </div>
-            <p className="muted sheet-from-full">
+            <p className="muted">
               {showRouteMarkers
                 ? isClosedLoop(croppedLatLng)
                   ? "Start and finish are the same place — one combined marker. "
@@ -1959,8 +2050,9 @@ export function PosterPanel({
 
           <PosterSection
             title="Geography"
-            accordion={sheetMode}
-            className="sheet-from-full"
+            accordion={false}
+            showTitle={!sheetMode}
+            className={workflowPane("geography")}
             hint={featuresRefreshing ? <FeatureQueryHint label="Querying OpenStreetMap…" /> : undefined}
           >
             <div className="poster-geo-grid">
@@ -1979,10 +2071,13 @@ export function PosterPanel({
             </div>
           </PosterSection>
 
-          {(sheetMode &&
-            !routeOnly &&
-            (selectedNamedAreas.length > 0 || selectedNamedWays.length > 0 || selectedPois.length > 0)) && (
-            <PosterSection title="On map" accordion className="sheet-from-half">
+          {showOnMapStep && (
+            <PosterSection
+              title="On map"
+              accordion={false}
+              showTitle={false}
+              className={workflowPane("on-map")}
+            >
               <div className="chip-row">
                 {selectedNamedAreas.map((area) => (
                   <LandmarkChip
@@ -2063,8 +2158,9 @@ export function PosterPanel({
 
           <PosterSection
             title="Annotations"
-            accordion={sheetMode}
-            className="sheet-from-full"
+            accordion={false}
+            showTitle={!sheetMode}
+            className={workflowPane("annotations")}
             busy={featuresRefreshing}
             hint={featuresRefreshing ? <FeatureQueryHint label="Querying OpenStreetMap…" /> : undefined}
           >
@@ -2243,7 +2339,12 @@ export function PosterPanel({
             )}
           </PosterSection>
 
-          <PosterSection title="Themes" accordion={sheetMode} className="sheet-from-full">
+          <PosterSection
+            title="Themes"
+            accordion={false}
+            showTitle={!sheetMode}
+            className={workflowPane("themes")}
+          >
             <div className="chip-row">
               {POSTER_STYLES.map((style) => (
                 <button
@@ -2322,7 +2423,12 @@ export function PosterPanel({
             )}
           </PosterSection>
 
-          <PosterSection title="Stats on poster" accordion={sheetMode} className="sheet-from-full">
+          <PosterSection
+            title="Stats on poster"
+            accordion={false}
+            showTitle={!sheetMode}
+            className={workflowPane("stats")}
+          >
             {listedStats.map((stat) => (
               <label key={stat.id} className="check">
                 <input
@@ -2344,7 +2450,12 @@ export function PosterPanel({
             <p className="muted">{subtitle || "No stats selected"}</p>
           </PosterSection>
 
-          <PosterSection title="Output" accordion={sheetMode} className="sheet-from-full">
+          <PosterSection
+            title="Output"
+            accordion={false}
+            showTitle={!sheetMode}
+            className={workflowPane("output")}
+          >
             <div className="poster-option-row">
               <label className="poster-field">
                 Aspect
@@ -2403,29 +2514,34 @@ export function PosterPanel({
               </p>
             )}
             {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
-          </PosterSection>
-
-          <div className="panel-block sheet-from-full">
-            <button className="button" type="button" disabled={busy || !title.trim() || !styleIds.length} onClick={() => void handlePlan()}>
-              {planning
-                ? planProgress.total > 1
-                  ? `Planning ${planProgress.done}/${planProgress.total}… ${elapsed}s`
-                  : `Planning… ${elapsed}s`
-                : plannedSlots.length
-                  ? planSlots.length > 1
-                    ? "Re-plan prompts"
-                    : "Re-plan"
-                  : planSlots.length > 1
-                    ? "Plan prompts"
-                    : "Plan prompt"}
-            </button>
+            <div className="poster-actions poster-plan-row">
+              <button className="button" type="button" disabled={busy || !title.trim() || !styleIds.length} onClick={() => void handlePlan()}>
+                {planning
+                  ? planProgress.total > 1
+                    ? `Planning ${planProgress.done}/${planProgress.total}… ${elapsed}s`
+                    : `Planning… ${elapsed}s`
+                  : plannedSlots.length
+                    ? planSlots.length > 1
+                      ? "Re-plan prompts"
+                      : "Re-plan"
+                    : planSlots.length > 1
+                      ? "Plan prompts"
+                      : "Plan prompt"}
+              </button>
+              {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
+            </div>
             {plannedSlots.length > 0 && !allThemesPlanned && (
               <p className="muted">Plan prompts for the newly selected themes and palettes before generating.</p>
             )}
-          </div>
+          </PosterSection>
 
           {spec && specSlot && (
-            <PosterSection title="Prompt" accordion={sheetMode} className="sheet-from-full" open={sheetMode || undefined}>
+            <PosterSection
+              title="Prompt"
+              accordion={false}
+              showTitle={!sheetMode}
+              className={workflowPane("prompt")}
+            >
               {plannedSlots.length > 1 && (
                 <div className="chip-row">
                   {plannedSlots.map((slot) => (
@@ -2509,9 +2625,9 @@ export function PosterPanel({
           {result && (
             <PosterSection
               title={batchResults.length > 1 ? "Compare results" : "Result"}
-              accordion={sheetMode}
-              className="sheet-from-full"
-              open={sheetMode || undefined}
+              accordion={false}
+              showTitle={!sheetMode}
+              className={workflowPane("result")}
             >
               <div className="result-compare">
                 {schematicSrc && (
@@ -2598,13 +2714,6 @@ export function PosterPanel({
               )}
             </PosterSection>
           )}
-        </div>
-      )}
-      {sheetMode && sheetSnap === "half" && showEditor && context && (
-        <div className="poster-sheet-cta sheet-from-half">
-          <button type="button" className="button" onClick={() => onSheetSnapChange?.("full")}>
-            Themes, plan &amp; generate
-          </button>
         </div>
       )}
     </aside>
