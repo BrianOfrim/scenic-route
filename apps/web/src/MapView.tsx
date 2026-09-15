@@ -78,6 +78,8 @@ type Props = {
   labelingEnabled?: boolean;
   highlight?: LandmarkHighlight | null;
   touchUi?: boolean;
+  /** Extra bottom inset (px) so fitBounds keeps the route above a sheet/overlay. */
+  fitPaddingBottom?: number;
   onRemovePoi?: (name: string) => void;
   onRemoveArea?: (name: string) => void;
   onRemoveTrail?: (name: string) => void;
@@ -106,6 +108,7 @@ export function MapView({
   labelingEnabled = false,
   highlight = null,
   touchUi = false,
+  fitPaddingBottom = 0,
   onRemovePoi,
   onRemoveArea,
   onRemoveTrail,
@@ -155,6 +158,7 @@ export function MapView({
   const labelingRef = useRef(labelingEnabled);
   const highlightRef = useRef(highlight);
   const touchUiRef = useRef(touchUi);
+  const fitPaddingBottomRef = useRef(fitPaddingBottom);
   const selectedHitRef = useRef(selectedHit);
   trackRef.current = selectedLatLng;
   cropRef.current = cropLatLng;
@@ -173,6 +177,7 @@ export function MapView({
   onPlaceSectionRef.current = onPlaceSection;
   highlightRef.current = highlight;
   touchUiRef.current = touchUi;
+  fitPaddingBottomRef.current = fitPaddingBottom;
   selectedHitRef.current = selectedHit;
   onRenameTrailRef.current = onRenameTrail;
   onRenameTrailStartRef.current = (name, point) => {
@@ -218,6 +223,15 @@ export function MapView({
     mapRef.current = map;
     const paint = () => {
       map.resize();
+      const height = map.getContainer().clientHeight || 1;
+      const bottom =
+        fitPaddingBottomRef.current > 0
+          ? Math.min(
+              fitPaddingBottomRef.current + FIT_EDGE_PX + FIT_SHEET_GAP_PX,
+              Math.floor(height * FIT_MAX_BOTTOM_RATIO),
+            )
+          : 0;
+      map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
       syncMapChrome(map, overlayRef.current, markersRef, basemapRef.current, {
         track: trackRef.current,
         crop: cropRef.current,
@@ -233,7 +247,7 @@ export function MapView({
         labeling: labelingRef,
         onMovedLandmark: (name) => setHint(`Moved ${name}`),
       });
-      fit(map, cropRef.current ?? trackRef.current, 0);
+      fit(map, cropRef.current ?? trackRef.current, 0, bottom);
     };
     const redrawSchematic = () => {
       paintSchematicOverlay(map, overlayRef.current, {
@@ -498,23 +512,32 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    const height = map.getContainer().clientHeight || 1;
+    const bottom =
+      fitPaddingBottom > 0
+        ? Math.min(
+            fitPaddingBottom + FIT_EDGE_PX + FIT_SHEET_GAP_PX,
+            Math.floor(height * FIT_MAX_BOTTOM_RATIO),
+          )
+        : 0;
+    map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
     const apply = () => {
       map.resize();
       if (basemapRef.current === "schematic") {
         clearMarkers(markersRef);
         map.triggerRepaint();
-        fit(map, cropLatLng ?? selectedLatLng, 600);
+        fit(map, cropLatLng ?? selectedLatLng, 600, bottom);
         return;
       }
       if (!styleReadyRef.current) return;
       map.triggerRepaint();
-      fit(map, cropLatLng ?? selectedLatLng, 600);
+      fit(map, cropLatLng ?? selectedLatLng, 600, bottom);
     };
     apply();
     return () => {
       map.off("style.load", apply);
     };
-  }, [selectedLatLng, cropLatLng, cropStops, viewNonce]);
+  }, [selectedLatLng, cropLatLng, cropStops, viewNonce, fitPaddingBottom]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1674,7 +1697,18 @@ function bindMarkerDrag(
   }
 }
 
-function fit(map: Map, latlng: [number, number][] | null | undefined, duration: number) {
+const FIT_EDGE_PX = 72;
+/** Extra space above the sheet beyond the edge inset (line width + sheet shadow). */
+const FIT_SHEET_GAP_PX = 8;
+/** Soft floor: never let sheet inset eat more than this fraction of the map. */
+const FIT_MAX_BOTTOM_RATIO = 0.72;
+
+function fit(
+  map: Map,
+  latlng: [number, number][] | null | undefined,
+  duration: number,
+  bottomPadPx = 0,
+) {
   if (!latlng || latlng.length < 2) return;
   let minLng = latlng[0][1];
   let minLat = latlng[0][0];
@@ -1686,11 +1720,23 @@ function fit(map: Map, latlng: [number, number][] | null | undefined, duration: 
     if (lng > maxLng) maxLng = lng;
     if (lat > maxLat) maxLat = lat;
   }
+  const height = map.getContainer().clientHeight || 1;
+  const width = map.getContainer().clientWidth || 1;
+  const edge = Math.min(FIT_EDGE_PX, Math.floor(Math.min(width, height) / 8));
   map.fitBounds(
     [
       [minLng, minLat],
       [maxLng, maxLat],
     ],
-    { padding: 72, maxZoom: 14, duration },
+    {
+      padding: {
+        top: edge,
+        right: edge,
+        left: edge,
+        bottom: Math.max(edge, bottomPadPx),
+      },
+      maxZoom: 14,
+      duration,
+    },
   );
 }
