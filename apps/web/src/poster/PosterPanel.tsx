@@ -368,10 +368,15 @@ function PosterSection({
   open?: boolean;
   busy?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(Boolean(open));
   if (accordion) {
     return (
       <div className={`panel-block ${className}`.trim()} aria-busy={busy || undefined}>
-        <details className="poster-section-details" defaultOpen={open}>
+        <details
+          className="poster-section-details"
+          open={expanded}
+          onToggle={(event) => setExpanded(event.currentTarget.open)}
+        >
           <summary>
             <span className="eyebrow">{title}</span>
             {hint}
