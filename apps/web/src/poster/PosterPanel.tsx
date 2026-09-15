@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   fetchMaxReferences,
   fetchPosterCapabilities,
@@ -348,6 +348,130 @@ function FeatureQueryHint({ label }: { label: string }) {
       <span className="spinner" aria-hidden="true" />
       {label}
     </span>
+  );
+}
+
+function CropRangeSlider({
+  start,
+  end,
+  max,
+  stops,
+  onChange,
+}: {
+  start: number;
+  end: number;
+  max: number;
+  stops: number[];
+  onChange: (start: number, end: number) => void;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<"start" | "end" | null>(null);
+
+  const startPct = max > 0 ? (start / max) * 100 : 0;
+  const endPct = max > 0 ? (end / max) * 100 : 100;
+
+  function valueFromClientX(clientX: number): number {
+    const track = trackRef.current;
+    if (!track || max <= 0) return 0;
+    const rect = track.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+    return Math.round(ratio * max);
+  }
+
+  function moveHandle(handle: "start" | "end", raw: number) {
+    if (handle === "start") onChange(Math.max(0, Math.min(raw, end - 1)), end);
+    else onChange(start, Math.min(max, Math.max(raw, start + 1)));
+  }
+
+  function beginDrag(handle: "start" | "end", event: ReactPointerEvent<HTMLElement>, moveNow = false) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragRef.current = handle;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    if (moveNow) moveHandle(handle, valueFromClientX(event.clientX));
+  }
+
+  function onPointerMove(event: ReactPointerEvent<HTMLElement>) {
+    if (!dragRef.current) return;
+    moveHandle(dragRef.current, valueFromClientX(event.clientX));
+  }
+
+  function onPointerUp(event: ReactPointerEvent<HTMLElement>) {
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function onTrackPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if ((event.target as HTMLElement).closest(".poster-crop-range-thumb")) return;
+    const raw = valueFromClientX(event.clientX);
+    const handle = Math.abs(raw - start) <= Math.abs(raw - end) ? "start" : "end";
+    beginDrag(handle, event, true);
+  }
+
+  function onThumbKeyDown(handle: "start" | "end", event: ReactKeyboardEvent<HTMLButtonElement>) {
+    const step = event.shiftKey ? Math.max(1, Math.round(max / 20)) : 1;
+    let next: number | null = null;
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") next = (handle === "start" ? start : end) - step;
+    else if (event.key === "ArrowRight" || event.key === "ArrowUp") next = (handle === "start" ? start : end) + step;
+    else if (event.key === "Home") next = handle === "start" ? 0 : start + 1;
+    else if (event.key === "End") next = handle === "start" ? end - 1 : max;
+    if (next == null) return;
+    event.preventDefault();
+    moveHandle(handle, next);
+  }
+
+  return (
+    <div
+      className="poster-crop-range"
+      ref={trackRef}
+      onPointerDown={onTrackPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    >
+      <div className="poster-crop-range-track" aria-hidden="true">
+        <div className="poster-crop-range-fill" style={{ left: `${startPct}%`, right: `${100 - endPct}%` }} />
+        {stops.map((index) => (
+          <span
+            key={index}
+            className="poster-crop-range-stop"
+            style={{ left: `${max > 0 ? (index / max) * 100 : 0}%` }}
+          />
+        ))}
+      </div>
+      <button
+        type="button"
+        className="poster-crop-range-thumb is-start"
+        style={{ left: `${startPct}%` }}
+        aria-label="Crop start"
+        aria-valuemin={0}
+        aria-valuemax={end - 1}
+        aria-valuenow={start}
+        role="slider"
+        onPointerDown={(event) => beginDrag("start", event)}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onKeyDown={(event) => onThumbKeyDown("start", event)}
+      />
+      <button
+        type="button"
+        className="poster-crop-range-thumb is-end"
+        style={{ left: `${endPct}%` }}
+        aria-label="Crop end"
+        aria-valuemin={start + 1}
+        aria-valuemax={max}
+        aria-valuenow={end}
+        role="slider"
+        onPointerDown={(event) => beginDrag("end", event)}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onKeyDown={(event) => onThumbKeyDown("end", event)}
+      />
+    </div>
   );
 }
 
@@ -1734,34 +1858,46 @@ export function PosterPanel({
       {showEditor && context && (
         <div className="poster-body">
           <PosterSection title="Crop track" accordion={sheetMode} className="sheet-from-half" open={sheetMode || undefined}>
-            <label className="poster-crop-row">
-              <span>Start</span>
-              <input
-                type="range"
-                min={0}
-                max={lastIndex - 1}
-                list="poster-crop-stops"
-                value={cropStart}
-                onChange={(event) => applyCrop(Number(event.target.value), cropEnd)}
-              />
-            </label>
-            <label className="poster-crop-row">
-              <span>End</span>
-              <input
-                type="range"
-                min={1}
+            {sheetMode ? (
+              <CropRangeSlider
+                start={cropStart}
+                end={cropEnd}
                 max={lastIndex}
-                list="poster-crop-stops"
-                value={cropEnd}
-                onChange={(event) => applyCrop(cropStart, Number(event.target.value))}
+                stops={stopIndexes}
+                onChange={applyCrop}
               />
-            </label>
-            <datalist id="poster-crop-stops">
-              {stopIndexes.map((index) => (
-                <option key={index} value={index} />
-              ))}
-            </datalist>
-            <p className="muted">
+            ) : (
+              <>
+                <label className="poster-crop-row">
+                  <span>Start</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={lastIndex - 1}
+                    list="poster-crop-stops"
+                    value={cropStart}
+                    onChange={(event) => applyCrop(Number(event.target.value), cropEnd)}
+                  />
+                </label>
+                <label className="poster-crop-row">
+                  <span>End</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={lastIndex}
+                    list="poster-crop-stops"
+                    value={cropEnd}
+                    onChange={(event) => applyCrop(cropStart, Number(event.target.value))}
+                  />
+                </label>
+                <datalist id="poster-crop-stops">
+                  {stopIndexes.map((index) => (
+                    <option key={index} value={index} />
+                  ))}
+                </datalist>
+              </>
+            )}
+            <p className={`muted${sheetMode ? " poster-crop-meta" : ""}`}>
               {formatKm(croppedKm)}
               {stopIndexes.length
                 ? ` · snaps to ${stopIndexes.length} pause${stopIndexes.length === 1 ? "" : "s"}`

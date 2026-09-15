@@ -1165,6 +1165,77 @@ button.map-schematic-tip-name:focus-visible {
   color: var(--muted);
 }
 
+.poster-crop-range {
+  position: relative;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  touch-action: none;
+  user-select: none;
+  margin: 2px 0 6px;
+}
+
+.poster-crop-range-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.poster-crop-range-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: inherit;
+  background: var(--accent-2);
+}
+
+.poster-crop-range-stop {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 10px;
+  margin: -5px 0 0 -1px;
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  pointer-events: none;
+}
+
+.poster-crop-range-thumb {
+  position: absolute;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  padding: 0;
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 25%, transparent);
+  cursor: grab;
+  touch-action: none;
+  z-index: 1;
+}
+
+.poster-crop-range-thumb::before {
+  content: "";
+  position: absolute;
+  inset: -11px;
+}
+
+.poster-crop-range-thumb:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+.poster-crop-range-thumb:active {
+  cursor: grabbing;
+}
+
+.poster-crop-meta {
+  margin: 0;
+}
+
 .poster-option-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1868,7 +1939,7 @@ button.map-schematic-tip-name:focus-visible {
   }
 
   .workspace[data-mobile-pane="map"].with-poster > .poster-panel.is-sheet[data-sheet="peek"] {
-    height: 96px;
+    height: 84px;
     overflow: hidden;
   }
 
@@ -1894,6 +1965,38 @@ button.map-schematic-tip-name:focus-visible {
     flex: 0 1 auto;
   }
 
+  .poster-panel.is-sheet .panel-block {
+    padding: 8px 14px;
+  }
+
+  .poster-panel.is-sheet .muted {
+    margin: 4px 0;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .poster-panel.is-sheet .check {
+    margin: 2px 0;
+  }
+
+  .poster-panel.is-sheet .poster-place-fields {
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .poster-panel.is-sheet .poster-field {
+    margin-top: 6px;
+    gap: 4px;
+  }
+
+  .poster-panel.is-sheet .poster-option-row {
+    gap: 8px;
+  }
+
+  .poster-panel.is-sheet .poster-option-row .poster-field {
+    margin-top: 6px;
+  }
+
   .poster-panel.is-sheet[data-sheet="peek"] .sheet-from-half,
   .poster-panel.is-sheet[data-sheet="peek"] .sheet-from-full,
   .poster-panel.is-sheet[data-sheet="half"] .sheet-from-full {
@@ -1914,8 +2017,8 @@ button.map-schematic-tip-name:focus-visible {
     justify-content: center;
     align-items: center;
     width: 100%;
-    min-height: 28px;
-    padding: 10px 0 4px;
+    min-height: 20px;
+    padding: 6px 0 2px;
     border: 0;
     background: transparent;
     cursor: grab;
@@ -1924,8 +2027,8 @@ button.map-schematic-tip-name:focus-visible {
 
   .poster-sheet-handle span {
     display: block;
-    width: 40px;
-    height: 4px;
+    width: 36px;
+    height: 3px;
     border-radius: 999px;
     background: #3a4634;
   }
@@ -1934,8 +2037,8 @@ button.map-schematic-tip-name:focus-visible {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 0 16px 12px;
+    gap: 10px;
+    padding: 0 14px 8px;
   }
 
   .poster-sheet-peek-text {
@@ -1967,7 +2070,7 @@ button.map-schematic-tip-name:focus-visible {
     gap: 8px;
     list-style: none;
     cursor: pointer;
-    min-height: 36px;
+    min-height: 28px;
   }
 
   .poster-section-details summary::-webkit-details-marker {
@@ -1980,8 +2083,8 @@ button.map-schematic-tip-name:focus-visible {
 
   .poster-section-details summary::after {
     content: "";
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     margin-left: auto;
     flex-shrink: 0;
     border-right: 2px solid var(--muted);
@@ -1991,7 +2094,7 @@ button.map-schematic-tip-name:focus-visible {
   }
 
   .poster-section-details[open] summary {
-    margin-bottom: 8px;
+    margin-bottom: 4px;
   }
 
   .poster-section-details[open] summary::after {
@@ -2000,7 +2103,7 @@ button.map-schematic-tip-name:focus-visible {
 
   .poster-sheet-cta {
     flex: 0 0 auto;
-    padding: 12px 16px;
+    padding: 8px 14px;
     border-top: 1px solid var(--line);
     background: var(--panel);
   }
@@ -2101,6 +2204,23 @@ button.map-schematic-tip-name:focus-visible {
 
   .poster-crop-row input[type="range"] {
     min-height: 44px;
+  }
+
+  .poster-panel.is-sheet .poster-crop-range {
+    height: 32px;
+    margin: 0 0 2px;
+  }
+
+  .poster-panel.is-sheet .poster-crop-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 0 2px;
+  }
+
+  .poster-panel.is-sheet .poster-crop-meta .muted {
+    margin: 0;
   }
 
   .near-route input {
