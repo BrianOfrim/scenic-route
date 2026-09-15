@@ -1246,6 +1246,17 @@ button.map-schematic-tip-name:focus-visible {
   margin-top: 10px;
 }
 
+.poster-plan-row {
+  margin-top: 14px;
+  align-items: center;
+}
+
+.poster-plan-row .muted {
+  margin: 0;
+  flex: 1;
+  min-width: 12em;
+}
+
 .poster-field {
   display: grid;
   gap: 6px;
@@ -1951,18 +1962,16 @@ button.map-schematic-tip-name:focus-visible {
   }
 
   .workspace[data-mobile-pane="map"].with-poster > .poster-panel.is-sheet[data-sheet="full"] {
-    height: calc(100% - 52px);
+    height: auto;
+    max-height: calc(100% - 52px);
     overflow: hidden;
+    transition: none;
   }
 
   .poster-panel.is-sheet .poster-body {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-height: 0;
     overflow: auto;
-  }
-
-  .poster-panel.is-sheet[data-sheet="half"] .poster-body {
-    flex: 0 1 auto;
   }
 
   .poster-panel.is-sheet .panel-block {
@@ -1997,10 +2006,61 @@ button.map-schematic-tip-name:focus-visible {
     margin-top: 6px;
   }
 
+  .poster-panel.is-sheet .poster-plan-row {
+    margin-top: 12px;
+  }
+
+  .poster-panel.is-sheet .poster-plan-row .muted {
+    margin: 0;
+  }
+
   .poster-panel.is-sheet[data-sheet="peek"] .sheet-from-half,
   .poster-panel.is-sheet[data-sheet="peek"] .sheet-from-full,
-  .poster-panel.is-sheet[data-sheet="half"] .sheet-from-full {
+  .poster-panel.is-sheet[data-sheet="peek"] .poster-body,
+  .poster-panel.is-sheet[data-sheet="peek"] .poster-workflow-nav {
     display: none;
+  }
+
+  .poster-workflow-nav {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 6px;
+    padding: 0 12px 10px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .poster-workflow-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .poster-workflow-nav button {
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 6px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .poster-workflow-nav button.on {
+    border-color: #3a4634;
+    background: #24301c;
+    color: var(--ink);
+  }
+
+  .poster-panel.is-sheet .poster-workflow-pane {
+    display: none;
+  }
+
+  .poster-panel.is-sheet .poster-workflow-pane.is-active {
+    display: block;
   }
 
   .poster-sheet-chrome {
@@ -2057,12 +2117,6 @@ button.map-schematic-tip-name:focus-visible {
     font-size: 12px;
   }
 
-  .poster-sheet-peek-actions {
-    display: flex;
-    flex: 0 0 auto;
-    gap: 4px;
-  }
-
   .poster-section-details summary {
     display: flex;
     align-items: center;
@@ -2099,17 +2153,6 @@ button.map-schematic-tip-name:focus-visible {
 
   .poster-section-details[open] summary::after {
     transform: rotate(225deg);
-  }
-
-  .poster-sheet-cta {
-    flex: 0 0 auto;
-    padding: 8px 14px;
-    border-top: 1px solid var(--line);
-    background: var(--panel);
-  }
-
-  .poster-sheet-cta .button {
-    width: 100%;
   }
 
   .app-tabs {
