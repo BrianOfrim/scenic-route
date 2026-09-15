@@ -1,9 +1,6 @@
 # Scenic Route logo (sage)
 
-Path monogram with:
-- filled start ● at bottom of S
-- straight top bridge between S and R with a forward arrow on the line
-- filled end ● at bottom of R
+Path monogram with start ● at bottom of S and end ○ at bottom of R.
 
 - Color: rgb(184, 201, 122) / `#b8c97a` (app accent)
 - Preferred: `sr-path-sage.svg` (crisp at any size)
