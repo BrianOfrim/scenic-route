@@ -1,0 +1,16 @@
+{
+  "name": "Scenic Route",
+  "install": "npm ci",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "npm run dev",
+      "description": "Runs the Hono API (port 8790) and the Vite web app (port 5174) together. Open http://localhost:5174."
+    }
+  ],
+  "ports": [
+    { "name": "web", "port": 5174 },
+    { "name": "api", "port": 8790 }
+  ]
+}
