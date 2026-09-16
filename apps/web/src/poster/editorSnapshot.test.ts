@@ -128,7 +128,7 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
     placesEdited: true,
     statIds: ["title", "distance"],
     aspectRatio: "16:9",
-    styleIds: ["middle-earth", "tron"],
+    styleIds: ["middle-earth", "blueprint"],
     stylePrompt: "custom ink",
     paletteId: "red",
     imageModelIds: ["google/gemini-test"],
@@ -155,9 +155,9 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
   assert.equal(restored.placesEdited, true);
   assert.deepEqual(restored.statIds, ["title", "distance"]);
   assert.equal(restored.aspectRatio, "16:9");
-  assert.deepEqual(restored.styleIds, ["middle-earth", "tron"]);
+  assert.deepEqual(restored.styleIds, ["middle-earth", "blueprint"]);
   assert.equal(restored.paletteId, "auto");
-  assert.deepEqual(restored.paletteIdsByStyle, { "middle-earth": ["auto"], tron: ["auto"] });
+  assert.deepEqual(restored.paletteIdsByStyle, { "middle-earth": ["auto"], blueprint: ["auto"] });
   assert.deepEqual(restored.imageModelIds, ["google/gemini-test"]);
   assert.equal(restored.variants, 2);
 });

@@ -39,15 +39,6 @@ export const POSTER_STYLES: PosterStyle[] = [
     colorMode: "identity",
   },
   {
-    id: "tron",
-    label: "Tron lightcycle",
-    prompt:
-      "Tron lightcycle world: matte black void, cyan neon grid roads receding into darkness, the route a blazing orange light trail with bloom and glow. HUD typography for the title, scanlines, no parchment or paper.",
-    palette: ["black", "cyan", "orange"],
-    typography: "HUD gothic",
-    colorMode: "identity",
-  },
-  {
     id: "swiss",
     label: "Swiss minimal",
     prompt:
@@ -72,20 +63,6 @@ export const POSTER_STYLES: PosterStyle[] = [
     colorMode: "identity",
   },
   {
-    id: "ukiyo-e",
-    label: "Ukiyo-e",
-    prompt:
-      "Japanese ukiyo-e woodblock print: Hokusai-style waves for water, stylized landforms — peaks only if the geography includes them — visible woodgrain, a seal stamp containing the title. Flat color fields, outlined forms, no photorealism.",
-    palette: ["indigo", "ochre", "seal-red"],
-    typography: "woodblock seal",
-    colorMode: "canonical",
-    palettes: [
-      { id: "hokusai", label: "Hokusai", colors: ["indigo", "ochre", "seal-red"] },
-      { id: "hiroshige-dawn", label: "Hiroshige dawn", colors: ["dusk-blue", "peach", "grey"] },
-      { id: "summer-green", label: "Summer green", colors: ["sap-green", "indigo", "cream"] },
-    ],
-  },
-  {
     id: "wpa",
     label: "WPA park poster",
     prompt:
@@ -99,24 +76,6 @@ export const POSTER_STYLES: PosterStyle[] = [
       { id: "alpine", label: "Alpine", colors: ["navy", "cream", "scarlet"] },
       { id: "coast", label: "Coast", colors: ["sea-blue", "cream", "coral"] },
     ],
-  },
-  {
-    id: "synthwave",
-    label: "Synthwave",
-    prompt:
-      "Synthwave poster: sunset magenta-to-orange gradient sky, neon grid ground plane, chrome script title, purple horizon haze. The route is a glowing neon path. Retro-futurist 1980s album art.",
-    palette: ["magenta", "orange", "violet"],
-    typography: "chrome script",
-    colorMode: "identity",
-  },
-  {
-    id: "pirate",
-    label: "Pirate treasure",
-    prompt:
-      "Pirate treasure map on burnt-edge parchment: an X marks the finish, dotted route, a sea serpent in any lake, skull-and-crossbones compass, coffee stains and fold creases. Hand-lettered labels.",
-    palette: ["parchment", "soot", "blood-red"],
-    typography: "hand-lettered",
-    colorMode: "identity",
   },
   {
     id: "watercolour",
@@ -200,21 +159,6 @@ export const POSTER_STYLES: PosterStyle[] = [
     ],
   },
   {
-    id: "telemetry",
-    label: "Dark telemetry",
-    prompt:
-      "Dark endurance-sport telemetry poster: near-black field, route as a luminous speed-gradient trail, small monospace stat blocks, faint grid, no fantasy decoration.",
-    palette: ["near-black", "lime", "ice"],
-    typography: "monospace stats",
-    colorMode: "canonical",
-    palettes: [
-      { id: "lime", label: "Lime", colors: ["near-black", "lime", "ice"] },
-      { id: "ember", label: "Ember", colors: ["near-black", "amber", "red"] },
-      { id: "magenta", label: "Magenta", colors: ["near-black", "magenta", "cyan"] },
-      { id: "mono", label: "Mono", colors: ["near-black", "white", "ice"] },
-    ],
-  },
-  {
     id: "linen-postcard",
     label: "Linen postcard",
     prompt:
@@ -228,15 +172,6 @@ export const POSTER_STYLES: PosterStyle[] = [
       { id: "desert", label: "Desert", colors: ["peach", "turquoise", "sand"] },
       { id: "civic", label: "Civic", colors: ["linen-cream", "navy", "barn-red"] },
     ],
-  },
-  {
-    id: "aeronautical",
-    label: "Aeronautical chart",
-    prompt:
-      "FAA-style sectional aeronautical chart: magenta airways and VORs, cyan hydrography, tan terrain tints, airport marks, a neatline and scale. The route is a plotted flight path. Functional aviation cartography, not a fantasy map.",
-    palette: ["chart-tan", "airway-magenta", "hydro-cyan"],
-    typography: "aviation sans",
-    colorMode: "identity",
   },
   {
     id: "art-nouveau",
