@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import {
   AuthRequiredError,
+  disconnectStrava,
   fetchActivities,
   fetchActivityTrack,
   fetchFeatures,
@@ -8,6 +9,7 @@ import {
   fetchSession,
   fetchStatus,
   importGpxFiles,
+  isUploadedActivity,
   removeActivities,
   signOut,
   syncStrava,
@@ -332,6 +334,39 @@ export function App() {
     }
   }
 
+  async function handleDisconnect() {
+    if (
+      !window.confirm(
+        "Disconnect Strava? This unlinks your Strava account and removes its synced activities so you can link a different account. Uploaded files are kept.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const selected = selectedId != null ? activities.find((item) => item.id === selectedId) : undefined;
+      const { removedActivities } = await disconnectStrava();
+      await refresh();
+      if (selected && !isUploadedActivity(selected)) {
+        closePoster();
+      }
+      if (removedActivities > 0) {
+        setError(
+          `Strava disconnected. Removed ${removedActivities} synced ${removedActivities === 1 ? "activity" : "activities"}. Connect a different Strava account to sync again.`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof AuthRequiredError) {
+        setSession(null);
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Could not disconnect Strava");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleRemove(ids: number[]) {
     setError(null);
     try {
@@ -522,6 +557,9 @@ export function App() {
           }}
           onSync={() => {
             void handleSync();
+          }}
+          onDisconnect={() => {
+            void handleDisconnect();
           }}
           onImport={(files) => {
             void handleImport(files);

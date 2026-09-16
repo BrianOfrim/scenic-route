@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { authSecret } from "./auth";
-import { query, queryOne } from "./db";
+import { query, queryOne, withTransaction } from "./db";
 
 const STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize";
 const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token";
@@ -332,6 +332,24 @@ export function activityHasGps(activity: StravaActivitySummary) {
   return Boolean(polyline) || (Array.isArray(start) && start.length >= 2);
 }
 
-export async function disconnectStrava(userId: string) {
-  await query("DELETE FROM strava_connections WHERE user_id = $1", [userId]);
+/**
+ * Unlink a user's Strava account. Removes the stored connection (tokens,
+ * athlete, sync state) along with the activities that were synced from Strava,
+ * while keeping manually uploaded activities (GPX/FIT/TCX). Clearing the synced
+ * activities lets the user link a different Strava account without mixing rides
+ * from the previous athlete. Returns the number of synced activities removed.
+ */
+export async function disconnectStrava(userId: string): Promise<{ removedActivities: number }> {
+  return withTransaction(async (client) => {
+    const removed = await client.query(
+      `DELETE FROM activities
+       WHERE user_id = $1
+         AND COALESCE(imported, 0) = 0
+         AND (source IS NULL OR source = 'strava')
+         AND id < 2000000000000`,
+      [userId],
+    );
+    await client.query("DELETE FROM strava_connections WHERE user_id = $1", [userId]);
+    return { removedActivities: removed.rowCount ?? 0 };
+  });
 }

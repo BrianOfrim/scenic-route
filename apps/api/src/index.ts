@@ -134,8 +134,8 @@ app.get("/api/strava/callback", async (c) => {
 });
 
 app.post("/api/strava/disconnect", async (c) => {
-  await disconnectStrava(currentUserId(c));
-  return c.json({ ok: true });
+  const { removedActivities } = await disconnectStrava(currentUserId(c));
+  return c.json({ ok: true, removedActivities });
 });
 
 app.post("/api/strava/sync", async (c) => {

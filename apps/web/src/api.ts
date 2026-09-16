@@ -348,6 +348,17 @@ export async function fetchActivityTrack(id: number): Promise<{
   return readJson(await apiFetch(`/api/activities/${id}`));
 }
 
+export async function disconnectStrava(): Promise<{ removedActivities: number }> {
+  const body = await readJson<{ ok: boolean; removedActivities?: number }>(
+    await apiFetch("/api/strava/disconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    }),
+  );
+  return { removedActivities: body.removedActivities ?? 0 };
+}
+
 export async function syncStrava(): Promise<SyncProgress> {
   const response = await apiFetch("/api/strava/sync", { method: "POST" });
   if (response.status === 401) throw new AuthRequiredError();

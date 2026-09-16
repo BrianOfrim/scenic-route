@@ -15,6 +15,7 @@ type Props = {
   importing: boolean;
   onSelect: (id: number) => void;
   onSync: () => void;
+  onDisconnect: () => void;
   onImport: (files: File[]) => void;
   onRemove: (ids: number[]) => Promise<void>;
 };
@@ -27,6 +28,7 @@ export function ActivityList({
   importing,
   onSelect,
   onSync,
+  onDisconnect,
   onImport,
   onRemove,
 }: Props) {
@@ -169,6 +171,17 @@ export function ActivityList({
             >
               {importing ? "Importing…" : "Upload files"}
             </button>
+            {strava?.connected && (
+              <button
+                type="button"
+                className="text-btn"
+                onClick={onDisconnect}
+                disabled={locked}
+                title="Unlink this Strava account so you can connect a different one"
+              >
+                Disconnect Strava
+              </button>
+            )}
             {activities.length > 0 && (
               <button
                 type="button"
