@@ -21,33 +21,26 @@ import {
 const IDENTITY_HUES: Record<string, RegExp> = {
   "middle-earth": /tea-stain|sepia|red dotted/i,
   "vintage-topo": /tan and sage|bold red/i,
-  tron: /cyan neon|orange light/i,
   blueprint: /cyan paper|white technical/i,
-  synthwave: /magenta-to-orange|purple horizon/i,
-  pirate: /parchment|blood-red|coffee stains/i,
   "star-chart": /navy field|gold stars/i,
-  aeronautical: /magenta airways|cyan hydrography|tan terrain/i,
 };
 
 const COSTUME_CLICHE: Record<string, RegExp> = {
   swiss: /\bred\b/i,
-  "ukiyo-e": /indigo|ochre|seal-red/i,
   wpa: /poster-orange|forest-green/i,
   watercolour: /wash-blue|sap-green/i,
   transit: /route-red/i,
   "art-deco": /gold and teal|\bgold\b|\bteal\b/i,
   rpg: /nes-green|nes-blue|nes-tan/i,
   risograph: /fluorescent pink|\bteal\b/i,
-  telemetry: /\blime\b|\bice\b/i,
   "linen-postcard": /chrome-teal|bumper-red|chrome bumper/i,
   "art-nouveau": /gold-green|muted-rose/i,
   linocut: /vermilion|iron-black/i,
 };
 
 test("styleById returns the matching preset", () => {
-  assert.equal(styleById("tron").label, "Tron lightcycle");
+  assert.equal(styleById("blueprint").label, "Blueprint");
   assert.equal(styleById("linen-postcard").label, "Linen postcard");
-  assert.equal(styleById("aeronautical").label, "Aeronautical chart");
   assert.equal(styleById("art-nouveau").label, "Art nouveau");
   assert.equal(styleById("linocut").label, "Linocut");
   assert.equal(styleById("missing").id, DEFAULT_POSTER_STYLE.id);
@@ -61,11 +54,8 @@ test("styleLabel prefers the preset, then a fallback name", () => {
 
 test("style presets do not require mountains", () => {
   assert.doesNotMatch(styleById("middle-earth").prompt, /hachured mountains|purple haze mountains|stylized peaks/i);
-  assert.doesNotMatch(styleById("synthwave").prompt, /mountain/i);
-  assert.match(styleById("ukiyo-e").prompt, /peaks only if the geography includes them/i);
   assert.doesNotMatch(styleById("vintage-topo").prompt, /mountain/i);
   assert.doesNotMatch(styleById("linen-postcard").prompt, /mountain|peak/i);
-  assert.doesNotMatch(styleById("aeronautical").prompt, /mountain|peak/i);
   assert.doesNotMatch(styleById("art-nouveau").prompt, /mountain|peak/i);
   assert.doesNotMatch(styleById("linocut").prompt, /mountain|peak/i);
 });
@@ -123,7 +113,7 @@ test("open presets lock drums without changing the process prompt", () => {
 
 test("every costume style with palettes has Auto plus named presets", () => {
   const costume = POSTER_STYLES.filter((item) => isCostumeStyle(item) && showsPalettePicker(item));
-  assert.ok(costume.length >= 10);
+  assert.ok(costume.length >= 9);
   for (const style of costume) {
     assert.ok((style.palettes?.length ?? 0) >= 3, style.id);
   }
@@ -136,20 +126,20 @@ test("paletteIdsForStyle keeps Auto when empty and drops unknown ids", () => {
     AUTO_PALETTE_ID,
     "black",
   ]);
-  assert.deepEqual(paletteIdsForStyle(styleById("tron"), ["red"]), [AUTO_PALETTE_ID]);
+  assert.deepEqual(paletteIdsForStyle(styleById("blueprint"), ["red"]), [AUTO_PALETTE_ID]);
 });
 
 test("stylePlanSlots expands each selected palette per style", () => {
-  const slots = stylePlanSlots(["swiss", "risograph", "tron"], {
+  const slots = stylePlanSlots(["swiss", "risograph", "blueprint"], {
     swiss: ["auto", "black"],
     risograph: ["pink-teal"],
   });
   assert.deepEqual(
     slots.map((slot) => slot.key),
-    ["swiss::auto", "swiss::black", "risograph::pink-teal", "tron::auto"],
+    ["swiss::auto", "swiss::black", "risograph::pink-teal", "blueprint::auto"],
   );
   assert.equal(planSlotLabel("swiss", "black"), "Swiss minimal · Black");
-  assert.equal(planSlotLabel("tron", "auto"), "Tron lightcycle");
+  assert.equal(planSlotLabel("blueprint", "auto"), "Blueprint");
   assert.deepEqual(parsePlanSlotKey("swiss::process-blue"), { styleId: "swiss", paletteId: "process-blue" });
   assert.deepEqual(parsePlanSlotKey("swiss"), { styleId: "swiss", paletteId: AUTO_PALETTE_ID });
   assert.equal(planSlotKey("swiss", "black"), "swiss::black");

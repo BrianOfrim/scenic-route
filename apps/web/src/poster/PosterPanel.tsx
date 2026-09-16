@@ -68,8 +68,8 @@ import {
   AUTO_PALETTE_ID,
   DEFAULT_POSTER_STYLE,
   POSTER_STYLES,
+  normalizePaletteId,
   paletteIdsForStyle,
-  parsePlanSlotKey,
   planSlotKey,
   planSlotLabel,
   resolveStyleColor,
@@ -796,17 +796,17 @@ export function PosterPanel({
             setPlacesEdited(restored.placesEdited);
             setStatIds(restored.statIds);
             setAspectRatio(restored.aspectRatio);
-            setStyleIds(sheetSnap != null && restored.styleIds.length > 1 ? restored.styleIds.slice(0, 1) : restored.styleIds);
+            const keepStyleId =
+              restored.styleIds.find((id) => !(sheetSnap != null && id === "custom")) ?? "";
+            setStyleIds(keepStyleId ? [keepStyleId] : []);
             setStylePrompt(restored.stylePrompt);
-            setPaletteIdsByStyle(restored.paletteIdsByStyle);
-            const first =
-              restored.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : "");
-            setActiveStyleId(first);
-            setActivePlanKey(
-              first
-                ? planSlotKey(first, restored.paletteIdsByStyle[first]?.[0] ?? AUTO_PALETTE_ID)
-                : "",
-            );
+            const keepPalette =
+              keepStyleId
+                ? [restored.paletteIdsByStyle[keepStyleId]?.[0] ?? AUTO_PALETTE_ID]
+                : [];
+            setPaletteIdsByStyle(keepStyleId ? { [keepStyleId]: keepPalette } : {});
+            setActiveStyleId(keepStyleId);
+            setActivePlanKey(keepStyleId ? planSlotKey(keepStyleId, keepPalette[0]) : "");
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
             if (restored.variants != null) setVariants(restored.variants);
@@ -1251,10 +1251,13 @@ export function PosterPanel({
     );
   }
 
-  async function handlePlan() {
-    if (!context) return;
+  async function handlePlan(): Promise<
+    { key: string; styleId: string; paletteId: string; spec: PosterSpec; cost: number | null }[] | null
+  > {
+    if (!context) return null;
     const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
-    if (!slots.length) return;
+    if (!slots.length) return null;
+    const runAspectRatio: AspectRatio = sheetSnap != null ? "2:3" : aspectRatio;
     setPlanning(true);
     setError(null);
     setPlanProgress({ done: 0, total: slots.length });
@@ -1276,7 +1279,7 @@ export function PosterPanel({
         title,
         subtitle,
         stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
-        aspectRatio,
+        aspectRatio: runAspectRatio,
         geography: catalog
           .filter(
             (item) =>
@@ -1343,35 +1346,43 @@ export function PosterPanel({
       if (failures.length) {
         setError(`${failures.length} theme${failures.length === 1 ? "" : "s"} failed to plan. ${failures.join(" · ")}`);
       }
-      if (sheetSnap != null) {
-        setWorkflowStep("prompt");
-        onSheetSnapChange?.("full");
-      }
+      return planned;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Planner failed");
+      return null;
     } finally {
       setPlanning(false);
     }
   }
 
-  async function handleGenerate() {
+  async function handleGenerate(
+    plannedSlots?: { key: string; styleId: string; paletteId: string; spec: PosterSpec; cost: number | null }[],
+  ) {
     if (!context) return;
     if (!imageModelIds.length) {
       setError("Set OPENROUTER_IMAGE_MODEL in .env.local, then restart the API.");
       return;
     }
-    const jobs = stylePlanSlots(styleIds, paletteIdsByStyle).flatMap((slot) => {
-      const planned = specForSlot(specs, slot.styleId, slot.paletteId);
-      if (!planned) return [];
+    const runAspectRatio: AspectRatio = sheetSnap != null ? "2:3" : aspectRatio;
+    const runVariants = sheetSnap != null ? 1 : variants;
+    const jobs = (plannedSlots?.length
+      ? plannedSlots
+      : stylePlanSlots(styleIds, paletteIdsByStyle).flatMap((slot) => {
+          const planned = specForSlot(specs, slot.styleId, slot.paletteId);
+          if (!planned) return [];
+          return [{ ...slot, spec: planned, cost: planCosts[slot.key] ?? null }];
+        })
+    ).flatMap((slot) => {
       const style = styleById(slot.styleId);
       return imageModelIds.map((model) => ({
         key: `${slot.key}\0${model}`,
         styleId: slot.styleId,
         paletteId: slot.paletteId,
         style,
-        spec: planned,
+        spec: slot.spec,
         model,
         slotKey: slot.key,
+        promptCost: slot.cost ?? planCosts[slot.key] ?? null,
       }));
     });
     if (!jobs.length) return;
@@ -1379,7 +1390,7 @@ export function PosterPanel({
     setError(null);
     try {
       const layers = await buildGrounding();
-      const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
+      const packed = await renderContactSheets(layers, maxRefs, runAspectRatio);
       setSentRefs(packed.map((item) => ({ role: item.role, legend: item.legend, dataUrl: item.dataUrl })));
       const batchId = crypto.randomUUID();
       setGenerateProgress({ done: 0, total: jobs.length });
@@ -1393,7 +1404,7 @@ export function PosterPanel({
           model: job.model,
           label: shortModelLabel(job.model, imageModels.find((item) => item.id === job.model)?.name),
           startedAt,
-          promptCost: planCosts[job.slotKey] ?? specForSlot(planCosts, job.styleId, job.paletteId) ?? null,
+          promptCost: job.promptCost,
         })),
       );
       const settled = await Promise.all(
@@ -1413,11 +1424,11 @@ export function PosterPanel({
                 job.style.id === "custom"
                   ? stylePrompt
                   : resolveStyleColor(job.style, job.paletteId).prompt,
-              aspectRatio,
+              aspectRatio: runAspectRatio,
               batchId,
               model: job.model,
-              variants,
-              promptCost: planCosts[job.slotKey] ?? specForSlot(planCosts, job.styleId, job.paletteId) ?? null,
+              variants: runVariants,
+              promptCost: job.promptCost,
               editor: captureEditorSnapshot({
                 featureIds,
                 landmarkNearM,
@@ -1436,14 +1447,18 @@ export function PosterPanel({
                 finishPlace,
                 placesEdited,
                 statIds,
-                aspectRatio,
+                aspectRatio: runAspectRatio,
                 styleIds,
                 stylePrompt,
                 paletteIdsByStyle,
                 imageModelIds,
-                variants,
-                specs,
-                planCosts,
+                variants: runVariants,
+                specs: plannedSlots?.length
+                  ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.spec]))
+                  : specs,
+                planCosts: plannedSlots?.length
+                  ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.cost]))
+                  : planCosts,
               }),
             });
             setModelRuns((current) =>
@@ -1490,6 +1505,12 @@ export function PosterPanel({
     } finally {
       setGenerating(false);
     }
+  }
+
+  async function handlePlanAndGenerate() {
+    const planned = await handlePlan();
+    if (!planned?.length) return;
+    await handleGenerate(planned);
   }
 
   async function handleLookup(event: FormEvent) {
@@ -1614,68 +1635,47 @@ export function PosterPanel({
     });
   }
 
-  function togglePalette(styleId: string, paletteId: string) {
+  function selectPalette(styleId: string, paletteId: string) {
     const style = styleById(styleId);
     const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
-    const exclusive = sheetSnap != null;
-    const selected = exclusive
-      ? [paletteId]
-      : current.includes(paletteId)
-        ? current.filter((item) => item !== paletteId)
-        : [...current, paletteId];
-    const next = selected.length ? selected : [AUTO_PALETTE_ID];
-    if (next.length === current.length && next.every((id, index) => id === current[index])) return;
+    const next = [normalizePaletteId(style, paletteId)];
+    if (next.length === current.length && next[0] === current[0]) return;
     setPaletteIdsByStyle((map) => ({ ...map, [styleId]: next }));
     for (const id of current) {
       if (!next.includes(id)) dropSlot(styleId, id);
     }
-    const added = !current.includes(paletteId) && next.includes(paletteId);
-    const active = parsePlanSlotKey(activePlanKey);
-    if (added) {
-      setActiveStyleId(styleId);
-      setActivePlanKey(planSlotKey(styleId, paletteId));
-    } else if (active.styleId === styleId && !next.includes(active.paletteId)) {
-      setActivePlanKey(planSlotKey(styleId, next[0]));
-    }
+    setActiveStyleId(styleId);
+    setActivePlanKey(planSlotKey(styleId, next[0]));
   }
 
-  function toggleStyle(id: string) {
-    const exclusive = sheetSnap != null;
+  function selectStyle(id: string) {
     setStyleIds((current) => {
-      if (current.includes(id) && (!exclusive || current.length === 1)) {
-        const next = current.filter((item) => item !== id);
-        setActiveStyleId((active) => (active === id ? next[0] ?? "" : active));
-        setPaletteIdsByStyle((map) => {
-          const copy = { ...map };
-          delete copy[id];
-          return copy;
-        });
-        for (const paletteId of paletteIdsForStyle(styleById(id), paletteIdsByStyle[id])) {
-          dropSlot(id, paletteId);
+      for (const prev of current) {
+        if (prev === id) continue;
+        for (const paletteId of paletteIdsForStyle(styleById(prev), paletteIdsByStyle[prev])) {
+          dropSlot(prev, paletteId);
         }
-        const first = next[0];
-        setActivePlanKey(
-          first ? planSlotKey(first, paletteIdsForStyle(styleById(first), paletteIdsByStyle[first])[0]) : "",
-        );
-        return next;
       }
-      if (exclusive) {
+      if (!id) {
         for (const prev of current) {
-          if (prev === id) continue;
           for (const paletteId of paletteIdsForStyle(styleById(prev), paletteIdsByStyle[prev])) {
             dropSlot(prev, paletteId);
           }
         }
+        setActiveStyleId("");
+        setActivePlanKey("");
+        setPaletteIdsByStyle({});
+        return [];
       }
       setActiveStyleId(id);
       if (id === "custom" && !stylePrompt) {
         const from = styleById(activeStyleId);
         if (from.prompt) setStylePrompt(from.prompt);
       }
-      const palettes = paletteIdsForStyle(styleById(id), [AUTO_PALETTE_ID]);
-      setPaletteIdsByStyle((map) => (exclusive ? { [id]: palettes } : { ...map, [id]: palettes }));
+      const palettes = paletteIdsForStyle(styleById(id), paletteIdsByStyle[id] ?? [AUTO_PALETTE_ID]).slice(0, 1);
+      setPaletteIdsByStyle({ [id]: palettes });
       setActivePlanKey(planSlotKey(id, palettes[0]));
-      return exclusive ? [id] : [...current, id];
+      return [id];
     });
   }
 
@@ -1710,11 +1710,11 @@ export function PosterPanel({
     : generating
       ? "Wait until generation finishes."
       : !styleIds.length && !title.trim()
-        ? "Select a theme and add a title in Stats before planning."
+        ? "Select a theme and add a title in Stats before generating."
         : !styleIds.length
-          ? "Select a theme before planning."
+          ? "Select a theme before generating."
           : !title.trim()
-            ? "Add a title in Stats before planning."
+            ? "Add a title in Stats before generating."
             : null;
   const planSlots = stylePlanSlots(styleIds, paletteIdsByStyle);
   const plannedSlots = planSlots.filter((slot) => specForSlot(specs, slot.styleId, slot.paletteId));
@@ -1807,14 +1807,16 @@ export function PosterPanel({
     if (showOnMapStep) steps.push({ id: "on-map", label: "On map" });
     steps.push(
       { id: "annotations", label: "Annotations" },
-      { id: "themes", label: "Themes" },
       { id: "stats", label: "Stats" },
-      { id: "output", label: "Output" },
+      { id: "themes", label: "Themes" },
     );
-    if (spec && specSlot) steps.push({ id: "prompt", label: "Prompt" });
+    if (!sheetMode) {
+      steps.push({ id: "output", label: "Output" });
+      if (spec && specSlot) steps.push({ id: "prompt", label: "Prompt" });
+    }
     if (result) steps.push({ id: "result", label: batchResults.length > 1 ? "Results" : "Result" });
     return steps;
-  }, [showOnMapStep, spec, specSlot, result, batchResults.length]);
+  }, [showOnMapStep, sheetMode, spec, specSlot, result, batchResults.length]);
   const peekStatus =
     loading && !showEditor
       ? "Loading…"
@@ -1847,6 +1849,12 @@ export function PosterPanel({
     if (workflowSteps.some((step) => step.id === workflowStep)) return;
     setWorkflowStep(workflowSteps[0]?.id ?? "crop");
   }, [sheetMode, workflowStep, workflowSteps]);
+
+  useEffect(() => {
+    if (!sheetMode) return;
+    if (aspectRatio !== "2:3") setAspectRatio("2:3");
+    if (variants !== 1) applyVariants(1);
+  }, [sheetMode, aspectRatio, variants]);
 
   useEffect(() => {
     if (!sheetMode) return;
@@ -2377,92 +2385,6 @@ export function PosterPanel({
           </PosterSection>
 
           <PosterSection
-            title="Themes"
-            accordion={false}
-            showTitle={!sheetMode}
-            className={workflowPane("themes")}
-          >
-            <div className="chip-row">
-              {POSTER_STYLES.filter((style) => !sheetMode || style.id !== "custom").map((style) => (
-                <button
-                  key={style.id}
-                  type="button"
-                  className={`chip ${styleIds.includes(style.id) ? "on" : ""}`}
-                  onClick={() => toggleStyle(style.id)}
-                >
-                  {style.label}
-                </button>
-              ))}
-            </div>
-            {(!styleIds.length || !sheetMode) && (
-              <p className="muted">
-                {!styleIds.length
-                  ? "Select a theme to plan"
-                  : planSlots.length > 1
-                    ? `${planSlots.length} prompts — one per selected theme and palette`
-                    : "Select more themes or palettes to compare"}
-              </p>
-            )}
-            {paletteStyles.map((style) => {
-              const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
-              return (
-                <div key={style.id} className="palette-group">
-                  <div className="eyebrow">
-                    {paletteStyles.length > 1 ? `${style.label} palette` : "Palette"}
-                  </div>
-                  <div className="chip-row">
-                    <button
-                      type="button"
-                      className={`chip ${selected.includes(AUTO_PALETTE_ID) ? "on" : ""}`}
-                      onClick={() => togglePalette(style.id, AUTO_PALETTE_ID)}
-                    >
-                      Auto
-                    </button>
-                    {stylePalettes(style).map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className={`chip ${selected.includes(item.id) ? "on" : ""}`}
-                        onClick={() => togglePalette(style.id, item.id)}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                  {selected.length > 1 && (
-                    <p className="muted">{selected.length} palettes will each get their own prompt</p>
-                  )}
-                </div>
-              );
-            })}
-            {!sheetMode && (editingCustom || singlePreset) && (
-              <textarea
-                className="poster-prompt"
-                rows={5}
-                value={editingCustom ? stylePrompt : styleById(styleIds[0]).prompt}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (singlePreset) {
-                    const fromId = styleIds[0];
-                    for (const paletteId of paletteIdsForStyle(styleById(fromId), paletteIdsByStyle[fromId])) {
-                      dropSlot(fromId, paletteId);
-                    }
-                    setStyleIds(["custom"]);
-                    setActiveStyleId("custom");
-                    setPaletteIdsByStyle({ custom: [AUTO_PALETTE_ID] });
-                    setActivePlanKey(planSlotKey("custom", AUTO_PALETTE_ID));
-                  }
-                  setStylePrompt(value);
-                }}
-                placeholder="Custom style prompt"
-              />
-            )}
-            {!sheetMode && styleIds.length > 1 && editingCustom && (
-              <p className="muted">Custom uses this prompt; other themes use their presets.</p>
-            )}
-          </PosterSection>
-
-          <PosterSection
             title="Stats on poster"
             accordion={false}
             showTitle={!sheetMode}
@@ -2490,60 +2412,142 @@ export function PosterPanel({
           </PosterSection>
 
           <PosterSection
-            title="Output"
+            title="Themes"
             accordion={false}
             showTitle={!sheetMode}
-            className={workflowPane("output")}
+            className={workflowPane("themes")}
           >
             <div className="poster-option-row">
               <label className="poster-field">
-                Aspect
-                <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value as AspectRatio)}>
-                  {ASPECTS.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="poster-field">
-                Variants
+                Theme
                 <select
-                  value={variants}
-                  onChange={(event) => applyVariants(Number(event.target.value))}
+                  value={styleIds[0] ?? ""}
+                  onChange={(event) => selectStyle(event.target.value)}
                 >
-                  {Array.from({ length: MAX_VARIANTS }, (_, index) => index + 1).map((count) => (
-                    <option key={count} value={count}>
-                      {count}
+                  <option value="">Select a theme</option>
+                  {POSTER_STYLES.filter((style) => !sheetMode || style.id !== "custom").map((style) => (
+                    <option key={style.id} value={style.id}>
+                      {style.label}
                     </option>
                   ))}
                 </select>
               </label>
+              {paletteStyles[0] ? (
+                <label className="poster-field">
+                  Palette
+                  <select
+                    value={paletteIdsForStyle(paletteStyles[0], paletteIdsByStyle[paletteStyles[0].id])[0]}
+                    onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
+                  >
+                    <option value={AUTO_PALETTE_ID}>Auto</option>
+                    {stylePalettes(paletteStyles[0]).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
-            {variantCaps.length || variants > 1 ? (
-              <p className="muted">
-                {variantCaps.length
-                  ? variantCaps.join(" · ")
-                  : `${variants} images per prompt, one request`}
-              </p>
-            ) : null}
-            {!sheetMode && schematicUrl ? (
-              <div className="preview-grid">
-                <GroundingThumb
-                  src={schematicUrl}
-                  label="schematic"
-                  onOpen={() => setPreview({ src: schematicUrl, label: "schematic" })}
-                />
-                {maxRefs >= 2 && satelliteUrl && (
-                  <GroundingThumb
-                    src={satelliteUrl}
-                    label="satellite"
-                    onOpen={() => setPreview({ src: satelliteUrl, label: "satellite" })}
-                  />
-                )}
+            {!styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
+            {!sheetMode && (editingCustom || singlePreset) && (
+              <textarea
+                className="poster-prompt"
+                rows={5}
+                value={editingCustom ? stylePrompt : styleById(styleIds[0]).prompt}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (singlePreset) {
+                    const fromId = styleIds[0];
+                    for (const paletteId of paletteIdsForStyle(styleById(fromId), paletteIdsByStyle[fromId])) {
+                      dropSlot(fromId, paletteId);
+                    }
+                    setStyleIds(["custom"]);
+                    setActiveStyleId("custom");
+                    setPaletteIdsByStyle({ custom: [AUTO_PALETTE_ID] });
+                    setActivePlanKey(planSlotKey("custom", AUTO_PALETTE_ID));
+                  }
+                  setStylePrompt(value);
+                }}
+                placeholder="Custom style prompt"
+              />
+            )}
+            {sheetMode && (
+              <div className="poster-actions poster-plan-row">
+                <button
+                  className="button"
+                  type="button"
+                  disabled={busy || !title.trim() || !styleIds.length}
+                  onClick={() => void handlePlanAndGenerate()}
+                >
+                  {planning
+                    ? `Planning… ${elapsed}s`
+                    : generating
+                      ? generateProgress.total > 1
+                        ? `Generating ${generateProgress.done}/${generateProgress.total}… ${elapsed}s`
+                        : `Generating… ${elapsed}s`
+                      : "Generate poster"}
+                </button>
+                {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
               </div>
-            ) : null}
-            {!sheetMode && (
+            )}
+          </PosterSection>
+
+          {!sheetMode && (
+            <PosterSection
+              title="Output"
+              accordion={false}
+              showTitle
+              className={workflowPane("output")}
+            >
+              <div className="poster-option-row">
+                <label className="poster-field">
+                  Aspect
+                  <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value as AspectRatio)}>
+                    {ASPECTS.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="poster-field">
+                  Variants
+                  <select
+                    value={variants}
+                    onChange={(event) => applyVariants(Number(event.target.value))}
+                  >
+                    {Array.from({ length: MAX_VARIANTS }, (_, index) => index + 1).map((count) => (
+                      <option key={count} value={count}>
+                        {count}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {variantCaps.length || variants > 1 ? (
+                <p className="muted">
+                  {variantCaps.length
+                    ? variantCaps.join(" · ")
+                    : `${variants} images per prompt, one request`}
+                </p>
+              ) : null}
+              {schematicUrl ? (
+                <div className="preview-grid">
+                  <GroundingThumb
+                    src={schematicUrl}
+                    label="schematic"
+                    onOpen={() => setPreview({ src: schematicUrl, label: "schematic" })}
+                  />
+                  {maxRefs >= 2 && satelliteUrl && (
+                    <GroundingThumb
+                      src={satelliteUrl}
+                      label="satellite"
+                      onOpen={() => setPreview({ src: satelliteUrl, label: "satellite" })}
+                    />
+                  )}
+                </div>
+              ) : null}
               <p className="muted">
                 {sentRefsHint(
                   maxRefs,
@@ -2551,34 +2555,34 @@ export function PosterPanel({
                   maxRefs >= 2 && Boolean(schematicUrl) && !satelliteUrl,
                 )}
               </p>
-            )}
-            {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
-            <div className="poster-actions poster-plan-row">
-              <button className="button" type="button" disabled={busy || !title.trim() || !styleIds.length} onClick={() => void handlePlan()}>
-                {planning
-                  ? planProgress.total > 1
-                    ? `Planning ${planProgress.done}/${planProgress.total}… ${elapsed}s`
-                    : `Planning… ${elapsed}s`
-                  : plannedSlots.length
-                    ? planSlots.length > 1
-                      ? "Re-plan prompts"
-                      : "Re-plan"
-                    : planSlots.length > 1
-                      ? "Plan prompts"
-                      : "Plan prompt"}
-              </button>
-              {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
-            </div>
-            {plannedSlots.length > 0 && !allThemesPlanned && (
-              <p className="muted">Plan prompts for the newly selected themes and palettes before generating.</p>
-            )}
-          </PosterSection>
+              {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
+              <div className="poster-actions poster-plan-row">
+                <button className="button" type="button" disabled={busy || !title.trim() || !styleIds.length} onClick={() => void handlePlan()}>
+                  {planning
+                    ? planProgress.total > 1
+                      ? `Planning ${planProgress.done}/${planProgress.total}… ${elapsed}s`
+                      : `Planning… ${elapsed}s`
+                    : plannedSlots.length
+                      ? planSlots.length > 1
+                        ? "Re-plan prompts"
+                        : "Re-plan"
+                      : planSlots.length > 1
+                        ? "Plan prompts"
+                        : "Plan prompt"}
+                </button>
+                {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
+              </div>
+              {plannedSlots.length > 0 && !allThemesPlanned && (
+                <p className="muted">Plan prompts for the newly selected themes and palettes before generating.</p>
+              )}
+            </PosterSection>
+          )}
 
-          {spec && specSlot && (
+          {!sheetMode && spec && specSlot && (
             <PosterSection
               title="Prompt"
               accordion={false}
-              showTitle={!sheetMode}
+              showTitle
               className={workflowPane("prompt")}
             >
               {plannedSlots.length > 1 && (
