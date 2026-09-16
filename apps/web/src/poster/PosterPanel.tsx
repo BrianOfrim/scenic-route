@@ -796,7 +796,7 @@ export function PosterPanel({
             setPlacesEdited(restored.placesEdited);
             setStatIds(restored.statIds);
             setAspectRatio(restored.aspectRatio);
-            setStyleIds(restored.styleIds);
+            setStyleIds(sheetSnap != null && restored.styleIds.length > 1 ? restored.styleIds.slice(0, 1) : restored.styleIds);
             setStylePrompt(restored.stylePrompt);
             setPaletteIdsByStyle(restored.paletteIdsByStyle);
             const first =
@@ -1617,9 +1617,12 @@ export function PosterPanel({
   function togglePalette(styleId: string, paletteId: string) {
     const style = styleById(styleId);
     const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
-    const selected = current.includes(paletteId)
-      ? current.filter((item) => item !== paletteId)
-      : [...current, paletteId];
+    const exclusive = sheetSnap != null;
+    const selected = exclusive
+      ? [paletteId]
+      : current.includes(paletteId)
+        ? current.filter((item) => item !== paletteId)
+        : [...current, paletteId];
     const next = selected.length ? selected : [AUTO_PALETTE_ID];
     if (next.length === current.length && next.every((id, index) => id === current[index])) return;
     setPaletteIdsByStyle((map) => ({ ...map, [styleId]: next }));
@@ -1637,8 +1640,9 @@ export function PosterPanel({
   }
 
   function toggleStyle(id: string) {
+    const exclusive = sheetSnap != null;
     setStyleIds((current) => {
-      if (current.includes(id)) {
+      if (current.includes(id) && (!exclusive || current.length === 1)) {
         const next = current.filter((item) => item !== id);
         setActiveStyleId((active) => (active === id ? next[0] ?? "" : active));
         setPaletteIdsByStyle((map) => {
@@ -1655,15 +1659,23 @@ export function PosterPanel({
         );
         return next;
       }
+      if (exclusive) {
+        for (const prev of current) {
+          if (prev === id) continue;
+          for (const paletteId of paletteIdsForStyle(styleById(prev), paletteIdsByStyle[prev])) {
+            dropSlot(prev, paletteId);
+          }
+        }
+      }
       setActiveStyleId(id);
       if (id === "custom" && !stylePrompt) {
         const from = styleById(activeStyleId);
         if (from.prompt) setStylePrompt(from.prompt);
       }
       const palettes = paletteIdsForStyle(styleById(id), [AUTO_PALETTE_ID]);
-      setPaletteIdsByStyle((map) => ({ ...map, [id]: palettes }));
+      setPaletteIdsByStyle((map) => (exclusive ? { [id]: palettes } : { ...map, [id]: palettes }));
       setActivePlanKey(planSlotKey(id, palettes[0]));
-      return [...current, id];
+      return exclusive ? [id] : [...current, id];
     });
   }
 
@@ -1835,6 +1847,31 @@ export function PosterPanel({
     if (workflowSteps.some((step) => step.id === workflowStep)) return;
     setWorkflowStep(workflowSteps[0]?.id ?? "crop");
   }, [sheetMode, workflowStep, workflowSteps]);
+
+  useEffect(() => {
+    if (!sheetMode) return;
+    const allowed = styleIds.filter((id) => id !== "custom");
+    const keepId = allowed.includes(activeStyleId) ? activeStyleId : allowed[0];
+    if (styleIds.length === (keepId ? 1 : 0) && styleIds[0] === keepId) return;
+    for (const id of styleIds) {
+      if (id === keepId) continue;
+      for (const paletteId of paletteIdsForStyle(styleById(id), paletteIdsByStyle[id])) {
+        dropSlot(id, paletteId);
+      }
+    }
+    if (!keepId) {
+      setStyleIds([]);
+      setPaletteIdsByStyle({});
+      setActiveStyleId("");
+      setActivePlanKey("");
+      return;
+    }
+    const palettes = paletteIdsForStyle(styleById(keepId), paletteIdsByStyle[keepId]).slice(0, 1);
+    setStyleIds([keepId]);
+    setPaletteIdsByStyle({ [keepId]: palettes });
+    setActiveStyleId(keepId);
+    setActivePlanKey(planSlotKey(keepId, palettes[0]));
+  }, [sheetMode]);
 
   function selectWorkflowStep(id: PosterWorkflowStep) {
     setWorkflowStep(id);
@@ -2346,7 +2383,7 @@ export function PosterPanel({
             className={workflowPane("themes")}
           >
             <div className="chip-row">
-              {POSTER_STYLES.map((style) => (
+              {POSTER_STYLES.filter((style) => !sheetMode || style.id !== "custom").map((style) => (
                 <button
                   key={style.id}
                   type="button"
@@ -2357,13 +2394,15 @@ export function PosterPanel({
                 </button>
               ))}
             </div>
-            <p className="muted">
-              {!styleIds.length
-                ? "Select a theme to plan"
-                : planSlots.length > 1
-                  ? `${planSlots.length} prompts — one per selected theme and palette`
-                  : "Select more themes or palettes to compare"}
-            </p>
+            {(!styleIds.length || !sheetMode) && (
+              <p className="muted">
+                {!styleIds.length
+                  ? "Select a theme to plan"
+                  : planSlots.length > 1
+                    ? `${planSlots.length} prompts — one per selected theme and palette`
+                    : "Select more themes or palettes to compare"}
+              </p>
+            )}
             {paletteStyles.map((style) => {
               const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
               return (
@@ -2396,7 +2435,7 @@ export function PosterPanel({
                 </div>
               );
             })}
-            {(editingCustom || singlePreset) && (
+            {!sheetMode && (editingCustom || singlePreset) && (
               <textarea
                 className="poster-prompt"
                 rows={5}
@@ -2418,7 +2457,7 @@ export function PosterPanel({
                 placeholder="Custom style prompt"
               />
             )}
-            {styleIds.length > 1 && editingCustom && (
+            {!sheetMode && styleIds.length > 1 && editingCustom && (
               <p className="muted">Custom uses this prompt; other themes use their presets.</p>
             )}
           </PosterSection>
