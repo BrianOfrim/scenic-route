@@ -207,12 +207,13 @@ async function migrate(client: SqlClient) {
       access_token TEXT NOT NULL,
       refresh_token TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
-      athlete_id BIGINT UNIQUE,
+      athlete_id BIGINT,
       athlete JSONB,
       sync_state JSONB NOT NULL DEFAULT '{}'::jsonb
     );
   `);
 
+  await ensureSharedStravaAthletes(client);
   await ensureActivitiesTenancy(client);
   await ensureColumn(client, "activities", "segment_efforts", "TEXT");
   await ensureColumn(client, "activities", "source", "TEXT NOT NULL DEFAULT 'strava'");
@@ -228,6 +229,30 @@ async function migrate(client: SqlClient) {
     );
     if (!tokens) await client.query("UPDATE activities SET imported = 1");
   }
+}
+
+/** Allow multiple Scenic Route users to link the same Strava athlete. */
+async function ensureSharedStravaAthletes(client: SqlClient) {
+  const constraints = await query<{ constraint_name: string }>(
+    `SELECT tc.constraint_name
+     FROM information_schema.table_constraints tc
+     JOIN information_schema.constraint_column_usage ccu
+       ON tc.constraint_name = ccu.constraint_name
+      AND tc.table_schema = ccu.table_schema
+     WHERE tc.table_schema = 'public'
+       AND tc.table_name = 'strava_connections'
+       AND tc.constraint_type = 'UNIQUE'
+       AND ccu.column_name = 'athlete_id'`,
+    [],
+    client,
+  );
+  for (const row of constraints) {
+    await client.query(
+      `ALTER TABLE strava_connections DROP CONSTRAINT ${row.constraint_name}`,
+    );
+  }
+  // Legacy UNIQUE may also exist only as an index (e.g. athlete_id_key).
+  await client.query("DROP INDEX IF EXISTS strava_connections_athlete_id_key");
 }
 
 async function ensureActivitiesTenancy(client: SqlClient) {

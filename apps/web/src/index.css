@@ -1895,14 +1895,48 @@ button.map-schematic-tip-name:focus-visible {
     display: none;
   }
 
-  .app.is-mobile .top {
+  .app.is-mobile .top,
+  .gallery .top {
     padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
+    gap: 10px;
   }
 
   .app-error {
     margin: 0;
-    padding: 8px 16px;
+    padding: 10px 16px;
     border-bottom: 1px solid var(--line);
+  }
+
+  .panel-block {
+    padding: 12px 16px;
+  }
+
+  .activity-empty {
+    padding: 12px 16px;
+  }
+
+  .activity-header .panel-block + .panel-block {
+    padding-top: 12px;
+  }
+
+  .filter {
+    display: flex;
+    margin-top: 10px;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .row,
+  .activity-toolbar,
+  .activity-select-bar,
+  .top-actions,
+  .poster-actions {
+    gap: 10px;
+    row-gap: 10px;
+  }
+
+  .activity {
+    gap: 4px;
   }
 
   .workspace,
@@ -1950,7 +1984,7 @@ button.map-schematic-tip-name:focus-visible {
   }
 
   .workspace[data-mobile-pane="map"].with-poster > .poster-panel.is-sheet[data-sheet="peek"] {
-    height: 84px;
+    height: 96px;
     overflow: hidden;
   }
 
@@ -1975,39 +2009,58 @@ button.map-schematic-tip-name:focus-visible {
   }
 
   .poster-panel.is-sheet .panel-block {
-    padding: 8px 14px;
+    padding: 12px 16px;
   }
 
   .poster-panel.is-sheet .muted {
-    margin: 4px 0;
+    margin: 6px 0;
     font-size: 12px;
     line-height: 1.35;
   }
 
   .poster-panel.is-sheet .check {
-    margin: 2px 0;
+    margin: 6px 0;
+  }
+
+  .poster-panel.is-sheet .poster-geo-grid {
+    grid-template-columns: 1fr;
+    row-gap: 4px;
+    column-gap: 0;
   }
 
   .poster-panel.is-sheet .poster-place-fields {
-    gap: 6px;
-    margin-top: 6px;
+    gap: 10px;
+    margin-top: 10px;
   }
 
   .poster-panel.is-sheet .poster-field {
-    margin-top: 6px;
-    gap: 4px;
+    margin-top: 10px;
+    gap: 6px;
   }
 
   .poster-panel.is-sheet .poster-option-row {
-    gap: 8px;
+    grid-template-columns: 1fr;
+    gap: 0;
   }
 
   .poster-panel.is-sheet .poster-option-row .poster-field {
-    margin-top: 6px;
+    margin-top: 10px;
   }
 
   .poster-panel.is-sheet .poster-plan-row {
     margin-top: 12px;
+    gap: 10px;
+  }
+
+  .poster-panel.is-sheet .landmark-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px 12px;
+    padding: 4px 0;
+  }
+
+  .poster-panel.is-sheet .landmark-row + .landmark-row {
+    margin-top: 4px;
   }
 
   .poster-panel.is-sheet .poster-plan-row .muted {
@@ -2024,8 +2077,8 @@ button.map-schematic-tip-name:focus-visible {
   .poster-workflow-nav {
     display: flex;
     flex: 0 0 auto;
-    gap: 6px;
-    padding: 0 12px 10px;
+    gap: 8px;
+    padding: 0 16px 12px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
@@ -2098,7 +2151,7 @@ button.map-schematic-tip-name:focus-visible {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 0 14px 8px;
+    padding: 0 16px 10px;
   }
 
   .poster-sheet-peek-text {
@@ -2185,6 +2238,11 @@ button.map-schematic-tip-name:focus-visible {
   .map-root.is-touch .map-annotate-form,
   .map-schematic-select {
     bottom: calc(12px + var(--poster-sheet-h, 0px));
+  }
+
+  /* Keep label toolbar and annotate form from stacking on the same band. */
+  .map-root.is-touch:has(.map-annotate-form) .map-schematic-select {
+    bottom: calc(88px + var(--poster-sheet-h, 0px));
   }
 
   .activity-toolbar .button,

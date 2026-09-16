@@ -85,13 +85,6 @@ export class StravaConfigError extends Error {
   }
 }
 
-export class StravaAthleteTakenError extends Error {
-  constructor() {
-    super("This Strava account is already connected to another user");
-    this.name = "StravaAthleteTakenError";
-  }
-}
-
 function requireConfig() {
   const clientId = process.env.STRAVA_CLIENT_ID;
   const clientSecret = process.env.STRAVA_CLIENT_SECRET;
@@ -191,13 +184,6 @@ function assertBudget(limit: RateLimit) {
 async function saveTokens(userId: string, tokens: StravaTokens, existing: StravaTokens | null) {
   const athlete = tokens.athlete ?? existing?.athlete;
   const athleteId = athlete?.id ?? null;
-  if (athleteId != null) {
-    const owner = await queryOne<{ user_id: string }>(
-      "SELECT user_id FROM strava_connections WHERE athlete_id = $1",
-      [athleteId],
-    );
-    if (owner && owner.user_id !== userId) throw new StravaAthleteTakenError();
-  }
   await query(
     `INSERT INTO strava_connections (
        user_id, access_token, refresh_token, expires_at, athlete_id, athlete, sync_state

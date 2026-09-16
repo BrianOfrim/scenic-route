@@ -247,11 +247,7 @@ export function App() {
     const stravaStatus = params.get("strava");
     if (stravaStatus === "error" || stravaStatus === "taken") {
       const message = params.get("message");
-      setError(
-        stravaStatus === "taken"
-          ? (message ?? "That Strava account is already connected to another Scenic Route user")
-          : (message ?? "Strava connection failed"),
-      );
+      setError(message ?? "Strava connection failed");
     }
     const refineId = params.get("refine");
     if (stravaStatus || refineId) {

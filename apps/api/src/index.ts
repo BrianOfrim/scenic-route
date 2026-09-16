@@ -40,7 +40,6 @@ import {
   setPosterFavorite,
 } from "./poster";
 import {
-  StravaAthleteTakenError,
   StravaConfigError,
   StravaRateLimitError,
   disconnectStrava,
@@ -128,8 +127,7 @@ app.get("/api/strava/callback", async (c) => {
     return c.redirect(`${WEB_ORIGIN}/?strava=connected`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "callback failed";
-    const status = error instanceof StravaAthleteTakenError ? "taken" : "error";
-    return c.redirect(`${WEB_ORIGIN}/?strava=${status}&message=${encodeURIComponent(message)}`);
+    return c.redirect(`${WEB_ORIGIN}/?strava=error&message=${encodeURIComponent(message)}`);
   }
 });
 
