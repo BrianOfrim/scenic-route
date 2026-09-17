@@ -2120,6 +2120,33 @@ button.map-schematic-tip-name:focus-visible {
     margin: 0;
   }
 
+  .poster-launch {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: 4px;
+    padding-bottom: 8px;
+  }
+
+  .poster-launch-summary {
+    margin: 0;
+  }
+
+  .poster-launch-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .poster-launch-actions .button {
+    display: inline-flex;
+    flex: 1 1 auto;
+    min-height: 44px;
+    justify-content: center;
+    align-items: center;
+  }
+
   .poster-panel.is-sheet[data-sheet="peek"] .sheet-from-half,
   .poster-panel.is-sheet[data-sheet="peek"] .sheet-from-full,
   .poster-panel.is-sheet[data-sheet="peek"] .poster-body,

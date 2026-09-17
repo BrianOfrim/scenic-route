@@ -555,6 +555,9 @@ type PosterWorkflowStep =
   | "prompt"
   | "result";
 
+/** Mobile sheet: one-tap launch vs full Customize editor. Desktop ignores this. */
+type MobileSurface = "launch" | "customize";
+
 const MAP_WORKFLOW_STEPS = new Set<PosterWorkflowStep>(["crop", "on-map"]);
 
 function savedModelRefs(record: PosterRecord): ModelRef[] {
@@ -585,6 +588,8 @@ type Props = {
   placeSection?: { name: string; start: number; end: number; nonce: number } | null;
   renameTrail?: { name: string; next: string; nonce: number } | null;
   onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
+  /** Fires after a successful generate from the mobile launch "Make poster" path. */
+  onGenerated?: (record: PosterRecord) => void;
   touchUi?: boolean;
   sheetSnap?: PosterSheetSnap | null;
   onSheetSnapChange?: (snap: PosterSheetSnap) => void;
@@ -612,6 +617,7 @@ export function PosterPanel({
   placeSection,
   renameTrail: renameTrailEvent,
   onHighlightChange,
+  onGenerated,
   touchUi = false,
   sheetSnap = null,
   onSheetSnapChange,
@@ -687,6 +693,7 @@ export function PosterPanel({
   const [imageModelId, setImageModelId] = useState("");
   const imageModelIds = imageModelId ? [imageModelId] : [];
   const [workflowStep, setWorkflowStep] = useState<PosterWorkflowStep>("crop");
+  const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() => (refineFrom ? "customize" : "launch"));
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
   const [planning, setPlanning] = useState(false);
@@ -758,7 +765,9 @@ export function PosterPanel({
         forgetDismissedForLayers(dismissedAutoNames.current.areas, next.namedAreas ?? [], newlyEnabled);
         if (activityChanged) {
           cropActivityId.current = activityId;
+          setMobileSurface(refineFrom ? "customize" : "launch");
           setWorkflowStep(refineFrom ? "result" : "crop");
+          if (refineFrom) onSheetSnapChange?.("full");
           setEditingTrail(null);
           setLandmarkQuery("");
           setLandmarkChoices(null);
@@ -1488,7 +1497,9 @@ export function PosterPanel({
       if (failures.length) {
         setError(`${failures.length} poster${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
       }
-      if (sheetSnap != null) {
+      if (sheetSnap != null && mobileSurface === "launch") {
+        onGenerated?.(records[0]);
+      } else if (sheetSnap != null) {
         setWorkflowStep("result");
         onSheetSnapChange?.("full");
       }
@@ -1503,6 +1514,12 @@ export function PosterPanel({
     const planned = await handlePlan();
     if (!planned?.length) return;
     await handleGenerate(planned);
+  }
+
+  function openCustomize() {
+    setMobileSurface("customize");
+    setWorkflowStep("crop");
+    onSheetSnapChange?.("half");
   }
 
   async function handleLookup(event: FormEvent) {
@@ -1772,9 +1789,11 @@ export function PosterPanel({
   }, [compareOpen, preview]);
 
   const sheetMode = sheetSnap != null;
+  const launchMode = sheetMode && mobileSurface === "launch";
   const labelCount = selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length;
   const showOnMapStep =
     sheetMode &&
+    !launchMode &&
     !routeOnly &&
     (selectedNamedAreas.length > 0 || selectedNamedWays.length > 0 || selectedPois.length > 0);
   const workflowSteps = useMemo(() => {
@@ -1802,11 +1821,13 @@ export function PosterPanel({
         ? `Generating… ${elapsed}s`
         : planning
           ? `Planning… ${elapsed}s`
-          : result
-            ? "Result ready"
-            : showEditor
-              ? `${formatKm(croppedKm)}${!routeOnly && labelCount ? ` · ${labelCount} label${labelCount === 1 ? "" : "s"}` : ""}`
-              : "";
+          : launchMode
+            ? `${DEFAULT_POSTER_STYLE.label} · full track`
+            : result
+              ? "Result ready"
+              : showEditor
+                ? `${formatKm(croppedKm)}${!routeOnly && labelCount ? ` · ${labelCount} label${labelCount === 1 ? "" : "s"}` : ""}`
+                : "";
 
   const sheetDrag = useRef<{ y: number; snap: PosterSheetSnap } | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
@@ -1820,13 +1841,13 @@ export function PosterPanel({
     const observer = new ResizeObserver(notify);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [sheetMode, sheetSnap, onSheetHeightChange, showEditor, loading, error, workflowStep]);
+  }, [sheetMode, sheetSnap, onSheetHeightChange, showEditor, loading, error, workflowStep, mobileSurface]);
 
   useEffect(() => {
-    if (!sheetMode) return;
+    if (!sheetMode || launchMode) return;
     if (workflowSteps.some((step) => step.id === workflowStep)) return;
     setWorkflowStep(workflowSteps[0]?.id ?? "crop");
-  }, [sheetMode, workflowStep, workflowSteps]);
+  }, [sheetMode, launchMode, workflowStep, workflowSteps]);
 
   useEffect(() => {
     if (!sheetMode) return;
@@ -1918,7 +1939,7 @@ export function PosterPanel({
               {peekStatus ? <p className="muted">{peekStatus}</p> : null}
             </div>
           </div>
-          {showEditor && context && sheetSnap !== "peek" && (
+          {showEditor && context && sheetSnap !== "peek" && !launchMode && (
             <nav className="poster-workflow-nav" aria-label="Poster steps">
               {workflowSteps.map((step) => (
                 <button
@@ -1958,7 +1979,37 @@ export function PosterPanel({
           <p className="error">{error}</p>
         </div>
       )}
-      {showEditor && context && (
+      {showEditor && context && launchMode && sheetSnap !== "peek" && (
+        <div className="panel-block poster-launch sheet-from-half">
+          <p className="muted poster-launch-summary">
+            {formatKm(croppedKm)} · annotations off · {DEFAULT_POSTER_STYLE.label}
+          </p>
+          <div className="poster-actions poster-launch-actions">
+            <button
+              className="button"
+              type="button"
+              disabled={busy || !title.trim() || !styleIds.length}
+              onClick={() => void handlePlanAndGenerate()}
+            >
+              {planning
+                ? `Planning… ${elapsed}s`
+                : generating
+                  ? `Generating… ${elapsed}s`
+                  : "Make poster"}
+            </button>
+            <button
+              className="text-btn"
+              type="button"
+              disabled={busy}
+              onClick={openCustomize}
+            >
+              Customize
+            </button>
+          </div>
+          {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
+        </div>
+      )}
+      {showEditor && context && !launchMode && (
         <div className="poster-body">
           <PosterSection
             title="Crop track"
