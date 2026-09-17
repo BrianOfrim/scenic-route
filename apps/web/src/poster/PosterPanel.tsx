@@ -76,6 +76,7 @@ import {
   POSTER_STYLES,
   normalizePaletteId,
   paletteIdsForStyle,
+  parsePlanSlotKey,
   planSlotKey,
   planSlotLabel,
   resolveStyleColor,
@@ -825,17 +826,28 @@ export function PosterPanel({
             setFinishPlace(restored.finishPlace);
             setPlacesEdited(restored.placesEdited);
             setStatIds(restored.statIds);
-            const keepStyleId =
-              restored.styleIds.find((id) => !(sheetSnap != null && id === "custom")) ?? "";
-            setStyleIds(keepStyleId ? [keepStyleId] : []);
-            setStylePrompt(restored.stylePrompt);
-            const keepPalette =
-              keepStyleId
+            if (sheetSnap != null) {
+              const keepStyleId = restored.styleIds.find((id) => id !== "custom") ?? "";
+              const keepPalette = keepStyleId
                 ? [restored.paletteIdsByStyle[keepStyleId]?.[0] ?? AUTO_PALETTE_ID]
                 : [];
-            setPaletteIdsByStyle(keepStyleId ? { [keepStyleId]: keepPalette } : {});
-            setActiveStyleId(keepStyleId);
-            setActivePlanKey(keepStyleId ? planSlotKey(keepStyleId, keepPalette[0]) : "");
+              setStyleIds(keepStyleId ? [keepStyleId] : []);
+              setPaletteIdsByStyle(keepStyleId ? { [keepStyleId]: keepPalette } : {});
+              setActiveStyleId(keepStyleId);
+              setActivePlanKey(keepStyleId ? planSlotKey(keepStyleId, keepPalette[0]) : "");
+            } else {
+              setStyleIds(restored.styleIds);
+              setPaletteIdsByStyle(restored.paletteIdsByStyle);
+              const first =
+                restored.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : "");
+              setActiveStyleId(first);
+              setActivePlanKey(
+                first
+                  ? planSlotKey(first, restored.paletteIdsByStyle[first]?.[0] ?? AUTO_PALETTE_ID)
+                  : "",
+              );
+            }
+            setStylePrompt(restored.stylePrompt);
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
             if (restored.imageModelIds?.length) {
@@ -1695,6 +1707,32 @@ export function PosterPanel({
     });
   }
 
+  function togglePalette(styleId: string, paletteId: string) {
+    const style = styleById(styleId);
+    const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
+    const exclusive = sheetMode;
+    const selected = exclusive
+      ? [paletteId]
+      : current.includes(paletteId)
+        ? current.filter((item) => item !== paletteId)
+        : [...current, paletteId];
+    const next = selected.length ? selected : [AUTO_PALETTE_ID];
+    if (next.length === current.length && next.every((id, index) => id === current[index])) return;
+    setPaletteIdsByStyle((map) => ({ ...map, [styleId]: next }));
+    for (const id of current) {
+      if (!next.includes(id)) dropSlot(styleId, id);
+    }
+    const added = !current.includes(paletteId) && next.includes(paletteId);
+    const active = parsePlanSlotKey(activePlanKey);
+    if (added) {
+      setActiveStyleId(styleId);
+      setActivePlanKey(planSlotKey(styleId, paletteId));
+    } else if (active.styleId === styleId && !next.includes(active.paletteId)) {
+      setActivePlanKey(planSlotKey(styleId, next[0]));
+    }
+  }
+
+  /** Mobile sheet: one theme / palette at a time via compact selects. */
   function selectPalette(styleId: string, paletteId: string) {
     const style = styleById(styleId);
     const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
@@ -1706,6 +1744,46 @@ export function PosterPanel({
     }
     setActiveStyleId(styleId);
     setActivePlanKey(planSlotKey(styleId, next[0]));
+  }
+
+  function toggleStyle(id: string) {
+    const exclusive = sheetMode;
+    setStyleIds((current) => {
+      if (current.includes(id) && (!exclusive || current.length === 1)) {
+        const next = current.filter((item) => item !== id);
+        setActiveStyleId((active) => (active === id ? next[0] ?? "" : active));
+        setPaletteIdsByStyle((map) => {
+          const copy = { ...map };
+          delete copy[id];
+          return copy;
+        });
+        for (const paletteId of paletteIdsForStyle(styleById(id), paletteIdsByStyle[id])) {
+          dropSlot(id, paletteId);
+        }
+        const first = next[0];
+        setActivePlanKey(
+          first ? planSlotKey(first, paletteIdsForStyle(styleById(first), paletteIdsByStyle[first])[0]) : "",
+        );
+        return next;
+      }
+      if (exclusive) {
+        for (const prev of current) {
+          if (prev === id) continue;
+          for (const paletteId of paletteIdsForStyle(styleById(prev), paletteIdsByStyle[prev])) {
+            dropSlot(prev, paletteId);
+          }
+        }
+      }
+      setActiveStyleId(id);
+      if (id === "custom" && !stylePrompt) {
+        const from = styleById(activeStyleId);
+        if (from.prompt) setStylePrompt(from.prompt);
+      }
+      const palettes = paletteIdsForStyle(styleById(id), [AUTO_PALETTE_ID]);
+      setPaletteIdsByStyle((map) => (exclusive ? { [id]: palettes } : { ...map, [id]: palettes }));
+      setActivePlanKey(planSlotKey(id, palettes[0]));
+      return exclusive ? [id] : [...current, id];
+    });
   }
 
   function selectStyle(id: string) {
@@ -1793,6 +1871,7 @@ export function PosterPanel({
     return sum + qualityPasses * variantCount(variants, model?.maxImages);
   }, 0);
   const editingCustom = styleIds.includes("custom");
+  const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
   const paletteStyles = styleIds.map(styleById).filter(showsPalettePicker);
   const resultCost = result
     ? formatCostBreakdown({ promptCost: result.promptCost, cost: result.cost })
@@ -2504,48 +2583,120 @@ export function PosterPanel({
             showTitle={!sheetMode}
             className={workflowPane("themes")}
           >
-            <div className="poster-option-row">
-              <label className="poster-field">
-                Theme
-                <select
-                  value={styleIds[0] ?? ""}
-                  onChange={(event) => selectStyle(event.target.value)}
-                >
-                  <option value="">Select a theme</option>
-                  {POSTER_STYLES.filter((style) => !sheetMode || style.id !== "custom").map((style) => (
-                    <option key={style.id} value={style.id}>
-                      {style.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {paletteStyles[0] ? (
+            {sheetMode ? (
+              <div className="poster-option-row">
                 <label className="poster-field">
-                  Palette
+                  Theme
                   <select
-                    value={paletteIdsForStyle(paletteStyles[0], paletteIdsByStyle[paletteStyles[0].id])[0]}
-                    onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
+                    value={styleIds[0] ?? ""}
+                    onChange={(event) => selectStyle(event.target.value)}
                   >
-                    <option value={AUTO_PALETTE_ID}>Auto</option>
-                    {stylePalettes(paletteStyles[0]).map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.label}
+                    <option value="">Select a theme</option>
+                    {POSTER_STYLES.filter((style) => style.id !== "custom").map((style) => (
+                      <option key={style.id} value={style.id}>
+                        {style.label}
                       </option>
                     ))}
                   </select>
                 </label>
-              ) : null}
-            </div>
-            {!styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
-            {!sheetMode && editingCustom && (
+                {paletteStyles[0] ? (
+                  <label className="poster-field">
+                    Palette
+                    <select
+                      value={paletteIdsForStyle(paletteStyles[0], paletteIdsByStyle[paletteStyles[0].id])[0]}
+                      onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
+                    >
+                      <option value={AUTO_PALETTE_ID}>Auto</option>
+                      {stylePalettes(paletteStyles[0]).map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <div className="chip-row">
+                  {POSTER_STYLES.map((style) => (
+                    <button
+                      key={style.id}
+                      type="button"
+                      className={`chip ${styleIds.includes(style.id) ? "on" : ""}`}
+                      onClick={() => toggleStyle(style.id)}
+                    >
+                      {style.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="muted">
+                  {!styleIds.length
+                    ? "Select a theme to plan"
+                    : planSlots.length > 1
+                      ? `${planSlots.length} prompts — one per selected theme and palette`
+                      : "Select more themes or palettes to compare"}
+                </p>
+                {paletteStyles.map((style) => {
+                  const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
+                  return (
+                    <div key={style.id} className="palette-group">
+                      <div className="eyebrow">
+                        {paletteStyles.length > 1 ? `${style.label} palette` : "Palette"}
+                      </div>
+                      <div className="chip-row">
+                        <button
+                          type="button"
+                          className={`chip ${selected.includes(AUTO_PALETTE_ID) ? "on" : ""}`}
+                          onClick={() => togglePalette(style.id, AUTO_PALETTE_ID)}
+                        >
+                          Auto
+                        </button>
+                        {stylePalettes(style).map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={`chip ${selected.includes(item.id) ? "on" : ""}`}
+                            onClick={() => togglePalette(style.id, item.id)}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                      {selected.length > 1 && (
+                        <p className="muted">{selected.length} palettes will each get their own prompt</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+            {!sheetMode && (editingCustom || singlePreset) && (
               <textarea
                 className="poster-prompt"
                 rows={5}
-                value={stylePrompt}
-                onChange={(event) => setStylePrompt(event.target.value)}
+                value={editingCustom ? stylePrompt : styleById(styleIds[0]).prompt}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (singlePreset) {
+                    const fromId = styleIds[0];
+                    for (const paletteId of paletteIdsForStyle(styleById(fromId), paletteIdsByStyle[fromId])) {
+                      dropSlot(fromId, paletteId);
+                    }
+                    setStyleIds(["custom"]);
+                    setActiveStyleId("custom");
+                    setPaletteIdsByStyle({ custom: [AUTO_PALETTE_ID] });
+                    setActivePlanKey(planSlotKey("custom", AUTO_PALETTE_ID));
+                  }
+                  setStylePrompt(value);
+                }}
                 placeholder="Custom style prompt"
               />
             )}
+            {!sheetMode && styleIds.length > 1 && editingCustom && (
+              <p className="muted">Custom uses this prompt; other themes use their presets.</p>
+            )}
+            {sheetMode && !styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
             {sheetMode && (
               <div className="poster-actions poster-plan-row">
                 <button
