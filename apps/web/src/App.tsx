@@ -610,6 +610,10 @@ export function App() {
             onWaysChange={setWays}
             onSchematicLayersChange={setSchematicLayers}
             onRouteOnlyChange={setRouteOnly}
+            onGenerated={() => {
+              closePoster();
+              go("/gallery");
+            }}
             dismissPoi={dismissPoi}
             dismissArea={dismissArea}
             dismissTrail={dismissTrail}
