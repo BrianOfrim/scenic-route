@@ -103,7 +103,7 @@ async function upsertActivity(userId: string, activity: StravaActivitySummary) {
 }
 
 async function syncActivityList(userId: string, state: SyncState): Promise<SyncState> {
-  let page = state.listComplete ? 1 : state.listPage;
+  let page = state.listComplete ? 1 : Math.max(1, state.listPage || 1);
   let listComplete = state.listComplete;
   const existing = new Set(
     (await query<{ id: number }>("SELECT id FROM activities WHERE user_id = $1", [userId])).map((row) => row.id),

@@ -1,7 +1,7 @@
 import type { AuthUser } from "./auth";
 import { PENDING_USER_ID, deleteSetting, getJsonSetting, getSetting, query, queryOne, setSetting } from "./db";
 import { posterStore } from "./storage";
-import type { StravaTokens, SyncState } from "./strava";
+import { normalizeSyncState, type StravaTokens, type SyncState } from "./strava";
 
 const CLAIM_KEY = "bootstrap_claimed";
 
@@ -42,7 +42,7 @@ export async function maybeBootstrapUser(user: AuthUser) {
 
 export async function claimBootstrap(userId: string) {
   const tokens = await getJsonSetting<StravaTokens>("strava_tokens");
-  const syncState = (await getJsonSetting<SyncState>("sync_state")) ?? { listComplete: false, listPage: 1 };
+  const syncState = normalizeSyncState(await getJsonSetting<Partial<SyncState>>("sync_state"));
   if (tokens) {
     const athleteId = tokens.athlete?.id ?? null;
     await query(

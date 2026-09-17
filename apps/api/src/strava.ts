@@ -23,6 +23,16 @@ export type SyncState = {
   listPage: number;
 };
 
+export const DEFAULT_SYNC_STATE: SyncState = { listComplete: false, listPage: 1 };
+
+export function normalizeSyncState(value: Partial<SyncState> | null | undefined): SyncState {
+  const listPage = Number(value?.listPage);
+  return {
+    listComplete: Boolean(value?.listComplete),
+    listPage: Number.isFinite(listPage) && listPage >= 1 ? Math.floor(listPage) : 1,
+  };
+}
+
 export type StravaActivitySummary = {
   id: number;
   name: string;
@@ -118,11 +128,11 @@ export async function getTokens(userId: string) {
 }
 
 export async function getSyncState(userId: string): Promise<SyncState> {
-  const row = await queryOne<{ sync_state: SyncState | null }>(
+  const row = await queryOne<{ sync_state: Partial<SyncState> | null }>(
     "SELECT sync_state FROM strava_connections WHERE user_id = $1",
     [userId],
   );
-  return row?.sync_state ?? { listComplete: false, listPage: 1 };
+  return normalizeSyncState(row?.sync_state);
 }
 
 export async function setSyncState(userId: string, state: SyncState) {
@@ -188,8 +198,8 @@ async function saveTokens(userId: string, tokens: StravaTokens, existing: Strava
     `INSERT INTO strava_connections (
        user_id, access_token, refresh_token, expires_at, athlete_id, athlete, sync_state
      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, COALESCE(
-       (SELECT sync_state FROM strava_connections WHERE user_id = $1),
-       '{}'::jsonb
+       NULLIF((SELECT sync_state FROM strava_connections WHERE user_id = $1), '{}'::jsonb),
+       $7::jsonb
      ))
      ON CONFLICT (user_id) DO UPDATE SET
        access_token = EXCLUDED.access_token,
@@ -204,6 +214,7 @@ async function saveTokens(userId: string, tokens: StravaTokens, existing: Strava
       tokens.expires_at,
       athleteId,
       athlete ? JSON.stringify(athlete) : null,
+      JSON.stringify(DEFAULT_SYNC_STATE),
     ],
   );
 }
