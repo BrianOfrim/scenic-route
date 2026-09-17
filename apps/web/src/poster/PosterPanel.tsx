@@ -37,7 +37,6 @@ import {
 import { snapshotTiles } from "./grounding/snapshotTiles";
 import { applyTrailAlias, nextTrailAliases, relocateLandmark, trailSourceName, userLandmark, userNamedWay } from "./annotate";
 import {
-  asAspectRatio,
   captureEditorSnapshot,
   editorSeed,
   restoreEditor,
@@ -50,16 +49,13 @@ import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import { SpecEditor } from "./SpecEditor";
 import {
-  MAX_VARIANTS,
   formatBatchCost,
   formatCostBreakdown,
   formatDurationMs,
   posterVariantLabel,
-  readStoredVariants,
   shortModelLabel,
   sumCosts,
   variantCount,
-  writeStoredVariants,
 } from "./imageModels";
 
 import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
@@ -95,7 +91,8 @@ type GenerationRun = {
 };
 
 
-const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
+const DEFAULT_ASPECT_RATIO: AspectRatio = "2:3";
+const DEFAULT_VARIANTS = 1;
 const EMPTY_POIS: PosterPoi[] = [];
 const EMPTY_WAYS: NamedWay[] = [];
 const EMPTY_AREAS: NamedArea[] = [];
@@ -679,7 +676,8 @@ export function PosterPanel({
   const [lookingUp, setLookingUp] = useState(false);
   const [landmarkChoices, setLandmarkChoices] = useState<PosterPoi[] | null>(null);
   const [landmarkHint, setLandmarkHint] = useState<string | null>(null);
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(() => asAspectRatio(seeded?.aspectRatio));
+  const aspectRatio = DEFAULT_ASPECT_RATIO;
+  const variants = DEFAULT_VARIANTS;
   const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
   const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
   const [, setModelRefs] = useState<ModelRef[]>([]);
@@ -688,7 +686,6 @@ export function PosterPanel({
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
   const [imageModelId, setImageModelId] = useState("");
   const imageModelIds = imageModelId ? [imageModelId] : [];
-  const [variants, setVariants] = useState(() => seeded?.variants ?? readStoredVariants());
   const [workflowStep, setWorkflowStep] = useState<PosterWorkflowStep>("crop");
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
@@ -795,7 +792,6 @@ export function PosterPanel({
             setFinishPlace(restored.finishPlace);
             setPlacesEdited(restored.placesEdited);
             setStatIds(restored.statIds);
-            setAspectRatio(restored.aspectRatio);
             const keepStyleId =
               restored.styleIds.find((id) => !(sheetSnap != null && id === "custom")) ?? "";
             setStyleIds(keepStyleId ? [keepStyleId] : []);
@@ -809,7 +805,6 @@ export function PosterPanel({
             setActivePlanKey(keepStyleId ? planSlotKey(keepStyleId, keepPalette[0]) : "");
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
-            if (restored.variants != null) setVariants(restored.variants);
             setSentRefs(savedModelRefs(refineFrom));
             setResult(refineFrom);
             setBatchResults([refineFrom]);
@@ -1257,7 +1252,6 @@ export function PosterPanel({
     if (!context) return null;
     const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
     if (!slots.length) return null;
-    const runAspectRatio: AspectRatio = sheetSnap != null ? "2:3" : aspectRatio;
     setPlanning(true);
     setError(null);
     setPlanProgress({ done: 0, total: slots.length });
@@ -1279,7 +1273,7 @@ export function PosterPanel({
         title,
         subtitle,
         stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
-        aspectRatio: runAspectRatio,
+        aspectRatio,
         geography: catalog
           .filter(
             (item) =>
@@ -1363,8 +1357,6 @@ export function PosterPanel({
       setError("Set OPENROUTER_IMAGE_MODEL in .env.local, then restart the API.");
       return;
     }
-    const runAspectRatio: AspectRatio = sheetSnap != null ? "2:3" : aspectRatio;
-    const runVariants = sheetSnap != null ? 1 : variants;
     const jobs = (plannedSlots?.length
       ? plannedSlots
       : stylePlanSlots(styleIds, paletteIdsByStyle).flatMap((slot) => {
@@ -1390,7 +1382,7 @@ export function PosterPanel({
     setError(null);
     try {
       const layers = await buildGrounding();
-      const packed = await renderContactSheets(layers, maxRefs, runAspectRatio);
+      const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
       setSentRefs(packed.map((item) => ({ role: item.role, legend: item.legend, dataUrl: item.dataUrl })));
       const batchId = crypto.randomUUID();
       setGenerateProgress({ done: 0, total: jobs.length });
@@ -1424,10 +1416,10 @@ export function PosterPanel({
                 job.style.id === "custom"
                   ? stylePrompt
                   : resolveStyleColor(job.style, job.paletteId).prompt,
-              aspectRatio: runAspectRatio,
+              aspectRatio,
               batchId,
               model: job.model,
-              variants: runVariants,
+              variants,
               promptCost: job.promptCost,
               editor: captureEditorSnapshot({
                 featureIds,
@@ -1447,12 +1439,12 @@ export function PosterPanel({
                 finishPlace,
                 placesEdited,
                 statIds,
-                aspectRatio: runAspectRatio,
+                aspectRatio,
                 styleIds,
                 stylePrompt,
                 paletteIdsByStyle,
                 imageModelIds,
-                variants: runVariants,
+                variants,
                 specs: plannedSlots?.length
                   ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.spec]))
                   : specs,
@@ -1679,11 +1671,6 @@ export function PosterPanel({
     });
   }
 
-  function applyVariants(value: number) {
-    setVariants(value);
-    writeStoredVariants(value);
-  }
-
   function selectResult(record: PosterRecord) {
     setResult(record);
     if (record.styleId) {
@@ -1725,16 +1712,7 @@ export function PosterPanel({
     (sum, id) => sum + variantCount(variants, imageModels.find((item) => item.id === id)?.maxImages),
     0,
   );
-  const variantCaps = imageModelIds
-    .map((id) => {
-      const model = imageModels.find((item) => item.id === id);
-      const allowed = variantCount(variants, model?.maxImages);
-      if (allowed >= variants) return null;
-      return `${shortModelLabel(id, model?.name)} max is ${allowed}`;
-    })
-    .filter((item): item is string => Boolean(item));
   const editingCustom = styleIds.includes("custom");
-  const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
   const paletteStyles = styleIds.map(styleById).filter(showsPalettePicker);
   const resultCost = result
     ? formatCostBreakdown({ promptCost: result.promptCost, cost: result.cost })
@@ -1849,12 +1827,6 @@ export function PosterPanel({
     if (workflowSteps.some((step) => step.id === workflowStep)) return;
     setWorkflowStep(workflowSteps[0]?.id ?? "crop");
   }, [sheetMode, workflowStep, workflowSteps]);
-
-  useEffect(() => {
-    if (!sheetMode) return;
-    if (aspectRatio !== "2:3") setAspectRatio("2:3");
-    if (variants !== 1) applyVariants(1);
-  }, [sheetMode, aspectRatio, variants]);
 
   useEffect(() => {
     if (!sheetMode) return;
@@ -2450,25 +2422,12 @@ export function PosterPanel({
               ) : null}
             </div>
             {!styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
-            {!sheetMode && (editingCustom || singlePreset) && (
+            {!sheetMode && editingCustom && (
               <textarea
                 className="poster-prompt"
                 rows={5}
-                value={editingCustom ? stylePrompt : styleById(styleIds[0]).prompt}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (singlePreset) {
-                    const fromId = styleIds[0];
-                    for (const paletteId of paletteIdsForStyle(styleById(fromId), paletteIdsByStyle[fromId])) {
-                      dropSlot(fromId, paletteId);
-                    }
-                    setStyleIds(["custom"]);
-                    setActiveStyleId("custom");
-                    setPaletteIdsByStyle({ custom: [AUTO_PALETTE_ID] });
-                    setActivePlanKey(planSlotKey("custom", AUTO_PALETTE_ID));
-                  }
-                  setStylePrompt(value);
-                }}
+                value={stylePrompt}
+                onChange={(event) => setStylePrompt(event.target.value)}
                 placeholder="Custom style prompt"
               />
             )}
@@ -2500,38 +2459,6 @@ export function PosterPanel({
               showTitle
               className={workflowPane("output")}
             >
-              <div className="poster-option-row">
-                <label className="poster-field">
-                  Aspect
-                  <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value as AspectRatio)}>
-                    {ASPECTS.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="poster-field">
-                  Variants
-                  <select
-                    value={variants}
-                    onChange={(event) => applyVariants(Number(event.target.value))}
-                  >
-                    {Array.from({ length: MAX_VARIANTS }, (_, index) => index + 1).map((count) => (
-                      <option key={count} value={count}>
-                        {count}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              {variantCaps.length || variants > 1 ? (
-                <p className="muted">
-                  {variantCaps.length
-                    ? variantCaps.join(" · ")
-                    : `${variants} images per prompt, one request`}
-                </p>
-              ) : null}
               {schematicUrl ? (
                 <div className="preview-grid">
                   <GroundingThumb
