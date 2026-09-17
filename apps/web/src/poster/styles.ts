@@ -214,7 +214,11 @@ export const POSTER_STYLES: PosterStyle[] = [
   },
 ];
 
-export const DEFAULT_POSTER_STYLE = POSTER_STYLES[0];
+/** Product default for new poster setups (one-tap generate). */
+export const DEFAULT_STYLE_ID = "risograph";
+
+export const DEFAULT_POSTER_STYLE =
+  POSTER_STYLES.find((item) => item.id === DEFAULT_STYLE_ID) ?? POSTER_STYLES[0];
 
 export function styleById(id: string): PosterStyle {
   return POSTER_STYLES.find((item) => item.id === id) ?? DEFAULT_POSTER_STYLE;
