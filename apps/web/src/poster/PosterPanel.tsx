@@ -49,6 +49,7 @@ import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import { SpecEditor } from "./SpecEditor";
 import {
+  DEFAULT_IMAGE_MODEL_ID,
   DEFAULT_IMAGE_QUALITY,
   formatBatchCost,
   formatCostBreakdown,
@@ -745,21 +746,26 @@ export function PosterPanel({
     };
   }, []);
 
+  const sheetMode = sheetSnap != null;
+  /** Mobile always generates with Sunburst; desktop keeps the multi-select. */
+  const activeImageModelIds = sheetMode ? [DEFAULT_IMAGE_MODEL_ID] : imageModelIds;
+
   useEffect(() => {
     if (!imageModelIds.length) return;
-    writeStoredImageModels(imageModelIds);
+    if (!sheetMode) writeStoredImageModels(imageModelIds);
+    const ids = sheetMode ? [DEFAULT_IMAGE_MODEL_ID] : imageModelIds;
     if (imageModels.length) {
-      setMaxRefs(minMaxReferences(imageModelIds, imageModels));
+      setMaxRefs(minMaxReferences(ids, imageModels));
       return;
     }
     let cancelled = false;
-    void Promise.all(imageModelIds.map((id) => fetchMaxReferences(id))).then((values) => {
+    void Promise.all(ids.map((id) => fetchMaxReferences(id))).then((values) => {
       if (!cancelled && values.length) setMaxRefs(Math.min(...values));
     });
     return () => {
       cancelled = true;
     };
-  }, [imageModelIds, imageModels]);
+  }, [imageModelIds, imageModels, sheetMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1383,7 +1389,7 @@ export function PosterPanel({
     plannedSlots?: { key: string; styleId: string; paletteId: string; spec: PosterSpec; cost: number | null }[],
   ) {
     if (!context) return;
-    if (!imageModelIds.length) {
+    if (!activeImageModelIds.length) {
       setError("Set OPENROUTER_IMAGE_MODEL in .env.local, then restart the API.");
       return;
     }
@@ -1396,7 +1402,7 @@ export function PosterPanel({
         })
     ).flatMap((slot) => {
       const style = styleById(slot.styleId);
-      return imageModelIds.flatMap((model) => {
+      return activeImageModelIds.flatMap((model) => {
         const modelInfo = imageModels.find((item) => item.id === model);
         return qualitiesForModel(modelInfo, qualities).map((quality) => ({
           key: `${slot.key}\0${model}\0${quality ?? ""}`,
@@ -1479,7 +1485,7 @@ export function PosterPanel({
                 styleIds,
                 stylePrompt,
                 paletteIdsByStyle,
-                imageModelIds,
+                imageModelIds: activeImageModelIds,
                 variants,
                 qualities,
                 specs: plannedSlots?.length
@@ -1781,7 +1787,7 @@ export function PosterPanel({
   const specSlot = plannedSlots.find((slot) => slot.key === activePlanKey) ?? plannedSlots[0];
   const spec = specSlot ? specForSlot(specs, specSlot.styleId, specSlot.paletteId) ?? null : null;
   const allThemesPlanned = planSlots.length > 0 && plannedSlots.length === planSlots.length;
-  const generateCount = plannedSlots.length * imageModelIds.reduce((sum, id) => {
+  const generateCount = plannedSlots.length * activeImageModelIds.reduce((sum, id) => {
     const model = imageModels.find((item) => item.id === id);
     const qualityPasses = qualitiesForModel(model, qualities).length;
     return sum + qualityPasses * variantCount(variants, model?.maxImages);
@@ -1847,7 +1853,6 @@ export function PosterPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [compareOpen, preview]);
 
-  const sheetMode = sheetSnap != null;
   const launchMode = sheetMode && mobileSurface === "launch";
   const labelCount = selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length;
   const showOnMapStep =
@@ -2690,7 +2695,7 @@ export function PosterPanel({
                     const time = formatDurationMs(ms);
                     const status = run.error ? "failed" : run.finishedAt ? "done" : "running";
                     const showStyle = planSlots.length > 1;
-                    const showModel = imageModelIds.length > 1 || !showStyle;
+                    const showModel = activeImageModelIds.length > 1 || !showStyle;
                     const showQuality = qualities.length > 1;
                     const cost = formatCostBreakdown({
                       promptCost: run.promptCost,
