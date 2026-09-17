@@ -49,7 +49,6 @@ function mixedQualities(posters: PosterRecord[]) {
 function lineageNote(item: PosterRecord, originalId?: string) {
   if (item.refineNotes?.trim()) return item.refineNotes.trim();
   if (originalId && item.posterId === originalId) return "original";
-  if (item.previousPosterId) return "refinement";
   return "";
 }
 
@@ -143,8 +142,10 @@ function GalleryRun({
   const models = mixedModels(posters);
   const qualities = mixedQualities(posters);
   const ids = new Set(posters.map((item) => item.posterId));
-  const originalId = posters.find((item) => !item.previousPosterId || !ids.has(item.previousPosterId))
-    ?.posterId;
+  const originalId = posters.find(
+    (item) =>
+      !(item.refineNotes?.trim() && item.previousPosterId && ids.has(item.previousPosterId)),
+  )?.posterId;
   return (
     <section className="gallery-run">
       <header className="gallery-run-head">
@@ -384,9 +385,7 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
                       poster.refineNotes?.trim() ||
                         (versions > 1
                           ? `${versions} versions`
-                          : poster.previousPosterId
-                            ? "Refinement"
-                            : new Date(poster.createdAt).toLocaleString()),
+                          : new Date(poster.createdAt).toLocaleString()),
                     ]}
                     onOpen={() => openPoster(poster)}
                     onToggleFavorite={() => void handleFavorite(poster)}
