@@ -53,6 +53,8 @@ export type ImageModelInfo = {
   name: string;
   maxReferences: number;
   maxImages: number;
+  /** Empty when the model does not advertise a quality parameter. */
+  qualities: string[];
 };
 
 export type GeneratedImage = {
@@ -193,6 +195,7 @@ export async function createImage(options: {
   references: string[];
   model?: string;
   n?: number;
+  quality?: string | null;
   label?: string;
   /** Authenticated app user id (not email). */
   user?: string;
@@ -201,11 +204,13 @@ export async function createImage(options: {
   const model = resolveImageModel(options.model);
   const n = clampImageCount(options.n);
   const user = openRouterUser(options.user);
+  const quality = options.quality?.trim() || undefined;
   const request = {
     model,
     prompt: options.prompt,
     aspect_ratio: options.aspectRatio,
     n,
+    ...(quality ? { quality } : {}),
     input_references: options.references.map((url) => ({
       type: "image_url",
       image_url: { url },
@@ -290,7 +295,9 @@ export async function listImageModels(): Promise<ImageModelInfo[]> {
   if (cachedModels && Date.now() - cachedModels.at < 6 * 60 * 60 * 1000) {
     return cachedModels.value;
   }
-  const fallback: ImageModelInfo[] = [{ id: imageModel(), name: imageModel(), maxReferences: 3, maxImages: 1 }];
+  const fallback: ImageModelInfo[] = [
+    { id: imageModel(), name: imageModel(), maxReferences: 3, maxImages: 1, qualities: [] },
+  ];
   try {
     const key = requireKey();
     const response = await fetch("https://openrouter.ai/api/v1/images/models", {
@@ -322,6 +329,7 @@ export function parseImageModels(payload: unknown): ImageModelInfo[] {
       name,
       maxReferences: maxRefsFromModel(row) ?? 3,
       maxImages: maxImagesFromModel(row) ?? 1,
+      qualities: qualitiesFromModel(row),
     });
   }
   models.sort((a, b) => a.name.localeCompare(b.name));
@@ -424,10 +432,30 @@ function maxImagesFromParams(params: Record<string, unknown> | null): number | n
   return raw > 0 ? raw : null;
 }
 
+function qualitiesFromModel(row: Record<string, unknown> | null): string[] {
+  return qualitiesFromParams(asRecord(row?.supported_parameters));
+}
+
+function qualitiesFromParams(params: Record<string, unknown> | null): string[] {
+  const quality = asRecord(params?.quality);
+  const values = quality?.values;
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const item of values) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim().toLowerCase();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    next.push(trimmed);
+  }
+  return next;
+}
+
 function withDefaultModel(models: ImageModelInfo[]): ImageModelInfo[] {
   const fallback = imageModel();
   if (models.some((item) => item.id === fallback)) return models;
-  return [{ id: fallback, name: fallback, maxReferences: 3, maxImages: 1 }, ...models];
+  return [{ id: fallback, name: fallback, maxReferences: 3, maxImages: 1, qualities: [] }, ...models];
 }
 
 function listedMaxRefs(model: string): number | null {

@@ -49,13 +49,23 @@ import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import { SpecEditor } from "./SpecEditor";
 import {
+  DEFAULT_IMAGE_MODEL_ID,
+  DEFAULT_IMAGE_QUALITY,
   formatBatchCost,
   formatCostBreakdown,
   formatDurationMs,
+  minMaxReferences,
   posterVariantLabel,
+  qualitiesForModel,
+  readStoredImageModels,
+  resolveUiImageModelIds,
   shortModelLabel,
+  shortQualityLabel,
   sumCosts,
+  uiImageModelsFromCapabilities,
   variantCount,
+  writeStoredImageModels,
+  type ImageQuality,
 } from "./imageModels";
 
 import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
@@ -66,6 +76,7 @@ import {
   POSTER_STYLES,
   normalizePaletteId,
   paletteIdsForStyle,
+  parsePlanSlotKey,
   planSlotKey,
   planSlotLabel,
   resolveStyleColor,
@@ -82,6 +93,7 @@ type GenerationRun = {
   paletteId: string;
   styleLabel: string;
   model: string;
+  quality?: string | null;
   label: string;
   startedAt: number;
   finishedAt?: number;
@@ -690,8 +702,8 @@ export function PosterPanel({
   const [sentRefs, setSentRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
-  const [imageModelId, setImageModelId] = useState("");
-  const imageModelIds = imageModelId ? [imageModelId] : [];
+  const [imageModelIds, setImageModelIds] = useState<string[]>(() => resolveUiImageModelIds(readStoredImageModels()));
+  const qualities: ImageQuality[] = [DEFAULT_IMAGE_QUALITY];
   const [workflowStep, setWorkflowStep] = useState<PosterWorkflowStep>("crop");
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() => (refineFrom ? "customize" : "launch"));
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
@@ -723,25 +735,38 @@ export function PosterPanel({
     let cancelled = false;
     void fetchPosterCapabilities().then((caps) => {
       if (cancelled) return;
-      setImageModels(caps.models);
-      if (caps.defaultModel) setImageModelId(caps.defaultModel);
-      setMaxRefs(caps.maxReferences);
+      const models = uiImageModelsFromCapabilities(caps.models);
+      setImageModels(models);
+      const stored = readStoredImageModels();
+      const initial = resolveUiImageModelIds(stored.length ? stored : [caps.defaultModel]);
+      setImageModelIds((current) => (current.length ? resolveUiImageModelIds(current) : initial));
+      setMaxRefs(minMaxReferences(initial, models) || caps.maxReferences);
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  const sheetMode = sheetSnap != null;
+  /** Mobile always generates with Sunburst; desktop keeps the multi-select. */
+  const activeImageModelIds = sheetMode ? [DEFAULT_IMAGE_MODEL_ID] : imageModelIds;
+
   useEffect(() => {
-    if (!imageModelId) return;
+    if (!imageModelIds.length) return;
+    if (!sheetMode) writeStoredImageModels(imageModelIds);
+    const ids = sheetMode ? [DEFAULT_IMAGE_MODEL_ID] : imageModelIds;
+    if (imageModels.length) {
+      setMaxRefs(minMaxReferences(ids, imageModels));
+      return;
+    }
     let cancelled = false;
-    void fetchMaxReferences(imageModelId).then((value) => {
-      if (!cancelled) setMaxRefs(value);
+    void Promise.all(ids.map((id) => fetchMaxReferences(id))).then((values) => {
+      if (!cancelled && values.length) setMaxRefs(Math.min(...values));
     });
     return () => {
       cancelled = true;
     };
-  }, [imageModelId]);
+  }, [imageModelIds, imageModels, sheetMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -801,19 +826,33 @@ export function PosterPanel({
             setFinishPlace(restored.finishPlace);
             setPlacesEdited(restored.placesEdited);
             setStatIds(restored.statIds);
-            const keepStyleId =
-              restored.styleIds.find((id) => !(sheetSnap != null && id === "custom")) ?? "";
-            setStyleIds(keepStyleId ? [keepStyleId] : []);
-            setStylePrompt(restored.stylePrompt);
-            const keepPalette =
-              keepStyleId
+            if (sheetSnap != null) {
+              const keepStyleId = restored.styleIds.find((id) => id !== "custom") ?? "";
+              const keepPalette = keepStyleId
                 ? [restored.paletteIdsByStyle[keepStyleId]?.[0] ?? AUTO_PALETTE_ID]
                 : [];
-            setPaletteIdsByStyle(keepStyleId ? { [keepStyleId]: keepPalette } : {});
-            setActiveStyleId(keepStyleId);
-            setActivePlanKey(keepStyleId ? planSlotKey(keepStyleId, keepPalette[0]) : "");
+              setStyleIds(keepStyleId ? [keepStyleId] : []);
+              setPaletteIdsByStyle(keepStyleId ? { [keepStyleId]: keepPalette } : {});
+              setActiveStyleId(keepStyleId);
+              setActivePlanKey(keepStyleId ? planSlotKey(keepStyleId, keepPalette[0]) : "");
+            } else {
+              setStyleIds(restored.styleIds);
+              setPaletteIdsByStyle(restored.paletteIdsByStyle);
+              const first =
+                restored.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : "");
+              setActiveStyleId(first);
+              setActivePlanKey(
+                first
+                  ? planSlotKey(first, restored.paletteIdsByStyle[first]?.[0] ?? AUTO_PALETTE_ID)
+                  : "",
+              );
+            }
+            setStylePrompt(restored.stylePrompt);
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
+            if (restored.imageModelIds?.length) {
+              setImageModelIds(resolveUiImageModelIds(restored.imageModelIds));
+            }
             setSentRefs(savedModelRefs(refineFrom));
             setResult(refineFrom);
             setBatchResults([refineFrom]);
@@ -1362,7 +1401,7 @@ export function PosterPanel({
     plannedSlots?: { key: string; styleId: string; paletteId: string; spec: PosterSpec; cost: number | null }[],
   ) {
     if (!context) return;
-    if (!imageModelIds.length) {
+    if (!activeImageModelIds.length) {
       setError("Set OPENROUTER_IMAGE_MODEL in .env.local, then restart the API.");
       return;
     }
@@ -1375,16 +1414,20 @@ export function PosterPanel({
         })
     ).flatMap((slot) => {
       const style = styleById(slot.styleId);
-      return imageModelIds.map((model) => ({
-        key: `${slot.key}\0${model}`,
-        styleId: slot.styleId,
-        paletteId: slot.paletteId,
-        style,
-        spec: slot.spec,
-        model,
-        slotKey: slot.key,
-        promptCost: slot.cost ?? planCosts[slot.key] ?? null,
-      }));
+      return activeImageModelIds.flatMap((model) => {
+        const modelInfo = imageModels.find((item) => item.id === model);
+        return qualitiesForModel(modelInfo, qualities).map((quality) => ({
+          key: `${slot.key}\0${model}\0${quality ?? ""}`,
+          styleId: slot.styleId,
+          paletteId: slot.paletteId,
+          style,
+          spec: slot.spec,
+          model,
+          quality,
+          slotKey: slot.key,
+          promptCost: slot.cost ?? planCosts[slot.key] ?? null,
+        }));
+      });
     });
     if (!jobs.length) return;
     setGenerating(true);
@@ -1403,6 +1446,7 @@ export function PosterPanel({
           paletteId: job.paletteId,
           styleLabel: planSlotLabel(job.styleId, job.paletteId),
           model: job.model,
+          quality: job.quality,
           label: shortModelLabel(job.model, imageModels.find((item) => item.id === job.model)?.name),
           startedAt,
           promptCost: job.promptCost,
@@ -1428,6 +1472,7 @@ export function PosterPanel({
               aspectRatio,
               batchId,
               model: job.model,
+              quality: job.quality ?? undefined,
               variants,
               promptCost: job.promptCost,
               editor: captureEditorSnapshot({
@@ -1452,8 +1497,9 @@ export function PosterPanel({
                 styleIds,
                 stylePrompt,
                 paletteIdsByStyle,
-                imageModelIds,
+                imageModelIds: activeImageModelIds,
                 variants,
+                qualities,
                 specs: plannedSlots?.length
                   ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.spec]))
                   : specs,
@@ -1469,7 +1515,14 @@ export function PosterPanel({
                   : run,
               ),
             );
-            return { key: job.key, styleId: job.styleId, paletteId: job.paletteId, model: job.model, records };
+            return {
+              key: job.key,
+              styleId: job.styleId,
+              paletteId: job.paletteId,
+              model: job.model,
+              quality: job.quality,
+              records,
+            };
           } catch (err) {
             const error = err instanceof Error ? err.message : "Poster generation failed";
             setModelRuns((current) =>
@@ -1477,7 +1530,14 @@ export function PosterPanel({
                 run.key === job.key ? { ...run, finishedAt: Date.now(), error } : run,
               ),
             );
-            return { key: job.key, styleId: job.styleId, paletteId: job.paletteId, model: job.model, error };
+            return {
+              key: job.key,
+              styleId: job.styleId,
+              paletteId: job.paletteId,
+              model: job.model,
+              quality: job.quality,
+              error,
+            };
           } finally {
             setGenerateProgress((current) => ({ ...current, done: current.done + 1 }));
           }
@@ -1488,7 +1548,10 @@ export function PosterPanel({
         if (!item.error) return [];
         const theme = planSlotLabel(item.styleId, item.paletteId ?? AUTO_PALETTE_ID);
         const model = shortModelLabel(item.model);
-        return [`${stylePlanSlots(styleIds, paletteIdsByStyle).length > 1 ? `${theme} · ` : ""}${model}: ${item.error}`];
+        const quality = shortQualityLabel(item.quality);
+        return [
+          `${stylePlanSlots(styleIds, paletteIdsByStyle).length > 1 ? `${theme} · ` : ""}${model}${quality ? ` · ${quality}` : ""}: ${item.error}`,
+        ];
       });
       if (!records.length) throw new Error(failures.join(" · ") || "Poster generation failed");
       setBatchResults(records);
@@ -1644,6 +1707,32 @@ export function PosterPanel({
     });
   }
 
+  function togglePalette(styleId: string, paletteId: string) {
+    const style = styleById(styleId);
+    const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
+    const exclusive = sheetMode;
+    const selected = exclusive
+      ? [paletteId]
+      : current.includes(paletteId)
+        ? current.filter((item) => item !== paletteId)
+        : [...current, paletteId];
+    const next = selected.length ? selected : [AUTO_PALETTE_ID];
+    if (next.length === current.length && next.every((id, index) => id === current[index])) return;
+    setPaletteIdsByStyle((map) => ({ ...map, [styleId]: next }));
+    for (const id of current) {
+      if (!next.includes(id)) dropSlot(styleId, id);
+    }
+    const added = !current.includes(paletteId) && next.includes(paletteId);
+    const active = parsePlanSlotKey(activePlanKey);
+    if (added) {
+      setActiveStyleId(styleId);
+      setActivePlanKey(planSlotKey(styleId, paletteId));
+    } else if (active.styleId === styleId && !next.includes(active.paletteId)) {
+      setActivePlanKey(planSlotKey(styleId, next[0]));
+    }
+  }
+
+  /** Mobile sheet: one theme / palette at a time via compact selects. */
   function selectPalette(styleId: string, paletteId: string) {
     const style = styleById(styleId);
     const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
@@ -1655,6 +1744,46 @@ export function PosterPanel({
     }
     setActiveStyleId(styleId);
     setActivePlanKey(planSlotKey(styleId, next[0]));
+  }
+
+  function toggleStyle(id: string) {
+    const exclusive = sheetMode;
+    setStyleIds((current) => {
+      if (current.includes(id) && (!exclusive || current.length === 1)) {
+        const next = current.filter((item) => item !== id);
+        setActiveStyleId((active) => (active === id ? next[0] ?? "" : active));
+        setPaletteIdsByStyle((map) => {
+          const copy = { ...map };
+          delete copy[id];
+          return copy;
+        });
+        for (const paletteId of paletteIdsForStyle(styleById(id), paletteIdsByStyle[id])) {
+          dropSlot(id, paletteId);
+        }
+        const first = next[0];
+        setActivePlanKey(
+          first ? planSlotKey(first, paletteIdsForStyle(styleById(first), paletteIdsByStyle[first])[0]) : "",
+        );
+        return next;
+      }
+      if (exclusive) {
+        for (const prev of current) {
+          if (prev === id) continue;
+          for (const paletteId of paletteIdsForStyle(styleById(prev), paletteIdsByStyle[prev])) {
+            dropSlot(prev, paletteId);
+          }
+        }
+      }
+      setActiveStyleId(id);
+      if (id === "custom" && !stylePrompt) {
+        const from = styleById(activeStyleId);
+        if (from.prompt) setStylePrompt(from.prompt);
+      }
+      const palettes = paletteIdsForStyle(styleById(id), [AUTO_PALETTE_ID]);
+      setPaletteIdsByStyle((map) => (exclusive ? { [id]: palettes } : { ...map, [id]: palettes }));
+      setActivePlanKey(planSlotKey(id, palettes[0]));
+      return exclusive ? [id] : [...current, id];
+    });
   }
 
   function selectStyle(id: string) {
@@ -1685,6 +1814,17 @@ export function PosterPanel({
       setPaletteIdsByStyle({ [id]: palettes });
       setActivePlanKey(planSlotKey(id, palettes[0]));
       return [id];
+    });
+  }
+
+  function toggleImageModel(id: string) {
+    setImageModelIds((current) => {
+      const has = current.includes(id);
+      if (has) {
+        const next = current.filter((item) => item !== id);
+        return next.length ? resolveUiImageModelIds(next) : current;
+      }
+      return resolveUiImageModelIds([...current, id]);
     });
   }
 
@@ -1725,11 +1865,13 @@ export function PosterPanel({
   const specSlot = plannedSlots.find((slot) => slot.key === activePlanKey) ?? plannedSlots[0];
   const spec = specSlot ? specForSlot(specs, specSlot.styleId, specSlot.paletteId) ?? null : null;
   const allThemesPlanned = planSlots.length > 0 && plannedSlots.length === planSlots.length;
-  const generateCount = plannedSlots.length * imageModelIds.reduce(
-    (sum, id) => sum + variantCount(variants, imageModels.find((item) => item.id === id)?.maxImages),
-    0,
-  );
+  const generateCount = plannedSlots.length * activeImageModelIds.reduce((sum, id) => {
+    const model = imageModels.find((item) => item.id === id);
+    const qualityPasses = qualitiesForModel(model, qualities).length;
+    return sum + qualityPasses * variantCount(variants, model?.maxImages);
+  }, 0);
   const editingCustom = styleIds.includes("custom");
+  const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
   const paletteStyles = styleIds.map(styleById).filter(showsPalettePicker);
   const resultCost = result
     ? formatCostBreakdown({ promptCost: result.promptCost, cost: result.cost })
@@ -1739,6 +1881,7 @@ export function PosterPanel({
   const compareStyles =
     new Set(compareItems.map((item) => planSlotKey(item.styleId, item.paletteId ?? AUTO_PALETTE_ID))).size > 1;
   const compareModels = new Set(compareItems.map((item) => item.model)).size > 1;
+  const compareQualities = new Set(compareItems.map((item) => item.quality ?? "")).size > 1;
   const resultsBatchCost = formatBatchCost(compareItems);
   const schematicSrc =
     sentRefs.find((item) => item.role === "schematic")?.dataUrl ??
@@ -1752,6 +1895,7 @@ export function PosterPanel({
         [
           compareStyles ? resultSlotLabel(item) : null,
           compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
+          compareQualities ? shortQualityLabel(item.quality) : null,
           posterVariantLabel(item, compareItems),
           item.durationMs != null ? formatDurationMs(item.durationMs) : null,
         ]
@@ -1788,7 +1932,6 @@ export function PosterPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [compareOpen, preview]);
 
-  const sheetMode = sheetSnap != null;
   const launchMode = sheetMode && mobileSurface === "launch";
   const labelCount = selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length;
   const showOnMapStep =
@@ -2440,48 +2583,120 @@ export function PosterPanel({
             showTitle={!sheetMode}
             className={workflowPane("themes")}
           >
-            <div className="poster-option-row">
-              <label className="poster-field">
-                Theme
-                <select
-                  value={styleIds[0] ?? ""}
-                  onChange={(event) => selectStyle(event.target.value)}
-                >
-                  <option value="">Select a theme</option>
-                  {POSTER_STYLES.filter((style) => !sheetMode || style.id !== "custom").map((style) => (
-                    <option key={style.id} value={style.id}>
-                      {style.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {paletteStyles[0] ? (
+            {sheetMode ? (
+              <div className="poster-option-row">
                 <label className="poster-field">
-                  Palette
+                  Theme
                   <select
-                    value={paletteIdsForStyle(paletteStyles[0], paletteIdsByStyle[paletteStyles[0].id])[0]}
-                    onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
+                    value={styleIds[0] ?? ""}
+                    onChange={(event) => selectStyle(event.target.value)}
                   >
-                    <option value={AUTO_PALETTE_ID}>Auto</option>
-                    {stylePalettes(paletteStyles[0]).map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.label}
+                    <option value="">Select a theme</option>
+                    {POSTER_STYLES.filter((style) => style.id !== "custom").map((style) => (
+                      <option key={style.id} value={style.id}>
+                        {style.label}
                       </option>
                     ))}
                   </select>
                 </label>
-              ) : null}
-            </div>
-            {!styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
-            {!sheetMode && editingCustom && (
+                {paletteStyles[0] ? (
+                  <label className="poster-field">
+                    Palette
+                    <select
+                      value={paletteIdsForStyle(paletteStyles[0], paletteIdsByStyle[paletteStyles[0].id])[0]}
+                      onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
+                    >
+                      <option value={AUTO_PALETTE_ID}>Auto</option>
+                      {stylePalettes(paletteStyles[0]).map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <div className="chip-row">
+                  {POSTER_STYLES.map((style) => (
+                    <button
+                      key={style.id}
+                      type="button"
+                      className={`chip ${styleIds.includes(style.id) ? "on" : ""}`}
+                      onClick={() => toggleStyle(style.id)}
+                    >
+                      {style.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="muted">
+                  {!styleIds.length
+                    ? "Select a theme to plan"
+                    : planSlots.length > 1
+                      ? `${planSlots.length} prompts — one per selected theme and palette`
+                      : "Select more themes or palettes to compare"}
+                </p>
+                {paletteStyles.map((style) => {
+                  const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
+                  return (
+                    <div key={style.id} className="palette-group">
+                      <div className="eyebrow">
+                        {paletteStyles.length > 1 ? `${style.label} palette` : "Palette"}
+                      </div>
+                      <div className="chip-row">
+                        <button
+                          type="button"
+                          className={`chip ${selected.includes(AUTO_PALETTE_ID) ? "on" : ""}`}
+                          onClick={() => togglePalette(style.id, AUTO_PALETTE_ID)}
+                        >
+                          Auto
+                        </button>
+                        {stylePalettes(style).map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={`chip ${selected.includes(item.id) ? "on" : ""}`}
+                            onClick={() => togglePalette(style.id, item.id)}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                      {selected.length > 1 && (
+                        <p className="muted">{selected.length} palettes will each get their own prompt</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+            {!sheetMode && (editingCustom || singlePreset) && (
               <textarea
                 className="poster-prompt"
                 rows={5}
-                value={stylePrompt}
-                onChange={(event) => setStylePrompt(event.target.value)}
+                value={editingCustom ? stylePrompt : styleById(styleIds[0]).prompt}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (singlePreset) {
+                    const fromId = styleIds[0];
+                    for (const paletteId of paletteIdsForStyle(styleById(fromId), paletteIdsByStyle[fromId])) {
+                      dropSlot(fromId, paletteId);
+                    }
+                    setStyleIds(["custom"]);
+                    setActiveStyleId("custom");
+                    setPaletteIdsByStyle({ custom: [AUTO_PALETTE_ID] });
+                    setActivePlanKey(planSlotKey("custom", AUTO_PALETTE_ID));
+                  }
+                  setStylePrompt(value);
+                }}
                 placeholder="Custom style prompt"
               />
             )}
+            {!sheetMode && styleIds.length > 1 && editingCustom && (
+              <p className="muted">Custom uses this prompt; other themes use their presets.</p>
+            )}
+            {sheetMode && !styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
             {sheetMode && (
               <div className="poster-actions poster-plan-row">
                 <button
@@ -2534,6 +2749,26 @@ export function PosterPanel({
                 )}
               </p>
               {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
+              {imageModels.length > 0 && (
+                <label className="poster-field">
+                  <span>Image model</span>
+                  <div className="poster-model-list">
+                    {imageModels.map((model) => (
+                      <label key={model.id} className="check">
+                        <input
+                          type="checkbox"
+                          checked={imageModelIds.includes(model.id)}
+                          onChange={() => toggleImageModel(model.id)}
+                        />
+                        <span>{shortModelLabel(model.id, model.name)}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {imageModelIds.length > 1 ? (
+                    <p className="muted">Each selected model generates separately for comparison.</p>
+                  ) : null}
+                </label>
+              )}
               <div className="poster-actions poster-plan-row">
                 <button className="button" type="button" disabled={busy || !title.trim() || !styleIds.length} onClick={() => void handlePlan()}>
                   {planning
@@ -2611,7 +2846,8 @@ export function PosterPanel({
                     const time = formatDurationMs(ms);
                     const status = run.error ? "failed" : run.finishedAt ? "done" : "running";
                     const showStyle = planSlots.length > 1;
-                    const showModel = imageModelIds.length > 1 || !showStyle;
+                    const showModel = activeImageModelIds.length > 1 || !showStyle;
+                    const showQuality = qualities.length > 1;
                     const cost = formatCostBreakdown({
                       promptCost: run.promptCost,
                       imageCost: run.imageCost,
@@ -2619,9 +2855,13 @@ export function PosterPanel({
                     return (
                       <li key={run.key} className={`model-time ${status}`}>
                         <span>
-                          {[showStyle ? run.styleLabel : null, showModel ? run.label : null]
+                          {[
+                            showStyle ? run.styleLabel : null,
+                            showModel ? run.label : null,
+                            showQuality ? shortQualityLabel(run.quality) : null,
+                          ]
                             .filter(Boolean)
-                            .join(" · ")}
+                            .join(" · ") || "Generating"}
                         </span>
                         <span>
                           {time}
@@ -2671,6 +2911,7 @@ export function PosterPanel({
                         compareModels || !compareStyles
                           ? shortModelLabel(item.model, item.modelName)
                           : null,
+                        compareQualities ? shortQualityLabel(item.quality) : null,
                         posterVariantLabel(item, compareItems),
                       ]
                         .filter(Boolean)

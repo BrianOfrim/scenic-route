@@ -27,6 +27,8 @@ export type PosterRecord = {
   modelName?: string;
   batchId?: string;
   aspectRatio: string;
+  /** Image quality setting when the model supports it (e.g. auto/low/high). */
+  quality?: string;
   cost: number | null;
   promptCost?: number | null;
   durationMs?: number;
@@ -70,6 +72,8 @@ export type PosterEditorSnapshot = {
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
   variants: number;
+  /** Selected image qualities for comparison runs. */
+  qualities?: string[];
   specs?: Record<string, PosterSpec>;
   planCosts?: Record<string, number | null>;
   landmarkNearM?: Record<string, number>;
@@ -77,6 +81,9 @@ export type PosterEditorSnapshot = {
 
 export const DEFAULT_VARIANTS = 4;
 export const MAX_VARIANTS = 10;
+export const IMAGE_QUALITIES = ["auto", "low", "medium", "high", "xhigh", "max"] as const;
+export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
+export const DEFAULT_IMAGE_QUALITY: ImageQuality = "auto";
 
 export function clampVariants(value?: number) {
   const n = Number(value);
@@ -87,6 +94,31 @@ export function clampVariants(value?: number) {
 export function variantCount(requested: number | undefined, maxImages: number) {
   const allowed = Number.isFinite(maxImages) ? Math.max(1, Math.round(maxImages)) : 1;
   return Math.min(clampVariants(requested), allowed);
+}
+
+/** Returns a canonical quality slug, or null when unset / unsupported. */
+export function normalizeImageQuality(value?: string | null): ImageQuality | null {
+  const trimmed = value?.trim().toLowerCase() ?? "";
+  if (!trimmed) return null;
+  return (IMAGE_QUALITIES as readonly string[]).includes(trimmed) ? (trimmed as ImageQuality) : null;
+}
+
+export function normalizeImageQualities(values?: string[] | null): ImageQuality[] {
+  const next = uniqueQualities(
+    (values ?? []).map((item) => normalizeImageQuality(item)).filter((item): item is ImageQuality => item != null),
+  );
+  return next.length ? next : [DEFAULT_IMAGE_QUALITY];
+}
+
+function uniqueQualities(values: ImageQuality[]) {
+  const seen = new Set<string>();
+  const next: ImageQuality[] = [];
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    next.push(value);
+  }
+  return next;
 }
 
 export type GeneratePosterBody = {
@@ -107,6 +139,7 @@ export type GeneratePosterBody = {
   paletteId?: string;
   aspectRatio?: string;
   model?: string;
+  quality?: string;
   batchId?: string;
   variants?: number;
   promptCost?: number | null;
@@ -184,6 +217,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
   const count = variantCount(body.variants, await maxImageOutputs(model));
   const batchId = sanitizeBatchId(body.batchId) ?? (count > 1 ? newBatchId() : undefined);
   const aspectRatio = (body.aspectRatio || spec.composition.aspectRatio || "2:3").trim();
+  const quality = normalizeImageQuality(body.quality) ?? undefined;
   const incoming = dataUrls(body.references);
   if (!incoming.length) throw new PosterError("at least one grounding image is required");
 
@@ -201,6 +235,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
     references,
     model,
     n: count,
+    quality,
     label: body.label ?? "generate",
     user: userId,
   });
@@ -229,6 +264,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
         modelName,
         batchId,
         aspectRatio,
+        quality,
         cost: image.cost,
         promptCost: finiteCost(body.promptCost),
         durationMs: image.durationMs,
@@ -291,6 +327,7 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
     paletteId: source.paletteId,
     aspectRatio: source.aspectRatio,
     model,
+    quality: source.quality,
     variants: body.variants,
     promptCost: revised.cost,
     editor: source.editor,
@@ -433,6 +470,7 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     paletteIdsByStyle: stringListMap(raw.paletteIdsByStyle),
     imageModelIds: stringList(raw.imageModelIds),
     variants: clampVariants(typeof raw.variants === "number" ? raw.variants : undefined),
+    qualities: normalizeImageQualities(stringList(raw.qualities)),
     specs: specMap(raw.specs),
     planCosts: costMap(raw.planCosts),
     landmarkNearM: numberMap(raw.landmarkNearM),

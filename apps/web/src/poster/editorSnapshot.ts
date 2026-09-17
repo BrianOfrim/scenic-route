@@ -47,6 +47,7 @@ export type PosterEditorSnapshot = {
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
   variants: number;
+  qualities?: string[];
   specs: Partial<Record<string, PosterSpec>>;
   planCosts: Partial<Record<string, number | null>>;
   landmarkNearM?: Record<string, number>;
@@ -76,6 +77,7 @@ export type EditorCapture = {
   paletteIdsByStyle?: Record<string, string[]>;
   imageModelIds: string[];
   variants: number;
+  qualities?: string[];
   specs: Partial<Record<string, PosterSpec>>;
   planCosts: Partial<Record<string, number | null>>;
   landmarkNearM?: Record<string, number>;
@@ -137,6 +139,7 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
     paletteId: firstPaletteId(input.styleIds, paletteIdsByStyle),
     imageModelIds: [...input.imageModelIds],
     variants: input.variants,
+    qualities: input.qualities?.length ? [...input.qualities] : undefined,
     specs: { ...input.specs },
     planCosts: { ...input.planCosts },
     landmarkNearM: { ...(input.landmarkNearM ?? {}) },
@@ -167,6 +170,7 @@ export type RestoredEditor = {
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[] | null;
   variants: number | null;
+  qualities: string[] | null;
   specs: Partial<Record<string, PosterSpec>>;
   planCosts: Partial<Record<string, number | null>>;
   landmarkNearM: Record<string, number>;
@@ -366,6 +370,7 @@ export function editorSeed(record?: PosterRecord | null) {
     routeOnly: restored.routeOnly,
     imageModelIds: restored.imageModelIds,
     variants: restored.variants,
+    qualities: restored.qualities,
     specs: restored.specs,
     planCosts: restored.planCosts,
     landmarkNearM: restored.landmarkNearM,
@@ -434,6 +439,7 @@ export function restoreEditor(
     ),
     imageModelIds: editor?.imageModelIds?.length ? editor.imageModelIds : null,
     variants: editor?.variants ?? null,
+    qualities: editor?.qualities?.length ? editor.qualities : null,
     specs: {
       ...(editor?.specs ?? {}),
       ...(record.spec

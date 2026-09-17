@@ -1,25 +1,78 @@
 const IMAGE_MODELS_KEY = "scenic-route.image-models";
 const LEGACY_MODEL_KEY = "scenic-route.image-model";
 
+/** Curated multi-select options shown in the poster UI. */
+export const META_MUSE_IMAGE = "meta/muse-image";
+export const GPT_IMAGE_SUNBURST = "openai/gpt-image-2.5-sunburst";
+export const UI_IMAGE_MODEL_IDS = [GPT_IMAGE_SUNBURST, META_MUSE_IMAGE] as const;
+export const DEFAULT_IMAGE_MODEL_ID = GPT_IMAGE_SUNBURST;
+
+export type UiImageModelId = (typeof UI_IMAGE_MODEL_IDS)[number];
+
+export function isUiImageModelId(id: string): id is UiImageModelId {
+  return (UI_IMAGE_MODEL_IDS as readonly string[]).includes(id);
+}
+
+/** Prefer a stored/requested UI model; otherwise sunburst. */
+export function resolveUiImageModelId(preferred?: string | null): UiImageModelId {
+  const trimmed = preferred?.trim() ?? "";
+  return isUiImageModelId(trimmed) ? trimmed : DEFAULT_IMAGE_MODEL_ID;
+}
+
+/** Keep curated UI models (multi-select); fall back to sunburst when none match. */
+export function resolveUiImageModelIds(preferred?: string[] | null): UiImageModelId[] {
+  const allowed = new Set(UI_IMAGE_MODEL_IDS);
+  const picked = uniqueIds(preferred ?? []).filter((id): id is UiImageModelId => allowed.has(id as UiImageModelId));
+  const ordered = UI_IMAGE_MODEL_IDS.filter((id) => picked.includes(id));
+  return ordered.length ? [...ordered] : [DEFAULT_IMAGE_MODEL_ID];
+}
+
+type ModelOptionLike = {
+  id: string;
+  name: string;
+  maxReferences: number;
+  maxImages?: number;
+  qualities?: string[];
+};
+
+/** Keep only the curated models, in UI order; synthesize missing entries. */
+export function uiImageModelsFromCapabilities(models: ModelOptionLike[]): ModelOptionLike[] {
+  const byId = new Map(models.map((model) => [model.id, model]));
+  return UI_IMAGE_MODEL_IDS.map((id) => {
+    const found = byId.get(id);
+    if (found) {
+      // Both curated models run in auto only — no quality ladder in the UI.
+      return { ...found, qualities: ["auto"] };
+    }
+    return {
+      id,
+      name: id === META_MUSE_IMAGE ? "Muse Image" : id,
+      maxReferences: 3,
+      maxImages: 1,
+      qualities: ["auto"],
+    };
+  });
+}
+
 export function readStoredImageModels(): string[] {
   try {
     const raw = localStorage.getItem(IMAGE_MODELS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as unknown;
       if (Array.isArray(parsed)) {
-        return uniqueIds(parsed.filter((item): item is string => typeof item === "string"));
+        return resolveUiImageModelIds(parsed.filter((item): item is string => typeof item === "string"));
       }
     }
     const legacy = localStorage.getItem(LEGACY_MODEL_KEY)?.trim();
-    return legacy ? [legacy] : [];
+    return resolveUiImageModelIds(legacy ? [legacy] : []);
   } catch {
-    return [];
+    return [DEFAULT_IMAGE_MODEL_ID];
   }
 }
 
 export function writeStoredImageModels(ids: string[]) {
   try {
-    localStorage.setItem(IMAGE_MODELS_KEY, JSON.stringify(uniqueIds(ids)));
+    localStorage.setItem(IMAGE_MODELS_KEY, JSON.stringify(resolveUiImageModelIds(ids)));
   } catch {
     /* ignore quota / private mode */
   }
@@ -118,6 +171,43 @@ export function shortModelLabel(id: string, name?: string | null) {
   return slash >= 0 ? id.slice(slash + 1) : id || "Unknown model";
 }
 
+export const IMAGE_QUALITIES = ["auto", "low", "medium", "high", "xhigh", "max"] as const;
+export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
+export const DEFAULT_IMAGE_QUALITY: ImageQuality = "auto";
+
+export function normalizeImageQuality(value?: string | null): ImageQuality | null {
+  const trimmed = value?.trim().toLowerCase() ?? "";
+  if (!trimmed) return null;
+  return (IMAGE_QUALITIES as readonly string[]).includes(trimmed) ? (trimmed as ImageQuality) : null;
+}
+
+export function normalizeImageQualities(values?: string[] | null): ImageQuality[] {
+  const next = uniqueIds(
+    (values ?? []).map((item) => normalizeImageQuality(item)).filter((item): item is ImageQuality => item != null),
+  ) as ImageQuality[];
+  return next.length ? next : [DEFAULT_IMAGE_QUALITY];
+}
+
+export function shortQualityLabel(quality?: string | null) {
+  const normalized = normalizeImageQuality(quality);
+  if (!normalized) return null;
+  return normalized;
+}
+
+export function modelSupportsQuality(model?: { qualities?: string[] } | null) {
+  return Boolean(model?.qualities?.length);
+}
+
+/** Qualities to request for a model; falls back to a single omitted pass when unsupported. */
+export function qualitiesForModel(model: { qualities?: string[] } | undefined, selected: string[]) {
+  if (model && !modelSupportsQuality(model)) return [null] as Array<ImageQuality | null>;
+  const allowed = model?.qualities?.length
+    ? new Set(model.qualities.map((item) => item.trim().toLowerCase()))
+    : null;
+  const picked = normalizeImageQualities(selected).filter((item) => !allowed || allowed.has(item));
+  return (picked.length ? picked : [DEFAULT_IMAGE_QUALITY]) as Array<ImageQuality | null>;
+}
+
 export function minMaxReferences(ids: string[], models: Array<{ id: string; maxReferences?: number }>) {
   const values = ids.map((id) => models.find((item) => item.id === id)?.maxReferences || 3);
   return values.length ? Math.min(...values) : 3;
@@ -157,10 +247,15 @@ export function variantCount(requested: number, maxImages?: number) {
 }
 
 export function posterVariantLabel(
-  item: { posterId: string; model?: string; styleId?: string; variant?: number },
-  group: Array<{ posterId: string; model?: string; styleId?: string; variant?: number }>,
+  item: { posterId: string; model?: string; styleId?: string; quality?: string; variant?: number },
+  group: Array<{ posterId: string; model?: string; styleId?: string; quality?: string; variant?: number }>,
 ) {
-  const peers = group.filter((row) => row.model === item.model && row.styleId === item.styleId);
+  const peers = group.filter(
+    (row) =>
+      row.model === item.model &&
+      row.styleId === item.styleId &&
+      (row.quality ?? "") === (item.quality ?? ""),
+  );
   if (peers.length <= 1) return null;
   if (item.variant != null) return String(item.variant);
   const index = peers.findIndex((row) => row.posterId === item.posterId);

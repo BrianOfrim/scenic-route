@@ -272,7 +272,7 @@ app.get("/api/poster/capabilities", async (c) => {
     return c.json({
       defaultModel: fallback,
       maxReferences: 3,
-      models: [{ id: fallback, name: fallback, maxReferences: 3, maxImages: 1 }],
+      models: [{ id: fallback, name: fallback, maxReferences: 3, maxImages: 1, qualities: [] }],
     });
   }
 });
