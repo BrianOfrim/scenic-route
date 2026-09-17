@@ -141,7 +141,7 @@ export function App() {
   const [posterOpen, setPosterOpen] = useState(false);
   const [routeOnly, setRouteOnly] = useState(true);
   const [refineFrom, setRefineFrom] = useState<PosterRecord | null>(null);
-  const [basemap, setBasemap] = useState<Basemap>("osm");
+  const [basemap, setBasemap] = useState<Basemap>("schematic");
   const [viewNonce, setViewNonce] = useState(0);
 
   const go = useCallback((next: string) => {
