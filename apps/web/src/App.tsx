@@ -347,11 +347,13 @@ export function App() {
       if (selected && !isUploadedActivity(selected)) {
         closePoster();
       }
-      if (removedActivities > 0) {
-        setError(
-          `Strava disconnected. Removed ${removedActivities} synced ${removedActivities === 1 ? "activity" : "activities"}. Connect a different Strava account to sync again.`,
-        );
-      }
+      const removedNote =
+        removedActivities > 0
+          ? ` Removed ${removedActivities} synced ${removedActivities === 1 ? "activity" : "activities"}.`
+          : "";
+      setError(
+        `Strava disconnected.${removedNote} To link a different account, use Connect Strava and log out of Strava first if the wrong athlete is still signed in.`,
+      );
     } catch (err) {
       if (err instanceof AuthRequiredError) {
         setSession(null);

@@ -47,6 +47,7 @@ import {
   getAuthorizeUrl,
   getTokens,
   isStravaConfigured,
+  stravaConnectInterstitialHtml,
   verifyStravaState,
 } from "./strava";
 import { getSyncProgress, runSync } from "./sync";
@@ -110,7 +111,18 @@ app.get("/api/status", async (c) => {
 
 app.get("/api/strava/auth", (c) => {
   try {
-    return c.redirect(getAuthorizeUrl(currentUserId(c)));
+    // Strava cannot force a fresh login when a browser session already exists.
+    // Show an interstitial so the user can log out of Strava before authorizing
+    // a different athlete. ?go=1 continues straight to OAuth.
+    if (c.req.query("go") === "1") {
+      return c.redirect(getAuthorizeUrl(currentUserId(c)));
+    }
+    return c.html(
+      stravaConnectInterstitialHtml({
+        continuePath: "/api/strava/auth?go=1",
+        cancelUrl: WEB_ORIGIN,
+      }),
+    );
   } catch (error) {
     if (error instanceof StravaConfigError) return c.json({ error: error.message }, 400);
     throw error;

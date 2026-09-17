@@ -13,6 +13,13 @@ function source(name: string) {
 test("disconnectStrava unlinks and clears synced Strava activities atomically", () => {
   const strava = source("strava.ts");
 
+  // Revoke on Strava before clearing local tokens so reconnect is not silent.
+  assert.match(strava, /STRAVA_REVOKE_URL = "https:\/\/www\.strava\.com\/oauth\/revoke"/);
+  assert.match(
+    strava,
+    /export async function disconnectStrava[\s\S]*?revokeStravaAuthorization\(tokens\)[\s\S]*?withTransaction/,
+  );
+
   // The whole unlink runs in a single transaction.
   assert.match(strava, /export async function disconnectStrava[\s\S]*?withTransaction/);
 
@@ -26,6 +33,22 @@ test("disconnectStrava unlinks and clears synced Strava activities atomically", 
 
   // The stored connection (tokens, athlete, sync state) is removed too.
   assert.match(strava, /DELETE FROM strava_connections WHERE user_id = \$1/);
+});
+
+test("connect Strava always forces the authorization prompt", () => {
+  const strava = source("strava.ts");
+  assert.match(strava, /approval_prompt: "force"/);
+  assert.doesNotMatch(strava, /approval_prompt: "auto"/);
+});
+
+test("connect Strava shows a logout interstitial before OAuth", () => {
+  const strava = source("strava.ts");
+  const index = source("index.ts");
+  assert.match(strava, /stravaConnectInterstitialHtml/);
+  assert.match(strava, /www\.strava\.com\/logout/);
+  assert.match(index, /stravaConnectInterstitialHtml/);
+  assert.match(index, /c\.req\.query\("go"\) === "1"/);
+  assert.match(index, /\/api\/strava\/auth\?go=1/);
 });
 
 test("disconnect endpoint reports how many synced activities were removed", () => {

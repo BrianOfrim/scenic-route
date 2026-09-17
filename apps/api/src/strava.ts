@@ -4,6 +4,9 @@ import { query, queryOne, withTransaction } from "./db";
 
 const STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize";
 const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token";
+const STRAVA_REVOKE_URL = "https://www.strava.com/oauth/revoke";
+const STRAVA_DEAUTHORIZE_URL = "https://www.strava.com/oauth/deauthorize";
+const STRAVA_LOGOUT_URL = "https://www.strava.com/logout";
 const STRAVA_API = "https://www.strava.com/api/v3";
 const STATE_MAX_AGE_MS = 30 * 60 * 1000;
 
@@ -246,11 +249,134 @@ export function getAuthorizeUrl(userId: string) {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    approval_prompt: "auto",
+    // Always show the authorize UI so reconnect cannot silently reattach
+    // the previously linked athlete after a local disconnect.
+    approval_prompt: "force",
     scope: "read,activity:read_all",
     state: signStravaState(userId),
   });
   return `${STRAVA_AUTH_URL}?${params.toString()}`;
+}
+
+/**
+ * Revoke this app's access for the athlete on Strava's side. Prefer the
+ * refresh token so revocation still works when the access token has expired.
+ * Falls back to the legacy deauthorize endpoint. Best-effort only.
+ */
+async function revokeStravaAuthorization(tokens: StravaTokens): Promise<void> {
+  const { clientId, clientSecret } = requireConfig();
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  const revokeResponse = await fetch(STRAVA_REVOKE_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      token: tokens.refresh_token,
+      token_type_hint: "refresh_token",
+    }),
+  });
+  if (revokeResponse.ok) return;
+
+  const revokeText = await revokeResponse.text();
+  console.warn(`Strava oauth/revoke failed: ${revokeResponse.status} ${revokeText}`);
+
+  let accessToken = tokens.access_token;
+  if (tokens.expires_at * 1000 < Date.now() + 60_000) {
+    const refreshResponse = await fetch(STRAVA_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: tokens.refresh_token,
+      }),
+    });
+    if (refreshResponse.ok) {
+      const refreshed = (await refreshResponse.json()) as StravaTokens;
+      accessToken = refreshed.access_token;
+    }
+  }
+
+  const legacy = await fetch(
+    `${STRAVA_DEAUTHORIZE_URL}?${new URLSearchParams({ access_token: accessToken })}`,
+    { method: "POST" },
+  );
+  if (!legacy.ok) {
+    const text = await legacy.text();
+    throw new Error(`Strava deauthorize failed: ${legacy.status} ${text}`);
+  }
+}
+
+/** Browser interstitial before OAuth — Strava cannot force a fresh login itself. */
+export function stravaConnectInterstitialHtml(opts: {
+  continuePath: string;
+  cancelUrl: string;
+}) {
+  const escape = (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  const logout = escape(STRAVA_LOGOUT_URL);
+  const continueHref = escape(opts.continuePath);
+  const cancelHref = escape(opts.cancelUrl);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Connect Strava</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      font: 16px/1.45 "Segoe UI", system-ui, sans-serif;
+      background: #121610; color: #e8efe4; padding: 24px;
+    }
+    main {
+      width: min(28rem, 100%);
+      background: #181d16; border: 1px solid #2c3628; border-radius: 12px;
+      padding: 1.5rem 1.4rem 1.35rem;
+    }
+    .eyebrow {
+      margin: 0 0 0.55rem; font-size: 0.72rem; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #b8c97a;
+    }
+    h1 { margin: 0 0 0.65rem; font-size: 1.35rem; font-weight: 650; }
+    p { margin: 0 0 1rem; color: #93a390; }
+    ol { margin: 0 0 1.25rem; padding-left: 1.2rem; color: #e8efe4; }
+    li { margin: 0.45rem 0; }
+    a { color: #b8c97a; }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; }
+    .button {
+      display: inline-block; padding: 0.55rem 0.95rem; border-radius: 8px;
+      background: #c4783a; color: #121610; text-decoration: none; font-weight: 600;
+    }
+    .muted { color: #93a390; font-size: 0.92rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Strava</p>
+    <h1>Choose which account to connect</h1>
+    <p>
+      Strava keeps you signed in in this browser. If you only hit Authorize,
+      the same account is linked again and your activities reload.
+    </p>
+    <ol>
+      <li>
+        <a href="${logout}" target="_blank" rel="noopener noreferrer">Log out of Strava</a>
+        in a new tab (skip if you already want the account currently signed in).
+      </li>
+      <li>Return here and continue — you’ll get Strava’s sign-in / authorize screen.</li>
+    </ol>
+    <div class="actions">
+      <a class="button" href="${continueHref}">Continue to Strava</a>
+      <a class="muted" href="${cancelHref}">Cancel</a>
+    </div>
+  </main>
+</body>
+</html>`;
 }
 
 export async function exchangeCode(userId: string, code: string) {
@@ -330,13 +456,23 @@ export function activityHasGps(activity: StravaActivitySummary) {
 }
 
 /**
- * Unlink a user's Strava account. Removes the stored connection (tokens,
+ * Unlink a user's Strava account. Revokes access on Strava (so reconnect
+ * requires authorizing again), then removes the stored connection (tokens,
  * athlete, sync state) along with the activities that were synced from Strava,
  * while keeping manually uploaded activities (GPX/FIT/TCX). Clearing the synced
  * activities lets the user link a different Strava account without mixing rides
  * from the previous athlete. Returns the number of synced activities removed.
  */
 export async function disconnectStrava(userId: string): Promise<{ removedActivities: number }> {
+  const tokens = await getTokens(userId);
+  if (tokens) {
+    try {
+      await revokeStravaAuthorization(tokens);
+    } catch {
+      // Still clear local state if Strava revoke fails (already revoked, network, etc.).
+    }
+  }
+
   return withTransaction(async (client) => {
     const removed = await client.query(
       `DELETE FROM activities
