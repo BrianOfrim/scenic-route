@@ -734,9 +734,19 @@ export function MapView({
     mapRef.current?.triggerRepaint();
   }
 
+  const showSchematicEmpty = basemap === "schematic" && (!selectedLatLng || selectedLatLng.length < 2);
+
   return (
     <div className={`map-root${mode !== "browse" ? ` is-annotate-${mode}` : ""}${touchUi ? " is-touch" : ""}`}>
       <div ref={containerRef} className="map" />
+      {showSchematicEmpty && (
+        <div className="map-empty" role="status">
+          <div className="map-empty-copy">
+            <strong>Select a route</strong>
+            <p>Pick an activity to show its schematic.</p>
+          </div>
+        </div>
+      )}
       {labelingEnabled && (
         <div className="map-annotate">
           <div
