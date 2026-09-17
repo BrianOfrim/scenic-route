@@ -1,4 +1,4 @@
-import { batchCosts, formatUsd, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
+import { batchCosts, formatUsd, shortModelLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 
 export type GalleryRunItem = {
@@ -236,7 +236,6 @@ export function runHeadline(
     spec?: { style?: { name?: string } };
     model: string;
     modelName?: string;
-    quality?: string;
     promptCost?: number | null;
     cost?: number | null;
   }>,
@@ -244,9 +243,6 @@ export function runHeadline(
   const newest = posters.reduce((best, item) => (item.createdAt >= best.createdAt ? item : best));
   const styles = unique(posters.map((item) => styleLabel(item.styleId, item.spec?.style?.name)));
   const models = unique(posters.map((item) => shortModelLabel(item.model, item.modelName)));
-  const qualities = unique(
-    posters.map((item) => shortQualityLabel(item.quality)).filter((item): item is string => Boolean(item)),
-  );
   const total = batchCosts(posters).total;
   return {
     title: newest.title,
@@ -254,7 +250,6 @@ export function runHeadline(
     detail: [
       summarizeLabels(styles, 3, "theme"),
       summarizeLabels(models, 2, "model"),
-      qualities.length > 1 ? summarizeLabels(qualities, 4, "quality") : null,
       posters.length > 1 ? `${posters.length} posters` : null,
       total != null ? formatUsd(total) : null,
     ]

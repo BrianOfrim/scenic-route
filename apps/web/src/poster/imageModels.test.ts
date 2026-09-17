@@ -103,8 +103,8 @@ test("uiImageModelsFromCapabilities keeps only sunburst and muse in UI order", (
   assert.deepEqual(
     models.map((item) => ({ id: item.id, qualities: item.qualities })),
     [
-      { id: GPT_IMAGE_SUNBURST, qualities: ["auto"] },
-      { id: META_MUSE_IMAGE, qualities: ["auto"] },
+      { id: GPT_IMAGE_SUNBURST, qualities: [] },
+      { id: META_MUSE_IMAGE, qualities: [] },
     ],
   );
   assert.equal(models[1].name, "Muse Image");

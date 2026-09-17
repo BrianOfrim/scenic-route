@@ -217,7 +217,6 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
   const count = variantCount(body.variants, await maxImageOutputs(model));
   const batchId = sanitizeBatchId(body.batchId) ?? (count > 1 ? newBatchId() : undefined);
   const aspectRatio = (body.aspectRatio || spec.composition.aspectRatio || "2:3").trim();
-  const quality = normalizeImageQuality(body.quality) ?? undefined;
   const incoming = dataUrls(body.references);
   if (!incoming.length) throw new PosterError("at least one grounding image is required");
 
@@ -235,7 +234,6 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
     references,
     model,
     n: count,
-    quality,
     label: body.label ?? "generate",
     user: userId,
   });
@@ -264,7 +262,6 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
         modelName,
         batchId,
         aspectRatio,
-        quality,
         cost: image.cost,
         promptCost: finiteCost(body.promptCost),
         durationMs: image.durationMs,
