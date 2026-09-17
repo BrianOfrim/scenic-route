@@ -513,6 +513,37 @@ textarea {
   inset: 0;
 }
 
+.map-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  padding: 24px;
+  text-align: center;
+}
+
+.map-empty-copy {
+  max-width: 280px;
+}
+
+.map-empty-copy strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #2a241a;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.map-empty-copy p {
+  margin: 0;
+  color: #5a4e38;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .map-schematic {
   position: absolute;
   inset: 0;
