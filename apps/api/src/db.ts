@@ -209,7 +209,7 @@ async function migrate(client: SqlClient) {
       expires_at INTEGER NOT NULL,
       athlete_id BIGINT,
       athlete JSONB,
-      sync_state JSONB NOT NULL DEFAULT '{}'::jsonb
+      sync_state JSONB NOT NULL DEFAULT '{"listComplete":false,"listPage":1}'::jsonb
     );
   `);
 
