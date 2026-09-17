@@ -10,6 +10,18 @@ test("assignTrailColors cycles distinct named swatches", () => {
   assert.match(colored[0].color, /^#/);
 });
 
+test("assignTrailColors supports sixteen distinct swatches before wrapping", () => {
+  const trails = Array.from({ length: 16 }, (_, i) => ({ name: `Trail ${i}` }));
+  const colored = assignTrailColors(trails);
+  const names = new Set(colored.map((trail) => trail.colorName));
+  const hexes = new Set(colored.map((trail) => trail.color));
+  assert.equal(names.size, 16);
+  assert.equal(hexes.size, 16);
+  assert.equal(colored[8].colorName, "yellow");
+  assert.equal(colored[15].colorName, "plum");
+  assert.equal(assignTrailColors([...trails, { name: "wrap" }])[16].colorName, "teal");
+});
+
 test("routeVertexColors paints only the GPS stretch that follows a trail", () => {
   const route: [number, number][] = [
     [53.0, -113.0],

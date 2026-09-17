@@ -1,3 +1,5 @@
+import { TRAIL_COLOR_NAMES } from "./trailColors";
+
 export type PosterSpecStyle = {
   name: string;
   medium: string;
@@ -370,11 +372,16 @@ function keepAsPosterInstruction(text: string) {
   return !INDEX_AS_ART.test(text);
 }
 
+const TRAIL_STRETCH_SCRUB = new RegExp(
+  `\\b(${TRAIL_COLOR_NAMES.join("|")})\\s+stretch of the GPS track[,;]?\\s*`,
+  "gi",
+);
+
 function scrubIndexLanguage(text: string) {
   return text
     .replace(/Numbered[^.!?\n]*discs mark landmarks\.?/gi, "")
     .replace(/Landmarks are represented solely by numbered[^.!?\n]*\.?/gi, "")
-    .replace(/\b(teal|amber|violet|sky|magenta|olive|coral|indigo)\s+stretch of the GPS track[,;]?\s*/gi, "")
+    .replace(TRAIL_STRETCH_SCRUB, "")
     .replace(/\s{2,}/g, " ")
     .replace(/\s+\./g, ".")
     .trim();
@@ -550,7 +557,7 @@ function trailColorKey(items: PosterSpecGeography[]) {
     })
     .filter(Boolean);
   if (!map.length) return "";
-  return ` Colored stretches of the GPS track are a private trail index, like the numbered discs. Red is unnamed track. Named and unnamed stretches are the same line weight. Look up each color, write that trail name along that stretch, then discard the color. Paint the entire GPS track as one continuous line in the poster route color, same thickness throughout. Never keep the schematic's red, teal, amber, violet, or any other index color. Do not draw a color key. ${map.join("; ")}.`;
+  return ` Colored stretches of the GPS track are a private trail index, like the numbered discs. Red is unnamed track. Named and unnamed stretches are the same line weight. Look up each color, write that trail name along that stretch, then discard the color. Paint the entire GPS track as one continuous line in the poster route color, same thickness throughout. Never keep the schematic's red or any other index color. Do not draw a color key. ${map.join("; ")}.`;
 }
 
 function posterTrailTreatment() {
