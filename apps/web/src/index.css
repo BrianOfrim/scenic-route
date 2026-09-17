@@ -40,6 +40,11 @@ a {
   min-height: 0;
 }
 
+/* Beat .app { display: flex } so parked workspace stays mounted under gallery. */
+.app[hidden] {
+  display: none !important;
+}
+
 .top {
   display: flex;
   justify-content: space-between;

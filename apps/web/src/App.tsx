@@ -457,178 +457,189 @@ export function App() {
       go("/gallery");
       return;
     }
-    if (path.startsWith("/gallery")) go("/");
+    if (path.startsWith("/gallery")) {
+      go("/");
+      // Workspace was display:none under gallery; nudge the map to reflow.
+      setViewNonce((value) => value + 1);
+    }
     if (isMobile) {
       if (tab === "map" && activityReadyForPoster(selectedId)) {
-        openPosterOnMobile();
+        // Keep an in-progress editor mounted as-is when returning from gallery.
+        if (posterOpen) openMobilePane("map");
+        else openPosterOnMobile();
       } else {
         openMobilePane(tab);
       }
     }
   };
 
-  if (path.startsWith("/gallery")) {
-    return (
-      <Gallery
-        account={profileMenu}
-        tabs={<AppTabs active="gallery" isMobile={isMobile} onSelect={selectTab} />}
-        onEditSetup={(poster) => {
-          setSelectedId(poster.activityId);
-          setRefineFrom(poster);
-          openPosterOnMobile();
-          go("/");
-        }}
-      />
-    );
-  }
-
+  const showGallery = path.startsWith("/gallery");
   const basemapSelect = <BasemapControl value={basemap} onChange={setBasemap} />;
 
   return (
-    <div className={`app${isMobile ? " is-mobile" : ""}`}>
-      <header className="top">
-        <div>
-          <div className="brand-lockup">
-            <img className="brand-mark" src="/logo/sr-path-sage.svg" alt="" width={40} height={40} />
-            <div>
-              <p className="brand">Scenic Route</p>
-              <h1>Route posters</h1>
+    <>
+      {/* Stay mounted under gallery so mobile generate/edit state survives tab switches. */}
+      <div
+        className={`app${isMobile ? " is-mobile" : ""}`}
+        hidden={showGallery}
+        aria-hidden={showGallery}
+      >
+        <header className="top">
+          <div>
+            <div className="brand-lockup">
+              <img className="brand-mark" src="/logo/sr-path-sage.svg" alt="" width={40} height={40} />
+              <div>
+                <p className="brand">Scenic Route</p>
+                <h1>Route posters</h1>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="top-actions">
-          {!isMobile && error && (
-            <p className="error banner">
-              {error}
-              <button type="button" className="text-btn" onClick={() => setError(null)}>
-                dismiss
-              </button>
-            </p>
-          )}
-          {profileMenu}
-        </div>
-      </header>
-      {isMobile && error && (
-        <p className="error banner app-error">
-          {error}
-          <button type="button" className="text-btn" onClick={() => setError(null)}>
-            dismiss
-          </button>
-        </p>
-      )}
-      <div
-        className={`workspace ${posterOpen ? "with-poster" : ""}`}
-        data-mobile-pane={isMobile ? mobilePane : undefined}
-        data-poster-sheet={isMobile && posterOpen ? posterSheet : undefined}
-        style={
-          isMobile && posterOpen && mobilePane === "map"
-            ? ({ "--poster-sheet-h": posterSheetOffset } as CSSProperties)
-            : undefined
-        }
-      >
-        <ActivityList
-          status={status}
-          activities={activities}
-          selectedId={selectedId}
-          busy={busy}
-          importing={importing}
-          onSelect={(id) => {
-            const activity = activities.find((item) => item.id === id);
-            setSelectedId(id);
-            setRefineFrom(null);
-            if (activity?.hasGps && activity.streamsSynced) {
-              openPosterOnMobile();
-            } else {
-              setPosterOpen(false);
-              setRouteOnly(true);
-              setCropLatLng(null);
-              setCropStops([]);
-              setPois([]);
-              setNamedWays([]);
-              setNamedAreas([]);
-              setMapHighlight(null);
-              setWays(null);
-              setSchematicLayers(null);
-            }
-          }}
-          onSync={() => {
-            void handleSync();
-          }}
-          onDisconnect={() => {
-            void handleDisconnect();
-          }}
-          onImport={(files) => {
-            void handleImport(files);
-          }}
-          onRemove={(ids) => handleRemove(ids)}
-        />
-        <main className="stage">
-          {basemapSelect}
-          <MapView
-            selectedLatLng={selectedLatLng}
-            cropLatLng={posterOpen ? cropLatLng : null}
-            cropStops={posterOpen ? cropStops : []}
-            pois={posterOpen ? pois : EMPTY_POIS}
-            namedWays={posterOpen ? namedWays : EMPTY_WAYS}
-            namedAreas={posterOpen ? namedAreas : EMPTY_AREAS}
-            ways={posterOpen ? ways : null}
-            schematicLayers={posterOpen ? schematicLayers : null}
-            basemap={basemap}
-            viewNonce={viewNonce}
-            labelingEnabled={posterOpen && !routeOnly}
-            highlight={posterOpen ? mapHighlight : null}
-            touchUi={isMobile}
-            fitPaddingBottom={
-              isMobile && posterOpen && mobilePane === "map" ? posterSheetHeightPx : 0
-            }
-            onRemovePoi={(name) => setDismissPoi({ name, nonce: Date.now() })}
-            onRemoveArea={(name) => setDismissArea({ name, nonce: Date.now() })}
-            onRemoveTrail={(name) => setDismissTrail({ name, nonce: Date.now() })}
-            onNeedSchematic={() => setBasemap("schematic")}
-            onPlaceLandmark={(draft) => setPlaceLandmark({ ...draft, nonce: Date.now() })}
-            onMoveLandmark={(draft) => setMoveLandmark({ ...draft, nonce: Date.now() })}
-            onPlaceSection={(draft) => setPlaceSection({ ...draft, nonce: Date.now() })}
-            onRenameTrail={(draft) => setRenameTrail({ name: draft.from, next: draft.name, nonce: Date.now() })}
-          />
-        </main>
-        {posterOpen && selectedId != null ? (
-          <PosterPanel
-            activityId={selectedId}
-            features={features}
-            refineFrom={refineFrom}
-            touchUi={isMobile}
-            sheetSnap={isMobile ? posterSheet : null}
-            onSheetSnapChange={isMobile ? setPosterSheetSnap : undefined}
-            onSheetHeightChange={isMobile ? onPosterSheetHeight : undefined}
-            onClose={closePoster}
-            onCropChange={setCropLatLng}
-            onStopsChange={setCropStops}
-            onPoisChange={setPois}
-            onNamedWaysChange={setNamedWays}
-            onNamedAreasChange={setNamedAreas}
-            onHighlightChange={setMapHighlight}
-            onWaysChange={setWays}
-            onSchematicLayersChange={setSchematicLayers}
-            onRouteOnlyChange={setRouteOnly}
-            onGenerated={() => {
-              closePoster();
-              go("/gallery");
+          <div className="top-actions">
+            {!isMobile && error && (
+              <p className="error banner">
+                {error}
+                <button type="button" className="text-btn" onClick={() => setError(null)}>
+                  dismiss
+                </button>
+              </p>
+            )}
+            {profileMenu}
+          </div>
+        </header>
+        {isMobile && error && (
+          <p className="error banner app-error">
+            {error}
+            <button type="button" className="text-btn" onClick={() => setError(null)}>
+              dismiss
+            </button>
+          </p>
+        )}
+        <div
+          className={`workspace ${posterOpen ? "with-poster" : ""}`}
+          data-mobile-pane={isMobile ? mobilePane : undefined}
+          data-poster-sheet={isMobile && posterOpen ? posterSheet : undefined}
+          style={
+            isMobile && posterOpen && mobilePane === "map"
+              ? ({ "--poster-sheet-h": posterSheetOffset } as CSSProperties)
+              : undefined
+          }
+        >
+          <ActivityList
+            status={status}
+            activities={activities}
+            selectedId={selectedId}
+            busy={busy}
+            importing={importing}
+            onSelect={(id) => {
+              const activity = activities.find((item) => item.id === id);
+              setSelectedId(id);
+              setRefineFrom(null);
+              if (activity?.hasGps && activity.streamsSynced) {
+                openPosterOnMobile();
+              } else {
+                setPosterOpen(false);
+                setRouteOnly(true);
+                setCropLatLng(null);
+                setCropStops([]);
+                setPois([]);
+                setNamedWays([]);
+                setNamedAreas([]);
+                setMapHighlight(null);
+                setWays(null);
+                setSchematicLayers(null);
+              }
             }}
-            dismissPoi={dismissPoi}
-            dismissArea={dismissArea}
-            dismissTrail={dismissTrail}
-            placeLandmark={placeLandmark}
-            moveLandmark={moveLandmark}
-            placeSection={placeSection}
-            renameTrail={renameTrail}
+            onSync={() => {
+              void handleSync();
+            }}
+            onDisconnect={() => {
+              void handleDisconnect();
+            }}
+            onImport={(files) => {
+              void handleImport(files);
+            }}
+            onRemove={(ids) => handleRemove(ids)}
           />
-        ) : null}
+          <main className="stage">
+            {basemapSelect}
+            <MapView
+              selectedLatLng={selectedLatLng}
+              cropLatLng={posterOpen ? cropLatLng : null}
+              cropStops={posterOpen ? cropStops : []}
+              pois={posterOpen ? pois : EMPTY_POIS}
+              namedWays={posterOpen ? namedWays : EMPTY_WAYS}
+              namedAreas={posterOpen ? namedAreas : EMPTY_AREAS}
+              ways={posterOpen ? ways : null}
+              schematicLayers={posterOpen ? schematicLayers : null}
+              basemap={basemap}
+              viewNonce={viewNonce}
+              labelingEnabled={posterOpen && !routeOnly}
+              highlight={posterOpen ? mapHighlight : null}
+              touchUi={isMobile}
+              fitPaddingBottom={
+                isMobile && posterOpen && mobilePane === "map" ? posterSheetHeightPx : 0
+              }
+              onRemovePoi={(name) => setDismissPoi({ name, nonce: Date.now() })}
+              onRemoveArea={(name) => setDismissArea({ name, nonce: Date.now() })}
+              onRemoveTrail={(name) => setDismissTrail({ name, nonce: Date.now() })}
+              onNeedSchematic={() => setBasemap("schematic")}
+              onPlaceLandmark={(draft) => setPlaceLandmark({ ...draft, nonce: Date.now() })}
+              onMoveLandmark={(draft) => setMoveLandmark({ ...draft, nonce: Date.now() })}
+              onPlaceSection={(draft) => setPlaceSection({ ...draft, nonce: Date.now() })}
+              onRenameTrail={(draft) => setRenameTrail({ name: draft.from, next: draft.name, nonce: Date.now() })}
+            />
+          </main>
+          {posterOpen && selectedId != null ? (
+            <PosterPanel
+              activityId={selectedId}
+              features={features}
+              refineFrom={refineFrom}
+              touchUi={isMobile}
+              sheetSnap={isMobile ? posterSheet : null}
+              onSheetSnapChange={isMobile ? setPosterSheetSnap : undefined}
+              onSheetHeightChange={isMobile ? onPosterSheetHeight : undefined}
+              onClose={closePoster}
+              onCropChange={setCropLatLng}
+              onStopsChange={setCropStops}
+              onPoisChange={setPois}
+              onNamedWaysChange={setNamedWays}
+              onNamedAreasChange={setNamedAreas}
+              onHighlightChange={setMapHighlight}
+              onWaysChange={setWays}
+              onSchematicLayersChange={setSchematicLayers}
+              onRouteOnlyChange={setRouteOnly}
+              onGenerated={() => {
+                closePoster();
+                go("/gallery");
+              }}
+              dismissPoi={dismissPoi}
+              dismissArea={dismissArea}
+              dismissTrail={dismissTrail}
+              placeLandmark={placeLandmark}
+              moveLandmark={moveLandmark}
+              placeSection={placeSection}
+              renameTrail={renameTrail}
+            />
+          ) : null}
+        </div>
+        <AppTabs
+          active={isMobile ? mobilePane : "map"}
+          isMobile={isMobile}
+          onSelect={selectTab}
+        />
       </div>
-      <AppTabs
-        active={isMobile ? mobilePane : "map"}
-        isMobile={isMobile}
-        onSelect={selectTab}
-      />
-    </div>
+      {showGallery ? (
+        <Gallery
+          account={profileMenu}
+          tabs={<AppTabs active="gallery" isMobile={isMobile} onSelect={selectTab} />}
+          onEditSetup={(poster) => {
+            setSelectedId(poster.activityId);
+            setRefineFrom(poster);
+            openPosterOnMobile();
+            go("/");
+          }}
+        />
+      ) : null}
+    </>
   );
 }
