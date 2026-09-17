@@ -1,4 +1,8 @@
-/** Distinct from route red, road grey, water blue, and forest green. Bright enough to match the unnamed track. */
+/**
+ * Private trail index swatches. Keep names common (models match words to pixels)
+ * and hues/values far from each other and from route red, road grey, water blue,
+ * forest green, and region ochre. Sync with apps/api/src/trailColors.ts.
+ */
 export const TRAIL_SWATCHES = [
   { name: "teal", hex: "#0d9488" },
   { name: "amber", hex: "#d97706" },
@@ -8,6 +12,14 @@ export const TRAIL_SWATCHES = [
   { name: "olive", hex: "#65a30d" },
   { name: "coral", hex: "#ea580c" },
   { name: "indigo", hex: "#4f46e5" },
+  { name: "yellow", hex: "#eab308" },
+  { name: "lime", hex: "#84cc16" },
+  { name: "cyan", hex: "#06b6d4" },
+  { name: "rose", hex: "#e11d48" },
+  { name: "brown", hex: "#9a3412" },
+  { name: "navy", hex: "#1e3a8a" },
+  { name: "pink", hex: "#db2777" },
+  { name: "plum", hex: "#6b21a8" },
 ] as const;
 
 export const ON_NAMED_TRAIL_M = 100;
