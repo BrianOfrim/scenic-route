@@ -100,7 +100,9 @@ export function jsonResponseFormat(schemaName: string | undefined, schema: unkno
 export function isSchemaRejection(status: number, payload: unknown): boolean {
   if (status !== 400 && status !== 404 && status !== 422) return false;
   const message = errorMessage(payload, "").toLowerCase();
-  return /response_format|json_schema|structured output|schema/.test(message);
+  return /response_format|json_schema|structured output|schema|missing '|'required' is required/i.test(
+    message,
+  );
 }
 
 /** Stable non-PII end-user id for OpenRouter abuse isolation and analytics. */
@@ -480,10 +482,40 @@ async function readJson(response: Response): Promise<unknown> {
 function errorMessage(parsed: unknown, fallback: string) {
   const record = asRecord(parsed);
   if (!record) return fallback;
-  if (typeof record.error === "string") return record.error;
   const nested = asRecord(record.error);
-  if (nested && typeof nested.message === "string") return nested.message;
-  return fallback;
+  const rawNested = nested ? asRecord(nested.metadata) : null;
+  const providerRaw = typeof rawNested?.raw === "string" ? rawNested.raw : "";
+  let providerMessage = "";
+  if (providerRaw) {
+    try {
+      const inner = asRecord(JSON.parse(providerRaw));
+      const innerError = asRecord(inner?.error);
+      if (typeof innerError?.message === "string") providerMessage = innerError.message;
+      else if (typeof inner?.message === "string") providerMessage = inner.message;
+    } catch {
+      providerMessage = providerRaw;
+    }
+  }
+  const top =
+    typeof record.error === "string"
+      ? record.error
+      : typeof nested?.message === "string"
+        ? nested.message
+        : fallback;
+  // Prefer the provider's concrete message when OpenRouter wraps it as "Provider returned error".
+  const preferred =
+    providerMessage && /^provider returned error$/i.test(top) ? providerMessage : providerMessage || top;
+  return clarifyOpenRouterError(preferred || fallback);
+}
+
+/** Rewrite opaque OpenRouter provider errors into actionable app messages. */
+export function clarifyOpenRouterError(message: string) {
+  const text = message.trim();
+  if (!text) return message;
+  if (/paid model training|guardrail restrictions and data policy|data policy/i.test(text)) {
+    return "OpenRouter blocked this model under your privacy / data-policy settings. Allow the model at https://openrouter.ai/settings/privacy, or set OPENROUTER_MODEL in .env.local to a model your policy allows (for example anthropic/claude-sonnet-4), then restart the API.";
+  }
+  return text;
 }
 
 function usageCost(record: Record<string, unknown> | null): number | null {
