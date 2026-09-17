@@ -38,6 +38,11 @@ const COSTUME_CLICHE: Record<string, RegExp> = {
   linocut: /vermilion|iron-black/i,
 };
 
+test("default poster style is Risograph", () => {
+  assert.equal(DEFAULT_POSTER_STYLE.id, "risograph");
+  assert.equal(DEFAULT_POSTER_STYLE.label, "Risograph");
+});
+
 test("styleById returns the matching preset", () => {
   assert.equal(styleById("blueprint").label, "Blueprint");
   assert.equal(styleById("linen-postcard").label, "Linen postcard");

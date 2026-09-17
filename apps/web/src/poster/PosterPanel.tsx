@@ -639,17 +639,17 @@ export function PosterPanel({
   const [styleIds, setStyleIds] = useState<string[]>(() => {
     if (seeded?.styleIds?.length) return seeded.styleIds;
     if (refineFrom) return [styleIdFromRecord(refineFrom)];
-    return [];
+    return [DEFAULT_POSTER_STYLE.id];
   });
   const [stylePrompt, setStylePrompt] = useState(seeded?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
   const [paletteIdsByStyle, setPaletteIdsByStyle] = useState<Record<string, string[]>>(
     () => seeded?.paletteIdsByStyle ?? {},
   );
   const [activeStyleId, setActiveStyleId] = useState(
-    () => seeded?.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : ""),
+    () => seeded?.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : DEFAULT_POSTER_STYLE.id),
   );
   const [activePlanKey, setActivePlanKey] = useState(() => {
-    const id = seeded?.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : "");
+    const id = seeded?.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : DEFAULT_POSTER_STYLE.id);
     if (!id) return "";
     const paletteId = seeded?.paletteIdsByStyle?.[id]?.[0] ?? AUTO_PALETTE_ID;
     return planSlotKey(id, paletteId);
