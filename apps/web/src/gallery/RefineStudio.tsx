@@ -13,7 +13,6 @@ type Props = {
 function versionLabel(item: PosterRecord, originalId?: string) {
   if (item.refineNotes?.trim()) return item.refineNotes.trim();
   if (originalId && item.posterId === originalId) return "Original";
-  if (item.previousPosterId) return "Refinement";
   return item.title;
 }
 

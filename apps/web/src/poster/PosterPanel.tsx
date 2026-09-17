@@ -1424,7 +1424,11 @@ export function PosterPanel({
       const layers = await buildGrounding();
       const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
       setSentRefs(packed.map((item) => ({ role: item.role, legend: item.legend, dataUrl: item.dataUrl })));
-      const batchId = crypto.randomUUID();
+      // Edit-setup regenerations share the source batch so they stay in the same gallery
+      // row, but omit previousPosterId so they do not stack like image refinements.
+      const batchId = refineFrom
+        ? refineFrom.batchId || refineFrom.posterId
+        : crypto.randomUUID();
       setGenerateProgress({ done: 0, total: jobs.length });
       const startedAt = Date.now();
       setModelRuns(
@@ -1446,7 +1450,6 @@ export function PosterPanel({
               activityId,
               spec: job.spec,
               references: packed.map((item) => item.dataUrl),
-              previousPosterId: refineFrom?.posterId,
               featureIds,
               labels: posterPois.map((poi) => poi.name),
               stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),

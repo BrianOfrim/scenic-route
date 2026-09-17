@@ -12,7 +12,13 @@ import {
 
 function item(
   posterId: string,
-  overrides: { batchId?: string; createdAt?: string; title?: string; previousPosterId?: string } = {},
+  overrides: {
+    batchId?: string;
+    createdAt?: string;
+    title?: string;
+    previousPosterId?: string;
+    refineNotes?: string;
+  } = {},
 ) {
   return {
     posterId,
@@ -124,8 +130,16 @@ test("favourites-only view keeps starred posters and regroups leftover singles",
 test("lineageFamily walks refinements back to the original", () => {
   const posters = [
     item("orig", { createdAt: "2026-09-08T12:00:00Z" }),
-    item("r2", { createdAt: "2026-09-09T13:00:00Z", previousPosterId: "r1" }),
-    item("r1", { createdAt: "2026-09-09T12:00:00Z", previousPosterId: "orig" }),
+    item("r2", {
+      createdAt: "2026-09-09T13:00:00Z",
+      previousPosterId: "r1",
+      refineNotes: "bolder type",
+    }),
+    item("r1", {
+      createdAt: "2026-09-09T12:00:00Z",
+      previousPosterId: "orig",
+      refineNotes: "warmer sky",
+    }),
   ];
   assert.equal(lineageRoot(posters, "r2")?.posterId, "orig");
   assert.deepEqual(
@@ -158,7 +172,11 @@ test("viewerSiblings keeps batch order regardless of which poster is active", ()
 test("galleryRuns puts refinements in the same row as the original", () => {
   const runs = galleryRuns([
     item("later", { createdAt: "2026-09-10T10:00:00Z" }),
-    item("r1", { createdAt: "2026-09-09T12:00:00Z", previousPosterId: "orig" }),
+    item("r1", {
+      createdAt: "2026-09-09T12:00:00Z",
+      previousPosterId: "orig",
+      refineNotes: "warmer sky",
+    }),
     item("orig", { createdAt: "2026-09-08T12:00:00Z" }),
   ]);
   assert.deepEqual(
@@ -171,8 +189,18 @@ test("galleryRuns attaches a refinement batch to the parent generate run", () =>
   const runs = galleryRuns([
     item("a1", { batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
     item("a2", { batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
-    item("r1", { batchId: "ref", createdAt: "2026-09-09T12:00:00Z", previousPosterId: "a1" }),
-    item("r2", { batchId: "ref", createdAt: "2026-09-09T12:01:00Z", previousPosterId: "a1" }),
+    item("r1", {
+      batchId: "ref",
+      createdAt: "2026-09-09T12:00:00Z",
+      previousPosterId: "a1",
+      refineNotes: "warmer sky",
+    }),
+    item("r2", {
+      batchId: "ref",
+      createdAt: "2026-09-09T12:01:00Z",
+      previousPosterId: "a1",
+      refineNotes: "warmer sky",
+    }),
   ]);
   assert.equal(runs.length, 1);
   assert.deepEqual(
@@ -186,8 +214,18 @@ test("latestInLineage keeps the newest version in the original's slot", () => {
     latestInLineage([
       item("a1", { batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
       item("a2", { batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
-      item("r1", { batchId: "ref", createdAt: "2026-09-09T12:00:00Z", previousPosterId: "a1" }),
-      item("r2", { batchId: "ref", createdAt: "2026-09-09T12:01:00Z", previousPosterId: "r1" }),
+      item("r1", {
+        batchId: "ref",
+        createdAt: "2026-09-09T12:00:00Z",
+        previousPosterId: "a1",
+        refineNotes: "warmer sky",
+      }),
+      item("r2", {
+        batchId: "ref",
+        createdAt: "2026-09-09T12:01:00Z",
+        previousPosterId: "r1",
+        refineNotes: "bolder type",
+      }),
     ]).map((poster) => poster.posterId),
     ["r2", "a2"],
   );
@@ -199,8 +237,18 @@ test("gallerySections shows only the latest version from each lineage", () => {
       item("later", { createdAt: "2026-09-10T10:00:00Z" }),
       item("a1", { batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
       item("a2", { batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
-      item("r1", { batchId: "ref", createdAt: "2026-09-09T12:00:00Z", previousPosterId: "a1" }),
-      item("r2", { batchId: "ref", createdAt: "2026-09-09T12:01:00Z", previousPosterId: "r1" }),
+      item("r1", {
+        batchId: "ref",
+        createdAt: "2026-09-09T12:00:00Z",
+        previousPosterId: "a1",
+        refineNotes: "warmer sky",
+      }),
+      item("r2", {
+        batchId: "ref",
+        createdAt: "2026-09-09T12:01:00Z",
+        previousPosterId: "r1",
+        refineNotes: "bolder type",
+      }),
     ]),
   );
 
@@ -222,7 +270,11 @@ test("gallerySections shows only the latest version from each lineage", () => {
 test("gallerySections packs a refined singleton into the grid", () => {
   const sections = gallerySections(
     galleryRuns([
-      item("r1", { createdAt: "2026-09-09T12:00:00Z", previousPosterId: "orig" }),
+      item("r1", {
+        createdAt: "2026-09-09T12:00:00Z",
+        previousPosterId: "orig",
+        refineNotes: "warmer sky",
+      }),
       item("orig", { createdAt: "2026-09-08T12:00:00Z" }),
       item("solo", { createdAt: "2026-09-07T10:00:00Z" }),
     ]),
@@ -234,6 +286,39 @@ test("gallerySections packs a refined singleton into the grid", () => {
   assert.deepEqual(
     sections[0].posters.map((poster) => poster.posterId),
     ["r1", "solo"],
+  );
+});
+
+test("edit-setup regenerations share a batch without stacking", () => {
+  const posters = [
+    item("a1", { batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
+    item("a2", { batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
+    // Historical edit-setup: previousPosterId set, no refineNotes
+    item("setup", {
+      batchId: "gen",
+      createdAt: "2026-09-09T12:00:00Z",
+      previousPosterId: "a1",
+    }),
+    // Forward edit-setup: shared batchId only
+    item("setup2", { batchId: "gen", createdAt: "2026-09-09T12:01:00Z" }),
+  ];
+
+  assert.deepEqual(
+    lineageFamily(posters, "setup").map((poster) => poster.posterId),
+    ["setup"],
+  );
+  assert.deepEqual(
+    lineageFamily(posters, "a1").map((poster) => poster.posterId),
+    ["a1"],
+  );
+
+  const sections = gallerySections(galleryRuns(posters));
+  assert.equal(sections.length, 1);
+  assert.equal(sections[0]?.kind, "run");
+  if (sections[0]?.kind !== "run") throw new Error("expected run");
+  assert.deepEqual(
+    sections[0].run.posters.map((poster) => poster.posterId),
+    ["a1", "a2", "setup", "setup2"],
   );
 });
 

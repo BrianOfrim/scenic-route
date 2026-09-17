@@ -6,22 +6,34 @@ export type GalleryRunItem = {
   batchId?: string;
   createdAt: string;
   previousPosterId?: string;
+  refineNotes?: string;
 };
 
 export type LineageItem = {
   posterId: string;
   previousPosterId?: string;
+  refineNotes?: string;
   createdAt: string;
 };
 
-/** Walk previousPosterId to the oldest saved ancestor. */
+/** True image refine (modify); edit-setup regenerations are not stackable lineage. */
+function isImageRefine<T extends LineageItem>(item: T) {
+  return Boolean(item.previousPosterId && item.refineNotes?.trim());
+}
+
+/** Walk refine previousPosterId links to the oldest saved ancestor. */
 export function lineageRoot<T extends LineageItem>(posters: T[], startId: string): T | undefined {
   const byId = new Map(posters.map((item) => [item.posterId, item]));
   const start = byId.get(startId);
   if (!start) return undefined;
   const seen = new Set<string>();
   let current = start;
-  while (current.previousPosterId && byId.has(current.previousPosterId) && !seen.has(current.posterId)) {
+  while (
+    isImageRefine(current) &&
+    current.previousPosterId &&
+    byId.has(current.previousPosterId) &&
+    !seen.has(current.posterId)
+  ) {
     seen.add(current.posterId);
     current = byId.get(current.previousPosterId)!;
   }
@@ -62,7 +74,12 @@ export function lineageFamily<T extends LineageItem>(posters: T[], startId: stri
     added.add(current.posterId);
     family.push(current);
     const children = posters
-      .filter((item) => item.previousPosterId === current.posterId && !added.has(item.posterId))
+      .filter(
+        (item) =>
+          isImageRefine(item) &&
+          item.previousPosterId === current.posterId &&
+          !added.has(item.posterId),
+      )
       .sort(byCreatedThenId);
     queue.push(...children);
   }
