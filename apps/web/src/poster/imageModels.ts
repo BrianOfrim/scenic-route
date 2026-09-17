@@ -40,16 +40,13 @@ export function uiImageModelsFromCapabilities(models: ModelOptionLike[]): ModelO
   const byId = new Map(models.map((model) => [model.id, model]));
   return UI_IMAGE_MODEL_IDS.map((id) => {
     const found = byId.get(id);
-    if (found) {
-      // Both curated models run in auto only — no quality ladder in the UI.
-      return { ...found, qualities: ["auto"] };
-    }
+    if (found) return { ...found, qualities: [] };
     return {
       id,
       name: id === META_MUSE_IMAGE ? "Muse Image" : id,
       maxReferences: 3,
       maxImages: 1,
-      qualities: ["auto"],
+      qualities: [],
     };
   });
 }

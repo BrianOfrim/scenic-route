@@ -50,22 +50,18 @@ import { assignTrailColors } from "./trailColors";
 import { SpecEditor } from "./SpecEditor";
 import {
   DEFAULT_IMAGE_MODEL_ID,
-  DEFAULT_IMAGE_QUALITY,
   formatBatchCost,
   formatCostBreakdown,
   formatDurationMs,
   minMaxReferences,
   posterVariantLabel,
-  qualitiesForModel,
   readStoredImageModels,
   resolveUiImageModelIds,
   shortModelLabel,
-  shortQualityLabel,
   sumCosts,
   uiImageModelsFromCapabilities,
   variantCount,
   writeStoredImageModels,
-  type ImageQuality,
 } from "./imageModels";
 
 import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
@@ -93,7 +89,6 @@ type GenerationRun = {
   paletteId: string;
   styleLabel: string;
   model: string;
-  quality?: string | null;
   label: string;
   startedAt: number;
   finishedAt?: number;
@@ -703,7 +698,6 @@ export function PosterPanel({
   const [maxRefs, setMaxRefs] = useState(3);
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
   const [imageModelIds, setImageModelIds] = useState<string[]>(() => resolveUiImageModelIds(readStoredImageModels()));
-  const qualities: ImageQuality[] = [DEFAULT_IMAGE_QUALITY];
   const [workflowStep, setWorkflowStep] = useState<PosterWorkflowStep>("crop");
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() => (refineFrom ? "customize" : "launch"));
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
@@ -1414,20 +1408,16 @@ export function PosterPanel({
         })
     ).flatMap((slot) => {
       const style = styleById(slot.styleId);
-      return activeImageModelIds.flatMap((model) => {
-        const modelInfo = imageModels.find((item) => item.id === model);
-        return qualitiesForModel(modelInfo, qualities).map((quality) => ({
-          key: `${slot.key}\0${model}\0${quality ?? ""}`,
-          styleId: slot.styleId,
-          paletteId: slot.paletteId,
-          style,
-          spec: slot.spec,
-          model,
-          quality,
-          slotKey: slot.key,
-          promptCost: slot.cost ?? planCosts[slot.key] ?? null,
-        }));
-      });
+      return activeImageModelIds.map((model) => ({
+        key: `${slot.key}\0${model}`,
+        styleId: slot.styleId,
+        paletteId: slot.paletteId,
+        style,
+        spec: slot.spec,
+        model,
+        slotKey: slot.key,
+        promptCost: slot.cost ?? planCosts[slot.key] ?? null,
+      }));
     });
     if (!jobs.length) return;
     setGenerating(true);
@@ -1446,7 +1436,6 @@ export function PosterPanel({
           paletteId: job.paletteId,
           styleLabel: planSlotLabel(job.styleId, job.paletteId),
           model: job.model,
-          quality: job.quality,
           label: shortModelLabel(job.model, imageModels.find((item) => item.id === job.model)?.name),
           startedAt,
           promptCost: job.promptCost,
@@ -1472,7 +1461,6 @@ export function PosterPanel({
               aspectRatio,
               batchId,
               model: job.model,
-              quality: job.quality ?? undefined,
               variants,
               promptCost: job.promptCost,
               editor: captureEditorSnapshot({
@@ -1499,7 +1487,6 @@ export function PosterPanel({
                 paletteIdsByStyle,
                 imageModelIds: activeImageModelIds,
                 variants,
-                qualities,
                 specs: plannedSlots?.length
                   ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.spec]))
                   : specs,
@@ -1520,7 +1507,6 @@ export function PosterPanel({
               styleId: job.styleId,
               paletteId: job.paletteId,
               model: job.model,
-              quality: job.quality,
               records,
             };
           } catch (err) {
@@ -1535,7 +1521,6 @@ export function PosterPanel({
               styleId: job.styleId,
               paletteId: job.paletteId,
               model: job.model,
-              quality: job.quality,
               error,
             };
           } finally {
@@ -1548,9 +1533,8 @@ export function PosterPanel({
         if (!item.error) return [];
         const theme = planSlotLabel(item.styleId, item.paletteId ?? AUTO_PALETTE_ID);
         const model = shortModelLabel(item.model);
-        const quality = shortQualityLabel(item.quality);
         return [
-          `${stylePlanSlots(styleIds, paletteIdsByStyle).length > 1 ? `${theme} · ` : ""}${model}${quality ? ` · ${quality}` : ""}: ${item.error}`,
+          `${stylePlanSlots(styleIds, paletteIdsByStyle).length > 1 ? `${theme} · ` : ""}${model}: ${item.error}`,
         ];
       });
       if (!records.length) throw new Error(failures.join(" · ") || "Poster generation failed");
@@ -1867,8 +1851,7 @@ export function PosterPanel({
   const allThemesPlanned = planSlots.length > 0 && plannedSlots.length === planSlots.length;
   const generateCount = plannedSlots.length * activeImageModelIds.reduce((sum, id) => {
     const model = imageModels.find((item) => item.id === id);
-    const qualityPasses = qualitiesForModel(model, qualities).length;
-    return sum + qualityPasses * variantCount(variants, model?.maxImages);
+    return sum + variantCount(variants, model?.maxImages);
   }, 0);
   const editingCustom = styleIds.includes("custom");
   const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
@@ -1881,7 +1864,6 @@ export function PosterPanel({
   const compareStyles =
     new Set(compareItems.map((item) => planSlotKey(item.styleId, item.paletteId ?? AUTO_PALETTE_ID))).size > 1;
   const compareModels = new Set(compareItems.map((item) => item.model)).size > 1;
-  const compareQualities = new Set(compareItems.map((item) => item.quality ?? "")).size > 1;
   const resultsBatchCost = formatBatchCost(compareItems);
   const schematicSrc =
     sentRefs.find((item) => item.role === "schematic")?.dataUrl ??
@@ -1895,7 +1877,6 @@ export function PosterPanel({
         [
           compareStyles ? resultSlotLabel(item) : null,
           compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
-          compareQualities ? shortQualityLabel(item.quality) : null,
           posterVariantLabel(item, compareItems),
           item.durationMs != null ? formatDurationMs(item.durationMs) : null,
         ]
@@ -2847,7 +2828,6 @@ export function PosterPanel({
                     const status = run.error ? "failed" : run.finishedAt ? "done" : "running";
                     const showStyle = planSlots.length > 1;
                     const showModel = activeImageModelIds.length > 1 || !showStyle;
-                    const showQuality = qualities.length > 1;
                     const cost = formatCostBreakdown({
                       promptCost: run.promptCost,
                       imageCost: run.imageCost,
@@ -2855,11 +2835,7 @@ export function PosterPanel({
                     return (
                       <li key={run.key} className={`model-time ${status}`}>
                         <span>
-                          {[
-                            showStyle ? run.styleLabel : null,
-                            showModel ? run.label : null,
-                            showQuality ? shortQualityLabel(run.quality) : null,
-                          ]
+                          {[showStyle ? run.styleLabel : null, showModel ? run.label : null]
                             .filter(Boolean)
                             .join(" · ") || "Generating"}
                         </span>
@@ -2911,7 +2887,6 @@ export function PosterPanel({
                         compareModels || !compareStyles
                           ? shortModelLabel(item.model, item.modelName)
                           : null,
-                        compareQualities ? shortQualityLabel(item.quality) : null,
                         posterVariantLabel(item, compareItems),
                       ]
                         .filter(Boolean)
