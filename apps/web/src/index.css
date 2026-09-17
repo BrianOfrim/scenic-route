@@ -1296,6 +1296,19 @@ button.map-schematic-tip-name:focus-visible {
   color: var(--muted);
 }
 
+.poster-model-list {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.poster-model-list .check {
+  margin: 0;
+}
+
 .poster-place-fields {
   display: grid;
   gap: 8px;
@@ -1773,7 +1786,7 @@ button.map-schematic-tip-name:focus-visible {
 
 .lightbox-thumbs {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 8px;
   flex: 0 0 auto;
   padding: 10px 0 0;
@@ -1790,6 +1803,7 @@ button.map-schematic-tip-name:focus-visible {
 
 .lightbox-thumbs-posters {
   display: flex;
+  align-items: flex-start;
   gap: 8px;
   overflow-x: auto;
   flex: 1 1 auto;
@@ -1797,6 +1811,8 @@ button.map-schematic-tip-name:focus-visible {
 }
 
 .lightbox-thumbs button {
+  display: flex;
+  flex-direction: column;
   flex: 0 0 88px;
   width: 88px;
   padding: 0;
@@ -1808,7 +1824,7 @@ button.map-schematic-tip-name:focus-visible {
 
 .lightbox-thumbs-schematic button {
   width: 88px;
-  padding: 2px;
+  padding: 0;
   border-color: var(--line);
   border-radius: 6px;
   background: #0c0e0a;

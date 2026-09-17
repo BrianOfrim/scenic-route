@@ -67,6 +67,7 @@ test("sanitizePosterEditor keeps crop, labels, and custom annotations", () => {
   assert.equal(editor.variants, 2);
   assert.equal(editor.paletteId, "process-blue");
   assert.deepEqual(editor.paletteIdsByStyle, {});
+  assert.deepEqual(editor.qualities, ["auto"]);
 });
 
 test("sanitizePosterEditor defaults paletteId to auto", () => {

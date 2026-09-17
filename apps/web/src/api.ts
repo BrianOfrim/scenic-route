@@ -204,6 +204,8 @@ export type PosterRecord = {
   modelName?: string;
   batchId?: string;
   aspectRatio: string;
+  /** Image quality setting when the model supports it. */
+  quality?: string;
   cost: number | null;
   promptCost?: number | null;
   durationMs?: number;
@@ -247,6 +249,7 @@ export type PosterEditorSnapshot = {
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
   variants: number;
+  qualities?: string[];
   specs?: Partial<Record<string, PosterSpec>>;
   planCosts?: Partial<Record<string, number | null>>;
   landmarkNearM?: Record<string, number>;
@@ -470,6 +473,7 @@ export type ImageModelOption = {
   name: string;
   maxReferences: number;
   maxImages?: number;
+  qualities?: string[];
 };
 
 export type PosterCapabilities = {

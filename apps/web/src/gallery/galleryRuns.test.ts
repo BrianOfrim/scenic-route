@@ -7,6 +7,7 @@ import {
   lineageFamily,
   lineageRoot,
   runHeadline,
+  viewerSiblings,
 } from "./galleryRuns";
 
 function item(
@@ -134,6 +135,23 @@ test("lineageFamily walks refinements back to the original", () => {
   assert.deepEqual(
     lineageFamily(posters, "orig").map((poster) => poster.posterId),
     ["orig", "r1", "r2"],
+  );
+});
+
+test("viewerSiblings keeps batch order regardless of which poster is active", () => {
+  const posters = [
+    item("b", { batchId: "run", createdAt: "2026-09-08T12:01:00Z" }),
+    item("a", { batchId: "run", createdAt: "2026-09-08T12:00:00Z" }),
+    item("c", { batchId: "run", createdAt: "2026-09-08T12:02:00Z" }),
+  ];
+  const order = ["a", "b", "c"];
+  assert.deepEqual(
+    viewerSiblings(posters[0], posters).map((poster) => poster.posterId),
+    order,
+  );
+  assert.deepEqual(
+    viewerSiblings(posters[2], posters).map((poster) => poster.posterId),
+    order,
   );
 });
 

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { deletePoster, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
 import { type CompareImage } from "../compare/BatchCompare";
-import { formatBatchCost, formatCostBreakdown, formatDurationMs, posterVariantLabel, shortModelLabel } from "../poster/imageModels";
+import { formatCostBreakdown, formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
-import { galleryRuns, gallerySections, lineageFamily, runHeadline } from "./galleryRuns";
+import { galleryRuns, gallerySections, lineageFamily, runHeadline, viewerSiblings } from "./galleryRuns";
 import { GalleryViewer } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
 import { ShareButton } from "../share";
@@ -19,11 +19,13 @@ function posterLabel(
   siblings: PosterRecord[],
   compareStyles: boolean,
   compareModels: boolean,
+  compareQualities: boolean,
 ) {
   return (
     [
       compareStyles ? styleLabel(item.styleId, item.spec?.style?.name) : null,
       compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
+      compareQualities ? shortQualityLabel(item.quality) : null,
       posterVariantLabel(item, siblings),
       item.durationMs != null ? formatDurationMs(item.durationMs) : null,
     ]
@@ -40,21 +42,8 @@ function mixedModels(posters: PosterRecord[]) {
   return new Set(posters.map((item) => item.model)).size > 1;
 }
 
-function uniquePosters(items: PosterRecord[]) {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    if (seen.has(item.posterId)) return false;
-    seen.add(item.posterId);
-    return true;
-  });
-}
-
-function viewerSiblings(active: PosterRecord, posters: PosterRecord[]) {
-  const family = lineageFamily(posters, active.posterId);
-  const batch = active.batchId ? posters.filter((item) => item.batchId === active.batchId) : [];
-  const siblings = uniquePosters([...family, ...batch]);
-  if (!siblings.some((item) => item.posterId === active.posterId)) siblings.push(active);
-  return siblings;
+function mixedQualities(posters: PosterRecord[]) {
+  return new Set(posters.map((item) => item.quality ?? "")).size > 1;
 }
 
 function lineageNote(item: PosterRecord, originalId?: string) {
@@ -152,6 +141,7 @@ function GalleryRun({
   const headline = runHeadline(posters);
   const styles = mixedStyles(posters);
   const models = mixedModels(posters);
+  const qualities = mixedQualities(posters);
   const ids = new Set(posters.map((item) => item.posterId));
   const originalId = posters.find((item) => !item.previousPosterId || !ids.has(item.previousPosterId))
     ?.posterId;
@@ -173,7 +163,7 @@ function GalleryRun({
               key={poster.posterId}
               poster={poster}
               versionCount={versions}
-              lines={[posterLabel(poster, posters, styles, models), note].filter(Boolean)}
+              lines={[posterLabel(poster, posters, styles, models, qualities), note].filter(Boolean)}
               onOpen={() => onOpen(poster)}
               onToggleFavorite={() => onToggleFavorite(poster)}
             />
@@ -186,6 +176,7 @@ function GalleryRun({
 
 export function Gallery({ onEditSetup, account, tabs }: Props) {
   const [posters, setPosters] = useState<PosterRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [studioFrom, setStudioFrom] = useState<PosterRecord | null>(null);
   const [active, setActive] = useState<PosterRecord | null>(null);
@@ -194,9 +185,21 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
     fetchPosters()
-      .then(setPosters)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load posters"));
+      .then((items) => {
+        if (!cancelled) setPosters(items);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load posters");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const visible = useMemo(
@@ -219,10 +222,10 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
   );
   const compareStyles = mixedStyles(batchSiblings);
   const compareModels = mixedModels(batchSiblings);
+  const compareQualities = mixedQualities(batchSiblings);
   const activeCost = active
     ? formatCostBreakdown({ promptCost: active.promptCost, cost: active.cost })
     : "";
-  const batchCost = batchSiblings.length > 1 ? formatBatchCost(batchSiblings) : "";
   const compareImages = useMemo<CompareImage[]>(() => {
     if (!active) return [];
     const schematic =
@@ -239,7 +242,7 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
     return [
       ...schematic,
       ...batchSiblings.map((item) => {
-        const base = posterLabel(item, batchSiblings, compareStyles, compareModels);
+        const base = posterLabel(item, batchSiblings, compareStyles, compareModels, compareQualities);
         const note = lineageNote(item, originalId);
         return {
           id: item.posterId,
@@ -248,7 +251,7 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
         };
       }),
     ];
-  }, [active, batchSiblings, compareModels, compareStyles, family.length, original?.posterId]);
+  }, [active, batchSiblings, compareModels, compareQualities, compareStyles, family.length, original?.posterId]);
 
   useEffect(() => {
     if (compareId === "schematic" && active && active.referenceCount === 0) setCompareId(null);
@@ -372,6 +375,7 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
                       [
                         styleLabel(poster.styleId, poster.spec?.style?.name),
                         shortModelLabel(poster.model, poster.modelName),
+                        shortQualityLabel(poster.quality),
                         poster.variant != null ? String(poster.variant) : null,
                         poster.durationMs != null ? formatDurationMs(poster.durationMs) : null,
                       ]
@@ -400,9 +404,14 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
             />
           ),
         )}
-        {!visible.length && (
+        {loading ? (
+          <p className="muted feature-query-block">
+            <span className="spinner" aria-hidden="true" />
+            Loading posters…
+          </p>
+        ) : !visible.length ? (
           <p className="muted">{favoritesOnly ? "No favourited posters yet." : "No posters yet."}</p>
-        )}
+        ) : null}
       </div>
       {active && (
         <div className="lightbox" onClick={() => setActive(null)}>
@@ -443,6 +452,7 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
                 <span className="gallery-model">
                   {styleLabel(active.styleId, active.spec?.style?.name)}
                   {` · ${shortModelLabel(active.model, active.modelName)}`}
+                  {active.quality ? ` · ${active.quality}` : ""}
                 </span>
               </div>
               <div className="poster-actions">
@@ -518,7 +528,6 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
                   {active.durationMs != null ? ` · ${formatDurationMs(active.durationMs)}` : ""}
                   {activeCost ? ` · ${activeCost}` : ""} · {active.referenceCount} refs
                 </p>
-                {batchCost ? <p className="muted">{batchCost}</p> : null}
                 <pre>{active.prompt}</pre>
                 <pre>{JSON.stringify(active.spec, null, 2)}</pre>
                 {active.referenceCount > 0 && (

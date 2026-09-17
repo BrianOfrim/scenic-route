@@ -1,4 +1,4 @@
-import { batchCosts, formatUsd, shortModelLabel } from "../poster/imageModels";
+import { batchCosts, formatUsd, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 
 export type GalleryRunItem = {
@@ -67,6 +67,29 @@ export function lineageFamily<T extends LineageItem>(posters: T[], startId: stri
     queue.push(...children);
   }
   return family;
+}
+
+/**
+ * Posters shown together in the lightbox strip: same batch and/or refine lineage.
+ * Order is stable across selection (batch creation order, then lineage-only extras).
+ */
+export function viewerSiblings<T extends GalleryRunItem & LineageItem>(active: T, posters: T[]): T[] {
+  const family = lineageFamily(posters, active.posterId);
+  const batch = active.batchId
+    ? posters.filter((item) => item.batchId === active.batchId).sort(byCreatedThenId)
+    : [];
+  const siblings = uniqueByPosterId([...batch, ...family]);
+  if (!siblings.some((item) => item.posterId === active.posterId)) siblings.push(active);
+  return siblings;
+}
+
+function uniqueByPosterId<T extends { posterId: string }>(items: T[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.posterId)) return false;
+    seen.add(item.posterId);
+    return true;
+  });
 }
 
 function byCreatedThenId<T extends { posterId: string; createdAt: string }>(a: T, b: T) {
@@ -213,6 +236,7 @@ export function runHeadline(
     spec?: { style?: { name?: string } };
     model: string;
     modelName?: string;
+    quality?: string;
     promptCost?: number | null;
     cost?: number | null;
   }>,
@@ -220,6 +244,9 @@ export function runHeadline(
   const newest = posters.reduce((best, item) => (item.createdAt >= best.createdAt ? item : best));
   const styles = unique(posters.map((item) => styleLabel(item.styleId, item.spec?.style?.name)));
   const models = unique(posters.map((item) => shortModelLabel(item.model, item.modelName)));
+  const qualities = unique(
+    posters.map((item) => shortQualityLabel(item.quality)).filter((item): item is string => Boolean(item)),
+  );
   const total = batchCosts(posters).total;
   return {
     title: newest.title,
@@ -227,6 +254,7 @@ export function runHeadline(
     detail: [
       summarizeLabels(styles, 3, "theme"),
       summarizeLabels(models, 2, "model"),
+      qualities.length > 1 ? summarizeLabels(qualities, 4, "quality") : null,
       posters.length > 1 ? `${posters.length} posters` : null,
       total != null ? formatUsd(total) : null,
     ]
