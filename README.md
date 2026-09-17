@@ -38,9 +38,8 @@ Open [http://localhost:5174](http://localhost:5174). Connect Strava and click **
 1. Select an activity on the map.
 2. **Make poster** — crop the track, choose Map or Route only, tick geography and landmark layers (or skip them in Route only), pick a style or write a custom prompt, choose which stats appear.
 3. Toggle grounding images. The schematic preview is immediate; terrain/streets/satellite snapshots are taken from a hidden MapLibre map (tiles proxied so the canvas is not tainted).
-4. **Plan prompt** — the LLM returns a structured `PosterSpec`. Edit the JSON if you want.
-5. **Generate poster** — OpenRouter image model, then save to `data/posters/`.
-6. Browse results in **Gallery** (lightbox, details, download, delete, refine).
+4. **Generate poster** — plans a structured prompt and runs the OpenRouter image model in one step, then saves to `data/posters/`.
+5. Browse results in **Gallery** (lightbox, details, download, delete, refine).
 
 ## Layout
 

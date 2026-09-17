@@ -1227,11 +1227,6 @@ button.map-schematic-tip-name:focus-visible {
   border-color: var(--accent-2);
 }
 
-.spec-json {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-}
-
 .poster-crop-row {
   display: grid;
   grid-template-columns: 48px 1fr;

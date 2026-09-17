@@ -47,7 +47,6 @@ import { MAX_LABELS, prioritizeLabels } from "./labels";
 import { nearestPlaceName } from "./places";
 import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
-import { SpecEditor } from "./SpecEditor";
 import {
   DEFAULT_IMAGE_MODEL_ID,
   formatBatchCost,
@@ -559,7 +558,6 @@ type PosterWorkflowStep =
   | "themes"
   | "stats"
   | "output"
-  | "prompt"
   | "result";
 
 /** Mobile sheet: one-tap launch vs full Customize editor. Desktop ignores this. */
@@ -1845,11 +1843,7 @@ export function PosterPanel({
             ? "Add a title in Stats before generating."
             : null;
   const planSlots = stylePlanSlots(styleIds, paletteIdsByStyle);
-  const plannedSlots = planSlots.filter((slot) => specForSlot(specs, slot.styleId, slot.paletteId));
-  const specSlot = plannedSlots.find((slot) => slot.key === activePlanKey) ?? plannedSlots[0];
-  const spec = specSlot ? specForSlot(specs, specSlot.styleId, specSlot.paletteId) ?? null : null;
-  const allThemesPlanned = planSlots.length > 0 && plannedSlots.length === planSlots.length;
-  const generateCount = plannedSlots.length * activeImageModelIds.reduce((sum, id) => {
+  const generateCount = planSlots.length * activeImageModelIds.reduce((sum, id) => {
     const model = imageModels.find((item) => item.id === id);
     return sum + variantCount(variants, model?.maxImages);
   }, 0);
@@ -1933,11 +1927,10 @@ export function PosterPanel({
     );
     if (!sheetMode) {
       steps.push({ id: "output", label: "Output" });
-      if (spec && specSlot) steps.push({ id: "prompt", label: "Prompt" });
     }
     if (result) steps.push({ id: "result", label: batchResults.length > 1 ? "Results" : "Result" });
     return steps;
-  }, [showOnMapStep, sheetMode, spec, specSlot, result, batchResults.length]);
+  }, [showOnMapStep, sheetMode, result, batchResults.length]);
   const peekStatus =
     loading && !showEditor
       ? "Loading…"
@@ -2613,9 +2606,9 @@ export function PosterPanel({
                 </div>
                 <p className="muted">
                   {!styleIds.length
-                    ? "Select a theme to plan"
+                    ? "Select a theme to generate"
                     : planSlots.length > 1
-                      ? `${planSlots.length} prompts — one per selected theme and palette`
+                      ? `${planSlots.length} posters — one per selected theme and palette`
                       : "Select more themes or palettes to compare"}
                 </p>
                 {paletteStyles.map((style) => {
@@ -2751,75 +2744,30 @@ export function PosterPanel({
                 </label>
               )}
               <div className="poster-actions poster-plan-row">
-                <button className="button" type="button" disabled={busy || !title.trim() || !styleIds.length} onClick={() => void handlePlan()}>
+                <button
+                  className="button"
+                  type="button"
+                  disabled={busy || !title.trim() || !styleIds.length}
+                  onClick={() => void handlePlanAndGenerate()}
+                >
                   {planning
                     ? planProgress.total > 1
                       ? `Planning ${planProgress.done}/${planProgress.total}… ${elapsed}s`
                       : `Planning… ${elapsed}s`
-                    : plannedSlots.length
-                      ? planSlots.length > 1
-                        ? "Re-plan prompts"
-                        : "Re-plan"
-                      : planSlots.length > 1
-                        ? "Plan prompts"
-                        : "Plan prompt"}
+                    : generating
+                      ? generateProgress.total > 1
+                        ? `Generating ${generateProgress.done}/${generateProgress.total}… ${elapsed}s`
+                        : generateCount > 1
+                          ? `Generating ${generateCount} variants… ${elapsed}s`
+                          : `Generating… ${elapsed}s`
+                      : generateCount > 1
+                        ? planSlots.length > 1
+                          ? `Generate ${planSlots.length} posters (${generateCount} variants)`
+                          : `Generate ${generateCount} variants`
+                        : "Generate poster"}
                 </button>
                 {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
               </div>
-              {plannedSlots.length > 0 && !allThemesPlanned && (
-                <p className="muted">Plan prompts for the newly selected themes and palettes before generating.</p>
-              )}
-            </PosterSection>
-          )}
-
-          {!sheetMode && spec && specSlot && (
-            <PosterSection
-              title="Prompt"
-              accordion={false}
-              showTitle
-              className={workflowPane("prompt")}
-            >
-              {plannedSlots.length > 1 && (
-                <div className="chip-row">
-                  {plannedSlots.map((slot) => (
-                    <button
-                      key={slot.key}
-                      type="button"
-                      className={`chip ${slot.key === specSlot.key ? "on" : ""}`}
-                      onClick={() => {
-                        setActiveStyleId(slot.styleId);
-                        setActivePlanKey(slot.key);
-                      }}
-                    >
-                      {planSlotLabel(slot.styleId, slot.paletteId, specForSlot(specs, slot.styleId, slot.paletteId)?.style.name)}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <SpecEditor
-                spec={spec}
-                onChange={(next) =>
-                  setSpecs((current) => ({ ...current, [specSlot.key]: next }))
-                }
-              />
-              <button
-                className="button"
-                type="button"
-                disabled={busy || !allThemesPlanned}
-                onClick={() => void handleGenerate()}
-              >
-                {generating
-                  ? generateProgress.total > 1
-                    ? `Generating ${generateProgress.done}/${generateProgress.total}… ${elapsed}s`
-                    : generateCount > 1
-                      ? `Generating ${generateCount} variants… ${elapsed}s`
-                      : `Generating… ${elapsed}s`
-                  : generateCount > 1
-                    ? plannedSlots.length > 1
-                      ? `Generate ${plannedSlots.length} posters (${generateCount} variants)`
-                      : `Generate ${generateCount} variants`
-                    : "Generate poster"}
-              </button>
               {modelRuns.length > 0 && (
                 <ul className="model-times">
                   {modelRuns.map((run) => {
@@ -2946,7 +2894,7 @@ export function PosterPanel({
               )}
               {refineFrom && result.posterId === refineFrom.posterId && (
                 <p className="muted">
-                  Setup restored from this poster. Change landmarks, crop, or themes, then Plan + Generate.
+                  Setup restored from this poster. Change landmarks, crop, or themes, then Generate.
                 </p>
               )}
             </PosterSection>
