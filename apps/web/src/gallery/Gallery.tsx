@@ -186,6 +186,7 @@ function GalleryRun({
 
 export function Gallery({ onEditSetup, account, tabs }: Props) {
   const [posters, setPosters] = useState<PosterRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [studioFrom, setStudioFrom] = useState<PosterRecord | null>(null);
   const [active, setActive] = useState<PosterRecord | null>(null);
@@ -194,9 +195,21 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
     fetchPosters()
-      .then(setPosters)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load posters"));
+      .then((items) => {
+        if (!cancelled) setPosters(items);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load posters");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const visible = useMemo(
@@ -400,9 +413,14 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
             />
           ),
         )}
-        {!visible.length && (
+        {loading ? (
+          <p className="muted feature-query-block">
+            <span className="spinner" aria-hidden="true" />
+            Loading posters…
+          </p>
+        ) : !visible.length ? (
           <p className="muted">{favoritesOnly ? "No favourited posters yet." : "No posters yet."}</p>
-        )}
+        ) : null}
       </div>
       {active && (
         <div className="lightbox" onClick={() => setActive(null)}>
