@@ -44,6 +44,7 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   padding: 16px max(20px, env(safe-area-inset-right)) 16px max(20px, env(safe-area-inset-left));
   border-bottom: 1px solid var(--line);
   background: #0e120c;
@@ -182,6 +183,26 @@ h1 {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.poster-lookup {
+  margin-top: 10px;
+}
+
+.poster-lookup ~ .chip {
+  margin: 4px 6px 4px 0;
+}
+
+.poster-panel:not(.is-sheet) .muted {
+  margin: 6px 0;
+}
+
+.poster-panel:not(.is-sheet) .muted:first-child {
+  margin-top: 0;
+}
+
+.poster-panel:not(.is-sheet) .check + .search {
+  margin-top: 10px;
 }
 
 .workspace {
@@ -333,6 +354,12 @@ h1 {
   align-items: center;
 }
 
+.app-error,
+.gallery > .banner {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
 .button,
 .text-btn,
 .search,
@@ -391,8 +418,13 @@ textarea {
   display: flex;
   gap: 8px;
   align-items: center;
+  margin-top: 10px;
   font-size: 13px;
   color: var(--muted);
+}
+
+.activity-toolbar {
+  row-gap: 10px;
 }
 
 .filter select {
@@ -451,7 +483,7 @@ textarea {
   flex-direction: column;
   align-items: flex-start;
   width: 100%;
-  gap: 2px;
+  gap: 4px;
   padding: 10px 16px;
   background: transparent;
   border: 0;
@@ -857,7 +889,7 @@ button.map-schematic-tip-name:focus-visible {
 
 .map-annotate-hint {
   position: absolute;
-  top: 58px;
+  top: 66px;
   left: 62px;
   max-width: min(320px, calc(100% - 80px));
   margin: 0;
@@ -871,7 +903,11 @@ button.map-schematic-tip-name:focus-visible {
 }
 
 .map-annotate-tools:not(.is-open) ~ .map-annotate-hint {
-  top: 54px;
+  top: 62px;
+}
+
+.map-annotate-tools.is-open ~ .map-annotate-hint {
+  top: 66px;
 }
 
 .map-annotate-form {
@@ -906,29 +942,37 @@ button.map-schematic-tip-name:focus-visible {
   gap: 8px;
   align-items: center;
   font-size: 13px;
-  margin: 4px 0;
+  margin: 6px 0;
 }
 
 .poster-geo-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: 12px;
-  row-gap: 2px;
+  row-gap: 8px;
 }
 
 .poster-geo-grid .check {
   min-width: 0;
+  margin: 0;
 }
 
 .landmark-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 4px 0;
+}
+
+.landmark-row + .landmark-row {
+  margin-top: 4px;
 }
 
 .landmark-row .check {
   min-width: 0;
+  margin: 0;
 }
 
 .near-route {
@@ -1038,6 +1082,7 @@ button.map-schematic-tip-name:focus-visible {
 
 .poster-prompt {
   min-height: 80px;
+  margin-top: 10px;
   resize: vertical;
 }
 
@@ -1165,6 +1210,10 @@ button.map-schematic-tip-name:focus-visible {
   color: var(--muted);
 }
 
+.poster-crop-row + .poster-crop-row {
+  margin-top: 10px;
+}
+
 .poster-crop-range {
   position: relative;
   height: 44px;
@@ -1275,6 +1324,10 @@ button.map-schematic-tip-name:focus-visible {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 8px;
+}
+
+.result-compare + .poster-actions {
+  margin-top: 12px;
 }
 
 .result-compare-card {
@@ -2354,16 +2407,16 @@ button.map-schematic-tip-name:focus-visible {
   }
 
   .map-annotate-hint {
-    top: 58px;
+    top: 66px;
     left: 62px;
   }
 
   .map-annotate-tools:not(.is-open) ~ .map-annotate-hint {
-    top: 54px;
+    top: 62px;
   }
 
   .map-annotate-tools.is-open ~ .map-annotate-hint {
-    top: 58px;
+    top: 66px;
   }
 
   .map-root.is-touch .map-annotate-form {
