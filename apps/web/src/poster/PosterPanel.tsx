@@ -700,6 +700,7 @@ export function PosterPanel({
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() => (refineFrom ? "customize" : "launch"));
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
+  const [promptModel, setPromptModel] = useState<string | null>(() => refineFrom?.promptModel ?? null);
   const [planning, setPlanning] = useState(false);
   const [planProgress, setPlanProgress] = useState({ done: 0, total: 0 });
   const [generating, setGenerating] = useState(false);
@@ -842,6 +843,7 @@ export function PosterPanel({
             setStylePrompt(restored.stylePrompt);
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
+            setPromptModel(refineFrom.promptModel ?? null);
             if (restored.imageModelIds?.length) {
               setImageModelIds(resolveUiImageModelIds(restored.imageModelIds));
             }
@@ -1342,12 +1344,13 @@ export function PosterPanel({
                 specForSlot(specs, slot.styleId, slot.paletteId) ??
                 (refineFrom && refineFrom.styleId === slot.styleId ? refineFrom.spec : undefined),
             });
-            return { ...slot, spec: planned.spec, cost: planned.cost };
+            return { ...slot, spec: planned.spec, cost: planned.cost, model: planned.model };
           } catch (err) {
             return {
               ...slot,
               error: err instanceof Error ? err.message : "Planner failed",
               cost: null,
+              model: null as string | null,
             };
           } finally {
             setPlanProgress((current) => ({ ...current, done: current.done + 1 }));
@@ -1356,7 +1359,16 @@ export function PosterPanel({
       );
       const planned = settled.flatMap((item) =>
         "spec" in item && item.spec
-          ? [{ key: item.key, styleId: item.styleId, paletteId: item.paletteId, spec: item.spec, cost: item.cost }]
+          ? [
+              {
+                key: item.key,
+                styleId: item.styleId,
+                paletteId: item.paletteId,
+                spec: item.spec,
+                cost: item.cost,
+                model: item.model,
+              },
+            ]
           : [],
       );
       const failures = settled.flatMap((item) =>
@@ -1373,6 +1385,8 @@ export function PosterPanel({
         for (const item of planned) next[item.key] = item.cost ?? null;
         return next;
       });
+      const plannedModel = planned.find((item) => item.model)?.model ?? null;
+      if (plannedModel) setPromptModel(plannedModel);
       if (!planned.some((item) => item.key === activePlanKey)) {
         setActivePlanKey(planned[0].key);
         setActiveStyleId(planned[0].styleId);
@@ -1390,7 +1404,14 @@ export function PosterPanel({
   }
 
   async function handleGenerate(
-    plannedSlots?: { key: string; styleId: string; paletteId: string; spec: PosterSpec; cost: number | null }[],
+    plannedSlots?: {
+      key: string;
+      styleId: string;
+      paletteId: string;
+      spec: PosterSpec;
+      cost: number | null;
+      model?: string | null;
+    }[],
   ) {
     if (!context) return;
     if (!activeImageModelIds.length) {
@@ -1415,6 +1436,7 @@ export function PosterPanel({
         model,
         slotKey: slot.key,
         promptCost: slot.cost ?? planCosts[slot.key] ?? null,
+        promptModel: ("model" in slot ? slot.model : null) || promptModel,
       }));
     });
     if (!jobs.length) return;
@@ -1464,6 +1486,7 @@ export function PosterPanel({
               model: job.model,
               variants,
               promptCost: job.promptCost,
+              promptModel: job.promptModel || undefined,
               editor: captureEditorSnapshot({
                 featureIds,
                 landmarkNearM,
@@ -1887,6 +1910,7 @@ export function PosterPanel({
     setRouteOnly(next);
     setSpecs({});
     setPlanCosts({});
+    setPromptModel(null);
   }
 
   function applyCrop(nextStart: number, nextEnd: number) {

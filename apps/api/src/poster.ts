@@ -31,6 +31,8 @@ export type PosterRecord = {
   quality?: string;
   cost: number | null;
   promptCost?: number | null;
+  /** Chat model that wrote the image prompt (planner / refine). */
+  promptModel?: string;
   durationMs?: number;
   createdAt: string;
   previousPosterId?: string;
@@ -143,6 +145,7 @@ export type GeneratePosterBody = {
   batchId?: string;
   variants?: number;
   promptCost?: number | null;
+  promptModel?: string;
   editor?: unknown;
   label?: string;
 };
@@ -264,6 +267,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
         aspectRatio,
         cost: image.cost,
         promptCost: finiteCost(body.promptCost),
+        promptModel: body.promptModel?.trim() || undefined,
         durationMs: image.durationMs,
         createdAt: new Date().toISOString(),
         previousPosterId: body.previousPosterId,
@@ -327,6 +331,7 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
     quality: source.quality,
     variants: body.variants,
     promptCost: revised.cost,
+    promptModel: revised.model,
     editor: source.editor,
     label: "modify",
   });

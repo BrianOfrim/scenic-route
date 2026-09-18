@@ -208,6 +208,8 @@ export type PosterRecord = {
   quality?: string;
   cost: number | null;
   promptCost?: number | null;
+  /** Chat model that wrote the image prompt (planner / refine). */
+  promptModel?: string;
   durationMs?: number;
   createdAt: string;
   previousPosterId?: string;
@@ -405,7 +407,7 @@ export async function lookupPosterLandmark(body: {
   );
 }
 
-export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cost: number | null }> {
+export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cost: number | null; model: string }> {
   return readJson(
     await apiFetch("/api/poster/plan", {
       method: "POST",

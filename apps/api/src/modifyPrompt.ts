@@ -66,12 +66,14 @@ export function withModifySourceRule(prompt: string) {
   return `${MODIFY_SOURCE_RULE}\n\n${text}`;
 }
 
-export async function revisePosterPrompt(input: ModifyPromptInput): Promise<{ prompt: string; cost: number | null }> {
+export async function revisePosterPrompt(
+  input: ModifyPromptInput,
+): Promise<{ prompt: string; cost: number | null; model: string }> {
   const request = input.request.trim();
   const previousPrompt = input.previousPrompt.trim();
   if (!request) throw new OpenRouterError("a modification request is required", 400);
   if (!previousPrompt) throw new OpenRouterError("previous prompt is required", 400);
-  const { value, cost } = await chatJson<{ prompt?: unknown }>({
+  const { value, cost, model } = await chatJson<{ prompt?: unknown }>({
     messages: buildModifyMessages({ ...input, request, previousPrompt }),
     schemaName: "poster_prompt_revision",
     schema: MODIFY_PROMPT_SCHEMA,
@@ -79,6 +81,6 @@ export async function revisePosterPrompt(input: ModifyPromptInput): Promise<{ pr
     user: input.userId,
   });
   const prompt = typeof value?.prompt === "string" ? value.prompt.trim() : "";
-  if (!prompt) throw new OpenRouterError("Modifier did not return a revised prompt", 502);
-  return { prompt: withModifySourceRule(prompt), cost };
+  if (!prompt) throw new OpenRouterError("modifier did not return a revised prompt", 502);
+  return { prompt: withModifySourceRule(prompt), cost, model };
 }
