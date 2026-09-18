@@ -1,31 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { CompareImage } from "../compare/BatchCompare";
+export type GalleryImage = {
+  id: string;
+  src: string;
+  label: string;
+};
 
 type Props = {
-  images: CompareImage[];
+  images: GalleryImage[];
   selectedId: string;
-  compareId: string | null;
-  hint?: string;
   onSelectPoster: (id: string) => void;
-  onCompare: (id: string | null) => void;
 };
 
 export function GalleryViewer({
   images,
   selectedId,
-  compareId,
-  hint,
   onSelectPoster,
-  onCompare,
 }: Props) {
-  const [expanded, setExpanded] = useState<CompareImage | null>(null);
+  const [expanded, setExpanded] = useState<GalleryImage | null>(null);
   const canCloseRef = useRef(false);
-  const schematic = images.find((item) => item.id === "schematic");
-  const posters = images.filter((item) => item.id !== "schematic");
-  const selected = posters.find((item) => item.id === selectedId) ?? posters[0];
-  const compare = compareId ? images.find((item) => item.id === compareId) : undefined;
-  const split = Boolean(compare && selected && compare.id !== selected.id);
+  const selected = images.find((item) => item.id === selectedId) ?? images[0];
 
   useEffect(() => {
     if (!expanded) return;
@@ -69,57 +63,26 @@ export function GalleryViewer({
 
   if (!selected) return null;
 
-  function expand(image: CompareImage) {
+  function expand(image: GalleryImage) {
     canCloseRef.current = false;
     setExpanded(image);
   }
 
-  function toggleSchematic() {
-    onCompare(compareId === "schematic" ? null : "schematic");
-  }
-
-  const compareHint =
-    hint ??
-    (schematic
-      ? split && compare?.id === "schematic"
-        ? "Click another poster to keep the schematic beside it. Click the schematic again to return to one poster."
-        : "Click the schematic to compare it with this poster."
-      : undefined);
-
   return (
     <div className="batch-compare">
       <div className="compare-stage-wrap">
-        <div className={`compare-stage ${split ? "" : "single"}`}>
-          {split && compare && <ViewerPane image={compare} onExpand={() => expand(compare)} />}
+        <div className="compare-stage single">
           <ViewerPane image={selected} onExpand={() => expand(selected)} />
         </div>
       </div>
       <div className="lightbox-thumbs">
-        {schematic && (
-          <div className="lightbox-thumbs-schematic">
-            <button
-              type="button"
-              className={compareId === "schematic" ? "on-schematic" : ""}
-              onClick={toggleSchematic}
-              aria-pressed={compareId === "schematic"}
-              title={compareId === "schematic" ? "Hide schematic" : "Compare with schematic"}
-            >
-              <img src={schematic.src} alt={schematic.label} />
-              <span>{schematic.label}</span>
-            </button>
-          </div>
-        )}
         <div className="lightbox-thumbs-posters">
-          {posters.map((image) => (
+          {images.map((image) => (
             <button
               key={image.id}
               type="button"
-              className={[
-                image.id === selected.id ? "on" : "",
-                image.id === compareId ? "on-left" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
+              className={image.id === selected.id ? "on" : ""}
+              aria-pressed={image.id === selected.id}
               onClick={() => onSelectPoster(image.id)}
             >
               <img src={image.src} alt={image.label} />
@@ -128,14 +91,14 @@ export function GalleryViewer({
           ))}
         </div>
       </div>
-      {posters.length > 1 && (
+      {images.length > 1 && (
         <div className="compare-nav">
           <button
             type="button"
             className="text-btn"
             onClick={() => {
-              const index = posters.findIndex((item) => item.id === selected.id);
-              onSelectPoster(posters[(index - 1 + posters.length) % posters.length].id);
+              const index = images.findIndex((item) => item.id === selected.id);
+              onSelectPoster(images[(index - 1 + images.length) % images.length].id);
             }}
           >
             Previous
@@ -144,15 +107,14 @@ export function GalleryViewer({
             type="button"
             className="text-btn"
             onClick={() => {
-              const index = posters.findIndex((item) => item.id === selected.id);
-              onSelectPoster(posters[(index + 1) % posters.length].id);
+              const index = images.findIndex((item) => item.id === selected.id);
+              onSelectPoster(images[(index + 1) % images.length].id);
             }}
           >
             Next
           </button>
         </div>
       )}
-      {compareHint ? <p className="muted compare-hint">{compareHint}</p> : null}
       {expanded &&
         createPortal(
           <div
@@ -205,7 +167,7 @@ export function GalleryViewer({
   );
 }
 
-function ViewerPane({ image, onExpand }: { image: CompareImage; onExpand: () => void }) {
+function ViewerPane({ image, onExpand }: { image: GalleryImage; onExpand: () => void }) {
   return (
     <div className="compare-pane">
       <div className="compare-pane-hit">

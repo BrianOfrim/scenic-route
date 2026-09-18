@@ -316,6 +316,7 @@ function geomCoords(geometry: unknown): number[][] {
 }
 
 function isArea(coords: number[][], tags: Record<string, string>): boolean {
+  if (tags.natural === "coastline" || tags.natural === "cliff") return false;
   if (coords.length < 4) return false;
   const first = coords[0];
   const last = coords[coords.length - 1];

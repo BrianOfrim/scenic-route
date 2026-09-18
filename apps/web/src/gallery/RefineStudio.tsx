@@ -44,8 +44,6 @@ export function RefineStudio({ source, posters, onBack, onPostersChange }: Props
     return () => window.clearInterval(timer);
   }, [busy]);
 
-  const split = Boolean(original && selected.posterId !== original.posterId);
-
   async function handleApply() {
     const text = request.trim();
     if (!text || busy) return;
@@ -98,13 +96,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange }: Props
           {selected.title}
           {selected.subtitle ? ` · ${selected.subtitle}` : ""}
         </p>
-        <div className={`refine-studio-stage ${split ? "" : "single"}`}>
-          {split && original && (
-            <figure>
-              <img src={original.url} alt="Original poster" />
-              <figcaption>Original</figcaption>
-            </figure>
-          )}
+        <div className="refine-studio-stage single">
           <figure>
             <img src={selected.url} alt={selected.title} />
             <figcaption>{versionLabel(selected, original?.posterId)}</figcaption>
