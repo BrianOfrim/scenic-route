@@ -13,6 +13,7 @@ import {
 function item(
   posterId: string,
   overrides: {
+    activityId?: number;
     batchId?: string;
     createdAt?: string;
     title?: string;
@@ -30,32 +31,62 @@ function item(
   };
 }
 
-test("galleryRuns groups shared batchIds and leaves solo posters alone", () => {
+test("galleryRuns groups shared activityIds and leaves solo posters alone", () => {
   const runs = galleryRuns([
-    item("c", { createdAt: "2026-09-09T10:00:00Z" }),
-    item("b2", { batchId: "run-b", createdAt: "2026-09-08T12:01:00Z" }),
-    item("a", { createdAt: "2026-09-07T09:00:00Z" }),
-    item("b1", { batchId: "run-b", createdAt: "2026-09-08T12:00:00Z" }),
+    item("c", { activityId: 3, createdAt: "2026-09-09T10:00:00Z" }),
+    item("b2", { activityId: 2, batchId: "run-b-late", createdAt: "2026-09-08T12:01:00Z" }),
+    item("a", { activityId: 1, createdAt: "2026-09-07T09:00:00Z" }),
+    item("b1", { activityId: 2, batchId: "run-b-early", createdAt: "2026-09-08T12:00:00Z" }),
   ]);
 
   assert.deepEqual(
-    runs.map((run) => ({ key: run.key, ids: run.posters.map((poster) => poster.posterId) })),
+    runs.map((run) => ({
+      key: run.key,
+      activityId: run.activityId,
+      ids: run.posters.map((poster) => poster.posterId),
+    })),
     [
-      { key: "c", ids: ["c"] },
-      { key: "run-b", ids: ["b1", "b2"] },
-      { key: "a", ids: ["a"] },
+      { key: "activity:3", activityId: 3, ids: ["c"] },
+      { key: "activity:2", activityId: 2, ids: ["b1", "b2"] },
+      { key: "activity:1", activityId: 1, ids: ["a"] },
     ],
   );
+});
+
+test("galleryRuns does not group posters that only share a batchId", () => {
+  const runs = galleryRuns([
+    item("a", { activityId: 1, batchId: "mixed", createdAt: "2026-09-08T12:00:00Z" }),
+    item("b", { activityId: 2, batchId: "mixed", createdAt: "2026-09-08T12:01:00Z" }),
+  ]);
+
+  assert.deepEqual(
+    runs.map((run) => run.posters.map((poster) => poster.posterId)),
+    [["b"], ["a"]],
+  );
+});
+
+test("galleryRuns sorts activity groups by latest poster createdAt, newest first", () => {
+  const runs = galleryRuns([
+    item("old-a", { activityId: 1, createdAt: "2026-09-01T10:00:00Z" }),
+    item("new-a", { activityId: 1, createdAt: "2026-09-10T10:00:00Z" }),
+    item("mid-b", { activityId: 2, createdAt: "2026-09-08T10:00:00Z" }),
+  ]);
+
+  assert.deepEqual(
+    runs.map((run) => run.activityId),
+    [1, 2],
+  );
+  assert.equal(runs[0]?.posters.at(-1)?.createdAt, "2026-09-10T10:00:00Z");
 });
 
 test("gallerySections packs neighboring singletons into a grid", () => {
   const sections = gallerySections(
     galleryRuns([
-      item("d", { createdAt: "2026-09-10T10:00:00Z" }),
-      item("c2", { batchId: "run-c", createdAt: "2026-09-09T12:01:00Z" }),
-      item("c1", { batchId: "run-c", createdAt: "2026-09-09T12:00:00Z" }),
-      item("b", { createdAt: "2026-09-08T10:00:00Z" }),
-      item("a", { createdAt: "2026-09-07T10:00:00Z" }),
+      item("d", { activityId: 4, createdAt: "2026-09-10T10:00:00Z" }),
+      item("c2", { activityId: 3, batchId: "run-c-late", createdAt: "2026-09-09T12:01:00Z" }),
+      item("c1", { activityId: 3, batchId: "run-c-early", createdAt: "2026-09-09T12:00:00Z" }),
+      item("b", { activityId: 2, createdAt: "2026-09-08T10:00:00Z" }),
+      item("a", { activityId: 1, createdAt: "2026-09-07T10:00:00Z" }),
     ]),
   );
 
@@ -110,10 +141,10 @@ test("runHeadline shares title, mixed labels, count, and total cost", () => {
 
 test("favourites-only view keeps starred posters and regroups leftover singles", () => {
   const posters = [
-    item("d", { createdAt: "2026-09-10T10:00:00Z" }),
-    item("c2", { batchId: "run-c", createdAt: "2026-09-09T12:01:00Z" }),
-    item("c1", { batchId: "run-c", createdAt: "2026-09-09T12:00:00Z" }),
-    item("b", { createdAt: "2026-09-08T10:00:00Z" }),
+    item("d", { activityId: 4, createdAt: "2026-09-10T10:00:00Z" }),
+    item("c2", { activityId: 3, batchId: "run-c-late", createdAt: "2026-09-09T12:01:00Z" }),
+    item("c1", { activityId: 3, batchId: "run-c-early", createdAt: "2026-09-09T12:00:00Z" }),
+    item("b", { activityId: 2, createdAt: "2026-09-08T10:00:00Z" }),
   ];
   const favorited = new Set(["c1", "b"]);
   const sections = gallerySections(galleryRuns(posters.filter((poster) => favorited.has(poster.posterId))));
@@ -152,11 +183,11 @@ test("lineageFamily walks refinements back to the original", () => {
   );
 });
 
-test("viewerSiblings keeps batch order regardless of which poster is active", () => {
+test("viewerSiblings keeps activity order regardless of which poster is active", () => {
   const posters = [
-    item("b", { batchId: "run", createdAt: "2026-09-08T12:01:00Z" }),
-    item("a", { batchId: "run", createdAt: "2026-09-08T12:00:00Z" }),
-    item("c", { batchId: "run", createdAt: "2026-09-08T12:02:00Z" }),
+    item("b", { activityId: 7, batchId: "late", createdAt: "2026-09-08T12:01:00Z" }),
+    item("a", { activityId: 7, batchId: "early", createdAt: "2026-09-08T12:00:00Z" }),
+    item("c", { activityId: 7, batchId: "later", createdAt: "2026-09-08T12:02:00Z" }),
   ];
   const order = ["a", "b", "c"];
   assert.deepEqual(
@@ -185,17 +216,19 @@ test("galleryRuns puts refinements in the same row as the original", () => {
   );
 });
 
-test("galleryRuns attaches a refinement batch to the parent generate run", () => {
+test("galleryRuns keeps generate variants and refinements of one activity together", () => {
   const runs = galleryRuns([
-    item("a1", { batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
-    item("a2", { batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
+    item("a1", { activityId: 11, batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
+    item("a2", { activityId: 11, batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
     item("r1", {
+      activityId: 11,
       batchId: "ref",
       createdAt: "2026-09-09T12:00:00Z",
       previousPosterId: "a1",
       refineNotes: "warmer sky",
     }),
     item("r2", {
+      activityId: 11,
       batchId: "ref",
       createdAt: "2026-09-09T12:01:00Z",
       previousPosterId: "a1",
@@ -234,16 +267,18 @@ test("latestInLineage keeps the newest version in the original's slot", () => {
 test("gallerySections shows only the latest version from each lineage", () => {
   const sections = gallerySections(
     galleryRuns([
-      item("later", { createdAt: "2026-09-10T10:00:00Z" }),
-      item("a1", { batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
-      item("a2", { batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
+      item("later", { activityId: 20, createdAt: "2026-09-10T10:00:00Z" }),
+      item("a1", { activityId: 12, batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
+      item("a2", { activityId: 12, batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
       item("r1", {
+        activityId: 12,
         batchId: "ref",
         createdAt: "2026-09-09T12:00:00Z",
         previousPosterId: "a1",
         refineNotes: "warmer sky",
       }),
       item("r2", {
+        activityId: 12,
         batchId: "ref",
         createdAt: "2026-09-09T12:01:00Z",
         previousPosterId: "r1",
@@ -289,18 +324,19 @@ test("gallerySections packs a refined singleton into the grid", () => {
   );
 });
 
-test("edit-setup regenerations share a batch without stacking", () => {
+test("edit-setup regenerations share an activity without stacking", () => {
   const posters = [
-    item("a1", { batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
-    item("a2", { batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
+    item("a1", { activityId: 9, batchId: "gen", createdAt: "2026-09-08T12:00:00Z" }),
+    item("a2", { activityId: 9, batchId: "gen", createdAt: "2026-09-08T12:01:00Z" }),
     // Historical edit-setup: previousPosterId set, no refineNotes
     item("setup", {
-      batchId: "gen",
+      activityId: 9,
+      batchId: "setup-late",
       createdAt: "2026-09-09T12:00:00Z",
       previousPosterId: "a1",
     }),
-    // Forward edit-setup: shared batchId only
-    item("setup2", { batchId: "gen", createdAt: "2026-09-09T12:01:00Z" }),
+    // Forward edit-setup: shared activity, new batch
+    item("setup2", { activityId: 9, batchId: "setup-later", createdAt: "2026-09-09T12:01:00Z" }),
   ];
 
   assert.deepEqual(

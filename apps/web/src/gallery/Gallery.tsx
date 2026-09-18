@@ -12,7 +12,7 @@ type Props = {
   onEditSetup: (poster: PosterRecord) => void;
   account?: ReactNode;
   tabs?: ReactNode;
-  /** After generate, open this poster's batch/compare lightbox once posters load. */
+  /** After generate, open this poster's activity/compare lightbox once posters load. */
   openPosterId?: string | null;
   onOpenPosterHandled?: () => void;
 };
@@ -232,13 +232,13 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     [active, posters],
   );
   const original = family[0];
-  const batchSiblings = useMemo(
+  const activitySiblings = useMemo(
     () => (active ? viewerSiblings(active, posters) : []),
     [active, posters],
   );
-  const compareStyles = mixedStyles(batchSiblings);
-  const compareModels = mixedModels(batchSiblings);
-  const compareQualities = mixedQualities(batchSiblings);
+  const compareStyles = mixedStyles(activitySiblings);
+  const compareModels = mixedModels(activitySiblings);
+  const compareQualities = mixedQualities(activitySiblings);
   const activeCost = active
     ? formatCostBreakdown({ promptCost: active.promptCost, cost: active.cost })
     : "";
@@ -257,8 +257,8 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     const originalId = original?.posterId;
     return [
       ...schematic,
-      ...batchSiblings.map((item) => {
-        const base = posterLabel(item, batchSiblings, compareStyles, compareModels, compareQualities);
+      ...activitySiblings.map((item) => {
+        const base = posterLabel(item, activitySiblings, compareStyles, compareModels, compareQualities);
         const note = lineageNote(item, originalId);
         return {
           id: item.posterId,
@@ -267,7 +267,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         };
       }),
     ];
-  }, [active, batchSiblings, compareModels, compareQualities, compareStyles, family.length, original?.posterId]);
+  }, [active, activitySiblings, compareModels, compareQualities, compareStyles, family.length, original?.posterId]);
 
   useEffect(() => {
     if (compareId === "schematic" && active && active.referenceCount === 0) setCompareId(null);
@@ -282,18 +282,18 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         return;
       }
       if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      if (batchSiblings.length < 2) return;
-      const index = batchSiblings.findIndex((item) => item.posterId === current.posterId);
+      if (activitySiblings.length < 2) return;
+      const index = activitySiblings.findIndex((item) => item.posterId === current.posterId);
       if (index < 0) return;
       const next =
         event.key === "ArrowRight"
-          ? batchSiblings[(index + 1) % batchSiblings.length]
-          : batchSiblings[(index - 1 + batchSiblings.length) % batchSiblings.length];
+          ? activitySiblings[(index + 1) % activitySiblings.length]
+          : activitySiblings[(index - 1 + activitySiblings.length) % activitySiblings.length];
       setActive(next);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, batchSiblings]);
+  }, [active, activitySiblings]);
 
   function openPoster(poster: PosterRecord) {
     setShowMeta(false);
@@ -303,7 +303,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   }
 
   function selectPoster(id: string) {
-    const poster = batchSiblings.find((item) => item.posterId === id) ?? posters.find((item) => item.posterId === id);
+    const poster = activitySiblings.find((item) => item.posterId === id) ?? posters.find((item) => item.posterId === id);
     if (!poster) return;
     setActive(poster);
     const root = lineageFamily(posters, poster.posterId)[0];
@@ -470,14 +470,14 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                 </span>
               </div>
               <div className="poster-actions">
-                {batchSiblings.length > 1 && (
+                {activitySiblings.length > 1 && (
                   <>
                     <button
                       type="button"
                       className="text-btn"
                       onClick={() => {
-                        const index = batchSiblings.findIndex((item) => item.posterId === active.posterId);
-                        setActive(batchSiblings[(index - 1 + batchSiblings.length) % batchSiblings.length]);
+                        const index = activitySiblings.findIndex((item) => item.posterId === active.posterId);
+                        setActive(activitySiblings[(index - 1 + activitySiblings.length) % activitySiblings.length]);
                       }}
                     >
                       Previous
@@ -486,8 +486,8 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                       type="button"
                       className="text-btn"
                       onClick={() => {
-                        const index = batchSiblings.findIndex((item) => item.posterId === active.posterId);
-                        setActive(batchSiblings[(index + 1) % batchSiblings.length]);
+                        const index = activitySiblings.findIndex((item) => item.posterId === active.posterId);
+                        setActive(activitySiblings[(index + 1) % activitySiblings.length]);
                       }}
                     >
                       Next

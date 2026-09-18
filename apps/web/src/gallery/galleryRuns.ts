@@ -3,6 +3,7 @@ import { styleLabel } from "../poster/styles";
 
 export type GalleryRunItem = {
   posterId: string;
+  activityId?: number;
   batchId?: string;
   createdAt: string;
   previousPosterId?: string;
@@ -87,15 +88,16 @@ export function lineageFamily<T extends LineageItem>(posters: T[], startId: stri
 }
 
 /**
- * Posters shown together in the lightbox strip: same batch and/or refine lineage.
- * Order is stable across selection (batch creation order, then lineage-only extras).
+ * Posters shown together in the lightbox strip: same activity and/or refine lineage.
+ * Order is stable across selection (activity creation order, then lineage-only extras).
  */
 export function viewerSiblings<T extends GalleryRunItem & LineageItem>(active: T, posters: T[]): T[] {
   const family = lineageFamily(posters, active.posterId);
-  const batch = active.batchId
-    ? posters.filter((item) => item.batchId === active.batchId).sort(byCreatedThenId)
-    : [];
-  const siblings = uniqueByPosterId([...batch, ...family]);
+  const activity =
+    active.activityId != null
+      ? posters.filter((item) => item.activityId === active.activityId).sort(byCreatedThenId)
+      : [];
+  const siblings = uniqueByPosterId([...activity, ...family]);
   if (!siblings.some((item) => item.posterId === active.posterId)) siblings.push(active);
   return siblings;
 }
@@ -162,6 +164,7 @@ export function attachLineage<T extends GalleryRunItem>(runs: GalleryRun<T>[]): 
       posters.sort(byCreatedThenId);
       return {
         key: runs[index]?.key ?? posters[0]?.posterId ?? String(index),
+        activityId: posters.find((item) => item.activityId != null)?.activityId,
         batchId: posters[0]?.batchId,
         posters,
       };
@@ -176,6 +179,7 @@ export function attachLineage<T extends GalleryRunItem>(runs: GalleryRun<T>[]): 
 
 export type GalleryRun<T extends GalleryRunItem = GalleryRunItem> = {
   key: string;
+  activityId?: number;
   batchId?: string;
   posters: T[];
 };
@@ -193,21 +197,26 @@ function newestFirst(a: string, b: string) {
   return a < b ? 1 : -1;
 }
 
-/** Group posters that share a batch, newest run first. Items without a batch stay alone. */
+function activityGroupKey<T extends GalleryRunItem>(poster: T) {
+  return poster.activityId != null ? `activity:${poster.activityId}` : poster.posterId;
+}
+
+/** Group posters that share an activity, newest group first. Items without an activity stay alone. */
 export function galleryRuns<T extends GalleryRunItem>(posters: T[]): GalleryRun<T>[] {
   const groups = new Map<string, T[]>();
   for (const poster of posters) {
-    const key = poster.batchId || poster.posterId;
+    const key = activityGroupKey(poster);
     const group = groups.get(key);
     if (group) group.push(poster);
     else groups.set(key, [poster]);
   }
 
-  const batchRuns = [...groups.entries()]
+  const activityRuns = [...groups.entries()]
     .map(([key, items]) => {
       const postersInRun = [...items].sort(byCreatedThenId);
       return {
         key,
+        activityId: postersInRun.find((item) => item.activityId != null)?.activityId,
         batchId: postersInRun[0]?.batchId,
         posters: postersInRun,
       };
@@ -218,7 +227,7 @@ export function galleryRuns<T extends GalleryRunItem>(posters: T[]): GalleryRun<
       const byDate = newestFirst(aLatest, bLatest);
       return byDate || a.key.localeCompare(b.key);
     });
-  return attachLineage(batchRuns);
+  return attachLineage(activityRuns);
 }
 
 /** Keep multi-poster runs as rows; pack neighboring singletons back into a grid. */
