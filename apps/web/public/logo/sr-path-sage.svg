@@ -1,20 +1,8 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 124 124" width="1240" height="1240">
-  <!-- Path terminates at circle centers; identical r=9 markers sit on the joins. Preview only. -->
-  
-  <g fill="none" stroke="#b8c97a" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="
-      M 15 88
-      C 28 88, 42 90, 50 80
-      C 58 68, 48 58, 40 48
-      C 32 36, 36 26, 50 22
-      C 60 20, 70 22, 80 24
-      C 92 26, 104 24, 110 32
-      C 118 42, 116 54, 106 60
-      C 96 66, 86 64, 80 58
-      L 109 96
-    "/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 124 124" width="124" height="124">
+  <path d="M20 96h14c20 0 26-18 12-32l-8-8C20 38 30 28 48 28h34c26 0 26 36 0 36H72l32 32"
+    fill="none" stroke="#b8c97a" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#b8c97a">
+    <circle cx="20" cy="96" r="5"/>
+    <circle cx="104" cy="96" r="5"/>
   </g>
-  <circle cx="15" cy="88" r="9" fill="#b8c97a"/>
-  <circle cx="109" cy="96" r="9" fill="#b8c97a"/>
 </svg>
