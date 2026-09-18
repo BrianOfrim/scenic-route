@@ -48,19 +48,16 @@ import { nearestPlaceName } from "./places";
 import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import {
-  DEFAULT_IMAGE_MODEL_ID,
   formatBatchCost,
   formatCostBreakdown,
   formatDurationMs,
   minMaxReferences,
   posterVariantLabel,
-  readStoredImageModels,
-  resolveUiImageModelIds,
+  resolveConfiguredImageModel,
   shortModelLabel,
   sumCosts,
-  uiImageModelsFromCapabilities,
+  uiImageModelFromCapabilities,
   variantCount,
-  writeStoredImageModels,
 } from "./imageModels";
 
 import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
@@ -694,8 +691,8 @@ export function PosterPanel({
   const [, setModelRefs] = useState<ModelRef[]>([]);
   const [sentRefs, setSentRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
-  const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
-  const [imageModelIds, setImageModelIds] = useState<string[]>(() => resolveUiImageModelIds(readStoredImageModels()));
+  const [imageModel, setImageModel] = useState<ImageModelOption | null>(null);
+  const [configuredImageModel, setConfiguredImageModel] = useState<string | null>(null);
   const [workflowStep, setWorkflowStep] = useState<PosterWorkflowStep>("crop");
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() => (refineFrom ? "customize" : "launch"));
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
@@ -728,12 +725,15 @@ export function PosterPanel({
     let cancelled = false;
     void fetchPosterCapabilities().then((caps) => {
       if (cancelled) return;
-      const models = uiImageModelsFromCapabilities(caps.models);
-      setImageModels(models);
-      const stored = readStoredImageModels();
-      const initial = resolveUiImageModelIds(stored.length ? stored : [caps.defaultModel]);
-      setImageModelIds((current) => (current.length ? resolveUiImageModelIds(current) : initial));
-      setMaxRefs(minMaxReferences(initial, models) || caps.maxReferences);
+      const configured = resolveConfiguredImageModel(caps.defaultModel);
+      setConfiguredImageModel(configured);
+      const model = uiImageModelFromCapabilities(caps.models, configured);
+      setImageModel(model);
+      if (configured) {
+        setMaxRefs(minMaxReferences([configured], model ? [model] : []) || caps.maxReferences);
+      } else {
+        setMaxRefs(caps.maxReferences);
+      }
     });
     return () => {
       cancelled = true;
@@ -741,25 +741,23 @@ export function PosterPanel({
   }, []);
 
   const sheetMode = sheetSnap != null;
-  /** Mobile always generates with Sunburst; desktop keeps the multi-select. */
-  const activeImageModelIds = sheetMode ? [DEFAULT_IMAGE_MODEL_ID] : imageModelIds;
+  /** Image model comes only from OPENROUTER_IMAGE_MODEL (.env.local / Fly secrets). */
+  const activeImageModelIds = configuredImageModel ? [configuredImageModel] : [];
 
   useEffect(() => {
-    if (!imageModelIds.length) return;
-    if (!sheetMode) writeStoredImageModels(imageModelIds);
-    const ids = sheetMode ? [DEFAULT_IMAGE_MODEL_ID] : imageModelIds;
-    if (imageModels.length) {
-      setMaxRefs(minMaxReferences(ids, imageModels));
+    if (!configuredImageModel) return;
+    if (imageModel) {
+      setMaxRefs(minMaxReferences([configuredImageModel], [imageModel]));
       return;
     }
     let cancelled = false;
-    void Promise.all(ids.map((id) => fetchMaxReferences(id))).then((values) => {
-      if (!cancelled && values.length) setMaxRefs(Math.min(...values));
+    void fetchMaxReferences(configuredImageModel).then((value) => {
+      if (!cancelled) setMaxRefs(value);
     });
     return () => {
       cancelled = true;
     };
-  }, [imageModelIds, imageModels, sheetMode]);
+  }, [configuredImageModel, imageModel]);
 
   useEffect(() => {
     let cancelled = false;
@@ -844,9 +842,6 @@ export function PosterPanel({
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
             setPromptModel(refineFrom.promptModel ?? null);
-            if (restored.imageModelIds?.length) {
-              setImageModelIds(resolveUiImageModelIds(restored.imageModelIds));
-            }
             setSentRefs(savedModelRefs(refineFrom));
             setResult(refineFrom);
             setBatchResults([refineFrom]);
@@ -1461,7 +1456,7 @@ export function PosterPanel({
           paletteId: job.paletteId,
           styleLabel: planSlotLabel(job.styleId, job.paletteId),
           model: job.model,
-          label: shortModelLabel(job.model, imageModels.find((item) => item.id === job.model)?.name),
+          label: shortModelLabel(job.model, imageModel?.id === job.model ? imageModel.name : undefined),
           startedAt,
           promptCost: job.promptCost,
         })),
@@ -1826,17 +1821,6 @@ export function PosterPanel({
     });
   }
 
-  function toggleImageModel(id: string) {
-    setImageModelIds((current) => {
-      const has = current.includes(id);
-      if (has) {
-        const next = current.filter((item) => item !== id);
-        return next.length ? resolveUiImageModelIds(next) : current;
-      }
-      return resolveUiImageModelIds([...current, id]);
-    });
-  }
-
   function selectResult(record: PosterRecord) {
     setResult(record);
     if (record.styleId) {
@@ -1871,8 +1855,8 @@ export function PosterPanel({
             : null;
   const planSlots = stylePlanSlots(styleIds, paletteIdsByStyle);
   const generateCount = planSlots.length * activeImageModelIds.reduce((sum, id) => {
-    const model = imageModels.find((item) => item.id === id);
-    return sum + variantCount(variants, model?.maxImages);
+    const maxImages = imageModel?.id === id ? imageModel.maxImages : undefined;
+    return sum + variantCount(variants, maxImages);
   }, 0);
   const editingCustom = styleIds.includes("custom");
   const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
@@ -2751,26 +2735,6 @@ export function PosterPanel({
                 )}
               </p>
               {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
-              {imageModels.length > 0 && (
-                <label className="poster-field">
-                  <span>Image model</span>
-                  <div className="poster-model-list">
-                    {imageModels.map((model) => (
-                      <label key={model.id} className="check">
-                        <input
-                          type="checkbox"
-                          checked={imageModelIds.includes(model.id)}
-                          onChange={() => toggleImageModel(model.id)}
-                        />
-                        <span>{shortModelLabel(model.id, model.name)}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {imageModelIds.length > 1 ? (
-                    <p className="muted">Each selected model generates separately for comparison.</p>
-                  ) : null}
-                </label>
-              )}
               <div className="poster-actions poster-plan-row">
                 <button
                   className="button"

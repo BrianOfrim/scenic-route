@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  DEFAULT_IMAGE_MODEL_ID,
-  GPT_IMAGE_SUNBURST,
-  META_MUSE_IMAGE,
   batchCosts,
   formatBatchCost,
   formatCostBreakdown,
@@ -13,12 +10,11 @@ import {
   normalizeImageQualities,
   posterVariantLabel,
   qualitiesForModel,
-  resolveUiImageModelId,
-  resolveUiImageModelIds,
+  resolveConfiguredImageModel,
   shortModelLabel,
   shortQualityLabel,
   sumCosts,
-  uiImageModelsFromCapabilities,
+  uiImageModelFromCapabilities,
   uniqueIds,
   clampVariants,
   variantCount,
@@ -74,40 +70,47 @@ test("uniqueIds drops blanks and duplicates", () => {
   assert.deepEqual(uniqueIds([" a ", "a", "", "b"]), ["a", "b"]);
 });
 
-test("resolveUiImageModelId defaults to sunburst and accepts muse", () => {
-  assert.equal(resolveUiImageModelId(null), DEFAULT_IMAGE_MODEL_ID);
-  assert.equal(resolveUiImageModelId("google/gemini-2.5-flash-image"), GPT_IMAGE_SUNBURST);
-  assert.equal(resolveUiImageModelId(META_MUSE_IMAGE), META_MUSE_IMAGE);
+test("resolveConfiguredImageModel uses only the server env/secret value", () => {
+  assert.equal(resolveConfiguredImageModel(null), null);
+  assert.equal(resolveConfiguredImageModel(""), null);
+  assert.equal(resolveConfiguredImageModel("not-a-model"), null);
+  assert.equal(resolveConfiguredImageModel("openai/gpt-image-2.5-sunburst"), "openai/gpt-image-2.5-sunburst");
+  assert.equal(resolveConfiguredImageModel("meta/muse-image"), "meta/muse-image");
 });
 
-test("resolveUiImageModelIds keeps curated multi-select order", () => {
-  assert.deepEqual(resolveUiImageModelIds(null), [DEFAULT_IMAGE_MODEL_ID]);
-  assert.deepEqual(resolveUiImageModelIds([META_MUSE_IMAGE, "nope", GPT_IMAGE_SUNBURST]), [
-    GPT_IMAGE_SUNBURST,
-    META_MUSE_IMAGE,
-  ]);
-  assert.deepEqual(resolveUiImageModelIds([META_MUSE_IMAGE]), [META_MUSE_IMAGE]);
-});
-
-test("uiImageModelsFromCapabilities keeps only sunburst and muse in UI order", () => {
-  const models = uiImageModelsFromCapabilities([
+test("uiImageModelFromCapabilities returns only the configured server model", () => {
+  const models = [
     { id: "google/gemini-2.5-flash-image", name: "Nano", maxReferences: 3, maxImages: 1, qualities: [] },
     {
-      id: GPT_IMAGE_SUNBURST,
+      id: "openai/gpt-image-2.5-sunburst",
       name: "GPT Image 2.5 Sunburst",
       maxReferences: 16,
       maxImages: 10,
       qualities: ["auto", "low", "high"],
     },
-  ]);
-  assert.deepEqual(
-    models.map((item) => ({ id: item.id, qualities: item.qualities })),
-    [
-      { id: GPT_IMAGE_SUNBURST, qualities: [] },
-      { id: META_MUSE_IMAGE, qualities: [] },
-    ],
-  );
-  assert.equal(models[1].name, "Muse Image");
+    {
+      id: "meta/muse-image",
+      name: "Muse Image",
+      maxReferences: 3,
+      maxImages: 1,
+      qualities: [],
+    },
+  ];
+  assert.equal(uiImageModelFromCapabilities(models, null), null);
+  assert.deepEqual(uiImageModelFromCapabilities(models, "meta/muse-image"), {
+    id: "meta/muse-image",
+    name: "Muse Image",
+    maxReferences: 3,
+    maxImages: 1,
+    qualities: [],
+  });
+  assert.deepEqual(uiImageModelFromCapabilities([], "openai/gpt-image-2.5-sunburst"), {
+    id: "openai/gpt-image-2.5-sunburst",
+    name: "openai/gpt-image-2.5-sunburst",
+    maxReferences: 3,
+    maxImages: 1,
+    qualities: [],
+  });
 });
 
 test("minMaxReferences uses the most restrictive selected model", () => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   OpenRouterError,
+  chatModel,
   extractMaxImages,
   extractMaxRefs,
   isImageModelId,
@@ -120,7 +121,31 @@ test("parseImageModels reads discovery listing", () => {
   );
 });
 
-test("resolveImageModel accepts OpenRouter slugs", () => {
+test("chatModel reads OPENROUTER_MODEL with no hardcoded fallback", () => {
+  const previous = process.env.OPENROUTER_MODEL;
+  process.env.OPENROUTER_MODEL = "meta/muse-spark-1.3-contributor";
+  try {
+    assert.equal(chatModel(), "meta/muse-spark-1.3-contributor");
+    process.env.OPENROUTER_MODEL = "anthropic/claude-sonnet-4";
+    assert.equal(chatModel(), "anthropic/claude-sonnet-4");
+  } finally {
+    if (previous == null) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = previous;
+  }
+});
+
+test("chatModel requires OPENROUTER_MODEL", () => {
+  const previous = process.env.OPENROUTER_MODEL;
+  delete process.env.OPENROUTER_MODEL;
+  try {
+    assert.throws(() => chatModel(), OpenRouterError);
+  } finally {
+    if (previous == null) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = previous;
+  }
+});
+
+test("resolveImageModel prefers a valid request, otherwise OPENROUTER_IMAGE_MODEL", () => {
   assert.equal(isImageModelId("google/gemini-2.5-flash-image"), true);
   assert.equal(isImageModelId("openai/gpt-5-image:free"), true);
   assert.equal(isImageModelId("not-a-model"), false);
@@ -130,6 +155,8 @@ test("resolveImageModel accepts OpenRouter slugs", () => {
   try {
     assert.equal(resolveImageModel("nope"), "openai/gpt-image-test");
     assert.equal(resolveImageModel(""), "openai/gpt-image-test");
+    assert.equal(resolveImageModel(null), "openai/gpt-image-test");
+    assert.equal(resolveImageModel(undefined), "openai/gpt-image-test");
   } finally {
     if (previous == null) delete process.env.OPENROUTER_IMAGE_MODEL;
     else process.env.OPENROUTER_IMAGE_MODEL = previous;

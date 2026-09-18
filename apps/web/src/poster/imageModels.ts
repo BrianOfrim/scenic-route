@@ -1,30 +1,13 @@
-const IMAGE_MODELS_KEY = "scenic-route.image-models";
-const LEGACY_MODEL_KEY = "scenic-route.image-model";
+const IMAGE_MODEL_ID = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/i;
 
-/** Curated multi-select options shown in the poster UI. */
-export const META_MUSE_IMAGE = "meta/muse-image";
-export const GPT_IMAGE_SUNBURST = "openai/gpt-image-2.5-sunburst";
-export const UI_IMAGE_MODEL_IDS = [GPT_IMAGE_SUNBURST, META_MUSE_IMAGE] as const;
-export const DEFAULT_IMAGE_MODEL_ID = GPT_IMAGE_SUNBURST;
-
-export type UiImageModelId = (typeof UI_IMAGE_MODEL_IDS)[number];
-
-export function isUiImageModelId(id: string): id is UiImageModelId {
-  return (UI_IMAGE_MODEL_IDS as readonly string[]).includes(id);
+export function isImageModelId(value: string) {
+  return IMAGE_MODEL_ID.test(value.trim());
 }
 
-/** Prefer a stored/requested UI model; otherwise sunburst. */
-export function resolveUiImageModelId(preferred?: string | null): UiImageModelId {
-  const trimmed = preferred?.trim() ?? "";
-  return isUiImageModelId(trimmed) ? trimmed : DEFAULT_IMAGE_MODEL_ID;
-}
-
-/** Keep curated UI models (multi-select); fall back to sunburst when none match. */
-export function resolveUiImageModelIds(preferred?: string[] | null): UiImageModelId[] {
-  const allowed = new Set(UI_IMAGE_MODEL_IDS);
-  const picked = uniqueIds(preferred ?? []).filter((id): id is UiImageModelId => allowed.has(id as UiImageModelId));
-  const ordered = UI_IMAGE_MODEL_IDS.filter((id) => picked.includes(id));
-  return ordered.length ? [...ordered] : [DEFAULT_IMAGE_MODEL_ID];
+/** Server-configured image model from OPENROUTER_IMAGE_MODEL (via capabilities). */
+export function resolveConfiguredImageModel(serverDefault?: string | null) {
+  const trimmed = serverDefault?.trim() ?? "";
+  return trimmed && isImageModelId(trimmed) ? trimmed : null;
 }
 
 type ModelOptionLike = {
@@ -35,44 +18,22 @@ type ModelOptionLike = {
   qualities?: string[];
 };
 
-/** Keep only the curated models, in UI order; synthesize missing entries. */
-export function uiImageModelsFromCapabilities(models: ModelOptionLike[]): ModelOptionLike[] {
-  const byId = new Map(models.map((model) => [model.id, model]));
-  return UI_IMAGE_MODEL_IDS.map((id) => {
-    const found = byId.get(id);
-    if (found) return { ...found, qualities: [] };
-    return {
-      id,
-      name: id === META_MUSE_IMAGE ? "Muse Image" : id,
-      maxReferences: 3,
-      maxImages: 1,
-      qualities: [],
-    };
-  });
-}
-
-export function readStoredImageModels(): string[] {
-  try {
-    const raw = localStorage.getItem(IMAGE_MODELS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) {
-        return resolveUiImageModelIds(parsed.filter((item): item is string => typeof item === "string"));
-      }
-    }
-    const legacy = localStorage.getItem(LEGACY_MODEL_KEY)?.trim();
-    return resolveUiImageModelIds(legacy ? [legacy] : []);
-  } catch {
-    return [DEFAULT_IMAGE_MODEL_ID];
-  }
-}
-
-export function writeStoredImageModels(ids: string[]) {
-  try {
-    localStorage.setItem(IMAGE_MODELS_KEY, JSON.stringify(resolveUiImageModelIds(ids)));
-  } catch {
-    /* ignore quota / private mode */
-  }
+/** Single configured model from capabilities; synthesize when OpenRouter omits it. */
+export function uiImageModelFromCapabilities(
+  models: ModelOptionLike[],
+  serverDefault?: string | null,
+): ModelOptionLike | null {
+  const configured = resolveConfiguredImageModel(serverDefault);
+  if (!configured) return null;
+  const found = models.find((model) => model.id === configured);
+  if (found) return { ...found, qualities: found.qualities ?? [] };
+  return {
+    id: configured,
+    name: configured,
+    maxReferences: 3,
+    maxImages: 1,
+    qualities: [],
+  };
 }
 
 export function uniqueIds(ids: string[]) {
