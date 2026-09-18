@@ -12,6 +12,9 @@ type Props = {
   onEditSetup: (poster: PosterRecord) => void;
   account?: ReactNode;
   tabs?: ReactNode;
+  /** After generate, open this poster's batch/compare lightbox once posters load. */
+  openPosterId?: string | null;
+  onOpenPosterHandled?: () => void;
 };
 
 function posterLabel(
@@ -175,7 +178,7 @@ function GalleryRun({
   );
 }
 
-export function Gallery({ onEditSetup, account, tabs }: Props) {
+export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpenPosterHandled }: Props) {
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +205,18 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!openPosterId || loading) return;
+    const poster = posters.find((item) => item.posterId === openPosterId);
+    if (poster) {
+      setShowMeta(false);
+      setActive(poster);
+      const root = lineageFamily(posters, poster.posterId)[0];
+      setCompareId(root && root.posterId !== poster.posterId ? root.posterId : null);
+    }
+    onOpenPosterHandled?.();
+  }, [openPosterId, loading, posters, onOpenPosterHandled]);
 
   const visible = useMemo(
     () => (favoritesOnly ? posters.filter((item) => item.favorited) : posters),

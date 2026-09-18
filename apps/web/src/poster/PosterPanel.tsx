@@ -52,7 +52,6 @@ import {
   formatCostBreakdown,
   formatDurationMs,
   minMaxReferences,
-  posterVariantLabel,
   resolveConfiguredImageModel,
   shortModelLabel,
   sumCosts,
@@ -60,8 +59,6 @@ import {
   variantCount,
 } from "./imageModels";
 
-import { BatchCompare, defaultComparePair, type CompareImage } from "../compare/BatchCompare";
-import { ShareButton } from "../share";
 import {
   AUTO_PALETTE_ID,
   DEFAULT_POSTER_STYLE,
@@ -554,23 +551,16 @@ type PosterWorkflowStep =
   | "annotations"
   | "themes"
   | "stats"
-  | "output"
-  | "result";
+  | "output";
 
 /** Mobile sheet: one-tap launch vs full Customize editor. Desktop ignores this. */
 type MobileSurface = "launch" | "customize";
 
 const MAP_WORKFLOW_STEPS = new Set<PosterWorkflowStep>(["crop", "on-map"]);
 
-function savedModelRefs(record: PosterRecord): ModelRef[] {
-  return Array.from({ length: record.referenceCount }, (_, index) => ({
-    role: `reference ${index + 1}`,
-    dataUrl: `/api/posters/${record.posterId}/ref-${index + 1}.png`,
-  }));
-}
-
 type Props = {
   activityId: number;
+  activityLabel?: string;
   features: FeatureOption[];
   onClose: () => void;
   onCropChange?: (crop: [number, number][] | null) => void;
@@ -600,6 +590,7 @@ type Props = {
 
 export function PosterPanel({
   activityId,
+  activityLabel,
   features,
   onClose,
   onCropChange,
@@ -689,7 +680,6 @@ export function PosterPanel({
   const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
   const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
   const [, setModelRefs] = useState<ModelRef[]>([]);
-  const [sentRefs, setSentRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
   const [imageModel, setImageModel] = useState<ImageModelOption | null>(null);
   const [configuredImageModel, setConfiguredImageModel] = useState<string | null>(null);
@@ -704,13 +694,7 @@ export function PosterPanel({
   const [generateProgress, setGenerateProgress] = useState({ done: 0, total: 0 });
   const [modelRuns, setModelRuns] = useState<GenerationRun[]>([]);
   const [elapsed, setElapsed] = useState(0);
-  const [result, setResult] = useState<PosterRecord | null>(() => refineFrom ?? null);
-  const [batchResults, setBatchResults] = useState<PosterRecord[]>(() => (refineFrom ? [refineFrom] : []));
   const [preview, setPreview] = useState<{ src: string; label: string } | null>(null);
-  const [compareOpen, setCompareOpen] = useState(false);
-  const [compareLeftId, setCompareLeftId] = useState("");
-  const [compareRightId, setCompareRightId] = useState("");
-  const [compareFocus, setCompareFocus] = useState<"left" | "right">("right");
   const cropActivityId = useRef<number | null>(null);
 
   useEffect(() => {
@@ -764,6 +748,7 @@ export function PosterPanel({
     const activityChanged = cropActivityId.current !== activityId;
     setLoading(true);
     if (activityChanged) {
+      setContext(null);
       setError(null);
     }
     fetchPosterContext(activityId, featureIds.filter((id) => id !== "named-trails"), featureQuery)
@@ -782,8 +767,8 @@ export function PosterPanel({
         if (activityChanged) {
           cropActivityId.current = activityId;
           setMobileSurface(refineFrom ? "customize" : "launch");
-          setWorkflowStep(refineFrom ? "result" : "crop");
-          if (refineFrom) onSheetSnapChange?.("full");
+          setWorkflowStep("crop");
+          if (refineFrom) onSheetSnapChange?.("half");
           setEditingTrail(null);
           setLandmarkQuery("");
           setLandmarkChoices(null);
@@ -842,9 +827,6 @@ export function PosterPanel({
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
             setPromptModel(refineFrom.promptModel ?? null);
-            setSentRefs(savedModelRefs(refineFrom));
-            setResult(refineFrom);
-            setBatchResults([refineFrom]);
           } else {
             dismissedAutoNames.current.pois.clear();
             dismissedAutoNames.current.trails.clear();
@@ -862,9 +844,6 @@ export function PosterPanel({
             setCustomPois([]);
             setCustomWays([]);
             setTrailAliases({});
-            setResult(null);
-            setBatchResults([]);
-            setSentRefs([]);
             setPromptModel(null);
           }
         } else {
@@ -1441,7 +1420,6 @@ export function PosterPanel({
     try {
       const layers = await buildGrounding();
       const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
-      setSentRefs(packed.map((item) => ({ role: item.role, legend: item.legend, dataUrl: item.dataUrl })));
       // Edit-setup regenerations share the source batch so they stay in the same gallery
       // row, but omit previousPosterId so they do not stack like image refinements.
       const batchId = refineFrom
@@ -1558,18 +1536,11 @@ export function PosterPanel({
         ];
       });
       if (!records.length) throw new Error(failures.join(" · ") || "Poster generation failed");
-      setBatchResults(records);
-      setResult(records[0]);
       setActiveStyleId(records[0].styleId || activeStyleId);
       if (failures.length) {
         setError(`${failures.length} poster${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
       }
-      if (sheetSnap != null && mobileSurface === "launch") {
-        onGenerated?.(records[0]);
-      } else if (sheetSnap != null) {
-        setWorkflowStep("result");
-        onSheetSnapChange?.("full");
-      }
+      onGenerated?.(records[0]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Poster generation failed");
     } finally {
@@ -1821,22 +1792,6 @@ export function PosterPanel({
     });
   }
 
-  function selectResult(record: PosterRecord) {
-    setResult(record);
-    if (record.styleId) {
-      const paletteId = record.paletteId ?? AUTO_PALETTE_ID;
-      const key = planSlotKey(record.styleId, paletteId);
-      setActiveStyleId(record.styleId);
-      setActivePlanKey(key);
-      setSpecs((current) => ({ ...current, [record.styleId]: record.spec, [key]: record.spec }));
-    }
-    setSentRefs(savedModelRefs(record));
-  }
-
-  function resultSlotLabel(item: PosterRecord) {
-    return planSlotLabel(item.styleId, item.paletteId ?? AUTO_PALETTE_ID, item.spec.style.name);
-  }
-
   const showEditor = context != null && cropActivityId.current === activityId;
   const featuresRefreshing = loading && showEditor;
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
@@ -1861,34 +1816,10 @@ export function PosterPanel({
   const editingCustom = styleIds.includes("custom");
   const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
   const paletteStyles = styleIds.map(styleById).filter(showsPalettePicker);
-  const resultCost = result
-    ? formatCostBreakdown({ promptCost: result.promptCost, cost: result.cost })
-    : "";
+  const launchStyleId = styleIds[0] ?? DEFAULT_POSTER_STYLE.id;
+  const launchPaletteId = paletteIdsForStyle(styleById(launchStyleId), paletteIdsByStyle[launchStyleId])[0];
+  const launchThemeLabel = planSlotLabel(launchStyleId, launchPaletteId);
   const runsBatchCost = formatBatchCost(modelRuns);
-  const compareItems = batchResults.length ? batchResults : result ? [result] : [];
-  const compareStyles =
-    new Set(compareItems.map((item) => planSlotKey(item.styleId, item.paletteId ?? AUTO_PALETTE_ID))).size > 1;
-  const compareModels = new Set(compareItems.map((item) => item.model)).size > 1;
-  const resultsBatchCost = formatBatchCost(compareItems);
-  const schematicSrc =
-    sentRefs.find((item) => item.role === "schematic")?.dataUrl ??
-    (result ? `/api/posters/${result.posterId}/ref-1.png` : null);
-  const compareImages: CompareImage[] = [
-    ...(schematicSrc ? [{ id: "schematic", src: schematicSrc, label: "schematic" }] : []),
-    ...compareItems.map((item) => ({
-      id: item.posterId,
-      src: item.url,
-      label:
-        [
-          compareStyles ? resultSlotLabel(item) : null,
-          compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
-          posterVariantLabel(item, compareItems),
-          item.durationMs != null ? formatDurationMs(item.durationMs) : null,
-        ]
-          .filter(Boolean)
-          .join(" · ") || "result",
-    })),
-  ];
 
   function applyRouteOnly(next: boolean) {
     if (next === routeOnly) return;
@@ -1909,15 +1840,14 @@ export function PosterPanel({
   }
 
   useEffect(() => {
-    if (!compareOpen && !preview) return;
+    if (!preview) return;
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
-      if (preview) setPreview(null);
-      else setCompareOpen(false);
+      setPreview(null);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [compareOpen, preview]);
+  }, [preview]);
 
   const launchMode = sheetMode && mobileSurface === "launch";
   const labelCount = selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length;
@@ -1940,21 +1870,19 @@ export function PosterPanel({
     if (!sheetMode) {
       steps.push({ id: "output", label: "Output" });
     }
-    if (result) steps.push({ id: "result", label: batchResults.length > 1 ? "Results" : "Result" });
     return steps;
-  }, [showOnMapStep, sheetMode, result, batchResults.length]);
+  }, [showOnMapStep, sheetMode]);
+  const panelTitle = context?.activity.name ?? activityLabel ?? "Create poster";
   const peekStatus =
     loading && !showEditor
-      ? "Loading…"
+      ? "Loading activity…"
       : generating
         ? `Generating… ${elapsed}s`
         : planning
           ? `Planning… ${elapsed}s`
           : launchMode
-            ? `${DEFAULT_POSTER_STYLE.label} · full track`
-            : result
-              ? "Result ready"
-              : showEditor
+            ? `${launchThemeLabel} · full track`
+            : showEditor
                 ? `${formatKm(croppedKm)}${!routeOnly && labelCount ? ` · ${labelCount} label${labelCount === 1 ? "" : "s"}` : ""}`
                 : "";
 
@@ -2050,6 +1978,7 @@ export function PosterPanel({
       ref={panelRef}
       className={`panel poster-panel${sheetMode ? " is-sheet" : ""}`}
       data-sheet={sheetSnap ?? undefined}
+      aria-busy={busy || undefined}
     >
       {sheetMode ? (
         <div className="poster-sheet-chrome">
@@ -2064,8 +1993,13 @@ export function PosterPanel({
           </button>
           <div className="poster-sheet-peek">
             <div className="poster-sheet-peek-text">
-              <strong>{context?.activity.name ?? "Create poster"}</strong>
-              {peekStatus ? <p className="muted">{peekStatus}</p> : null}
+              <strong>{panelTitle}</strong>
+              {peekStatus ? (
+                <p className="muted feature-query-block">
+                  {loading && !showEditor ? <span className="spinner" aria-hidden="true" /> : null}
+                  {peekStatus}
+                </p>
+              ) : null}
             </div>
           </div>
           {showEditor && context && sheetSnap !== "peek" && !launchMode && (
@@ -2076,6 +2010,7 @@ export function PosterPanel({
                   type="button"
                   className={workflowStep === step.id ? "on" : undefined}
                   aria-current={workflowStep === step.id ? "step" : undefined}
+                  disabled={busy}
                   onClick={() => selectWorkflowStep(step.id)}
                 >
                   {step.label}
@@ -2088,7 +2023,7 @@ export function PosterPanel({
         <div className="panel-block poster-head">
           <div>
             <div className="eyebrow">Poster</div>
-            <strong>{context?.activity.name ?? "Create poster"}</strong>
+            <strong>{panelTitle}</strong>
           </div>
           <button type="button" className="text-btn" onClick={onClose}>
             Close
@@ -2099,7 +2034,7 @@ export function PosterPanel({
         <div className="panel-block sheet-from-half">
           <p className="muted feature-query-block">
             <span className="spinner" aria-hidden="true" />
-            Loading nearby features…
+            Loading activity…
           </p>
         </div>
       )}
@@ -2110,9 +2045,45 @@ export function PosterPanel({
       )}
       {showEditor && context && launchMode && sheetSnap !== "peek" && (
         <div className="panel-block poster-launch sheet-from-half">
-          <p className="muted poster-launch-summary">
-            {formatKm(croppedKm)} · annotations off · {DEFAULT_POSTER_STYLE.label}
-          </p>
+          <fieldset className="poster-editor-fieldset" disabled={busy}>
+            <p className="muted poster-launch-summary">
+              {formatKm(croppedKm)} · annotations off
+            </p>
+            <div className="poster-option-row">
+              <label className="poster-field">
+                Theme
+                <select
+                  value={styleIds[0] ?? ""}
+                  disabled={busy}
+                  onChange={(event) => selectStyle(event.target.value)}
+                >
+                  <option value="">Select a theme</option>
+                  {POSTER_STYLES.filter((style) => style.id !== "custom").map((style) => (
+                    <option key={style.id} value={style.id}>
+                      {style.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {paletteStyles[0] ? (
+                <label className="poster-field">
+                  Palette
+                  <select
+                    value={paletteIdsForStyle(paletteStyles[0], paletteIdsByStyle[paletteStyles[0].id])[0]}
+                    disabled={busy}
+                    onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
+                  >
+                    <option value={AUTO_PALETTE_ID}>Auto</option>
+                    {stylePalettes(paletteStyles[0]).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </div>
+          </fieldset>
           <div className="poster-actions poster-launch-actions">
             <button
               className="button"
@@ -2139,7 +2110,15 @@ export function PosterPanel({
         </div>
       )}
       {showEditor && context && !launchMode && (
-        <div className="poster-body">
+        <fieldset className="poster-body poster-editor-fieldset" disabled={busy}>
+          {refineFrom ? (
+            <div className="panel-block sheet-from-half">
+              <p className="muted">
+                Setup restored from gallery. Adjust crop, landmarks, or themes, then generate again. View
+                generated posters in the gallery.
+              </p>
+            </div>
+          ) : null}
           <PosterSection
             title="Crop track"
             accordion={false}
@@ -2575,6 +2554,7 @@ export function PosterPanel({
                   Theme
                   <select
                     value={styleIds[0] ?? ""}
+                    disabled={busy}
                     onChange={(event) => selectStyle(event.target.value)}
                   >
                     <option value="">Select a theme</option>
@@ -2590,6 +2570,7 @@ export function PosterPanel({
                     Palette
                     <select
                       value={paletteIdsForStyle(paletteStyles[0], paletteIdsByStyle[paletteStyles[0].id])[0]}
+                      disabled={busy}
                       onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
                     >
                       <option value={AUTO_PALETTE_ID}>Auto</option>
@@ -2798,100 +2779,7 @@ export function PosterPanel({
               )}
             </PosterSection>
           )}
-
-          {result && (
-            <PosterSection
-              title={batchResults.length > 1 ? "Compare results" : "Result"}
-              accordion={false}
-              showTitle={!sheetMode}
-              className={workflowPane("result")}
-            >
-              <div className="result-compare">
-                {schematicSrc && (
-                  <figure className="result-compare-card">
-                    <img src={schematicSrc} alt="Reference schematic" />
-                    <span>schematic</span>
-                  </figure>
-                )}
-                {compareItems.map((item) => (
-                  <button
-                    key={item.posterId}
-                    type="button"
-                    className={`result-compare-card ${item.posterId === result.posterId ? "on" : ""}`}
-                    onClick={() => selectResult(item)}
-                  >
-                    <img src={item.url} alt={item.title} />
-                    <span>
-                      {[
-                        compareStyles ? resultSlotLabel(item) : null,
-                        compareModels || !compareStyles
-                          ? shortModelLabel(item.model, item.modelName)
-                          : null,
-                        posterVariantLabel(item, compareItems),
-                      ]
-                        .filter(Boolean)
-                        .join(" · ") || "result"}
-                    </span>
-                    {item.durationMs != null && <span>{formatDurationMs(item.durationMs)}</span>}
-                  </button>
-                ))}
-              </div>
-              <div className="poster-actions">
-                {compareImages.length > 1 && (
-                  <button
-                    type="button"
-                    className="text-btn"
-                    onClick={() => {
-                      const pair = defaultComparePair(compareImages, result.posterId);
-                      setCompareLeftId(pair.leftId);
-                      setCompareRightId(pair.rightId);
-                      setCompareFocus("right");
-                      setCompareOpen(true);
-                    }}
-                  >
-                    Compare side by side
-                  </button>
-                )}
-                <a className="button" href={result.url} download={`${result.posterId}.png`}>
-                  Download
-                </a>
-                <ShareButton url={result.url} filename={`${result.posterId}.png`} />
-                <a className="text-btn" href={result.url} target="_blank" rel="noreferrer">
-                  Open
-                </a>
-              </div>
-              <p className="muted">
-                {resultSlotLabel(result)}
-                {` · ${shortModelLabel(result.model, result.modelName)}`}
-                {result.durationMs != null ? ` · ${formatDurationMs(result.durationMs)}` : ""}
-                {resultCost ? ` · ${resultCost}` : ""}
-              </p>
-              {compareItems.length > 1 && resultsBatchCost ? (
-                <p className="muted">{resultsBatchCost}</p>
-              ) : null}
-              {sentRefs.length > 0 && (
-                <>
-                  <div className="eyebrow">Sent to the model</div>
-                  <div className="preview-grid">
-                    {sentRefs.map((item, index) => (
-                      <GroundingThumb
-                        key={`${item.role}-${index}`}
-                        src={item.dataUrl}
-                        label={item.role}
-                        onOpen={() => setPreview({ src: item.dataUrl, label: item.role })}
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
-              {refineFrom && result.posterId === refineFrom.posterId && (
-                <p className="muted">
-                  Setup restored from this poster. Change landmarks, crop, or themes, then Generate.
-                </p>
-              )}
-            </PosterSection>
-          )}
-        </div>
+        </fieldset>
       )}
     </aside>
     {preview && (
@@ -2904,43 +2792,6 @@ export function PosterPanel({
               <button type="button" className="text-btn" onClick={() => setPreview(null)}>
                 Close
               </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )}
-    {compareOpen && result && compareImages.length > 1 && (
-      <div className="lightbox" onClick={() => setCompareOpen(false)}>
-        <div className="lightbox-inner" onClick={(event) => event.stopPropagation()}>
-          <BatchCompare
-            images={compareImages}
-            leftId={compareLeftId}
-            rightId={compareRightId}
-            focus={compareFocus}
-            onFocus={setCompareFocus}
-            onSelect={(id) => {
-              if (compareFocus === "left") setCompareLeftId(id);
-              else setCompareRightId(id);
-              if (id === "schematic") return;
-              const poster = compareItems.find((item) => item.posterId === id);
-              if (poster) selectResult(poster);
-            }}
-            onSwap={() => {
-              setCompareLeftId(compareRightId);
-              setCompareRightId(compareLeftId);
-            }}
-          />
-          <div className="lightbox-bar">
-            <strong>{result.title}</strong>
-            <span className="muted">{result.subtitle}</span>
-            <div className="poster-actions">
-              <button type="button" className="text-btn" onClick={() => setCompareOpen(false)}>
-                Close
-              </button>
-              <a className="button" href={result.url} download={`${result.posterId}.png`}>
-                Download selected
-              </a>
-              <ShareButton url={result.url} filename={`${result.posterId}.png`} />
             </div>
           </div>
         </div>

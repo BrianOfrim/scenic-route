@@ -66,6 +66,7 @@ type AnnotatePreview = {
 
 type Props = {
   selectedLatLng: [number, number][] | null;
+  trackLoading?: boolean;
   cropLatLng?: [number, number][] | null;
   cropStops?: [number, number][];
   pois?: PosterPoi[];
@@ -96,6 +97,7 @@ const SATELLITE_TILES = "/api/tiles/satellite/{z}/{x}/{y}.png";
 
 export function MapView({
   selectedLatLng,
+  trackLoading = false,
   cropLatLng,
   cropStops,
   pois,
@@ -734,11 +736,20 @@ export function MapView({
     mapRef.current?.triggerRepaint();
   }
 
-  const showSchematicEmpty = basemap === "schematic" && (!selectedLatLng || selectedLatLng.length < 2);
+  const showSchematicEmpty =
+    basemap === "schematic" && !trackLoading && (!selectedLatLng || selectedLatLng.length < 2);
 
   return (
     <div className={`map-root${mode !== "browse" ? ` is-annotate-${mode}` : ""}${touchUi ? " is-touch" : ""}`}>
       <div ref={containerRef} className="map" />
+      {trackLoading && (
+        <div className="map-empty map-loading" role="status" aria-live="polite">
+          <div className="map-empty-copy">
+            <span className="spinner map-loading-spinner" aria-hidden="true" />
+            <strong>Loading route</strong>
+          </div>
+        </div>
+      )}
       {showSchematicEmpty && (
         <div className="map-empty" role="status">
           <div className="map-empty-copy">
