@@ -783,3 +783,25 @@ test("annotatePoisInsideAreas does not put a city inside a park", () => {
   const annotated = annotatePoisInsideAreas([city], [park]);
   assert.equal(annotated[0].inside, undefined);
 });
+
+test("new geography layers retain their buckets and respect disabled selections", () => {
+  const cases = [
+    ["wetlands", "natural", "wetland"],
+    ["vegetation", "natural", "grassland"], ["vegetation", "natural", "scrub"], ["vegetation", "natural", "heath"],
+    ["beaches", "natural", "beach"], ["beaches", "natural", "sand"], ["beaches", "natural", "shingle"],
+    ["coastline", "natural", "coastline"],
+    ["rock", "natural", "bare_rock"], ["rock", "natural", "scree"], ["rock", "natural", "blockfield"],
+    ["cliffs", "natural", "cliff"], ["glaciers", "natural", "glacier"],
+  ];
+  for (const [bucket, key, value] of cases) {
+    const features = elementsToFeatures([{
+      type: "way", id: 1, tags: { [key]: value },
+      geometry: [{ lon: 0, lat: 0 }, { lon: 1, lat: 0 }, { lon: 1, lat: 1 }, { lon: 0, lat: 0 }],
+    }]);
+    assert.equal(features[0].geometry.type, ["coastline", "cliffs"].includes(bucket) ? "LineString" : "Polygon");
+    const input = { type: "FeatureCollection" as const, features };
+    assert.equal(splitWays(input, resolveFeatures())[bucket].features.length, 1, value);
+    const disabled = splitWays(input, FEATURE_CATALOG.filter((item) => item.bucket !== bucket));
+    assert.equal(Object.values(disabled).flatMap((collection) => collection.features).length, 0, value);
+  }
+});

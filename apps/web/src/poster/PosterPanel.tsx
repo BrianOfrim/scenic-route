@@ -98,9 +98,9 @@ const EMPTY_WAYS: NamedWay[] = [];
 const EMPTY_AREAS: NamedArea[] = [];
 
 const SCHEMATIC_LEGEND =
-  "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; blue = water; green = forest; ochre wash + letter = named district, private region index, copy the footprint not the ochre or letter; numbered discs = private location index, do not copy";
+  "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; blue = water; green = forest; teal = wetlands; pale green = open vegetation; sand = beaches; grey-brown fill = rock; pale blue = glaciers; blue shoreline = coastline; brown lines = cliffs; ochre wash + letter = named district, private region index, copy the footprint not the ochre or letter; numbered discs = private location index, do not copy";
 
-const GEOGRAPHY_LEGEND = "red = GPS track; grey = roads; blue = water; green = forest/parks";
+const GEOGRAPHY_LEGEND = "red = GPS track; grey = roads; blue = water; green = forest/parks; teal = wetlands; pale green = open vegetation; sand = beaches; grey-brown fill = rock; pale blue = glaciers; blue shoreline = coastline; brown lines = cliffs";
 
 const ROUTE_ONLY_LEGEND = "red = GPS track";
 
@@ -1814,7 +1814,6 @@ export function PosterPanel({
     return sum + variantCount(variants, maxImages);
   }, 0);
   const editingCustom = styleIds.includes("custom");
-  const singlePreset = styleIds.length === 1 && styleIds[0] !== "custom";
   const paletteStyles = styleIds.map(styleById).filter(showsPalettePicker);
   const launchStyleId = styleIds[0] ?? DEFAULT_POSTER_STYLE.id;
   const launchPaletteId = paletteIdsForStyle(styleById(launchStyleId), paletteIdsByStyle[launchStyleId])[0];
@@ -2226,7 +2225,7 @@ export function PosterPanel({
 
           <PosterSection
             title="Geography"
-            accordion={false}
+            accordion={!sheetMode}
             showTitle={!sheetMode}
             className={workflowPane("geography")}
             hint={featuresRefreshing ? <FeatureQueryHint label="Querying OpenStreetMap…" /> : undefined}
@@ -2334,7 +2333,7 @@ export function PosterPanel({
 
           <PosterSection
             title="Annotations"
-            accordion={false}
+            accordion={!sheetMode}
             showTitle={!sheetMode}
             className={workflowPane("annotations")}
             busy={featuresRefreshing}
@@ -2638,25 +2637,12 @@ export function PosterPanel({
                 })}
               </>
             )}
-            {!sheetMode && (editingCustom || singlePreset) && (
+            {!sheetMode && editingCustom && (
               <textarea
                 className="poster-prompt"
                 rows={5}
-                value={editingCustom ? stylePrompt : styleById(styleIds[0]).prompt}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (singlePreset) {
-                    const fromId = styleIds[0];
-                    for (const paletteId of paletteIdsForStyle(styleById(fromId), paletteIdsByStyle[fromId])) {
-                      dropSlot(fromId, paletteId);
-                    }
-                    setStyleIds(["custom"]);
-                    setActiveStyleId("custom");
-                    setPaletteIdsByStyle({ custom: [AUTO_PALETTE_ID] });
-                    setActivePlanKey(planSlotKey("custom", AUTO_PALETTE_ID));
-                  }
-                  setStylePrompt(value);
-                }}
+                value={stylePrompt}
+                onChange={(event) => setStylePrompt(event.target.value)}
                 placeholder="Custom style prompt"
               />
             )}

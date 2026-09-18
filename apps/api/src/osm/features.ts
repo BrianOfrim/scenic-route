@@ -137,6 +137,13 @@ const WAY_BUCKETS = [
   "forest",
   "parks",
   "farmland",
+  "wetlands",
+  "vegetation",
+  "beaches",
+  "coastline",
+  "rock",
+  "cliffs",
+  "glaciers",
   "cemeteries",
 ] as const;
 
@@ -256,6 +263,13 @@ export function splitWays(geojson: FeatureCollection, selected: FeatureDef[]): P
     } else if (tags.railway) bucket = "rail";
     else if (tags.waterway) bucket = "waterways";
     else if (tags.natural === "water" || tags.water) bucket = "water";
+    else if (tags.natural === "wetland") bucket = "wetlands";
+    else if (/^(grassland|scrub|heath)$/.test(tags.natural ?? "")) bucket = "vegetation";
+    else if (/^(beach|sand|shingle)$/.test(tags.natural ?? "")) bucket = "beaches";
+    else if (tags.natural === "coastline") bucket = "coastline";
+    else if (/^(bare_rock|scree|blockfield)$/.test(tags.natural ?? "")) bucket = "rock";
+    else if (tags.natural === "cliff") bucket = "cliffs";
+    else if (tags.natural === "glacier") bucket = "glaciers";
     else if (tags.landuse === "forest" || tags.natural === "wood") bucket = "forest";
     else if (tags.leisure === "park" || tags.leisure === "nature_reserve" || tags.leisure === "garden" || tags.landuse === "recreation_ground") {
       bucket = "parks";

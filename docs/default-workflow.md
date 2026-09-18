@@ -15,7 +15,7 @@
 
 - Full track (no crop UI on default path)
 - Annotations off (`routeOnly: true`)
-- Geography: **minimal unlabeled on** (roads/water/forest as helpful context) — tune in Customize if wrong
+- Geography: **all layers on**, with controls collapsed by default on desktop and available in the Geography tab in mobile Customize.
 - One theme: **Risograph** (auto-selected); last-used later if we add memory
 - 1 variant, default aspect
 - Hide planner refs / schematic on default path

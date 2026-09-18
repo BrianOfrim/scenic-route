@@ -42,6 +42,13 @@ export type RenderSchematicOptions = {
     forest?: boolean;
     parks?: boolean;
     farmland?: boolean;
+    "wetlands"?: boolean;
+    "vegetation"?: boolean;
+    "beaches"?: boolean;
+    "coastline"?: boolean;
+    "rock"?: boolean;
+    "cliffs"?: boolean;
+    "glaciers"?: boolean;
     cemeteries?: boolean;
     labels?: boolean;
     route?: boolean;
@@ -66,6 +73,13 @@ export function schematicLayersFromFeatureIds(
     forest: featureIds.includes("forest"),
     parks: featureIds.includes("parks"),
     farmland: featureIds.includes("farmland"),
+    "wetlands": featureIds.includes("wetlands"),
+    "vegetation": featureIds.includes("vegetation"),
+    "beaches": featureIds.includes("beaches"),
+    "coastline": featureIds.includes("coastline"),
+    "rock": featureIds.includes("rock"),
+    "cliffs": featureIds.includes("cliffs"),
+    "glaciers": featureIds.includes("glaciers"),
     cemeteries: featureIds.includes("cemeteries"),
     labels: true,
     route: true,
@@ -180,6 +194,11 @@ export function drawSchematicScene(
   ctx.fillRect(0, 0, view.width, view.height);
 
   if (!options.silhouette) {
+    if (layers["vegetation"] !== false) fillBucket(ctx, ways["vegetation"], project, "rgba(199, 211, 151, 0.5)");
+    if (layers["rock"] !== false) fillBucket(ctx, ways["rock"], project, "rgba(166, 160, 151, 0.5)");
+    if (layers["beaches"] !== false) fillBucket(ctx, ways["beaches"], project, "rgba(235, 215, 159, 0.65)");
+    if (layers["wetlands"] !== false) fillBucket(ctx, ways["wetlands"], project, "rgba(135, 183, 172, 0.55)");
+    if (layers["glaciers"] !== false) fillBucket(ctx, ways["glaciers"], project, "rgba(206, 229, 239, 0.85)");
     if (layers.farmland !== false) fillBucket(ctx, ways.farmland, project, "rgba(214, 196, 140, 0.45)");
     if (layers.cemeteries !== false) fillBucket(ctx, ways.cemeteries, project, "rgba(186, 178, 162, 0.55)");
     drawNamedAreaFills(ctx, options.namedAreas ?? [], project);
@@ -190,6 +209,16 @@ export function drawSchematicScene(
       ctx.strokeStyle = "rgba(90, 150, 180, 0.85)";
       ctx.lineWidth = 1.4 * scale;
       strokeBucket(ctx, ways.waterways, project);
+    }
+    if (layers.coastline !== false) {
+      ctx.strokeStyle = "#5a96b4";
+      ctx.lineWidth = 1.6 * scale;
+      strokeBucket(ctx, ways.coastline, project);
+    }
+    if (layers.cliffs !== false) {
+      ctx.strokeStyle = "#776b60";
+      ctx.lineWidth = 1.8 * scale;
+      strokeBucket(ctx, ways.cliffs, project);
     }
     drawNamedAreaOutlines(ctx, options.namedAreas ?? [], project, scale);
     if (layers.roads !== false) strokeRoads(ctx, ways.roads, project, "#9a958c", scale);

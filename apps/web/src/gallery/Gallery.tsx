@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { deletePoster, fetchActivities, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
-import { type CompareImage } from "../compare/BatchCompare";
 import { formatCostBreakdown, formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, type GallerySort } from "./galleryRuns";
-import { GalleryViewer } from "./GalleryViewer";
+import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
 import { ShareButton } from "../share";
 
@@ -12,7 +11,7 @@ type Props = {
   onEditSetup: (poster: PosterRecord) => void;
   account?: ReactNode;
   tabs?: ReactNode;
-  /** After generate, open this poster's activity/compare lightbox once posters load. */
+  /** After generate, open this poster's activity lightbox once posters load. */
   openPosterId?: string | null;
   onOpenPosterHandled?: () => void;
 };
@@ -190,7 +189,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const [studioFrom, setStudioFrom] = useState<PosterRecord | null>(null);
   const [active, setActive] = useState<PosterRecord | null>(null);
   const [showMeta, setShowMeta] = useState(false);
-  const [compareId, setCompareId] = useState<string | null>(null);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [sort, setSort] = useState<GallerySort>("generated");
   const [activityDates, setActivityDates] = useState<Map<number, string> | null>(null);
@@ -231,8 +229,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     if (poster) {
       setShowMeta(false);
       setActive(poster);
-      const root = lineageFamily(posters, poster.posterId)[0];
-      setCompareId(root && root.posterId !== poster.posterId ? root.posterId : null);
     }
     onOpenPosterHandled?.();
   }, [openPosterId, loading, posters, onOpenPosterHandled]);
@@ -264,21 +260,10 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const activeCost = active
     ? formatCostBreakdown({ promptCost: active.promptCost, cost: active.cost })
     : "";
-  const compareImages = useMemo<CompareImage[]>(() => {
+  const viewerImages = useMemo<GalleryImage[]>(() => {
     if (!active) return [];
-    const schematic =
-      active.referenceCount > 0
-        ? [
-            {
-              id: "schematic",
-              src: `/api/posters/${active.posterId}/ref-1.png`,
-              label: "schematic",
-            },
-          ]
-        : [];
     const originalId = original?.posterId;
     return [
-      ...schematic,
       ...activitySiblings.map((item) => {
         const base = posterLabel(item, activitySiblings, compareStyles, compareModels, compareQualities);
         const note = lineageNote(item, originalId);
@@ -290,10 +275,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
       }),
     ];
   }, [active, activitySiblings, compareModels, compareQualities, compareStyles, family.length, original?.posterId]);
-
-  useEffect(() => {
-    if (compareId === "schematic" && active && active.referenceCount === 0) setCompareId(null);
-  }, [active, compareId]);
 
   useEffect(() => {
     if (!active) return;
@@ -320,20 +301,13 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   function openPoster(poster: PosterRecord) {
     setShowMeta(false);
     setActive(poster);
-    const root = lineageFamily(posters, poster.posterId)[0];
-    setCompareId(root && root.posterId !== poster.posterId ? root.posterId : null);
   }
 
   function selectPoster(id: string) {
     const poster = activitySiblings.find((item) => item.posterId === id) ?? posters.find((item) => item.posterId === id);
     if (!poster) return;
     setActive(poster);
-    const root = lineageFamily(posters, poster.posterId)[0];
-    setCompareId((current) => {
-      if (current === "schematic") return current;
-      if (root && root.posterId !== poster.posterId) return root.posterId;
-      return null;
-    });
+
   }
 
   function updatePoster(next: PosterRecord) {
@@ -359,7 +333,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     setActive((current) => (current?.posterId === poster.posterId ? null : current));
   }
 
-  const selectedImage = active ? compareImages.find((item) => item.id === active.posterId) : undefined;
+  const selectedImage = active ? viewerImages.find((item) => item.id === active.posterId) : undefined;
 
   if (studioFrom) {
     return (
@@ -463,30 +437,9 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             onClick={(event) => event.stopPropagation()}
           >
             <GalleryViewer
-              images={compareImages}
+              images={viewerImages}
               selectedId={active.posterId}
-              compareId={compareId}
-              hint={
-                compareId && compareId !== "schematic"
-                  ? "Original on the left. Click another refinement to compare it, or the original to view it alone."
-                  : family.length > 1 && compareId !== "schematic"
-                    ? "Click a refinement to see it beside the original."
-                    : undefined
-              }
               onSelectPoster={selectPoster}
-              onCompare={(id) => {
-                if (id === "schematic") {
-                  setCompareId("schematic");
-                  return;
-                }
-                if (id == null) {
-                  setCompareId(
-                    original && active && original.posterId !== active.posterId ? original.posterId : null,
-                  );
-                  return;
-                }
-                setCompareId(id);
-              }}
             />
             <div className="lightbox-bar">
               <div className="lightbox-bar-copy">
@@ -572,19 +525,26 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                   {active.durationMs != null ? ` · ${formatDurationMs(active.durationMs)}` : ""}
                   {activeCost ? ` · ${activeCost}` : ""} · {active.referenceCount} refs
                 </p>
+                {active.referenceCount > 0 && (
+                  <section aria-label="References for this image">
+                    <h3>Image references</h3>
+                    <div className="preview-grid">
+                      {Array.from({ length: active.referenceCount }, (_, i) => {
+                        const reference = active.spec?.grounding?.images.find((image) => image.index === i + 1);
+                        const label = reference?.role || (i === 0 ? "Schematic" : `Reference ${i + 1}`);
+                        const src = `/api/posters/${active.posterId}/ref-${i + 1}.png`;
+                        return (
+                          <a key={src} href={src} target="_blank" rel="noreferrer" title={`Open ${label} full size`}>
+                            <img src={src} alt={label} />
+                            <span>{label} · Open full size</span>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
                 <pre>{active.prompt}</pre>
                 <pre>{JSON.stringify(active.spec, null, 2)}</pre>
-                {active.referenceCount > 0 && (
-                  <div className="preview-grid">
-                    {Array.from({ length: active.referenceCount }, (_, i) => (
-                      <img
-                        key={i}
-                        src={`/api/posters/${active.posterId}/ref-${i + 1}.png`}
-                        alt={`Grounding ${i + 1}`}
-                      />
-                    ))}
-                  </div>
-                )}
               </aside>
             )}
           </div>
