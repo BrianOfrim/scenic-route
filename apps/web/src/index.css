@@ -1526,6 +1526,18 @@ button.map-schematic-tip-name:focus-visible {
   overflow: hidden;
 }
 
+.gallery-sort {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.gallery-sort select {
+  max-width: 100%;
+}
+
 .gallery-runs {
   flex: 1;
   min-height: 0;
@@ -1537,6 +1549,8 @@ button.map-schematic-tip-name:focus-visible {
 }
 
 .gallery-run {
+  flex-shrink: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1564,12 +1578,18 @@ button.map-schematic-tip-name:focus-visible {
 
 .gallery-run-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: 180px;
   gap: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding-bottom: 8px;
 }
 
 .gallery-run-row .gallery-card {
   min-width: 0;
+  scroll-snap-align: start;
 }
 
 .gallery-run-row .gallery-card img {
@@ -2561,9 +2581,13 @@ button.map-schematic-tip-name:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .gallery-grid,
-  .gallery-run-row {
+  .gallery-grid {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+  }
+
+  .gallery-run-row {
+    grid-auto-columns: 140px;
     gap: 10px;
   }
 

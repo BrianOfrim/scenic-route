@@ -230,7 +230,28 @@ export function galleryRuns<T extends GalleryRunItem>(posters: T[]): GalleryRun<
   return attachLineage(activityRuns);
 }
 
-/** Keep multi-poster runs as rows; pack neighboring singletons back into a grid. */
+export type GallerySort = "generated" | "activity";
+
+/** Missing activity dates sort last; ties retain newest-generation order. */
+export function sortGalleryRuns<T extends GalleryRunItem>(
+  runs: GalleryRun<T>[],
+  sort: GallerySort,
+  activityDates: ReadonlyMap<number, string>,
+): GalleryRun<T>[] {
+  if (sort === "generated") return runs;
+  const timestamp = (run: GalleryRun<T>) => {
+    const date = run.activityId == null ? undefined : activityDates.get(run.activityId);
+    const value = date ? Date.parse(date) : NaN;
+    return Number.isFinite(value) ? value : -Infinity;
+  };
+  return [...runs].sort((a, b) => {
+    const left = timestamp(a);
+    const right = timestamp(b);
+    return left === right ? 0 : left > right ? -1 : 1;
+  });
+}
+
+/** Keep activities as rows, including singletons; grid only unassociated single posters. */
 export function gallerySections<T extends GalleryRunItem>(runs: GalleryRun<T>[]): GallerySection<T>[] {
   const sections: GallerySection<T>[] = [];
   let singles: T[] = [];
@@ -242,8 +263,10 @@ export function gallerySections<T extends GalleryRunItem>(runs: GalleryRun<T>[])
   }
 
   for (const run of runs) {
-    const posters = latestInLineage(run.posters);
-    if (posters.length === 1) {
+    const posters = latestInLineage(run.posters).sort(
+      (a, b) => newestFirst(a.createdAt, b.createdAt) || a.posterId.localeCompare(b.posterId),
+    );
+    if (posters.length === 1 && run.activityId == null) {
       singles.push(posters[0]);
       continue;
     }

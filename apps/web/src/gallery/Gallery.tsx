@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { deletePoster, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
+import { deletePoster, fetchActivities, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
 import { type CompareImage } from "../compare/BatchCompare";
 import { formatCostBreakdown, formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
-import { galleryRuns, gallerySections, lineageFamily, runHeadline, viewerSiblings } from "./galleryRuns";
+import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, type GallerySort } from "./galleryRuns";
 import { GalleryViewer } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
 import { ShareButton } from "../share";
@@ -158,7 +158,12 @@ function GalleryRun({
           {headline.detail ? ` · ${headline.detail}` : ""}
         </p>
       </header>
-      <div className="gallery-run-row">
+      <div
+        className="gallery-run-row"
+        role="region"
+        aria-label={`${headline.title} images, newest first`}
+        tabIndex={0}
+      >
         {posters.map((poster) => {
           const note = lineageNote(poster, originalId);
           const versions = versionCount(poster);
@@ -187,6 +192,20 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const [showMeta, setShowMeta] = useState(false);
   const [compareId, setCompareId] = useState<string | null>(null);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [sort, setSort] = useState<GallerySort>("generated");
+  const [activityDates, setActivityDates] = useState<Map<number, string> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchActivities()
+      .then((activities) => {
+        if (!cancelled) setActivityDates(new Map(activities.map((activity) => [activity.id, activity.startDate])));
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load activity dates. Sorting by activity is unavailable.");
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,7 +241,10 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     () => (favoritesOnly ? posters.filter((item) => item.favorited) : posters),
     [favoritesOnly, posters],
   );
-  const sections = useMemo(() => gallerySections(galleryRuns(visible)), [visible]);
+  const sections = useMemo(
+    () => gallerySections(sortGalleryRuns(galleryRuns(visible), sort, activityDates ?? new Map())),
+    [visible, sort, activityDates],
+  );
   const versionCount = useMemo(() => {
     return (poster: PosterRecord) => lineageFamily(posters, poster.posterId).length;
   }, [posters]);
@@ -363,6 +385,13 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
           </div>
         </div>
         <div className="top-actions">
+          <label className="gallery-sort">
+            Sort by
+            <select value={sort} onChange={(event) => setSort(event.target.value as GallerySort)}>
+              <option value="generated">Most recently generated image</option>
+              <option value="activity" disabled={!activityDates}>Most recent activity</option>
+            </select>
+          </label>
           <button
             type="button"
             className={`text-btn ${favoritesOnly ? "on" : ""}`}
