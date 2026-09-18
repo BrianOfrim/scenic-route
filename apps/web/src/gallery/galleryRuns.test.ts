@@ -7,6 +7,7 @@ import {
   lineageFamily,
   lineageRoot,
   runHeadline,
+  sortGalleryRuns,
   viewerSiblings,
 } from "./galleryRuns";
 
@@ -79,7 +80,7 @@ test("galleryRuns sorts activity groups by latest poster createdAt, newest first
   assert.equal(runs[0]?.posters.at(-1)?.createdAt, "2026-09-10T10:00:00Z");
 });
 
-test("gallerySections packs neighboring singletons into a grid", () => {
+test("gallerySections keeps each activity in its own row, newest image first", () => {
   const sections = gallerySections(
     galleryRuns([
       item("d", { activityId: 4, createdAt: "2026-09-10T10:00:00Z" }),
@@ -90,25 +91,9 @@ test("gallerySections packs neighboring singletons into a grid", () => {
     ]),
   );
 
-  assert.equal(sections[0]?.kind, "singles");
-  if (sections[0]?.kind !== "singles") throw new Error("expected leading singles");
   assert.deepEqual(
-    sections[0].posters.map((poster) => poster.posterId),
-    ["d"],
-  );
-
-  assert.equal(sections[1]?.kind, "run");
-  if (sections[1]?.kind !== "run") throw new Error("expected run");
-  assert.deepEqual(
-    sections[1].run.posters.map((poster) => poster.posterId),
-    ["c1", "c2"],
-  );
-
-  assert.equal(sections[2]?.kind, "singles");
-  if (sections[2]?.kind !== "singles") throw new Error("expected trailing singles");
-  assert.deepEqual(
-    sections[2].posters.map((poster) => poster.posterId),
-    ["b", "a"],
+    sections.map((section) => section.kind === "run" && section.run.posters.map((poster) => poster.posterId)),
+    [["d"], ["c2", "c1"], ["b"], ["a"]],
   );
 });
 
@@ -139,7 +124,7 @@ test("runHeadline shares title, mixed labels, count, and total cost", () => {
   assert.match(headline.detail, /\$0\.100/);
 });
 
-test("favourites-only view keeps starred posters and regroups leftover singles", () => {
+test("favourites-only view keeps single-image activity groups", () => {
   const posters = [
     item("d", { activityId: 4, createdAt: "2026-09-10T10:00:00Z" }),
     item("c2", { activityId: 3, batchId: "run-c-late", createdAt: "2026-09-09T12:01:00Z" }),
@@ -149,12 +134,9 @@ test("favourites-only view keeps starred posters and regroups leftover singles",
   const favorited = new Set(["c1", "b"]);
   const sections = gallerySections(galleryRuns(posters.filter((poster) => favorited.has(poster.posterId))));
 
-  assert.equal(sections.length, 1);
-  assert.equal(sections[0]?.kind, "singles");
-  if (sections[0]?.kind !== "singles") throw new Error("expected singles after favourite filter");
   assert.deepEqual(
-    sections[0].posters.map((poster) => poster.posterId),
-    ["c1", "b"],
+    sections.map((section) => section.kind === "run" && section.run.posters.map((poster) => poster.posterId)),
+    [["c1"], ["b"]],
   );
 });
 
@@ -287,10 +269,10 @@ test("gallerySections shows only the latest version from each lineage", () => {
     ]),
   );
 
-  assert.equal(sections[0]?.kind, "singles");
-  if (sections[0]?.kind !== "singles") throw new Error("expected leading singles");
+  assert.equal(sections[0]?.kind, "run");
+  if (sections[0]?.kind !== "run") throw new Error("expected activity row");
   assert.deepEqual(
-    sections[0].posters.map((poster) => poster.posterId),
+    sections[0].run.posters.map((poster) => poster.posterId),
     ["later"],
   );
 
@@ -354,7 +336,7 @@ test("edit-setup regenerations share an activity without stacking", () => {
   if (sections[0]?.kind !== "run") throw new Error("expected run");
   assert.deepEqual(
     sections[0].run.posters.map((poster) => poster.posterId),
-    ["a1", "a2", "setup", "setup2"],
+    ["setup2", "setup", "a2", "a1"],
   );
 });
 
@@ -371,4 +353,33 @@ test("runHeadline collapses long theme and model lists", () => {
   assert.match(headline.detail, /4 themes/);
   assert.match(headline.detail, /4 models/);
   assert.doesNotMatch(headline.detail, /Middle-earth/);
+});
+
+
+test("gallery sort switches activity groups without changing image order", () => {
+  const runs = galleryRuns([
+    item("old-activity-new-image", { activityId: 1, createdAt: "2026-09-18T12:00:00Z" }),
+    item("new-activity-old-image", { activityId: 2, createdAt: "2026-09-17T12:00:00Z" }),
+    item("older-image", { activityId: 1, createdAt: "2026-09-16T12:00:00Z" }),
+    item("missing-activity", { activityId: 3, createdAt: "2026-09-19T12:00:00Z" }),
+  ]);
+  const dates = new Map([[1, "2026-09-01T12:00:00Z"], [2, "2026-09-15T12:00:00Z"]]);
+  assert.deepEqual(sortGalleryRuns(runs, "generated", dates).map((run) => run.activityId), [3, 1, 2]);
+  const sorted = sortGalleryRuns(runs, "activity", dates);
+  assert.deepEqual(sorted.map((run) => run.activityId), [2, 1, 3]);
+  const sections = gallerySections(sorted);
+  assert.deepEqual(sections[1].kind === "run" && sections[1].run.posters.map((poster) => poster.posterId),
+    ["old-activity-new-image", "older-image"]);
+  assert.deepEqual(runs.map((run) => run.activityId), [3, 1, 2]);
+});
+
+test("activity sort uses generation order for tied or unavailable dates", () => {
+  const runs = galleryRuns([
+    item("a", { activityId: 1, createdAt: "2026-09-18T12:00:00Z" }),
+    item("b", { activityId: 2, createdAt: "2026-09-17T12:00:00Z" }),
+  ]);
+  for (const dates of [new Map<number, string>(), new Map([[1, "invalid"], [2, "invalid"]]),
+    new Map([[1, "2026-09-01T12:00:00Z"], [2, "2026-09-01T12:00:00Z"]])]) {
+    assert.deepEqual(sortGalleryRuns(runs, "activity", dates).map((run) => run.activityId), [1, 2]);
+  }
 });
