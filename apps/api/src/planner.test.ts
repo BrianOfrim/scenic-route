@@ -420,7 +420,7 @@ test("planner asks for an open palette instead of refilling a cliché pair", () 
     style: {
       id: "risograph",
       label: "Risograph",
-      prompt: "Two-ink risograph print. Pick any two Riso inks; do not default to fluorescent pink and teal.",
+      prompt: "Two-ink risograph print. Pick any two Riso inks.",
       palette: [],
       typography: "zine sans",
       openPalette: true,
