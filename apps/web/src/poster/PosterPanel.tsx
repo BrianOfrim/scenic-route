@@ -870,6 +870,7 @@ export function PosterPanel({
             setResult(null);
             setBatchResults([]);
             setSentRefs([]);
+            setPromptModel(null);
           }
         } else {
           const last = Math.max(1, next.latlng.length - 1);
@@ -1423,7 +1424,7 @@ export function PosterPanel({
       : stylePlanSlots(styleIds, paletteIdsByStyle).flatMap((slot) => {
           const planned = specForSlot(specs, slot.styleId, slot.paletteId);
           if (!planned) return [];
-          return [{ ...slot, spec: planned, cost: planCosts[slot.key] ?? null }];
+          return [{ ...slot, spec: planned, cost: planCosts[slot.key] ?? null, model: promptModel }];
         })
     ).flatMap((slot) => {
       const style = styleById(slot.styleId);
@@ -1436,7 +1437,7 @@ export function PosterPanel({
         model,
         slotKey: slot.key,
         promptCost: slot.cost ?? planCosts[slot.key] ?? null,
-        promptModel: ("model" in slot ? slot.model : null) || promptModel,
+        promptModel: slot.model || promptModel,
       }));
     });
     if (!jobs.length) return;
