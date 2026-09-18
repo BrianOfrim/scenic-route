@@ -34,6 +34,24 @@ test("jsonResponseFormat prefers strict json_schema when a schema is supplied", 
 test("isSchemaRejection only matches structured-output complaints", () => {
   assert.equal(isSchemaRejection(400, { error: { message: "response_format json_schema is not supported" } }), true);
   assert.equal(isSchemaRejection(400, { error: { message: "Invalid schema for response_format" } }), true);
+  assert.equal(
+    isSchemaRejection(400, {
+      error: {
+        message: "Provider returned error",
+        metadata: {
+          raw: JSON.stringify({
+            error: {
+              message:
+                "'required' is required to be supplied and to be an array including every key in properties. Missing 'finishName'.",
+              param: "schema",
+              type: "invalid_request_error",
+            },
+          }),
+        },
+      },
+    }),
+    true,
+  );
   assert.equal(isSchemaRejection(400, { error: { message: "context length exceeded" } }), false);
   assert.equal(isSchemaRejection(401, { error: { message: "json_schema" } }), false);
   assert.equal(isSchemaRejection(500, { error: { message: "json_schema" } }), false);

@@ -114,7 +114,15 @@ export const POSTER_SPEC_SCHEMA = {
     route: {
       type: "object",
       additionalProperties: false,
-      required: ["treatment", "color", "startMarker", "finishMarker", "shapeNotes"],
+      required: [
+        "treatment",
+        "color",
+        "startMarker",
+        "finishMarker",
+        "startName",
+        "finishName",
+        "shapeNotes",
+      ],
       properties: {
         treatment: { type: "string" },
         color: { type: "string" },
@@ -130,7 +138,7 @@ export const POSTER_SPEC_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["kind", "name", "placement", "treatment"],
+        required: ["kind", "name", "placement", "treatment", "color", "letter"],
         properties: {
           kind: { type: "string" },
           name: { type: "string" },
