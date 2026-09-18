@@ -23,8 +23,8 @@ Create an OpenRouter key at [https://openrouter.ai/keys](https://openrouter.ai/k
 
 ```
 OPENROUTER_API_KEY=
-OPENROUTER_MODEL=anthropic/claude-sonnet-4
-OPENROUTER_IMAGE_MODEL=openai/gpt-image-2.5-sunburst
+OPENROUTER_MODEL=meta/muse-spark-1.3-contributor
+OPENROUTER_IMAGE_MODEL=meta/muse-image
 ```
 
 ```bash
