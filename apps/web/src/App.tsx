@@ -102,6 +102,7 @@ export function App() {
   const [features, setFeatures] = useState<FeatureOption[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedLatLng, setSelectedLatLng] = useState<[number, number][] | null>(null);
+  const [trackLoading, setTrackLoading] = useState(false);
   const [cropLatLng, setCropLatLng] = useState<[number, number][] | null>(null);
   const [cropStops, setCropStops] = useState<[number, number][]>([]);
   const [pois, setPois] = useState<PosterPoi[]>([]);
@@ -145,6 +146,7 @@ export function App() {
   const [refineFrom, setRefineFrom] = useState<PosterRecord | null>(null);
   const [basemap, setBasemap] = useState<Basemap>("schematic");
   const [viewNonce, setViewNonce] = useState(0);
+  const [galleryOpenPosterId, setGalleryOpenPosterId] = useState<string | null>(null);
 
   const go = useCallback((next: string) => {
     window.history.pushState({}, "", next);
@@ -192,6 +194,35 @@ export function App() {
       return Boolean(activity?.hasGps && activity.streamsSynced);
     },
     [activities],
+  );
+
+  const clearPosterMapState = useCallback(() => {
+    setCropLatLng(null);
+    setCropStops([]);
+    setPois([]);
+    setNamedWays([]);
+    setNamedAreas([]);
+    setMapHighlight(null);
+    setWays(null);
+    setSchematicLayers(null);
+  }, []);
+
+  const selectActivity = useCallback(
+    (id: number) => {
+      const activity = activities.find((item) => item.id === id);
+      setSelectedLatLng(null);
+      setTrackLoading(true);
+      clearPosterMapState();
+      setSelectedId(id);
+      setRefineFrom(null);
+      if (activity?.hasGps && activity.streamsSynced) {
+        openPosterOnMobile();
+      } else {
+        setPosterOpen(false);
+        setRouteOnly(true);
+      }
+    },
+    [activities, clearPosterMapState, openPosterOnMobile],
   );
 
   const closePoster = useCallback(() => {
@@ -264,6 +295,8 @@ export function App() {
       if (refineId) {
         const poster = await fetchPoster(refineId);
         if (!cancelled) {
+          setSelectedLatLng(null);
+          setTrackLoading(true);
           setSelectedId(poster.activityId);
           setRefineFrom(poster);
           setPosterOpen(true);
@@ -293,15 +326,21 @@ export function App() {
   useEffect(() => {
     if (selectedId == null) {
       setSelectedLatLng(null);
+      setTrackLoading(false);
       return;
     }
     let cancelled = false;
+    setSelectedLatLng(null);
+    setTrackLoading(true);
     fetchActivityTrack(selectedId)
       .then((body) => {
         if (!cancelled) setSelectedLatLng(body.latlng);
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not load track");
+      })
+      .finally(() => {
+        if (!cancelled) setTrackLoading(false);
       });
     return () => {
       cancelled = true;
@@ -401,11 +440,13 @@ export function App() {
       await refresh();
       const first = result.activities[0];
       if (first && result.activities.length === 1 && !result.skipped) {
+        selectActivity(first.id);
+      } else if (first) {
+        setSelectedLatLng(null);
+        setTrackLoading(true);
+        clearPosterMapState();
         setSelectedId(first.id);
         setRefineFrom(null);
-        openPosterOnMobile();
-      } else if (first) {
-        setSelectedId(first.id);
       }
       const parts: string[] = [];
       if (result.activities.length > 1) parts.push(`Imported ${result.activities.length} activities`);
@@ -532,25 +573,7 @@ export function App() {
             selectedId={selectedId}
             busy={busy}
             importing={importing}
-            onSelect={(id) => {
-              const activity = activities.find((item) => item.id === id);
-              setSelectedId(id);
-              setRefineFrom(null);
-              if (activity?.hasGps && activity.streamsSynced) {
-                openPosterOnMobile();
-              } else {
-                setPosterOpen(false);
-                setRouteOnly(true);
-                setCropLatLng(null);
-                setCropStops([]);
-                setPois([]);
-                setNamedWays([]);
-                setNamedAreas([]);
-                setMapHighlight(null);
-                setWays(null);
-                setSchematicLayers(null);
-              }
-            }}
+            onSelect={selectActivity}
             onSync={() => {
               void handleSync();
             }}
@@ -566,6 +589,7 @@ export function App() {
             {basemapSelect}
             <MapView
               selectedLatLng={selectedLatLng}
+              trackLoading={trackLoading}
               cropLatLng={posterOpen ? cropLatLng : null}
               cropStops={posterOpen ? cropStops : []}
               pois={posterOpen ? pois : EMPTY_POIS}
@@ -593,7 +617,9 @@ export function App() {
           </main>
           {posterOpen && selectedId != null ? (
             <PosterPanel
+              key={selectedId}
               activityId={selectedId}
+              activityLabel={activities.find((item) => item.id === selectedId)?.name}
               features={features}
               refineFrom={refineFrom}
               touchUi={isMobile}
@@ -610,8 +636,9 @@ export function App() {
               onWaysChange={setWays}
               onSchematicLayersChange={setSchematicLayers}
               onRouteOnlyChange={setRouteOnly}
-              onGenerated={() => {
+              onGenerated={(record) => {
                 closePoster();
+                setGalleryOpenPosterId(record.posterId);
                 go("/gallery");
               }}
               dismissPoi={dismissPoi}
@@ -634,7 +661,12 @@ export function App() {
         <Gallery
           account={profileMenu}
           tabs={<AppTabs active="gallery" isMobile={isMobile} onSelect={selectTab} />}
+          openPosterId={galleryOpenPosterId}
+          onOpenPosterHandled={() => setGalleryOpenPosterId(null)}
           onEditSetup={(poster) => {
+            setSelectedLatLng(null);
+            setTrackLoading(true);
+            clearPosterMapState();
             setSelectedId(poster.activityId);
             setRefineFrom(poster);
             openPosterOnMobile();
