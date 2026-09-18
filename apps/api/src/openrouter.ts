@@ -116,7 +116,7 @@ export async function chatJson<T>(options: {
   label?: string;
   /** Authenticated app user id (not email). */
   user?: string;
-}): Promise<{ value: T; cost: number | null }> {
+}): Promise<{ value: T; cost: number | null; model: string }> {
   const key = requireKey();
   const model = chatModel();
   const strict = jsonResponseFormat(options.schemaName, options.schema);
@@ -175,7 +175,7 @@ export async function chatJson<T>(options: {
         const value = JSON.parse(extractJson(content)) as T;
         const cost = usageCost(record);
         capture({ cost });
-        return { value, cost };
+        return { value, cost, model };
       } catch (error) {
         if (error instanceof OpenRouterError) throw error;
         if (error instanceof Error && error.name === "AbortError") {

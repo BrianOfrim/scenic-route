@@ -523,7 +523,8 @@ export function Gallery({ onEditSetup, account, tabs }: Props) {
               <aside className="meta-drawer">
                 <div className="eyebrow">Details</div>
                 <p className="muted">
-                  {active.model}
+                  Image {active.model}
+                  {active.promptModel ? ` · Prompt ${active.promptModel}` : ""}
                   {active.durationMs != null ? ` · ${formatDurationMs(active.durationMs)}` : ""}
                   {activeCost ? ` · ${activeCost}` : ""} · {active.referenceCount} refs
                 </p>
