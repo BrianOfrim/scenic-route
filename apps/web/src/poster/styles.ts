@@ -149,7 +149,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     palette: [],
     typography: "zine sans",
     colorMode: "open",
-    openHint: "Pick any two Riso inks; do not default to fluorescent pink and teal.",
+    openHint: "Pick any two Riso inks.",
     palettes: [
       { id: "pink-teal", label: "Fluorescent pink + teal", colors: ["fluorescent-pink", "teal"] },
       { id: "blue-sunflower", label: "Federal blue + sunflower", colors: ["federal-blue", "sunflower"] },

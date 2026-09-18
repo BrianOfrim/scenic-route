@@ -96,7 +96,8 @@ test("open Auto omits colors and does not reintroduce the cliché pair", () => {
   assert.equal(riso.openPalette, true);
   assert.deepEqual(riso.palette, []);
   assert.doesNotMatch(styleById("risograph").prompt, /fluorescent pink|\bpink\b/i);
-  assert.match(riso.prompt, /do not default to fluorescent pink and teal/i);
+  assert.doesNotMatch(riso.prompt, /fluorescent pink|\bteal\b/i);
+  assert.match(riso.prompt, /Pick any two Riso inks/i);
   const linocut = resolveStyleColor(styleById("linocut"), AUTO_PALETTE_ID);
   assert.equal(linocut.openPalette, true);
   assert.deepEqual(linocut.palette, []);
