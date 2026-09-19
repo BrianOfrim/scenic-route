@@ -39,6 +39,7 @@ export type RenderSchematicOptions = {
     paths?: boolean;
     rail?: boolean;
     water?: boolean;
+    waterways?: boolean;
     forest?: boolean;
     parks?: boolean;
     farmland?: boolean;
@@ -69,7 +70,8 @@ export function schematicLayersFromFeatureIds(
     streets: featureIds.includes("streets"),
     paths: featureIds.includes("paths"),
     rail: featureIds.includes("rail"),
-    water: featureIds.includes("lakes") || featureIds.includes("rivers"),
+    water: featureIds.includes("lakes"),
+    waterways: featureIds.includes("rivers"),
     forest: featureIds.includes("forest"),
     parks: featureIds.includes("parks"),
     farmland: featureIds.includes("farmland"),
@@ -206,6 +208,8 @@ export function drawSchematicScene(
     if (layers.forest !== false) fillBucket(ctx, ways.forest, project, "rgba(176, 201, 156, 0.55)");
     if (layers.water !== false) {
       fillBucket(ctx, ways.water, project, "rgba(154, 196, 214, 0.7)");
+    }
+    if ((layers.waterways ?? layers.water) !== false) {
       ctx.strokeStyle = "rgba(90, 150, 180, 0.85)";
       ctx.lineWidth = 1.4 * scale;
       strokeBucket(ctx, ways.waterways, project);

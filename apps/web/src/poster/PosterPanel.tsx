@@ -25,7 +25,7 @@ import {
   MAX_NEAR_ROUTE_M,
   clampNearRouteM,
   defaultLandmarkNearM,
-  encodeFeatureQuery,
+  contextFeatureQuery,
   nearRouteMForKind,
   type FeatureOption,
 } from "./featureCatalog";
@@ -700,7 +700,7 @@ export function PosterPanel({
     return () => onHighlightChange?.(null);
   }, [activityId]);
   const featureQuery = useMemo(
-    () => encodeFeatureQuery(featureIds.filter((id) => id !== "named-trails"), landmarkNearM, catalog),
+    () => contextFeatureQuery(featureIds, landmarkNearM, catalog),
     [featureIds, landmarkNearM, catalog],
   );
 
@@ -1145,6 +1145,7 @@ export function PosterPanel({
       setSatelliteUrl(null);
       return;
     }
+    const renderStart = performance.now();
     try {
       setSchematicUrl(
         renderSchematicDataUrl({
@@ -1160,6 +1161,9 @@ export function PosterPanel({
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not render schematic");
+    } finally {
+      performance.clearMeasures("schematic.render-and-png");
+      performance.measure("schematic.render-and-png", { start: renderStart, end: performance.now() });
     }
   }, [context, croppedLatLng, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
 

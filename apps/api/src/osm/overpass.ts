@@ -70,19 +70,27 @@ export async function queryOverpass(
   }
   const merged: Feature[] = [];
   const seen = new Set<string>();
+  let fetchMs = 0;
+  let convertMs = 0;
   for (const tile of tiles) {
+    const started = performance.now();
     try {
       const payload = await postOverpass(buildQuery(queryBody, tile));
+      const fetched = performance.now();
+      fetchMs += fetched - started;
       for (const feature of elementsToFeatures(payload.elements ?? [])) {
         const id = String(feature.properties?.id ?? "");
         if (id && seen.has(id)) continue;
         if (id) seen.add(id);
         merged.push(feature);
       }
+      convertMs += performance.now() - fetched;
     } catch (error) {
+      fetchMs += performance.now() - started;
       warnings.push(`Overpass ${label} failed: ${error instanceof Error ? error.message : error}`);
     }
   }
+  timing("query", { label, tiles: tiles.length, features: merged.length, fetchMs, convertMs });
   return collection(merged);
 }
 
@@ -169,74 +177,130 @@ export function elementsToFeatures(elements: unknown[]): OverpassFeature[] {
   return features;
 }
 
-async function postOverpass(query: string): Promise<{ elements?: unknown[] }> {
-  const cached = readCache(query);
-  if (cached) return cached;
-  let lastError: Error | null = null;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    try {
-      const payload = await postOnce(query);
-      if (payload.elements?.length) writeCache(query, payload);
-      return payload;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      const status = (error as { status?: number }).status;
-      if (!status || !RETRYABLE.has(status) || attempt === MAX_ATTEMPTS - 1) {
-        throw lastError;
+type OverpassPayload = { elements: unknown[]; remark?: string };
+
+function timing(event: string, fields: Record<string, unknown>) {
+  if (process.env.OSM_TIMING === "1") console.info("osm.timing", { event, ...fields });
+}
+
+/** Isolated clients let tests exercise cache and transport behavior without live OSM. */
+export function createOverpassClient(options: { cacheDir?: string; fetch?: typeof fetch } = {}) {
+  const cacheDir = options.cacheDir ?? OSM_CACHE_DIR;
+  const fetchResponse = options.fetch ?? fetch;
+  const pending = new Map<string, Promise<OverpassPayload>>();
+
+  async function load(query: string): Promise<OverpassPayload> {
+    const cached = readCache(query);
+    if (cached) {
+      timing("cache", { status: "hit" });
+      return cached;
+    }
+    timing("cache", { status: "miss" });
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const payload = await postOnce(query);
+        writeCache(query, payload);
+        return payload;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const status = (error as { status?: number }).status;
+        if (!status || !RETRYABLE.has(status) || attempt === MAX_ATTEMPTS - 1) {
+          throw lastError;
+        }
+        await sleep(1500 * (attempt + 1));
       }
-      await sleep(1500 * (attempt + 1));
     }
+    throw lastError ?? new Error("Overpass request failed");
   }
-  throw lastError ?? new Error("Overpass request failed");
-}
 
-async function postOnce(query: string): Promise<{ elements?: unknown[] }> {
-  const configured = process.env.OVERPASS_URL?.trim();
-  const endpoints = configured ? [configured] : DEFAULT_ENDPOINTS;
-  let lastError: Error | null = null;
-  let empty: { elements?: unknown[] } | null = null;
-  for (const endpoint of endpoints) {
+  async function postOnce(query: string): Promise<OverpassPayload> {
+    const configured = process.env.OVERPASS_URL?.trim();
+    const endpoints = configured ? [configured] : DEFAULT_ENDPOINTS;
+    let lastError: Error | null = null;
+    for (const endpoint of endpoints) {
+      try {
+        return await postToEndpoint(endpoint, query);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const status = (lastError as Error & { status?: number }).status;
+        if (status && status >= 400 && status < 500 && status !== 429) throw lastError;
+        if (lastError.message.includes("exceeded")) throw lastError;
+      }
+    }
+    throw lastError ?? new Error("Overpass request failed");
+  }
+
+  async function postToEndpoint(endpoint: string, query: string): Promise<OverpassPayload> {
+    const started = performance.now();
+    const response = await fetchResponse(endpoint, {
+      method: "POST",
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: new URLSearchParams({ data: query }),
+      signal: AbortSignal.timeout(40_000),
+    });
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 180);
+      const err = new Error(`Overpass HTTP ${response.status}${detail ? `: ${detail}` : ""}`) as Error & {
+        status: number;
+      };
+      err.status = response.status;
+      throw err;
+    }
+    const raw = await readCapped(response);
+    const payload = JSON.parse(raw) as OverpassPayload;
+    if (typeof payload?.remark === "string" && payload.remark) {
+      throw new Error(`Overpass remark: ${payload.remark}`);
+    }
+    if (!payload || !Array.isArray(payload.elements)) throw new Error("Invalid Overpass response: missing elements array");
+    timing("network", { ms: performance.now() - started, bytes: Buffer.byteLength(raw), elements: payload.elements.length });
+    return payload;
+  }
+
+  function cachePath(query: string) {
+    const hash = createHash("sha1").update(query).digest("hex");
+    return path.join(cacheDir, `${hash}.json`);
+  }
+
+  function readCache(query: string): OverpassPayload | null {
+    const file = cachePath(query);
     try {
-      const payload = await postToEndpoint(endpoint, query);
-      if (payload.elements?.length) return payload;
-      empty = payload;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      const status = (lastError as Error & { status?: number }).status;
-      if (status && status >= 400 && status < 500 && status !== 429) throw lastError;
-      if (lastError.message.includes("exceeded")) throw lastError;
+      const stat = fs.statSync(file);
+      if (Date.now() - stat.mtimeMs > CACHE_TTL_MS) return null;
+      const payload = JSON.parse(fs.readFileSync(file, "utf8")) as OverpassPayload;
+      if (!payload || !Array.isArray(payload.elements) || payload.remark) return null;
+      return payload;
+    } catch {
+      return null;
     }
   }
-  if (empty) return empty;
-  throw lastError ?? new Error("Overpass request failed");
+
+  function writeCache(query: string, payload: unknown) {
+    try {
+      fs.mkdirSync(cacheDir, { recursive: true });
+      fs.writeFileSync(cachePath(query), JSON.stringify(payload));
+    } catch {
+      // cache is optional
+    }
+  }
+
+  return (query: string): Promise<OverpassPayload> => {
+    const existing = pending.get(query);
+    if (existing) {
+      timing("cache", { status: "in-flight" });
+      return existing;
+    }
+    const request = load(query).finally(() => pending.delete(query));
+    pending.set(query, request);
+    return request;
+  };
 }
 
-async function postToEndpoint(endpoint: string, query: string): Promise<{ elements?: unknown[] }> {
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "User-Agent": USER_AGENT,
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body: new URLSearchParams({ data: query }),
-    signal: AbortSignal.timeout(40_000),
-  });
-  if (!response.ok) {
-    const detail = (await response.text()).slice(0, 180);
-    const err = new Error(`Overpass HTTP ${response.status}${detail ? `: ${detail}` : ""}`) as Error & {
-      status: number;
-    };
-    err.status = response.status;
-    throw err;
-  }
-  const raw = await readCapped(response);
-  const payload = JSON.parse(raw) as { elements?: unknown[]; remark?: string };
-  if (typeof payload.remark === "string" && payload.remark && !payload.elements?.length) {
-    throw new Error(`Overpass remark: ${payload.remark}`);
-  }
-  return payload;
-}
+const postOverpass = createOverpassClient();
 
 async function readCapped(response: Response): Promise<string> {
   if (!response.body) return await response.text();
@@ -249,38 +313,12 @@ async function readCapped(response: Response): Promise<string> {
     if (!value) continue;
     total += value.byteLength;
     if (total > MAX_RESPONSE_BYTES) {
+      await reader.cancel();
       throw new Error(`Overpass response exceeded ${MAX_RESPONSE_BYTES} bytes`);
     }
     chunks.push(value);
   }
   return Buffer.concat(chunks).toString("utf8");
-}
-
-function cachePath(query: string) {
-  const hash = createHash("sha1").update(query).digest("hex");
-  return path.join(OSM_CACHE_DIR, `${hash}.json`);
-}
-
-function readCache(query: string): { elements?: unknown[] } | null {
-  const file = cachePath(query);
-  try {
-    const stat = fs.statSync(file);
-    if (Date.now() - stat.mtimeMs > CACHE_TTL_MS) return null;
-    const payload = JSON.parse(fs.readFileSync(file, "utf8")) as { elements?: unknown[] };
-    if (!payload.elements?.length) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-function writeCache(query: string, payload: unknown) {
-  try {
-    fs.mkdirSync(OSM_CACHE_DIR, { recursive: true });
-    fs.writeFileSync(cachePath(query), JSON.stringify(payload));
-  } catch {
-    // cache is optional
-  }
 }
 
 function pickTags(tags: Record<string, string>) {

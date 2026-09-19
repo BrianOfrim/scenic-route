@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "tsx --test src/poster/grounding/renderSchematic.test.ts src/gallery/galleryRuns.test.ts src/poster/grounding/contactSheet.test.ts src/poster/grounding/labelLayout.test.ts src/poster/crop.test.ts src/poster/labels.test.ts src/poster/trailColors.test.ts src/poster/areaLetters.test.ts src/poster/places.test.ts src/poster/imageModels.test.ts src/poster/styles.test.ts src/poster/annotate.test.ts src/poster/editorSnapshot.test.ts src/poster/autoNames.test.ts src/gallery/generationState.test.ts"
+    "test": "tsx --test src/poster/contextLoading.test.ts src/poster/grounding/renderSchematic.test.ts src/gallery/galleryRuns.test.ts src/poster/grounding/contactSheet.test.ts src/poster/grounding/labelLayout.test.ts src/poster/crop.test.ts src/poster/labels.test.ts src/poster/trailColors.test.ts src/poster/areaLetters.test.ts src/poster/places.test.ts src/poster/imageModels.test.ts src/poster/styles.test.ts src/poster/annotate.test.ts src/poster/editorSnapshot.test.ts src/poster/autoNames.test.ts src/gallery/generationState.test.ts"
   },
   "dependencies": {
     "maplibre-gl": "^5.6.1",
