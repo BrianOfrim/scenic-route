@@ -353,7 +353,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             <img className="brand-mark" src="/logo/sr-path-sage.svg" alt="" width={40} height={40} />
             <div>
               <p className="brand">Scenic Route</p>
-              <h1>Poster gallery</h1>
             </div>
           </div>
         </div>
