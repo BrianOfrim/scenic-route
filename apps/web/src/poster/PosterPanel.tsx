@@ -1,3 +1,4 @@
+import { beginGeneration, type GenerationTask } from "../gallery/generationState";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   fetchMaxReferences,
@@ -48,8 +49,6 @@ import { nearestPlaceName } from "./places";
 import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import {
-  formatBatchCost,
-  formatCostBreakdown,
   formatDurationMs,
   minMaxReferences,
   resolveConfiguredImageModel,
@@ -580,8 +579,8 @@ type Props = {
   placeSection?: { name: string; start: number; end: number; nonce: number } | null;
   renameTrail?: { name: string; next: string; nonce: number } | null;
   onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
-  /** Fires after a successful generate from the mobile launch "Make poster" path. */
-  onGenerated?: (record: PosterRecord) => void;
+  /** Fires once background requests and their gallery placeholders are registered. */
+  onGenerationStarted?: () => void;
   touchUi?: boolean;
   sheetSnap?: PosterSheetSnap | null;
   onSheetSnapChange?: (snap: PosterSheetSnap) => void;
@@ -610,7 +609,7 @@ export function PosterPanel({
   placeSection,
   renameTrail: renameTrailEvent,
   onHighlightChange,
-  onGenerated,
+  onGenerationStarted,
   touchUi = false,
   sheetSnap = null,
   onSheetSnapChange,
@@ -1263,11 +1262,13 @@ export function PosterPanel({
     );
   }
 
-  async function handlePlan(): Promise<
+  async function handlePlan(
+    slots = stylePlanSlots(styleIds, paletteIdsByStyle),
+    background = false,
+  ): Promise<
     { key: string; styleId: string; paletteId: string; spec: PosterSpec; cost: number | null }[] | null
   > {
     if (!context) return null;
-    const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
     if (!slots.length) return null;
     setPlanning(true);
     setError(null);
@@ -1371,6 +1372,7 @@ export function PosterPanel({
       }
       return planned;
     } catch (err) {
+      if (background) throw err;
       setError(err instanceof Error ? err.message : "Planner failed");
       return null;
     } finally {
@@ -1387,6 +1389,7 @@ export function PosterPanel({
       cost: number | null;
       model?: string | null;
     }[],
+    tasks?: Map<string, GenerationTask>,
   ) {
     if (!context) return;
     if (!activeImageModelIds.length) {
@@ -1418,8 +1421,9 @@ export function PosterPanel({
     setGenerating(true);
     setError(null);
     try {
-      const layers = await buildGrounding();
-      const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
+      const references = buildGrounding()
+        .then((layers) => renderContactSheets(layers, maxRefs, aspectRatio))
+        .then((packed) => packed.map((item) => item.dataUrl));
       // Edit-setup regenerations share the source batch so they stay in the same gallery
       // row, but omit previousPosterId so they do not stack like image refinements.
       const batchId = refineFrom
@@ -1439,93 +1443,93 @@ export function PosterPanel({
           promptCost: job.promptCost,
         })),
       );
-      const settled = await Promise.all(
-        jobs.map(async (job) => {
-          try {
-            const records = await generatePoster({
-              activityId,
-              spec: job.spec,
-              references: packed.map((item) => item.dataUrl),
+      const requests = jobs.map(async (job) => {
+        try {
+          const records = await generatePoster({
+            activityId,
+            spec: job.spec,
+            featureIds,
+            labels: posterPois.map((poi) => poi.name),
+            stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
+            styleId: job.styleId,
+            paletteId: job.paletteId,
+            stylePrompt:
+              job.style.id === "custom"
+                ? stylePrompt
+                : resolveStyleColor(job.style, job.paletteId).prompt,
+            aspectRatio,
+            batchId,
+            model: job.model,
+            variants,
+            promptCost: job.promptCost,
+            promptModel: job.promptModel || undefined,
+            editor: captureEditorSnapshot({
               featureIds,
-              labels: posterPois.map((poi) => poi.name),
-              stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
-              styleId: job.styleId,
-              paletteId: job.paletteId,
-              stylePrompt:
-                job.style.id === "custom"
-                  ? stylePrompt
-                  : resolveStyleColor(job.style, job.paletteId).prompt,
+              landmarkNearM,
+              labels,
+              trailNames,
+              trailAliases,
+              areaNames,
+              customPois,
+              customWays,
+              cropStart,
+              cropEnd,
+              showRouteMarkers,
+              routeOnly,
+              title,
+              startPlace,
+              finishPlace,
+              placesEdited,
+              statIds,
               aspectRatio,
-              batchId,
-              model: job.model,
+              styleIds,
+              stylePrompt,
+              paletteIdsByStyle,
+              imageModelIds: activeImageModelIds,
               variants,
-              promptCost: job.promptCost,
-              promptModel: job.promptModel || undefined,
-              editor: captureEditorSnapshot({
-                featureIds,
-                landmarkNearM,
-                labels,
-                trailNames,
-                trailAliases,
-                areaNames,
-                customPois,
-                customWays,
-                cropStart,
-                cropEnd,
-                showRouteMarkers,
-                routeOnly,
-                title,
-                startPlace,
-                finishPlace,
-                placesEdited,
-                statIds,
-                aspectRatio,
-                styleIds,
-                stylePrompt,
-                paletteIdsByStyle,
-                imageModelIds: activeImageModelIds,
-                variants,
-                specs: plannedSlots?.length
-                  ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.spec]))
-                  : specs,
-                planCosts: plannedSlots?.length
-                  ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.cost]))
-                  : planCosts,
-              }),
-            });
-            setModelRuns((current) =>
-              current.map((run) =>
-                run.key === job.key
-                  ? { ...run, finishedAt: Date.now(), imageCost: sumCosts(records.map((item) => item.cost)) }
-                  : run,
-              ),
-            );
-            return {
-              key: job.key,
-              styleId: job.styleId,
-              paletteId: job.paletteId,
-              model: job.model,
-              records,
-            };
-          } catch (err) {
-            const error = err instanceof Error ? err.message : "Poster generation failed";
-            setModelRuns((current) =>
-              current.map((run) =>
-                run.key === job.key ? { ...run, finishedAt: Date.now(), error } : run,
-              ),
-            );
-            return {
-              key: job.key,
-              styleId: job.styleId,
-              paletteId: job.paletteId,
-              model: job.model,
-              error,
-            };
-          } finally {
-            setGenerateProgress((current) => ({ ...current, done: current.done + 1 }));
-          }
-        }),
-      );
+              specs: plannedSlots?.length
+                ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.spec]))
+                : specs,
+              planCosts: plannedSlots?.length
+                ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.cost]))
+                : planCosts,
+            }),
+          }, variantCount(variants, imageModel?.id === job.model ? imageModel.maxImages : undefined), () => references, tasks?.get(job.model));
+          setModelRuns((current) =>
+            current.map((run) =>
+              run.key === job.key
+                ? { ...run, finishedAt: Date.now(), imageCost: sumCosts(records.map((item) => item.cost)) }
+                : run,
+            ),
+          );
+          return {
+            key: job.key,
+            styleId: job.styleId,
+            paletteId: job.paletteId,
+            model: job.model,
+            records,
+          };
+        } catch (err) {
+          tasks?.get(job.model)?.finish(err);
+          const error = err instanceof Error ? err.message : "Poster generation failed";
+          setModelRuns((current) =>
+            current.map((run) =>
+              run.key === job.key ? { ...run, finishedAt: Date.now(), error } : run,
+            ),
+          );
+          return {
+            key: job.key,
+            styleId: job.styleId,
+            paletteId: job.paletteId,
+            model: job.model,
+            error,
+          };
+        } finally {
+          setGenerateProgress((current) => ({ ...current, done: current.done + 1 }));
+        }
+      });
+      if (!tasks) onGenerationStarted?.();
+      const settled = await Promise.all(requests);
       const records = settled.flatMap((item) => item.records ?? []);
       const failures = settled.flatMap((item) => {
         if (!item.error) return [];
@@ -1540,8 +1544,8 @@ export function PosterPanel({
       if (failures.length) {
         setError(`${failures.length} poster${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
       }
-      onGenerated?.(records[0]);
     } catch (err) {
+      if (tasks) throw err;
       setError(err instanceof Error ? err.message : "Poster generation failed");
     } finally {
       setGenerating(false);
@@ -1549,9 +1553,30 @@ export function PosterPanel({
   }
 
   async function handlePlanAndGenerate() {
-    const planned = await handlePlan();
-    if (!planned?.length) return;
-    await handleGenerate(planned);
+    if (!context || !activeImageModelIds.length) return;
+    const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
+    if (!slots.length) return;
+    // Reserve every output before yielding; the editor can now be reset safely.
+    const submissions = slots.map((slot) => ({
+      slot,
+      tasks: new Map(activeImageModelIds.map((model) => [model, beginGeneration({
+        title: title.trim() || "New poster",
+        styleId: slot.styleId,
+        model,
+        variants: variantCount(variants, imageModel?.id === model ? imageModel.maxImages : undefined),
+      })])),
+    }));
+    onGenerationStarted?.();
+    await Promise.all(submissions.map(async ({ slot, tasks }) => {
+      try {
+        const planned = await handlePlan([slot], true);
+        if (!planned?.length) throw new Error("Poster generation failed");
+        await handleGenerate(planned, tasks);
+        tasks.forEach((task) => task.finish());
+      } catch (error) {
+        tasks.forEach((task) => task.finish(error));
+      }
+    }));
   }
 
   function openCustomize() {
@@ -1818,7 +1843,6 @@ export function PosterPanel({
   const launchStyleId = styleIds[0] ?? DEFAULT_POSTER_STYLE.id;
   const launchPaletteId = paletteIdsForStyle(styleById(launchStyleId), paletteIdsByStyle[launchStyleId])[0];
   const launchThemeLabel = planSlotLabel(launchStyleId, launchPaletteId);
-  const runsBatchCost = formatBatchCost(modelRuns);
 
   function applyRouteOnly(next: boolean) {
     if (next === routeOnly) return;
@@ -2735,10 +2759,6 @@ export function PosterPanel({
                     const status = run.error ? "failed" : run.finishedAt ? "done" : "running";
                     const showStyle = planSlots.length > 1;
                     const showModel = activeImageModelIds.length > 1 || !showStyle;
-                    const cost = formatCostBreakdown({
-                      promptCost: run.promptCost,
-                      imageCost: run.imageCost,
-                    });
                     return (
                       <li key={run.key} className={`model-time ${status}`}>
                         <span>
@@ -2749,18 +2769,11 @@ export function PosterPanel({
                         <span>
                           {time}
                           {run.finishedAt ? "" : "…"}
-                          {cost ? ` · ${cost}` : ""}
                           {run.error ? " · failed" : ""}
                         </span>
                       </li>
                     );
                   })}
-                  {runsBatchCost ? (
-                    <li className="model-time total">
-                      <span>Batch</span>
-                      <span>{runsBatchCost}</span>
-                    </li>
-                  ) : null}
                 </ul>
               )}
             </PosterSection>

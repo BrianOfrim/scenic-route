@@ -1,3 +1,4 @@
+import { trackGeneration, type GenerationTask } from "./gallery/generationState";
 import type { FeatureCollection, LineString } from "geojson";
 
 export type ActivitySource = "strava" | "gpx" | "fit" | "tcx";
@@ -417,17 +418,29 @@ export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cos
   );
 }
 
-export async function generatePoster(body: unknown): Promise<PosterRecord[]> {
-  const payload = await readJson<{ posters?: PosterRecord[] } & Partial<PosterRecord>>(
-    await apiFetch("/api/poster/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  );
-  if (Array.isArray(payload.posters) && payload.posters.length) return payload.posters;
-  if (payload.posterId) return [payload as PosterRecord];
-  return [];
+export async function generatePoster(
+  body: unknown,
+  pendingCount?: number,
+  prepareReferences?: () => Promise<string[]>,
+  task?: GenerationTask,
+): Promise<PosterRecord[]> {
+  const details = body as { spec?: PosterSpec; model?: string; styleId?: string; variants?: number };
+  return trackGeneration({ ...details, variants: pendingCount ?? details.variants, title: details.spec?.text.title || "New poster" }, async () => {
+    // Register placeholders before preparing references; preparation also runs in the background.
+    const requestBody = prepareReferences
+      ? { ...details, references: await prepareReferences() }
+      : body;
+    const payload = await readJson<{ posters?: PosterRecord[] } & Partial<PosterRecord>>(
+      await apiFetch("/api/poster/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      }),
+    );
+    if (Array.isArray(payload.posters) && payload.posters.length) return payload.posters;
+    if (payload.posterId) return [payload as PosterRecord];
+    throw new Error("Poster generation returned no images");
+  }, task);
 }
 
 export async function modifyPoster(body: {
@@ -436,14 +449,16 @@ export async function modifyPoster(body: {
   variants?: number;
   model?: string;
 }): Promise<PosterRecord[]> {
-  const payload = await readJson<{ posters?: PosterRecord[] }>(
-    await apiFetch("/api/poster/modify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  );
-  return payload.posters ?? [];
+  return trackGeneration({ ...body, title: "Refining image" }, async () => {
+    const payload = await readJson<{ posters?: PosterRecord[] }>(
+      await apiFetch("/api/poster/modify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+    return payload.posters ?? [];
+  });
 }
 
 export async function fetchPosters(activityId?: number): Promise<PosterRecord[]> {

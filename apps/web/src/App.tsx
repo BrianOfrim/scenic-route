@@ -146,7 +146,6 @@ export function App() {
   const [refineFrom, setRefineFrom] = useState<PosterRecord | null>(null);
   const [basemap, setBasemap] = useState<Basemap>("schematic");
   const [viewNonce, setViewNonce] = useState(0);
-  const [galleryOpenPosterId, setGalleryOpenPosterId] = useState<string | null>(null);
 
   const go = useCallback((next: string) => {
     window.history.pushState({}, "", next);
@@ -636,9 +635,8 @@ export function App() {
               onWaysChange={setWays}
               onSchematicLayersChange={setSchematicLayers}
               onRouteOnlyChange={setRouteOnly}
-              onGenerated={(record) => {
+              onGenerationStarted={() => {
                 closePoster();
-                setGalleryOpenPosterId(record.posterId);
                 go("/gallery");
               }}
               dismissPoi={dismissPoi}
@@ -661,8 +659,6 @@ export function App() {
         <Gallery
           account={profileMenu}
           tabs={<AppTabs active="gallery" isMobile={isMobile} onSelect={selectTab} />}
-          openPosterId={galleryOpenPosterId}
-          onOpenPosterHandled={() => setGalleryOpenPosterId(null)}
           onEditSetup={(poster) => {
             setSelectedLatLng(null);
             setTrackLoading(true);

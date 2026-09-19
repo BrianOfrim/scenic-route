@@ -1,4 +1,4 @@
-import { batchCosts, formatUsd, shortModelLabel } from "../poster/imageModels";
+import { shortModelLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 
 export type GalleryRunItem = {
@@ -292,7 +292,6 @@ export function runHeadline(
   const newest = posters.reduce((best, item) => (item.createdAt >= best.createdAt ? item : best));
   const styles = unique(posters.map((item) => styleLabel(item.styleId, item.spec?.style?.name)));
   const models = unique(posters.map((item) => shortModelLabel(item.model, item.modelName)));
-  const total = batchCosts(posters).total;
   return {
     title: newest.title,
     date: new Date(newest.createdAt).toLocaleString(),
@@ -300,7 +299,6 @@ export function runHeadline(
       summarizeLabels(styles, 3, "theme"),
       summarizeLabels(models, 2, "model"),
       posters.length > 1 ? `${posters.length} posters` : null,
-      total != null ? formatUsd(total) : null,
     ]
       .filter(Boolean)
       .join(" · "),
