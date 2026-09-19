@@ -532,7 +532,6 @@ export function App() {
               <img className="brand-mark" src="/logo/sr-path-sage.svg" alt="" width={40} height={40} />
               <div>
                 <p className="brand">Scenic Route</p>
-                <h1>Route posters</h1>
               </div>
             </div>
           </div>
