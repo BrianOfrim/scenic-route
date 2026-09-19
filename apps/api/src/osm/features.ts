@@ -152,7 +152,9 @@ export async function loadRouteFeatures(
   activityId: number,
   featureIds?: string[],
   nearRouteM?: Record<string, number>,
+  timings?: Record<string, number>,
 ): Promise<PosterContext> {
+  const started = performance.now();
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new Error("activityId is required");
   }
@@ -176,6 +178,8 @@ export async function loadRouteFeatures(
   const namedAreaFeatures = features.filter((item) => item.bucket === "named-areas");
   const wantStravaWays = features.some((item) => item.bucket === "strava-ways");
 
+  const prepared = performance.now();
+
   const [waysFc, poisFc, namedAreaFc, stravaEfforts] = await Promise.all([
     geoFeatures.length
       ? queryOverpass(unionQuery(geoFeatures.flatMap((item) => item.selectors)), padded, warnings, "ways")
@@ -188,6 +192,8 @@ export async function loadRouteFeatures(
       : Promise.resolve(emptyCollection()),
     wantStravaWays ? loadActivitySegmentEfforts(userId, activityId, warnings) : Promise.resolve([]),
   ]);
+
+  const fetched = performance.now();
 
   const ways = splitWays(waysFc, geoFeatures);
   const cemetery = features.find((item) => item.id === "cemeteries");
@@ -218,7 +224,7 @@ export async function loadRouteFeatures(
     ),
     namedAreas,
   );
-  return {
+  const result: PosterContext = {
     activity: {
       id: row.id,
       name: row.name,
@@ -247,6 +253,12 @@ export async function loadRouteFeatures(
     warnings,
     featureIds: features.map((item) => item.id),
   };
+  if (timings) {
+    timings.prepare = prepared - started;
+    timings.sources = fetched - prepared;
+    timings.process = performance.now() - fetched;
+  }
+  return result;
 }
 
 export function splitWays(geojson: FeatureCollection, selected: FeatureDef[]): PosterWays {

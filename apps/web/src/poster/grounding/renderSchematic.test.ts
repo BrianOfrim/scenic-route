@@ -32,3 +32,24 @@ test("new land cover and shoreline layers render only while selected", () => {
     }
   }
 });
+
+test("retained lakes and rivers can each be hidden independently", () => {
+  const ways = {
+    water: { features: [{ geometry: { type: "Polygon" as const, coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } }] },
+    waterways: { features: [{ geometry: { type: "LineString" as const, coordinates: [[0, 0], [1, 1]] } }] },
+  };
+  for (const ids of [[], ["lakes"], ["rivers"], ["lakes", "rivers"]]) {
+    let fills = 0;
+    let strokes = 0;
+    const ctx = new Proxy({}, {
+      get: (_target, key) => key === "fill" ? () => { fills++; } : key === "stroke" ? () => { strokes++; } : () => {},
+      set: () => true,
+    }) as CanvasRenderingContext2D;
+    drawSchematicScene(ctx, {
+      latlng: [], ways,
+      layers: { ...schematicLayersFromFeatureIds(ids, false), labels: false },
+    }, (lng, lat) => [lng, lat], { width: 100, height: 100 });
+    assert.equal(fills, ids.includes("lakes") ? 1 : 0);
+    assert.equal(strokes, ids.includes("rivers") ? 1 : 0);
+  }
+});

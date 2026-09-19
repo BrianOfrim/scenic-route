@@ -218,7 +218,13 @@ app.get("/api/poster/context/:activityId", async (c) => {
   try {
     const activityId = Number(c.req.param("activityId"));
     const parsed = parseFeatureSelection(c.req.query("features"));
-    return c.json(await loadRouteFeatures(currentUserId(c), activityId, parsed.ids, parsed.nearRouteM));
+    const timings: Record<string, number> = {};
+    const context = await loadRouteFeatures(currentUserId(c), activityId, parsed.ids, parsed.nearRouteM, timings);
+    const serializeStart = performance.now();
+    const response = c.json(context);
+    timings.serialize = performance.now() - serializeStart;
+    response.headers.set("Server-Timing", Object.entries(timings).map(([name, ms]) => `${name};dur=${ms.toFixed(1)}`).join(", "));
+    return response;
   } catch (error) {
     return fail(c, error);
   }

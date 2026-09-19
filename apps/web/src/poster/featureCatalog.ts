@@ -118,3 +118,12 @@ export function encodeFeatureQuery(ids: string[], nearRouteM: Record<string, num
     })
     .join(",");
 }
+
+/** Geography is fetched once; its checkboxes only control local rendering. */
+export function contextFeatureQuery(ids: string[], nearRouteM: Record<string, number>, catalog: FeatureOption[] = FEATURE_CATALOG) {
+  return encodeFeatureQuery(
+    catalog.filter((item) => item.group === "geography" || ids.includes(item.id)).map((item) => item.id),
+    nearRouteM,
+    catalog,
+  );
+}

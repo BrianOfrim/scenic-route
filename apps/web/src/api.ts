@@ -1,5 +1,6 @@
 import { trackGeneration, type GenerationTask } from "./gallery/generationState";
 import type { FeatureCollection, LineString } from "geojson";
+import { coalesceRequests } from "./inFlight";
 
 export type ActivitySource = "strava" | "gpx" | "fit" | "tcx";
 
@@ -378,6 +379,18 @@ export async function fetchFeatures(): Promise<FeatureOption[]> {
   return body.features;
 }
 
+const loadPosterContext = coalesceRequests(async (url: string): Promise<PosterContext> => {
+  const start = performance.now();
+  const response = await apiFetch(url);
+  const received = performance.now();
+  const context = await readJson<PosterContext>(response);
+  performance.clearMeasures("schematic.context.fetch");
+  performance.clearMeasures("schematic.context.body-and-parse");
+  performance.measure("schematic.context.fetch", { start, end: received });
+  performance.measure("schematic.context.body-and-parse", { start: received, end: performance.now() });
+  return context;
+});
+
 export async function fetchPosterContext(
   activityId: number,
   featureIds: string[],
@@ -385,7 +398,7 @@ export async function fetchPosterContext(
 ): Promise<PosterContext> {
   const encoded = featureQuery ?? featureIds.join(",");
   const qs = encoded ? `?features=${encodeURIComponent(encoded)}` : "";
-  return readJson(await apiFetch(`/api/poster/context/${activityId}${qs}`));
+  return loadPosterContext(`/api/poster/context/${activityId}${qs}`);
 }
 
 export async function lookupPosterLandmark(body: {
