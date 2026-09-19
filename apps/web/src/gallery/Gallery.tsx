@@ -543,8 +543,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                     </div>
                   </section>
                 )}
-                <pre>{active.prompt}</pre>
-                <pre>{JSON.stringify(active.spec, null, 2)}</pre>
               </aside>
             )}
           </div>
