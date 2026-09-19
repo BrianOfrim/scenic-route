@@ -31,7 +31,10 @@ export function SignIn({ onSent }: Props) {
   return (
     <div className="sign-in">
       <div className="sign-in-card">
-        <p className="brand">Scenic Route</p>
+        <div className="brand-lockup">
+          <img className="brand-mark" src="/logo/sr-path-sage.svg" alt="" width={40} height={40} />
+          <p className="brand">Scenic Route</p>
+        </div>
         <h1>Sign in</h1>
         {sent ? (
           <p className="muted">Check your inbox for a sign-in link. It expires in a few minutes.</p>
