@@ -1,6 +1,7 @@
+import { useGenerationState } from "./generationState";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { deletePoster, fetchActivities, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
-import { formatCostBreakdown, formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
+import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, type GallerySort } from "./galleryRuns";
 import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
@@ -183,6 +184,7 @@ function GalleryRun({
 }
 
 export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpenPosterHandled }: Props) {
+  const generation = useGenerationState();
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -221,7 +223,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [generation.revision]);
 
   useEffect(() => {
     if (!openPosterId || loading) return;
@@ -257,9 +259,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const compareStyles = mixedStyles(activitySiblings);
   const compareModels = mixedModels(activitySiblings);
   const compareQualities = mixedQualities(activitySiblings);
-  const activeCost = active
-    ? formatCostBreakdown({ promptCost: active.promptCost, cost: active.cost })
-    : "";
   const viewerImages = useMemo<GalleryImage[]>(() => {
     if (!active) return [];
     const originalId = original?.posterId;
@@ -378,7 +377,27 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         </div>
       </header>
       {error && <p className="error banner">{error}</p>}
+      {generation.error && <p className="error banner">{generation.error}</p>}
       <div className="gallery-runs">
+        {generation.pending.length > 0 && (
+          <section className="gallery-run" aria-label="Images being generated">
+            <header className="gallery-run-head"><strong>Generating images</strong></header>
+            <div className="gallery-run-row">
+              {generation.pending.map((image) => (
+                <div key={image.id} className="gallery-card gallery-pending" role="status" aria-label={`${image.title}: Generating image`}>
+                  <div className="gallery-pending-image" aria-busy="true">
+                    <i className="spinner" aria-hidden="true" />
+                    <strong>Generating…</strong>
+                  </div>
+                  <div className="gallery-pending-caption">
+                    <strong>{image.title}</strong>
+                    <p className="muted">{[image.styleId ? styleLabel(image.styleId) : null, image.model ? shortModelLabel(image.model) : null].filter(Boolean).join(" · ")}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {sections.map((section) =>
           section.kind === "singles" ? (
             <div key={`singles-${section.posters[0].posterId}`} className="gallery-grid">
@@ -426,7 +445,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             <span className="spinner" aria-hidden="true" />
             Loading posters…
           </p>
-        ) : !visible.length ? (
+        ) : !visible.length && !generation.pending.length ? (
           <p className="muted">{favoritesOnly ? "No favourited posters yet." : "No posters yet."}</p>
         ) : null}
       </div>
@@ -523,7 +542,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                   Image {active.model}
                   {active.promptModel ? ` · Prompt ${active.promptModel}` : ""}
                   {active.durationMs != null ? ` · ${formatDurationMs(active.durationMs)}` : ""}
-                  {activeCost ? ` · ${activeCost}` : ""} · {active.referenceCount} refs
+                   · {active.referenceCount} refs
                 </p>
                 {active.referenceCount > 0 && (
                   <section aria-label="References for this image">
@@ -543,8 +562,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                     </div>
                   </section>
                 )}
-                <pre>{active.prompt}</pre>
-                <pre>{JSON.stringify(active.spec, null, 2)}</pre>
               </aside>
             )}
           </div>

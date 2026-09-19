@@ -97,7 +97,7 @@ test("gallerySections keeps each activity in its own row, newest image first", (
   );
 });
 
-test("runHeadline shares title, mixed labels, count, and total cost", () => {
+test("runHeadline shares title, mixed labels and count without costs", () => {
   const headline = runHeadline([
     {
       title: "Bow Valley",
@@ -121,7 +121,7 @@ test("runHeadline shares title, mixed labels, count, and total cost", () => {
   assert.match(headline.detail, /Middle-earth \/ Vintage topo/);
   assert.match(headline.detail, /Gemini test \/ flux-test/);
   assert.match(headline.detail, /2 posters/);
-  assert.match(headline.detail, /\$0\.100/);
+  assert.doesNotMatch(headline.detail, /\$|cost/i);
 });
 
 test("favourites-only view keeps single-image activity groups", () => {

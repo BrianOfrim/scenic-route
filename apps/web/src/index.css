@@ -2641,3 +2641,25 @@ button.map-schematic-tip-name:focus-visible {
     width: 72px;
   }
 }
+
+.gallery-pending-image {
+  height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: color-mix(in srgb, var(--line) 35%, var(--panel));
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.gallery-pending-caption {
+  padding: 12px;
+  font-size: 13px;
+}
+
+.gallery-pending-caption p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
