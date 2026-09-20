@@ -31,6 +31,7 @@ import { SignIn } from "./SignIn";
 import { MapView, type Basemap, type LandmarkHighlight } from "./MapView";
 import { PosterPanel, type PosterSheetSnap } from "./poster/PosterPanel";
 import type { SchematicLayers } from "./poster/grounding/renderSchematic";
+import { PAGE_LOAD_SYNC, shouldContinueStravaSync } from "./stravaSync";
 import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
 
 type MobilePane = "activities" | "map";
@@ -304,9 +305,8 @@ export function App() {
           setViewNonce((value) => value + 1);
         }
       }
-      const sync = next.strava.sync;
-      if (!cancelled && next.strava.connected && (sync.listed === 0 || sync.streamsPending > 0)) {
-        await handleSync();
+      if (!cancelled && next.strava.connected) {
+        await handleSync(PAGE_LOAD_SYNC);
       }
     }
     boot().catch((err: unknown) => {
@@ -346,23 +346,26 @@ export function App() {
     };
   }, [selectedId]);
 
-  async function handleSync() {
+  async function handleSync({
+    drain = true,
+    reportErrors = true,
+  }: { drain?: boolean; reportErrors?: boolean } = {}) {
     setBusy(true);
-    setError(null);
+    if (reportErrors) setError(null);
     try {
       let progress = await syncStrava();
       await refresh();
-      while (!progress.done && !progress.rateLimited) {
+      while (shouldContinueStravaSync(progress, drain)) {
         progress = await syncStrava();
         await refresh();
       }
-      if (progress.rateLimited) {
+      if (reportErrors && progress.rateLimited) {
         setError(
           `Strava rate limit reached. ${progress.streamsSynced} tracks stored; sync again later for the rest.`,
         );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sync failed");
+      if (reportErrors) setError(err instanceof Error ? err.message : "Sync failed");
     } finally {
       setBusy(false);
     }
