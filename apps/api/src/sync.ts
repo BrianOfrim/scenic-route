@@ -11,6 +11,7 @@ import {
 
 const PAGE_SIZE = 200;
 const STREAMS_PER_CALL = 15;
+const activeSyncs = new Map<string, Promise<SyncProgress>>();
 
 type StreamPayload = {
   latlng?: { data?: [number, number][] };
@@ -188,7 +189,7 @@ async function syncStreams(userId: string) {
   }
 }
 
-export async function runSync(userId: string): Promise<SyncProgress> {
+async function runSyncOnce(userId: string): Promise<SyncProgress> {
   const state = await syncActivityList(userId, await getSyncState(userId));
   await syncStreams(userId);
   const counts = await activityCounts(userId);
@@ -198,6 +199,20 @@ export async function runSync(userId: string): Promise<SyncProgress> {
     ...counts,
     done: state.listComplete && counts.streamsPending === 0,
   };
+}
+
+/** Share one in-flight sync per user so simultaneous tabs do not duplicate Strava calls. */
+export async function runSync(userId: string): Promise<SyncProgress> {
+  const active = activeSyncs.get(userId);
+  if (active) return active;
+
+  const sync = runSyncOnce(userId);
+  activeSyncs.set(userId, sync);
+  try {
+    return await sync;
+  } finally {
+    if (activeSyncs.get(userId) === sync) activeSyncs.delete(userId);
+  }
 }
 
 export async function getSyncProgress(userId: string) {
