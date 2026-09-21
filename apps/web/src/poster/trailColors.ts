@@ -37,7 +37,7 @@ export function assignTrailColors<T extends { name: string }>(
 
 /**
  * One color per GPS vertex. Earlier trails win when two names cover the same
- * stretch. Null means the unnamed red track. Strava `routeSpans` color only
+ * stretch. Null means the unnamed red track. User-defined `routeSpans` color only
  * those indexes; an empty array does not fall back to distance.
  */
 export function routeVertexColors(

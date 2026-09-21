@@ -2528,9 +2528,9 @@ export function PosterPanel({
                   </button>
                 </form>
                 <p className="muted">
-                  Places that are not on OSM, and stretches that are not on Strava, are labeled on
+                  Places and trail stretches that are not on OpenStreetMap are labeled on
                   the schematic: Place landmark or Name stretch. Drag a numbered landmark to move it.
-                  Click a named stretch — or its chip — to rename a Strava or hand-named trail.
+                  Click a named stretch — or its chip — to rename an OpenStreetMap or hand-named trail.
                 </p>
                 {landmarkHint && <p className="muted">{landmarkHint}</p>}
                 {landmarkChoices?.map((poi) => (

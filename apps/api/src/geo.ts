@@ -170,7 +170,7 @@ export function simplifyTrack(
   };
 }
 
-/** Map full-stream Strava indexes onto a simplified track. */
+/** Map full-resolution track indexes onto a simplified track. */
 export function remapRouteSpans(
   spans: Array<{ start: number; end: number }> | undefined,
   sourceIndexes: number[],

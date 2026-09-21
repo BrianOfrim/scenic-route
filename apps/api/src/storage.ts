@@ -9,6 +9,7 @@ export type ObjectStore = {
   get(userId: string, name: string): Promise<Buffer | null>;
   listJsonNames(userId: string): Promise<string[]>;
   removeByPosterId(userId: string, posterId: string): Promise<void>;
+  removeByActivityIds(userId: string, activityIds: Set<number>): Promise<number>;
   hasUnscopedPosters(): Promise<boolean>;
   migrateUnscopedToUser(userId: string): Promise<void>;
 };
@@ -80,6 +81,27 @@ export function createLocalStore(root = POSTERS_DIR): ObjectStore {
       for (const name of fs.readdirSync(dir)) {
         if (name.startsWith(`${posterId}.`)) fs.unlinkSync(path.join(dir, name));
       }
+    },
+    async removeByActivityIds(userId, activityIds) {
+      const unscoped = userId === "__pending__";
+      const dir = unscoped ? root : userDir(userId);
+      if (!fs.existsSync(dir)) return 0;
+      const names = fs.readdirSync(dir);
+      let removed = 0;
+      for (const jsonName of names.filter((name) => name.endsWith(".json"))) {
+        try {
+          const record = JSON.parse(fs.readFileSync(path.join(dir, jsonName), "utf8")) as { activityId?: unknown };
+          if (!activityIds.has(Number(record.activityId))) continue;
+          const posterId = jsonName.slice(0, -".json".length);
+          for (const name of names.filter((item) => item.startsWith(`${posterId}.`))) {
+            fs.unlinkSync(path.join(dir, name));
+          }
+          removed += 1;
+        } catch {
+          // Ignore unrelated or malformed files; only verified poster records are purged.
+        }
+      }
+      return removed;
     },
     async hasUnscopedPosters() {
       return listRootFiles().some((name) => name.endsWith(".json"));
@@ -195,6 +217,28 @@ export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>):
     async removeByPosterId(userId, posterId) {
       const names = await listNames(scopedName(userId, `${posterId}.`));
       await removeNames(names);
+    },
+    async removeByActivityIds(userId, activityIds) {
+      const unscoped = userId === "__pending__";
+      const names = unscoped
+        ? (await listNames()).filter((name) => !name.includes("/"))
+        : await listNames(`${userId}/`);
+      const jsonNames = names.filter((name) => name.endsWith(".json"));
+      let removed = 0;
+      for (const jsonName of jsonNames) {
+        const bytes = await getRaw(jsonName);
+        if (!bytes) continue;
+        try {
+          const record = JSON.parse(bytes.toString("utf8")) as { activityId?: unknown };
+          if (!activityIds.has(Number(record.activityId))) continue;
+          const posterId = jsonName.slice(0, -".json".length);
+          await removeNames(names.filter((name) => name.startsWith(`${posterId}.`)));
+          removed += 1;
+        } catch {
+          // Ignore unrelated or malformed files; only verified poster records are purged.
+        }
+      }
+      return removed;
     },
     async hasUnscopedPosters() {
       return (await listNames()).some((name) => name.endsWith(".json") && !name.includes("/"));

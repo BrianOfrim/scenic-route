@@ -53,7 +53,7 @@ test("isNearCroppedRoute keeps beaches out to 500 m and towns out to 1 km", () =
   assert.equal(isNearCroppedRoute(peak, track, 500), true);
 });
 
-test("shiftRouteSpans remaps Strava indexes into a crop", () => {
+test("shiftRouteSpans remaps full-track indexes into a crop", () => {
   assert.deepEqual(shiftRouteSpans([{ start: 5, end: 10 }], 3, 8), [{ start: 2, end: 5 }]);
   assert.deepEqual(shiftRouteSpans([{ start: 5, end: 10 }], 0, 2), []);
   assert.equal(shiftRouteSpans(undefined, 0, 10), undefined);

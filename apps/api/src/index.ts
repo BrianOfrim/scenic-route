@@ -21,6 +21,7 @@ import {
   toActivitySummary,
 } from "./activities";
 import { databaseUrlSource, initDb } from "./db";
+import { purgeLegacyApiData } from "./fileFirstMigration";
 import { ImportError } from "./gpx";
 import { importTrackFiles } from "./importActivity";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
@@ -39,18 +40,6 @@ import {
   readPosterRef,
   setPosterFavorite,
 } from "./poster";
-import {
-  StravaConfigError,
-  StravaRateLimitError,
-  disconnectStrava,
-  exchangeCode,
-  getAuthorizeUrl,
-  getTokens,
-  isStravaConfigured,
-  stravaConnectInterstitialHtml,
-  verifyStravaState,
-} from "./strava";
-import { getSyncProgress, runSync } from "./sync";
 import { fetchTile, isTileSource } from "./tiles";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? "http://localhost:5174";
@@ -92,82 +81,14 @@ app.get("/api/health", async (c) => {
 
 app.get("/api/status", async (c) => {
   const user = c.get("user");
-  const tokens = await getTokens(user.id);
   return c.json({
     user: { id: user.id, email: user.email },
-    strava: {
-      configured: isStravaConfigured(),
-      connected: Boolean(tokens),
-      athlete: tokens?.athlete ?? null,
-      sync: await getSyncProgress(user.id),
-    },
     openrouter: {
       configured: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
       chatModel: process.env.OPENROUTER_MODEL?.trim() || null,
       imageModel: process.env.OPENROUTER_IMAGE_MODEL?.trim() || null,
     },
   });
-});
-
-app.get("/api/strava/auth", (c) => {
-  try {
-    // Strava cannot force a fresh login when a browser session already exists.
-    // Show an interstitial so the user can log out of Strava before authorizing
-    // a different athlete. ?go=1 continues straight to OAuth.
-    if (c.req.query("go") === "1") {
-      return c.redirect(getAuthorizeUrl(currentUserId(c)));
-    }
-    return c.html(
-      stravaConnectInterstitialHtml({
-        continuePath: "/api/strava/auth?go=1",
-        cancelUrl: WEB_ORIGIN,
-      }),
-    );
-  } catch (error) {
-    if (error instanceof StravaConfigError) return c.json({ error: error.message }, 400);
-    throw error;
-  }
-});
-
-app.get("/api/strava/callback", async (c) => {
-  const code = c.req.query("code");
-  const state = c.req.query("state");
-  if (!code || !state) return c.redirect(`${WEB_ORIGIN}/?strava=error`);
-  try {
-    const userId = verifyStravaState(state);
-    await exchangeCode(userId, code);
-    return c.redirect(`${WEB_ORIGIN}/?strava=connected`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "callback failed";
-    return c.redirect(`${WEB_ORIGIN}/?strava=error&message=${encodeURIComponent(message)}`);
-  }
-});
-
-app.post("/api/strava/disconnect", async (c) => {
-  const { removedActivities } = await disconnectStrava(currentUserId(c));
-  return c.json({ ok: true, removedActivities });
-});
-
-app.post("/api/strava/sync", async (c) => {
-  const userId = currentUserId(c);
-  if (!(await getTokens(userId))) return c.json({ error: "Strava is not connected" }, 401);
-  try {
-    return c.json(await runSync(userId));
-  } catch (error) {
-    if (error instanceof StravaRateLimitError) {
-      return c.json(
-        {
-          ...(await getSyncProgress(userId)),
-          connected: true,
-          done: false,
-          rateLimited: true,
-          retryAfter: error.retryAfter,
-        },
-        429,
-      );
-    }
-    return c.json({ error: error instanceof Error ? error.message : "sync failed" }, 500);
-  }
 });
 
 app.get("/api/activities", async (c) => c.json({ activities: await listActivities(currentUserId(c)) }));
@@ -185,7 +106,7 @@ app.post("/api/activities/remove", async (c) => {
 app.post("/api/activities/import", async (c) => {
   try {
     const files = await readImportFiles(c);
-    if (!files.length) return c.json({ error: "Choose a GPX, FIT, TCX, or Strava export zip" }, 400);
+    if (!files.length) return c.json({ error: "Choose a GPX, FIT, TCX, or account export zip" }, 400);
     const result = await importTrackFiles(currentUserId(c), files);
     if (!result.activities.length && !result.skipped) {
       return c.json(
@@ -457,6 +378,12 @@ function fail(c: Context, error: unknown) {
 
 try {
   await initDb();
+  const purge = await purgeLegacyApiData();
+  if (purge.activities || purge.posters || purge.traces) {
+    console.log(
+      `file-first migration purged ${purge.activities} activities, ${purge.posters} posters, and ${purge.traces} traces`,
+    );
+  }
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
@@ -466,6 +393,5 @@ serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" }, (info) => {
   console.log(`scenic-route api http://${info.address}:${info.port}`);
   console.log(`postgres: ${databaseUrlSource()}`);
   console.log(`posters: ${posterStore().kind}`);
-  console.log(`strava configured: ${isStravaConfigured() ? "yes" : "no"}`);
   console.log(`llm traces: ${LLM_TRACES_DIR}`);
 });

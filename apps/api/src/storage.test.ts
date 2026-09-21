@@ -38,3 +38,17 @@ test("local store migrates unscoped poster keys onto a user prefix", async () =>
   assert.equal((await store.get("owner-1", "legacy.png"))?.toString(), "png");
   assert.equal(fs.existsSync(path.join(root, "legacy.json")), false);
 });
+
+test("local store removes only posters derived from selected activities", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "scenic-store-"));
+  const store = createLocalStore(root);
+  await store.put("user-a", "remove.json", Buffer.from('{"activityId":42}'), "application/json");
+  await store.put("user-a", "remove.png", Buffer.from("png"), "image/png");
+  await store.put("user-a", "keep.json", Buffer.from('{"activityId":43}'), "application/json");
+  await store.put("user-b", "other.json", Buffer.from('{"activityId":42}'), "application/json");
+
+  assert.equal(await store.removeByActivityIds("user-a", new Set([42])), 1);
+  assert.deepEqual(await store.listJsonNames("user-a"), ["keep.json"]);
+  assert.deepEqual(await store.listJsonNames("user-b"), ["other.json"]);
+  assert.equal(await store.get("user-a", "remove.png"), null);
+});

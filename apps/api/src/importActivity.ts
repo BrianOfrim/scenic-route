@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { expandImportArchive, isZipBytes, maybeGunzip, type ArchiveTrack } from "./archive";
-import { getActivity, parseLatLng, toActivitySummary, type ActivityRow, type ActivitySource, type ActivitySummary } from "./activities";
-import { query, queryOne, withTransaction, type SqlClient } from "./db";
+import { toActivitySummary, type ActivityFormat, type ActivityOrigin, type ActivityRow, type ActivitySummary } from "./activities";
+import { query, queryOne, type SqlClient } from "./db";
 import { isFitBytes, parseFit } from "./fit";
 import { gpxToActivityFields, mapSport, parseGpx, ImportError, type GpxActivityFields } from "./gpx";
 import { isTcxXml, parseTcx } from "./tcx";
@@ -19,24 +20,22 @@ export type ImportResult = {
 };
 
 export async function importTrackFiles(userId: string, files: ImportFile[]): Promise<ImportResult> {
-  return withTransaction(async (client) => {
-    const activities: ActivitySummary[] = [];
-    const errors: Array<{ filename: string; error: string }> = [];
-    let skipped = 0;
-    for (const file of expandUploads(files)) {
-      try {
-        const imported = await insertImportedTrack(userId, file, file.filename, client);
-        if (imported === "skipped") skipped += 1;
-        else activities.push(imported);
-      } catch (error) {
-        errors.push({
-          filename: file.filename || "upload",
-          error: error instanceof Error ? error.message : "import failed",
-        });
-      }
+  const activities: ActivitySummary[] = [];
+  const errors: Array<{ filename: string; error: string }> = [];
+  let skipped = 0;
+  for (const file of expandUploads(files)) {
+    try {
+      const imported = await insertImportedTrack(userId, file, file.filename);
+      if (imported === "skipped") skipped += 1;
+      else activities.push(imported);
+    } catch (error) {
+      errors.push({
+        filename: file.filename || "upload",
+        error: error instanceof Error ? error.message : "import failed",
+      });
     }
-    return { activities, errors, skipped };
-  });
+  }
+  return { activities, errors, skipped };
 }
 
 export async function insertImportedTrack(
@@ -48,26 +47,55 @@ export async function insertImportedTrack(
   const file: ArchiveTrack =
     bytesOrFile instanceof Uint8Array
       ? {
+          origin: "upload",
           filename,
           bytes: maybeGunzip(bytesOrFile, filename),
-          stravaId: null,
+          externalId: null,
           name: null,
           type: null,
           startDate: null,
+          distance: null,
+          movingTime: null,
+          elapsedTime: null,
+          elevationGain: null,
+          averageSpeed: null,
+          maxSpeed: null,
         }
       : bytesOrFile;
-  const source = detectSource(file.bytes, file.filename);
+  const format = detectFormat(file.bytes, file.filename);
   const parsed =
-    source === "fit"
+    format === "fit"
       ? parseFit(file.bytes)
-      : source === "tcx"
+      : format === "tcx"
         ? parseTcx(bytesToText(file.bytes))
         : parseGpx(bytesToText(file.bytes));
   const fields = overlayArchiveMeta(gpxToActivityFields(parsed, file.filename), file);
-  return insertImportedFields(userId, fields, file.stravaId ? "strava" : source, file.stravaId, client);
+  return insertImportedFields(
+    userId,
+    fields,
+    file.origin,
+    format,
+    file.externalId,
+    contentHash(file.bytes),
+    client,
+  );
 }
 
-export function overlayArchiveMeta(fields: GpxActivityFields, meta: Pick<ArchiveTrack, "name" | "type" | "startDate">): GpxActivityFields {
+export function overlayArchiveMeta(
+  fields: GpxActivityFields,
+  meta: Pick<
+    ArchiveTrack,
+    | "name"
+    | "type"
+    | "startDate"
+    | "distance"
+    | "movingTime"
+    | "elapsedTime"
+    | "elevationGain"
+    | "averageSpeed"
+    | "maxSpeed"
+  >,
+): GpxActivityFields {
   const sport = meta.type ? mapSport(meta.type) : { type: fields.type, sport: fields.sportType };
   return {
     ...fields,
@@ -75,10 +103,16 @@ export function overlayArchiveMeta(fields: GpxActivityFields, meta: Pick<Archive
     type: sport.type,
     sportType: sport.sport,
     startDate: meta.startDate || fields.startDate,
+    distance: meta.distance ?? fields.distance,
+    movingTime: meta.movingTime ?? fields.movingTime,
+    elapsedTime: meta.elapsedTime ?? fields.elapsedTime,
+    elevationGain: meta.elevationGain ?? fields.elevationGain,
+    averageSpeed: meta.averageSpeed ?? fields.averageSpeed,
+    maxSpeed: meta.maxSpeed ?? fields.maxSpeed,
   };
 }
 
-function detectSource(bytes: Uint8Array, filename: string): Exclude<ActivitySource, "strava"> {
+function detectFormat(bytes: Uint8Array, filename: string): ActivityFormat {
   if (isFitBytes(bytes)) return "fit";
   const text = bytesToText(bytes.subarray(0, Math.min(bytes.length, 4096)));
   if (looksLikeGpx(text)) return "gpx";
@@ -87,7 +121,7 @@ function detectSource(bytes: Uint8Array, filename: string): Exclude<ActivitySour
   if (ext.endsWith(".fit")) return "fit";
   if (ext.endsWith(".gpx")) return "gpx";
   if (ext.endsWith(".tcx")) return "tcx";
-  throw new ImportError("Upload a GPX, FIT, TCX, or a Strava export zip");
+  throw new ImportError("Upload a GPX, FIT, TCX, or account export zip");
 }
 
 function expandUploads(files: ImportFile[]): ArchiveTrack[] {
@@ -98,12 +132,19 @@ function expandUploads(files: ImportFile[]): ArchiveTrack[] {
       continue;
     }
     tracks.push({
+      origin: "upload",
       filename: file.filename,
       bytes: maybeGunzip(file.bytes, file.filename),
-      stravaId: null,
+      externalId: null,
       name: null,
       type: null,
       startDate: null,
+      distance: null,
+      movingTime: null,
+      elapsedTime: null,
+      elevationGain: null,
+      averageSpeed: null,
+      maxSpeed: null,
     });
   }
   return tracks;
@@ -120,21 +161,40 @@ function bytesToText(bytes: Uint8Array): string {
 async function insertImportedFields(
   userId: string,
   fields: GpxActivityFields,
-  source: ActivitySource,
+  origin: ActivityOrigin,
+  format: ActivityFormat,
   preferredId?: number | null,
+  hash?: string,
   client?: SqlClient,
 ): Promise<ActivitySummary | "skipped"> {
+  const duplicate = hash
+    ? await queryOne<ActivityRow>(
+        "SELECT * FROM activities WHERE user_id = $1 AND content_hash = $2 AND imported = 1",
+        [userId, hash],
+        client,
+      )
+    : null;
+  if (duplicate) return "skipped";
   const id = preferredId && preferredId > 0 ? preferredId : await nextImportedId(userId, client);
-  const existing = preferredId && preferredId > 0 ? await getActivity(userId, preferredId, client) : null;
+  const existing = preferredId && preferredId > 0
+    ? await queryOne<ActivityRow>("SELECT * FROM activities WHERE user_id = $1 AND id = $2", [userId, preferredId], client)
+    : null;
   if (existing) {
-    if (hasSyncedGps(existing)) return "skipped";
+    if (existing.imported === 1) return "skipped";
     await query(
       `UPDATE activities SET
-         distance = $1, moving_time = $2, elapsed_time = $3, total_elevation_gain = $4,
-         average_speed = $5, max_speed = $6, has_gps = 1, streams_synced = 1, imported = 1,
-         latlng = $7, "time" = $8, velocity = $9, altitude = $10, bbox = $11
-       WHERE user_id = $12 AND id = $13`,
+         name = $1, "type" = $2, sport_type = $3, start_date = $4,
+         distance = $5, moving_time = $6, elapsed_time = $7, total_elevation_gain = $8,
+         average_speed = $9, max_speed = $10, has_gps = 1, streams_synced = 1, imported = 1,
+         latlng = $11, "time" = $12, velocity = $13, altitude = $14, bbox = $15,
+         source = $16, origin = $17, file_format = $18, external_id = $19, content_hash = $20,
+         segment_efforts = NULL
+       WHERE user_id = $21 AND id = $22`,
       [
+        fields.name,
+        fields.type,
+        fields.sportType,
+        fields.startDate,
         fields.distance,
         fields.movingTime,
         fields.elapsedTime,
@@ -146,12 +206,21 @@ async function insertImportedFields(
         fields.velocity ? JSON.stringify(fields.velocity) : null,
         fields.altitude ? JSON.stringify(fields.altitude) : null,
         JSON.stringify(fields.bbox),
+        format,
+        origin,
+        format,
+        preferredId ? String(preferredId) : null,
+        hash ?? null,
         userId,
         existing.id,
       ],
       client,
     );
-    const updated = await getActivity(userId, existing.id, client);
+    const updated = await queryOne<ActivityRow>(
+      "SELECT * FROM activities WHERE user_id = $1 AND id = $2",
+      [userId, existing.id],
+      client,
+    );
     if (!updated) throw new Error("imported activity was not saved");
     return toActivitySummary(updated);
   }
@@ -159,8 +228,10 @@ async function insertImportedFields(
     `INSERT INTO activities (
        user_id, id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
        total_elevation_gain, average_speed, max_speed, trainer, has_gps, streams_synced,
-       latlng, "time", velocity, altitude, bbox, source, imported
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, 1, 1, $13, $14, $15, $16, $17, $18, 1)`,
+       latlng, "time", velocity, altitude, bbox, source, imported,
+       origin, file_format, external_id, content_hash
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, 1, 1,
+       $13, $14, $15, $16, $17, $18, 1, $19, $20, $21, $22)`,
     [
       userId,
       id,
@@ -179,7 +250,11 @@ async function insertImportedFields(
       fields.velocity ? JSON.stringify(fields.velocity) : null,
       fields.altitude ? JSON.stringify(fields.altitude) : null,
       JSON.stringify(fields.bbox),
-      source,
+      format,
+      origin,
+      format,
+      preferredId ? String(preferredId) : null,
+      hash ?? null,
     ],
     client,
   );
@@ -192,8 +267,8 @@ async function insertImportedFields(
   return toActivitySummary(row);
 }
 
-function hasSyncedGps(row: ActivityRow): boolean {
-  return row.streams_synced === 1 && parseLatLng(row.latlng).length >= 2;
+function contentHash(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 async function nextImportedId(userId: string, client?: SqlClient): Promise<number> {

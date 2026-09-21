@@ -6,10 +6,11 @@
 
 ## Default path
 
-1. Sign in / Connect Strava (once)
-2. Pick an activity
-3. **Make poster** (smart defaults; optional last-used theme)
-4. Gallery → download / refine
+1. Sign in
+2. Import GPX, FIT, TCX, or a complete account-export ZIP
+3. Pick an activity
+4. **Make poster** (smart defaults; optional last-used theme)
+5. Gallery → download / refine
 
 ## Smart defaults (on Make poster)
 

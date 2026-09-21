@@ -1,6 +1,6 @@
 # Scenic Route
 
-Local-first Strava poster studio. Sync your activities, pick a ride, choose OSM geography and landmarks, then generate a stylized route poster.
+Local-first route-poster studio. Import your track files, pick an activity, choose OpenStreetMap geography and landmarks, then generate a stylized route poster.
 
 An LLM turns the ride, selected features, style, and stats into a structured JSON prompt. That spec plus grounding images (schematic map, terrain tiles, streets or satellite, route silhouette) go to an OpenRouter image model. Saved posters live in a gallery.
 
@@ -12,12 +12,6 @@ npm install
 cp .env.example .env.local
 docker compose up -d --wait
 ```
-
-Create a Strava API app at [https://www.strava.com/settings/api](https://www.strava.com/settings/api):
-
-- **Authorization Callback Domain:** `localhost`
-- Redirect URI: `http://localhost:5174/api/strava/callback`
-- Put the client id and secret in `.env.local`
 
 Create an OpenRouter key at [https://openrouter.ai/keys](https://openrouter.ai/keys):
 
@@ -31,11 +25,13 @@ OPENROUTER_IMAGE_MODEL=meta/muse-image
 npm run dev
 ```
 
-Open [http://localhost:5174](http://localhost:5174). Connect Strava and click **Sync Strava**. GPS streams land in Postgres (`DATABASE_URL`, default `scenic_route`). An existing `data/scenic-route.sqlite` is imported once if the database is empty.
+Open [http://localhost:5174](http://localhost:5174), sign in, and choose **Import activities**. You can upload GPX, FIT, or TCX files individually or in batches, including gzip-compressed tracks. A full Strava account-export ZIP can be uploaded directly; the importer reads `activities.csv` and matching files without retaining the original archive. Imported tracks land in Postgres (`DATABASE_URL`, default `scenic_route`). An existing `data/scenic-route.sqlite` is imported once if the database is empty.
+
+The account export supplies activity names, sport, date, distance, duration, elevation, and speed where present. In the supplied sample, `segments.csv` contains only one segment ID/name pair—no geometry or per-activity mapping—and segment efforts are not embedded in its GPX/FIT files. Named trails therefore come from OpenStreetMap or sections a user names in the editor, not from the Strava API.
 
 ## Flow
 
-1. Select an activity on the map.
+1. Import one or more tracks, then select an activity on the map.
 2. **Make poster** — crop the track, choose Map or Route only, tick geography and landmark layers (or skip them in Route only), pick a style or write a custom prompt, choose which stats appear.
 3. Toggle grounding images. The schematic preview is immediate; terrain/streets/satellite snapshots are taken from a hidden MapLibre map (tiles proxied so the canvas is not tainted).
 4. **Generate poster** — plans a structured prompt and runs the OpenRouter image model in one step, then saves to `data/posters/`.
@@ -46,7 +42,7 @@ Open [http://localhost:5174](http://localhost:5174). Connect Strava and click **
 | Path | Role |
 |------|------|
 | `apps/web` | Vite + React + MapLibre UI (port 5174) |
-| `apps/api` | Hono: Strava, Postgres, OSM/Overpass, planner, image gen (port 8790) |
+| `apps/api` | Hono: imports, Postgres, OSM/Overpass, planner, image gen (port 8790) |
 | `data/` | OSM cache, posters (legacy SQLite is imported on first Postgres boot) |
 
 ## Commands
@@ -64,7 +60,7 @@ The editor retains all geography layers for its current activity. Geography visi
 
 To inspect performance:
 
-- In browser DevTools, inspect `/api/poster/context/...` and its `Server-Timing` header: `prepare` covers activity loading and track preparation, `sources` covers OSM/Strava loading and geometry conversion, `process` covers layer splitting and annotation calculations, and `serialize` covers response serialization. The Network panel also reports response size and transfer time.
+- In browser DevTools, inspect `/api/poster/context/...` and its `Server-Timing` header: `prepare` covers activity loading and track preparation, `sources` covers OpenStreetMap loading and geometry conversion, `process` covers layer splitting and annotation calculations, and `serialize` covers response serialization. The Network panel also reports response size and transfer time.
 - Browser User Timing entries retain the latest `schematic.context.fetch`, `schematic.context.body-and-parse`, and `schematic.render-and-png` measurements. Inspect them with `performance.getEntriesByType("measure").filter(entry => entry.name.startsWith("schematic."))` in DevTools.
 - Start the API with `OSM_TIMING=1` for cache hit/miss/in-flight events, successful request durations and bytes, and per-query fetch/conversion durations. These logs omit coordinates, query strings, and activity IDs. Fetch time includes disk-cache access or endpoint retries; query groups can overlap, so their durations should not be summed as total request latency.
 
@@ -72,4 +68,4 @@ To inspect performance:
 
 Production app: [https://scenic-route.ca](https://scenic-route.ca) (Fly.io app `scenic-route`; fallback host `scenic-route.fly.dev`).
 
-Hostname-sensitive config is env-only (`WEB_ORIGIN`, `BETTER_AUTH_URL`, `STRAVA_REDIRECT_URI`, `RESEND_FROM`). After DNS/certs are live, set Fly secrets to the `.ca` values (see deploy notes below). Local defaults in `.env.example` stay on `localhost`.
+Hostname-sensitive config is env-only (`WEB_ORIGIN`, `BETTER_AUTH_URL`, `RESEND_FROM`). After DNS/certs are live, set Fly secrets to the `.ca` values (see deploy notes below). Local defaults in `.env.example` stay on `localhost`.

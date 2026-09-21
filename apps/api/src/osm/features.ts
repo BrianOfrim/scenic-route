@@ -11,19 +11,14 @@ import {
   nearestOnRoute,
   padBbox,
   padMeters,
-  remapRouteSpans,
   schematicXY,
   simplifyTrack,
   type BBox,
   type LatLng,
 } from "../geo";
 import { formatDate, formatDuration, formatElevation, formatKm, formatSpeed } from "../format";
-import { loadActivitySegmentEfforts } from "../stravaSegments";
-import type { StravaSegmentEffort } from "../strava";
 import { KIND_WEIGHTS, nearRouteMForKind, resolveFeatures, type FeatureDef } from "./catalog";
 import { collection, emptyCollection, queryOverpass, unionQuery } from "./overpass";
-
-const MIN_STRAVA_SEGMENT_M = 200;
 
 const MAX_POIS = 25;
 const MAX_NAMED_WAYS = 16;
@@ -41,7 +36,7 @@ const AREA_SPECIFICITY: Record<string, number> = {
   neighbourhood: 1,
   quarter: 1,
 };
-const SPECIAL_BUCKETS = new Set(["poi", "named-ways", "strava-ways", "named-areas"]);
+const SPECIAL_BUCKETS = new Set(["poi", "named-ways", "named-areas"]);
 
 export type PosterPoi = {
   name: string;
@@ -85,10 +80,10 @@ export type NamedWay = {
   routeFrac: number;
   bearing: string;
   xy: { x: number; y: number; region: string };
-  source?: "osm" | "strava" | "user";
+  source?: "osm" | "user";
   colorName?: string;
   color?: string;
-  /** Inclusive GPS-stream indexes from Strava efforts. Prefer these over distance. */
+  /** Inclusive indexes for user-defined sections of the activity track. */
   routeSpans?: Array<{ start: number; end: number }>;
 };
 
@@ -176,11 +171,11 @@ export async function loadRouteFeatures(
   const geoFeatures = features.filter((item) => !SPECIAL_BUCKETS.has(item.bucket));
   const poiFeatures = features.filter((item) => item.bucket === "poi");
   const namedAreaFeatures = features.filter((item) => item.bucket === "named-areas");
-  const wantStravaWays = features.some((item) => item.bucket === "strava-ways");
+  const namedWayFeatures = features.filter((item) => item.bucket === "named-ways");
 
   const prepared = performance.now();
 
-  const [waysFc, poisFc, namedAreaFc, stravaEfforts] = await Promise.all([
+  const [waysFc, poisFc, namedAreaFc, namedWaysFc] = await Promise.all([
     geoFeatures.length
       ? queryOverpass(unionQuery(geoFeatures.flatMap((item) => item.selectors)), padded, warnings, "ways")
       : Promise.resolve(emptyCollection()),
@@ -190,7 +185,9 @@ export async function loadRouteFeatures(
     namedAreaFeatures.length
       ? queryOverpass(unionQuery(namedAreaFeatures.flatMap((item) => item.selectors)), padded, warnings, "named areas")
       : Promise.resolve(emptyCollection()),
-    wantStravaWays ? loadActivitySegmentEfforts(userId, activityId, warnings) : Promise.resolve([]),
+    namedWayFeatures.length
+      ? queryOverpass(unionQuery(namedWayFeatures.flatMap((item) => item.selectors)), padded, warnings, "named trails")
+      : Promise.resolve(emptyCollection()),
   ]);
 
   const fetched = performance.now();
@@ -243,10 +240,7 @@ export async function loadRouteFeatures(
     latlng: simplified.points,
     stops: simplified.kept,
     ways,
-    namedWays: namedWaysFromSegmentEfforts(stravaEfforts, latlng, padded, features).map((way) => ({
-      ...way,
-      routeSpans: remapRouteSpans(way.routeSpans, simplified.indexes),
-    })),
+    namedWays: collectNamedWays(namedWaysFc, latlng, padded, "osm", namedWayFeatures),
     namedAreas,
     pois,
     stats: buildStats(row),
@@ -351,32 +345,6 @@ export function rankPois(
     .map(({ score: _score, ...row }) => row);
 }
 
-export function namedWaysFromSegmentEfforts(
-  efforts: StravaSegmentEffort[],
-  latlng: LatLng[],
-  bbox: BBox,
-  selected: FeatureDef[] = [],
-): NamedWay[] {
-  const features = [];
-  for (const effort of efforts) {
-    if (effort.hidden) continue;
-    if ((effort.distance ?? 0) < MIN_STRAVA_SEGMENT_M) continue;
-    const name = (effort.segment?.name || effort.name || "").trim();
-    if (!name) continue;
-    const start = Math.max(0, Math.min(effort.start_index ?? -1, effort.end_index ?? -1));
-    const end = Math.min(latlng.length - 1, Math.max(effort.start_index ?? -1, effort.end_index ?? -1));
-    if (end <= start) continue;
-    const coordinates = latlng.slice(start, end + 1).map(([lat, lng]) => [lng, lat]);
-    if (coordinates.length < 2) continue;
-    features.push({
-      type: "Feature" as const,
-      properties: { name, tags: { highway: "path", name }, routeStart: start, routeEnd: end },
-      geometry: { type: "LineString" as const, coordinates },
-    });
-  }
-  return collectNamedWays(collection(features), latlng, bbox, "strava", selected);
-}
-
 export function collectNamedWays(
   geojson: FeatureCollection,
   latlng: LatLng[],
@@ -462,7 +430,7 @@ export function mergeNamedWays(...lists: NamedWay[][]): NamedWay[] {
 }
 
 function sourceRank(way: NamedWay): number {
-  return way.source === "strava" ? 1 : 0;
+  return way.source === "user" ? 1 : 0;
 }
 
 export function collectNamedAreas(

@@ -329,7 +329,7 @@ export function featureIdsToResolveNames(featureIds: string[], names: SavedSetup
     extra.add("neighbourhoods");
     extra.add("colleges");
   }
-  if (names.trailNames.length) extra.add("strava-segments");
+  if (names.trailNames.length) extra.add("named-trails");
   if (names.labels.length) {
     extra.add("playgrounds");
     extra.add("peaks");

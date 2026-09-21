@@ -39,13 +39,17 @@ export function parseFit(bytes: Uint8Array): ParsedGpx {
   const coursePoints = messages.coursePointMesgs ?? [];
   const points = (records.length ? records : coursePoints)
     .map((record) => {
+      const altitudeRecord = record as typeof record & {
+        enhancedAltitude?: unknown;
+        altitude?: unknown;
+      };
       const lat = toDegrees(record.positionLat, 90);
       const lng = toDegrees(record.positionLong, 180);
       if (lat == null || lng == null) return null;
       return {
         lat,
         lng,
-        ele: finiteNumber(record.enhancedAltitude ?? record.altitude),
+        ele: finiteNumber(altitudeRecord.enhancedAltitude ?? altitudeRecord.altitude),
         time: toDate(record.timestamp),
       };
     })

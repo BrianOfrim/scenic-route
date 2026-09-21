@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import {
   AuthRequiredError,
-  disconnectStrava,
   fetchActivities,
   fetchActivityTrack,
   fetchFeatures,
   fetchPoster,
   fetchSession,
-  fetchStatus,
-  importGpxFiles,
-  isUploadedActivity,
+  importActivityFiles,
   removeActivities,
   signOut,
-  syncStrava,
   type ActivitySummary,
   type FeatureOption,
   type NamedArea,
@@ -21,7 +17,6 @@ import {
   type PosterRecord,
   type PosterWays,
   type SessionUser,
-  type StatusPayload,
 } from "./api";
 import { ActivityList } from "./ActivityList";
 import { BasemapControl } from "./BasemapControl";
@@ -31,7 +26,6 @@ import { SignIn } from "./SignIn";
 import { MapView, type Basemap, type LandmarkHighlight } from "./MapView";
 import { PosterPanel, type PosterSheetSnap } from "./poster/PosterPanel";
 import type { SchematicLayers } from "./poster/grounding/renderSchematic";
-import { PAGE_LOAD_SYNC, shouldContinueStravaSync } from "./stravaSync";
 import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
 
 type MobilePane = "activities" | "map";
@@ -98,7 +92,6 @@ export function App() {
   const [posterSheet, setPosterSheet] = useState<PosterSheetSnap>("half");
   const [posterSheetOffset, setPosterSheetOffset] = useState(SHEET_OFFSET_FALLBACK.half);
   const [posterSheetHeightPx, setPosterSheetHeightPx] = useState(SHEET_OFFSET_FALLBACK_PX.half);
-  const [status, setStatus] = useState<StatusPayload | null>(null);
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
   const [features, setFeatures] = useState<FeatureOption[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -139,7 +132,6 @@ export function App() {
     nonce: number;
   } | null>(null);
   const [session, setSession] = useState<SessionUser | null | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posterOpen, setPosterOpen] = useState(false);
@@ -208,8 +200,8 @@ export function App() {
   }, []);
 
   const selectActivity = useCallback(
-    (id: number) => {
-      const activity = activities.find((item) => item.id === id);
+    (id: number, freshActivity?: ActivitySummary) => {
+      const activity = freshActivity ?? activities.find((item) => item.id === id);
       setSelectedLatLng(null);
       setTrackLoading(true);
       clearPosterMapState();
@@ -249,15 +241,12 @@ export function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [nextStatus, nextActivities, nextFeatures] = await Promise.all([
-        fetchStatus(),
+      const [nextActivities, nextFeatures] = await Promise.all([
         fetchActivities(),
         fetchFeatures().catch(() => []),
       ]);
-      setStatus(nextStatus);
       setActivities(nextActivities);
       setFeatures(nextFeatures);
-      return nextStatus;
     } catch (err) {
       if (err instanceof AuthRequiredError) {
         setSession(null);
@@ -275,13 +264,8 @@ export function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const stravaStatus = params.get("strava");
-    if (stravaStatus === "error" || stravaStatus === "taken") {
-      const message = params.get("message");
-      setError(message ?? "Strava connection failed");
-    }
     const refineId = params.get("refine");
-    if (stravaStatus || refineId) {
+    if (refineId) {
       window.history.replaceState({}, "", "/");
       setPath("/");
     }
@@ -291,7 +275,7 @@ export function App() {
       if (cancelled) return;
       setSession(user);
       if (!user) return;
-      const next = await refresh();
+      await refresh();
       if (refineId) {
         const poster = await fetchPoster(refineId);
         if (!cancelled) {
@@ -304,9 +288,6 @@ export function App() {
           setMobilePane("map");
           setViewNonce((value) => value + 1);
         }
-      }
-      if (!cancelled && next.strava.connected) {
-        await handleSync(PAGE_LOAD_SYNC);
       }
     }
     boot().catch((err: unknown) => {
@@ -346,66 +327,6 @@ export function App() {
     };
   }, [selectedId]);
 
-  async function handleSync({
-    drain = true,
-    reportErrors = true,
-  }: { drain?: boolean; reportErrors?: boolean } = {}) {
-    setBusy(true);
-    if (reportErrors) setError(null);
-    try {
-      let progress = await syncStrava();
-      await refresh();
-      while (shouldContinueStravaSync(progress, drain)) {
-        progress = await syncStrava();
-        await refresh();
-      }
-      if (reportErrors && progress.rateLimited) {
-        setError(
-          `Strava rate limit reached. ${progress.streamsSynced} tracks stored; sync again later for the rest.`,
-        );
-      }
-    } catch (err) {
-      if (reportErrors) setError(err instanceof Error ? err.message : "Sync failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleDisconnect() {
-    if (
-      !window.confirm(
-        "Disconnect Strava? This unlinks your Strava account and removes its synced activities so you can link a different account. Uploaded files are kept.",
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const selected = selectedId != null ? activities.find((item) => item.id === selectedId) : undefined;
-      const { removedActivities } = await disconnectStrava();
-      await refresh();
-      if (selected && !isUploadedActivity(selected)) {
-        closePoster();
-      }
-      const removedNote =
-        removedActivities > 0
-          ? ` Removed ${removedActivities} synced ${removedActivities === 1 ? "activity" : "activities"}.`
-          : "";
-      setError(
-        `Strava disconnected.${removedNote} To link a different account, use Connect Strava and log out of Strava first if the wrong athlete is still signed in.`,
-      );
-    } catch (err) {
-      if (err instanceof AuthRequiredError) {
-        setSession(null);
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Could not disconnect Strava");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleRemove(ids: number[]) {
     setError(null);
     try {
@@ -427,7 +348,7 @@ export function App() {
         setSchematicLayers(null);
       }
       if (!result.deleted.length) {
-        setError(result.skipped ? "Strava activities cannot be removed here" : "Nothing to remove");
+        setError(result.skipped ? "Some activities could not be removed" : "Nothing to remove");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not remove activities");
@@ -438,18 +359,10 @@ export function App() {
     setImporting(true);
     setError(null);
     try {
-      const result = await importGpxFiles(files);
+      const result = await importActivityFiles(files);
       await refresh();
       const first = result.activities[0];
-      if (first && result.activities.length === 1 && !result.skipped) {
-        selectActivity(first.id);
-      } else if (first) {
-        setSelectedLatLng(null);
-        setTrackLoading(true);
-        clearPosterMapState();
-        setSelectedId(first.id);
-        setRefineFrom(null);
-      }
+      if (first) selectActivity(first.id, first);
       const parts: string[] = [];
       if (result.activities.length > 1) parts.push(`Imported ${result.activities.length} activities`);
       if (result.skipped) {
@@ -475,7 +388,6 @@ export function App() {
   async function handleSignOut() {
     await signOut();
     setSession(null);
-    setStatus(null);
     setActivities([]);
     setSelectedId(null);
     setPosterOpen(false);
@@ -569,18 +481,10 @@ export function App() {
           }
         >
           <ActivityList
-            status={status}
             activities={activities}
             selectedId={selectedId}
-            busy={busy}
             importing={importing}
             onSelect={selectActivity}
-            onSync={() => {
-              void handleSync();
-            }}
-            onDisconnect={() => {
-              void handleDisconnect();
-            }}
             onImport={(files) => {
               void handleImport(files);
             }}

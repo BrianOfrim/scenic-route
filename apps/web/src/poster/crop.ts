@@ -63,7 +63,7 @@ export function isNearCroppedRoute(
   return distToTrackM([extra.lat, extra.lng], latlng) <= maxM;
 }
 
-/** Shift Strava stream indexes into a cropped track. Empty is still spanned. */
+/** Shift full-track indexes into a cropped track. Empty is still spanned. */
 export function shiftRouteSpans(
   spans: Array<{ start: number; end: number }> | undefined,
   cropStart: number,
