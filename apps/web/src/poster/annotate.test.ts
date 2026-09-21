@@ -6,6 +6,7 @@ import {
   nextTrailAliases,
   orderedSpan,
   relocateLandmark,
+  renamedLandmark,
   schematicXY,
   trailSourceName,
   userLandmark,
@@ -61,6 +62,21 @@ test("relocateLandmark keeps the name and kind, and updates route metrics", () =
   assert.equal(moved.lat, 53.028);
   assert.equal(moved.lng, -113.0);
   assert.ok(moved.distToRouteM < original.distToRouteM);
+});
+
+test("renamedLandmark keeps its position and rejects blank or duplicate labels", () => {
+  const original = userLandmark("Summit cairn", 53.015, -112.99, northSouth, bbox);
+  assert.ok(original);
+  const renamed = renamedLandmark(original, "  Windy cairn  ", ["Summit cairn", "Trailhead"]);
+  assert.ok(!("error" in renamed));
+  assert.equal(renamed.name, "Windy cairn");
+  assert.equal(renamed.lat, original.lat);
+  assert.equal(renamed.lng, original.lng);
+  assert.equal(renamed.source, "user");
+  assert.deepEqual(renamedLandmark(original, " ", []), { error: "Name this landmark" });
+  assert.deepEqual(renamedLandmark(original, "trailhead", ["Summit cairn", "Trailhead"]), {
+    error: "“trailhead” is already a landmark",
+  });
 });
 
 test("userNamedWay slices the GPS stretch and stores full-track spans", () => {
