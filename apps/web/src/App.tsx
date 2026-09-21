@@ -131,6 +131,11 @@ export function App() {
     next: string;
     nonce: number;
   } | null>(null);
+  const [renameLandmark, setRenameLandmark] = useState<{
+    name: string;
+    next: string;
+    nonce: number;
+  } | null>(null);
   const [session, setSession] = useState<SessionUser | null | undefined>(undefined);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -517,6 +522,9 @@ export function App() {
               onPlaceLandmark={(draft) => setPlaceLandmark({ ...draft, nonce: Date.now() })}
               onMoveLandmark={(draft) => setMoveLandmark({ ...draft, nonce: Date.now() })}
               onPlaceSection={(draft) => setPlaceSection({ ...draft, nonce: Date.now() })}
+              onRenameLandmark={(draft) =>
+                setRenameLandmark({ name: draft.from, next: draft.name, nonce: Date.now() })
+              }
               onRenameTrail={(draft) => setRenameTrail({ name: draft.from, next: draft.name, nonce: Date.now() })}
             />
           </main>
@@ -551,6 +559,7 @@ export function App() {
               placeLandmark={placeLandmark}
               moveLandmark={moveLandmark}
               placeSection={placeSection}
+              renameLandmark={renameLandmark}
               renameTrail={renameTrail}
             />
           ) : null}

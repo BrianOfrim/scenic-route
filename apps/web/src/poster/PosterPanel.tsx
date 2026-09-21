@@ -36,7 +36,15 @@ import {
   type AspectRatio,
 } from "./grounding/renderSchematic";
 import { snapshotTiles } from "./grounding/snapshotTiles";
-import { applyTrailAlias, nextTrailAliases, relocateLandmark, trailSourceName, userLandmark, userNamedWay } from "./annotate";
+import {
+  applyTrailAlias,
+  nextTrailAliases,
+  relocateLandmark,
+  renamedLandmark,
+  trailSourceName,
+  userLandmark,
+  userNamedWay,
+} from "./annotate";
 import {
   captureEditorSnapshot,
   editorSeed,
@@ -127,7 +135,13 @@ function LandmarkChip({
   title,
   selected,
   touchUi,
+  editing = false,
+  draft = name,
   onSelect,
+  onEdit,
+  onDraft,
+  onSave,
+  onCancel,
   onRemove,
   onHighlightChange,
 }: {
@@ -137,10 +151,74 @@ function LandmarkChip({
   title: string;
   selected: boolean;
   touchUi: boolean;
+  editing?: boolean;
+  draft?: string;
   onSelect: () => void;
+  onEdit?: () => void;
+  onDraft?: (value: string) => void;
+  onSave?: (value: string) => void;
+  onCancel?: () => void;
   onRemove: () => void;
   onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const skipBlurRef = useRef(false);
+  useEffect(() => {
+    if (!editing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [editing]);
+  if (onEdit) {
+    return (
+      <span
+        className={`chip on${selected ? " is-selected" : ""}`}
+        title={editing ? undefined : `${title}. Click the name to rename.`}
+        {...chipHighlight(kind, name, onHighlightChange)}
+      >
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="chip-edit"
+            value={draft}
+            aria-label={`Rename ${name}`}
+            onChange={(event) => onDraft?.(event.target.value)}
+            onBlur={() => {
+              if (skipBlurRef.current) {
+                skipBlurRef.current = false;
+                return;
+              }
+              onSave?.(inputRef.current?.value ?? draft);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onSave?.(event.currentTarget.value);
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                skipBlurRef.current = true;
+                onCancel?.();
+              }
+            }}
+          />
+        ) : (
+          <button type="button" className="chip-name" onClick={onEdit}>
+            {label}
+          </button>
+        )}
+        <button
+          type="button"
+          className="chip-remove"
+          aria-label={`Remove ${name}`}
+          title={`Remove ${name}`}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onRemove}
+        >
+          ×
+        </button>
+      </span>
+    );
+  }
   if (!touchUi) {
     return (
       <button
@@ -578,6 +656,7 @@ type Props = {
   moveLandmark?: { name: string; lat: number; lng: number; nonce: number } | null;
   placeSection?: { name: string; start: number; end: number; nonce: number } | null;
   renameTrail?: { name: string; next: string; nonce: number } | null;
+  renameLandmark?: { name: string; next: string; nonce: number } | null;
   onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
   /** Fires once background requests and their gallery placeholders are registered. */
   onGenerationStarted?: () => void;
@@ -608,6 +687,7 @@ export function PosterPanel({
   moveLandmark,
   placeSection,
   renameTrail: renameTrailEvent,
+  renameLandmark: renameLandmarkEvent,
   onHighlightChange,
   onGenerationStarted,
   touchUi = false,
@@ -662,6 +742,8 @@ export function PosterPanel({
   const [trailAliases, setTrailAliases] = useState<Record<string, string>>({});
   const [editingTrail, setEditingTrail] = useState<string | null>(null);
   const [editingTrailName, setEditingTrailName] = useState("");
+  const [editingLandmark, setEditingLandmark] = useState<string | null>(null);
+  const [editingLandmarkName, setEditingLandmarkName] = useState("");
   const [areaNames, setAreaNames] = useState<string[]>(() => seeded?.areaNames ?? []);
   const allowRefineAutoNames = useRef(false);
   const [customPois, setCustomPois] = useState<PosterPoi[]>([]);
@@ -1054,6 +1136,47 @@ export function PosterPanel({
     [selectedNamedWays, trailAliases],
   );
 
+  const renameLandmark = useCallback(
+    (from: string, to: string) => {
+      const key = from.trim().toLowerCase();
+      const poi = selectedPois.find((item) => item.name.trim().toLowerCase() === key);
+      if (!poi) return false;
+      const result = renamedLandmark(poi, to, selectedPois.map((item) => item.name));
+      if ("error" in result) {
+        setLandmarkHint(result.error);
+        return false;
+      }
+      const nextName = result.name;
+      if (nextName === poi.name) {
+        setEditingLandmark(null);
+        return true;
+      }
+      dismissedAutoNames.current.pois.add(poi.name);
+      dismissedAutoNames.current.pois.delete(nextName);
+      setCustomPois((current) => {
+        const match = current.findIndex((item) => item.name.trim().toLowerCase() === key);
+        if (match < 0) return [...current, result];
+        const copy = [...current];
+        copy[match] = result;
+        return copy;
+      });
+      setLabels((current) => {
+        const next = current.map((item) => (item.trim().toLowerCase() === key ? nextName : item));
+        return next.some((item) => item.trim().toLowerCase() === nextName.toLowerCase()) ? next : [...next, nextName];
+      });
+      setSelectedChip((current) =>
+        current?.kind === "poi" && current.name.trim().toLowerCase() === key
+          ? { kind: "poi", name: nextName }
+          : current,
+      );
+      onHighlightChange?.(null);
+      setLandmarkHint(`Renamed landmark to “${nextName}”`);
+      setEditingLandmark(null);
+      return true;
+    },
+    [selectedPois, onHighlightChange],
+  );
+
   useEffect(() => {
     if (!dismissPoi?.name) return;
     removePoi(dismissPoi.name);
@@ -1128,6 +1251,11 @@ export function PosterPanel({
     if (!renameTrailEvent?.name) return;
     renameTrail(renameTrailEvent.name, renameTrailEvent.next);
   }, [renameTrailEvent, renameTrail]);
+
+  useEffect(() => {
+    if (!renameLandmarkEvent?.name) return;
+    renameLandmark(renameLandmarkEvent.name, renameLandmarkEvent.next);
+  }, [renameLandmarkEvent, renameLandmark]);
 
   useEffect(
     () => () => {
@@ -2344,12 +2472,25 @@ export function PosterPanel({
                     }
                     selected={selectedChip?.kind === "poi" && selectedChip.name === poi.name}
                     touchUi={touchUi}
+                    editing={editingLandmark === poi.name}
+                    draft={editingLandmark === poi.name ? editingLandmarkName : poi.name}
                     onSelect={() => {
                       setSelectedChip({ kind: "poi", name: poi.name });
                       onHighlightChange?.({ kind: "poi", name: poi.name });
                     }}
+                    onEdit={() => {
+                      setEditingLandmark(poi.name);
+                      setEditingLandmarkName(poi.name);
+                    }}
+                    onDraft={setEditingLandmarkName}
+                    onSave={(value) => {
+                      if (editingLandmark !== poi.name) return;
+                      renameLandmark(poi.name, value);
+                    }}
+                    onCancel={() => setEditingLandmark(null)}
                     onRemove={() => {
                       removePoi(poi.name);
+                      setEditingLandmark(null);
                       setSelectedChip(null);
                     }}
                     onHighlightChange={onHighlightChange}
@@ -2485,12 +2626,25 @@ export function PosterPanel({
                         }
                         selected={selectedChip?.kind === "poi" && selectedChip.name === poi.name}
                         touchUi={touchUi}
+                        editing={editingLandmark === poi.name}
+                        draft={editingLandmark === poi.name ? editingLandmarkName : poi.name}
                         onSelect={() => {
                           setSelectedChip({ kind: "poi", name: poi.name });
                           onHighlightChange?.({ kind: "poi", name: poi.name });
                         }}
+                        onEdit={() => {
+                          setEditingLandmark(poi.name);
+                          setEditingLandmarkName(poi.name);
+                        }}
+                        onDraft={setEditingLandmarkName}
+                        onSave={(value) => {
+                          if (editingLandmark !== poi.name) return;
+                          renameLandmark(poi.name, value);
+                        }}
+                        onCancel={() => setEditingLandmark(null)}
                         onRemove={() => {
                           removePoi(poi.name);
+                          setEditingLandmark(null);
                           setSelectedChip(null);
                         }}
                         onHighlightChange={onHighlightChange}
@@ -2530,7 +2684,7 @@ export function PosterPanel({
                 <p className="muted">
                   Places and trail stretches that are not on OpenStreetMap are labeled on
                   the schematic: Place landmark or Name stretch. Drag a numbered landmark to move it.
-                  Click a named stretch — or its chip — to rename an OpenStreetMap or hand-named trail.
+                  Click a landmark or named-stretch chip to rename it.
                 </p>
                 {landmarkHint && <p className="muted">{landmarkHint}</p>}
                 {landmarkChoices?.map((poi) => (

@@ -55,7 +55,7 @@ type RenameDraft = { from: string; name: string };
 type NameDraft =
   | { kind: "landmark"; name: string; lat: number; lng: number; x: number; y: number }
   | { kind: "section"; name: string; start: number; end: number; x: number; y: number }
-  | { kind: "rename"; name: string; from: string; x: number; y: number };
+  | { kind: "rename"; target: "landmark" | "trail"; name: string; from: string; x: number; y: number };
 
 type AnnotatePreview = {
   route: [number, number][] | null | undefined;
@@ -88,6 +88,7 @@ type Props = {
   onPlaceLandmark?: (draft: LandmarkDraft) => void;
   onMoveLandmark?: (draft: LandmarkDraft) => void;
   onPlaceSection?: (draft: SectionDraft) => void;
+  onRenameLandmark?: (draft: RenameDraft) => void;
   onRenameTrail?: (draft: RenameDraft) => void;
 };
 
@@ -118,6 +119,7 @@ export function MapView({
   onPlaceLandmark,
   onMoveLandmark,
   onPlaceSection,
+  onRenameLandmark,
   onRenameTrail,
 }: Props) {
   const [mode, setMode] = useState<AnnotateMode>("browse");
@@ -149,7 +151,9 @@ export function MapView({
   const onPlaceSectionRef = useRef(onPlaceSection);
   const landmarkDragRef = useRef<LandmarkDrag | null>(null);
   const skipAnnotateClickRef = useRef(false);
+  const onRenameLandmarkRef = useRef(onRenameLandmark);
   const onRenameTrailRef = useRef(onRenameTrail);
+  const onRenameLandmarkStartRef = useRef<(name: string, point: { x: number; y: number }) => void>(() => {});
   const onRenameTrailStartRef = useRef<(name: string, point: { x: number; y: number }) => void>(() => {});
   const basemapRef = useRef(basemap);
   const styleReadyRef = useRef(false);
@@ -177,16 +181,24 @@ export function MapView({
   onPlaceLandmarkRef.current = onPlaceLandmark;
   onMoveLandmarkRef.current = onMoveLandmark;
   onPlaceSectionRef.current = onPlaceSection;
+  onRenameLandmarkRef.current = onRenameLandmark;
   highlightRef.current = highlight;
   touchUiRef.current = touchUi;
   fitPaddingBottomRef.current = fitPaddingBottom;
   selectedHitRef.current = selectedHit;
+  onRenameLandmarkStartRef.current = (name, point) => {
+    setMode("browse");
+    setSectionStart(null);
+    sectionHoverRef.current = null;
+    setDraft({ kind: "rename", target: "landmark", name, from: name, x: point.x, y: point.y });
+    setHint("Rename this landmark");
+  };
   onRenameTrailRef.current = onRenameTrail;
   onRenameTrailStartRef.current = (name, point) => {
     setMode("browse");
     setSectionStart(null);
     sectionHoverRef.current = null;
-    setDraft({ kind: "rename", name, from: name, x: point.x, y: point.y });
+    setDraft({ kind: "rename", target: "trail", name, from: name, x: point.x, y: point.y });
     setHint("Rename this stretch");
   };
   modeRef.current = mode;
@@ -218,6 +230,7 @@ export function MapView({
       onRemovePoiRef,
       onRemoveAreaRef,
       onRemoveTrailRef,
+      onRenameLandmarkStartRef,
       onRenameTrailStartRef,
     );
     hover.setActive(basemapRef.current === "schematic" && !touchUiRef.current);
@@ -721,6 +734,14 @@ export function MapView({
     } else if (draft.kind === "section") {
       onPlaceSectionRef.current?.({ name, start: draft.start, end: draft.end });
       setHint("Click the start of another stretch");
+    } else if (draft.target === "landmark") {
+      const taken = (poisRef.current ?? []).map((poi) => poi.name);
+      if (taken.some((item) => item !== draft.from && item.trim().toLowerCase() === name.toLowerCase())) {
+        setHint(`“${name}” is already a landmark`);
+        return;
+      }
+      onRenameLandmarkRef.current?.({ from: draft.from, name });
+      setHint(`Renamed landmark to “${name}”`);
     } else {
       const taken = (namedWaysRef.current ?? []).map((trail) => trail.name);
       if (taken.some((item) => item !== draft.from && item.trim().toLowerCase() === name.toLowerCase())) {
@@ -815,13 +836,14 @@ export function MapView({
           {selectedHit && !draft && touchUi && (
             <div className="map-schematic-select" role="toolbar" aria-label="Selected label">
               <strong>{selectedHit.label}</strong>
-              {selectedHit.kind === "trail" && (
+              {(selectedHit.kind === "trail" || selectedHit.kind === "poi") && (
                 <button
                   type="button"
                   className="text-btn"
                   onClick={() => {
                     const point = { x: 16, y: 16 };
-                    onRenameTrailStartRef.current(selectedHit.name, point);
+                    if (selectedHit.kind === "poi") onRenameLandmarkStartRef.current(selectedHit.name, point);
+                    else onRenameTrailStartRef.current(selectedHit.name, point);
                     setSelectedHit(null);
                   }}
                 >
@@ -858,7 +880,13 @@ export function MapView({
               onSubmit={submitDraft}
             >
               <label className="map-annotate-label">
-                {draft.kind === "landmark" ? "Landmark name" : draft.kind === "rename" ? "Rename stretch" : "Stretch name"}
+                {draft.kind === "landmark"
+                  ? "Landmark name"
+                  : draft.kind === "rename"
+                    ? draft.target === "landmark"
+                      ? "Rename landmark"
+                      : "Rename stretch"
+                    : "Stretch name"}
                 <input
                   ref={nameInputRef}
                   className="search"
@@ -1239,6 +1267,7 @@ function createSchematicHover(
   onRemovePoiRef: { current?: (name: string) => void },
   onRemoveAreaRef: { current?: (name: string) => void },
   onRemoveTrailRef: { current?: (name: string) => void },
+  onRenameLandmarkStartRef: { current?: (name: string, point: { x: number; y: number }) => void },
   onRenameTrailStartRef: { current?: (name: string, point: { x: number; y: number }) => void },
 ): HoverUi {
   const root = document.createElement("div");
@@ -1307,10 +1336,10 @@ function createSchematicHover(
     const same = current?.kind === hit.kind && current.name === hit.name;
     current = hit;
     lastPoint = point;
-    const trail = hit.kind === "trail";
-    name.hidden = trail;
-    rename.hidden = !trail;
-    if (trail) {
+    const editable = hit.kind === "trail" || hit.kind === "poi";
+    name.hidden = editable;
+    rename.hidden = !editable;
+    if (editable) {
       rename.textContent = hit.label;
       rename.setAttribute("aria-label", `Rename ${hit.name}`);
       rename.title = `Rename ${hit.name}`;
@@ -1330,8 +1359,9 @@ function createSchematicHover(
   rename.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (current?.kind !== "trail") return;
-    onRenameTrailStartRef.current?.(current.name, lastPoint);
+    if (current?.kind === "poi") onRenameLandmarkStartRef.current?.(current.name, lastPoint);
+    else if (current?.kind === "trail") onRenameTrailStartRef.current?.(current.name, lastPoint);
+    else return;
     hide();
   });
   remove.addEventListener("click", (event) => {

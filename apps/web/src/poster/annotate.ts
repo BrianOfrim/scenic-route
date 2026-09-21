@@ -92,6 +92,20 @@ export function relocateLandmark(
   };
 }
 
+export function renamedLandmark(
+  poi: PosterPoi,
+  nextName: string,
+  taken: string[],
+): PosterPoi | { error: string } {
+  const name = nextName.trim();
+  if (!name) return { error: "Name this landmark" };
+  const current = poi.name.trim().toLowerCase();
+  if (taken.some((item) => item.trim().toLowerCase() !== current && item.trim().toLowerCase() === name.toLowerCase())) {
+    return { error: `“${name}” is already a landmark` };
+  }
+  return { ...poi, name, source: "user" };
+}
+
 export function trailSourceName(name: string, aliases: Record<string, string>): string {
   for (const [source, display] of Object.entries(aliases)) {
     if (display === name) return source;
