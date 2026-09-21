@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   formatDate,
   formatKm,
@@ -36,10 +36,13 @@ export function ActivityList({
   const [sport, setSport] = useState("all");
   const [dragOver, setDragOver] = useState(false);
   const [selecting, setSelecting] = useState(false);
+  const [stravaMenuOpen, setStravaMenuOpen] = useState(false);
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [removing, setRemoving] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
+  const stravaMenuRef = useRef<HTMLDivElement>(null);
+  const stravaMenuId = useId();
   const sports = useMemo(
     () => Array.from(new Set(activities.map((item) => item.sportType))).sort(),
     [activities],
@@ -71,6 +74,27 @@ export function ActivityList({
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someFilteredChecked;
   }, [someFilteredChecked]);
+
+  useEffect(() => {
+    if (!stravaMenuOpen) return;
+
+    function onPointerDown(event: PointerEvent) {
+      if (stravaMenuRef.current && !stravaMenuRef.current.contains(event.target as Node)) {
+        setStravaMenuOpen(false);
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setStravaMenuOpen(false);
+    }
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [stravaMenuOpen]);
 
   function takeFiles(list: FileList | File[] | null) {
     const files = list ? Array.from(list) : [];
@@ -160,9 +184,6 @@ export function ActivityList({
             ) : null}
           </p>
           <div className="row activity-toolbar">
-            <button type="button" className="button" onClick={onSync} disabled={locked || !strava?.connected}>
-              {busy && !importing ? "Syncing…" : "Sync Strava"}
-            </button>
             <button
               type="button"
               className="text-btn activity-upload"
@@ -172,15 +193,46 @@ export function ActivityList({
               {importing ? "Importing…" : "Upload files"}
             </button>
             {strava?.connected && (
-              <button
-                type="button"
-                className="text-btn"
-                onClick={onDisconnect}
-                disabled={locked}
-                title="Unlink this Strava account so you can connect a different one"
-              >
-                Disconnect Strava
-              </button>
+              <div className="strava-menu" ref={stravaMenuRef}>
+                <button
+                  type="button"
+                  className="text-btn strava-menu-trigger"
+                  aria-haspopup="menu"
+                  aria-expanded={stravaMenuOpen}
+                  aria-controls={stravaMenuId}
+                  onClick={() => setStravaMenuOpen((value) => !value)}
+                  disabled={locked}
+                >
+                  {busy && !importing ? "Syncing…" : "Strava"}
+                  <span aria-hidden="true">▾</span>
+                </button>
+                {stravaMenuOpen && (
+                  <div className="strava-menu-panel" id={stravaMenuId} role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setStravaMenuOpen(false);
+                        onSync();
+                      }}
+                    >
+                      Refresh from Strava
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      role="menuitem"
+                      title="Unlink this Strava account so you can connect a different one"
+                      onClick={() => {
+                        setStravaMenuOpen(false);
+                        onDisconnect();
+                      }}
+                    >
+                      Disconnect Strava
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             {activities.length > 0 && (
               <button
