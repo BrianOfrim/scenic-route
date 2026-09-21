@@ -149,8 +149,12 @@ async function migrate(client: SqlClient) {
       altitude TEXT,
       bbox TEXT,
       segment_efforts TEXT,
-      source TEXT NOT NULL DEFAULT 'strava',
-      imported INTEGER NOT NULL DEFAULT 0
+      source TEXT NOT NULL DEFAULT 'gpx',
+      imported INTEGER NOT NULL DEFAULT 1,
+      origin TEXT NOT NULL DEFAULT 'upload',
+      file_format TEXT NOT NULL DEFAULT 'gpx',
+      external_id TEXT,
+      content_hash TEXT
     );
 
     CREATE INDEX IF NOT EXISTS activities_streams_synced ON activities (streams_synced);
@@ -202,21 +206,12 @@ async function migrate(client: SqlClient) {
       "updatedAt" TIMESTAMPTZ DEFAULT now()
     );
 
-    CREATE TABLE IF NOT EXISTS strava_connections (
-      user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
-      access_token TEXT NOT NULL,
-      refresh_token TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
-      athlete_id BIGINT,
-      athlete JSONB,
-      sync_state JSONB NOT NULL DEFAULT '{"listComplete":false,"listPage":1}'::jsonb
-    );
   `);
 
-  await ensureSharedStravaAthletes(client);
   await ensureActivitiesTenancy(client);
   await ensureColumn(client, "activities", "segment_efforts", "TEXT");
-  await ensureColumn(client, "activities", "source", "TEXT NOT NULL DEFAULT 'strava'");
+  await ensureColumn(client, "activities", "source", "TEXT NOT NULL DEFAULT 'gpx'");
+  await client.query("ALTER TABLE activities ALTER COLUMN source SET DEFAULT 'gpx'");
   if (await ensureColumn(client, "activities", "imported", "INTEGER NOT NULL DEFAULT 0")) {
     await client.query(
       `UPDATE activities SET imported = 1
@@ -229,30 +224,23 @@ async function migrate(client: SqlClient) {
     );
     if (!tokens) await client.query("UPDATE activities SET imported = 1");
   }
-}
-
-/** Allow multiple Scenic Route users to link the same Strava athlete. */
-async function ensureSharedStravaAthletes(client: SqlClient) {
-  const constraints = await query<{ constraint_name: string }>(
-    `SELECT tc.constraint_name
-     FROM information_schema.table_constraints tc
-     JOIN information_schema.constraint_column_usage ccu
-       ON tc.constraint_name = ccu.constraint_name
-      AND tc.table_schema = ccu.table_schema
-     WHERE tc.table_schema = 'public'
-       AND tc.table_name = 'strava_connections'
-       AND tc.constraint_type = 'UNIQUE'
-       AND ccu.column_name = 'athlete_id'`,
-    [],
-    client,
-  );
-  for (const row of constraints) {
-    await client.query(
-      `ALTER TABLE strava_connections DROP CONSTRAINT ${row.constraint_name}`,
-    );
+  await client.query("ALTER TABLE activities ALTER COLUMN imported SET DEFAULT 1");
+  const addedOrigin = await ensureColumn(client, "activities", "origin", "TEXT NOT NULL DEFAULT 'upload'");
+  const addedFormat = await ensureColumn(client, "activities", "file_format", "TEXT NOT NULL DEFAULT 'gpx'");
+  const addedExternalId = await ensureColumn(client, "activities", "external_id", "TEXT");
+  await ensureColumn(client, "activities", "content_hash", "TEXT");
+  if (addedOrigin || addedFormat || addedExternalId) {
+    await client.query(`
+      UPDATE activities
+      SET origin = CASE WHEN source = 'strava' AND imported = 1 THEN 'archive' ELSE 'upload' END,
+          file_format = CASE WHEN source IN ('gpx', 'fit', 'tcx') THEN source ELSE file_format END,
+          external_id = CASE WHEN source = 'strava' AND imported = 1 THEN id::text ELSE external_id END
+      WHERE imported = 1
+    `);
   }
-  // Legacy UNIQUE may also exist only as an index (e.g. athlete_id_key).
-  await client.query("DROP INDEX IF EXISTS strava_connections_athlete_id_key");
+  await client.query(
+    "CREATE UNIQUE INDEX IF NOT EXISTS activities_user_content_hash ON activities (user_id, content_hash) WHERE content_hash IS NOT NULL",
+  );
 }
 
 async function ensureActivitiesTenancy(client: SqlClient) {

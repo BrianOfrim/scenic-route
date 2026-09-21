@@ -20,7 +20,7 @@ function encodeRideFit(overrides?: { sport?: string; subSport?: string; skipPoin
     manufacturer: "development",
     product: 0,
     timeCreated: t0,
-  });
+  } as never);
   if (!overrides?.skipPoints) {
     for (const point of [
       { lat: 53.54, lng: -113.5, ele: 670, t: 0 },
@@ -33,7 +33,7 @@ function encodeRideFit(overrides?: { sport?: string; subSport?: string; skipPoin
         positionLat: toSemi(point.lat),
         positionLong: toSemi(point.lng),
         enhancedAltitude: point.ele,
-      });
+      } as never);
     }
   }
   encoder.writeMesg({
@@ -44,13 +44,13 @@ function encodeRideFit(overrides?: { sport?: string; subSport?: string; skipPoin
     subSport: overrides?.subSport ?? "generic",
     totalElapsedTime: 40,
     totalTimerTime: 40,
-  });
+  } as never);
   encoder.writeMesg({
     mesgNum: Profile.MesgNum.ACTIVITY,
     timestamp: t0 + 40,
     numSessions: 1,
     totalTimerTime: 40,
-  });
+  } as never);
   return encoder.close();
 }
 

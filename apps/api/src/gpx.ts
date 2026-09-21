@@ -51,7 +51,6 @@ const SPORT_MAP: Record<string, { type: string; sport: string }> = {
   biking: { type: "Ride", sport: "Ride" },
   ride: { type: "Ride", sport: "Ride" },
   bike: { type: "Ride", sport: "Ride" },
-  biking: { type: "Ride", sport: "Ride" },
   bicycle: { type: "Ride", sport: "Ride" },
   mountainbikeride: { type: "Ride", sport: "MountainBikeRide" },
   mountainbike: { type: "Ride", sport: "MountainBikeRide" },

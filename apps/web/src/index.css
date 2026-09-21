@@ -452,54 +452,6 @@ textarea:disabled {
   row-gap: 10px;
 }
 
-.strava-menu {
-  position: relative;
-}
-
-.strava-menu-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.strava-menu-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 20;
-  display: grid;
-  gap: 4px;
-  min-width: 190px;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
-}
-
-.strava-menu-panel button {
-  width: 100%;
-  padding: 9px 10px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.strava-menu-panel button:hover,
-.strava-menu-panel button:focus-visible {
-  background: #24301c;
-  outline: none;
-}
-
-.strava-menu-panel button.danger {
-  color: #e5a18f;
-}
-
 .filter select {
   width: auto;
 }

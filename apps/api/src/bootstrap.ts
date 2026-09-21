@@ -1,7 +1,6 @@
 import type { AuthUser } from "./auth";
-import { PENDING_USER_ID, deleteSetting, getJsonSetting, getSetting, query, queryOne, setSetting } from "./db";
+import { PENDING_USER_ID, deleteSetting, getSetting, query, queryOne, setSetting } from "./db";
 import { posterStore } from "./storage";
-import { normalizeSyncState, type StravaTokens, type SyncState } from "./strava";
 
 const CLAIM_KEY = "bootstrap_claimed";
 
@@ -41,32 +40,6 @@ export async function maybeBootstrapUser(user: AuthUser) {
 }
 
 export async function claimBootstrap(userId: string) {
-  const tokens = await getJsonSetting<StravaTokens>("strava_tokens");
-  const syncState = normalizeSyncState(await getJsonSetting<Partial<SyncState>>("sync_state"));
-  if (tokens) {
-    const athleteId = tokens.athlete?.id ?? null;
-    await query(
-      `INSERT INTO strava_connections (
-         user_id, access_token, refresh_token, expires_at, athlete_id, athlete, sync_state
-       ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)
-       ON CONFLICT (user_id) DO UPDATE SET
-         access_token = EXCLUDED.access_token,
-         refresh_token = EXCLUDED.refresh_token,
-         expires_at = EXCLUDED.expires_at,
-         athlete_id = EXCLUDED.athlete_id,
-         athlete = EXCLUDED.athlete,
-         sync_state = EXCLUDED.sync_state`,
-      [
-        userId,
-        tokens.access_token,
-        tokens.refresh_token,
-        tokens.expires_at,
-        athleteId,
-        tokens.athlete ? JSON.stringify(tokens.athlete) : null,
-        JSON.stringify(syncState),
-      ],
-    );
-  }
   await query("UPDATE activities SET user_id = $1 WHERE user_id = $2", [userId, PENDING_USER_ID]);
   await posterStore().migrateUnscopedToUser(userId);
   await deleteSetting("strava_tokens");

@@ -16,7 +16,7 @@ const LANDMARK_KINDS: Record<string, string[]> = {
   towns: ["city", "town", "village", "hamlet", "suburb", "locality"],
   neighbourhoods: ["neighbourhood", "quarter"],
   "named-water": ["water", "bay", "beach", "river", "waterfall"],
-  "strava-segments": ["trail"],
+  "named-trails": ["trail"],
   viewpoints: ["viewpoint", "attraction", "castle"],
   historic: [
     "historic",
@@ -64,7 +64,7 @@ export const FEATURE_CATALOG: FeatureOption[] = [
   { id: "towns", label: "Towns & villages", group: "landmarks", defaultOn: false, nearRouteM: 1_000 },
   { id: "neighbourhoods", label: "Neighbourhoods", group: "landmarks", defaultOn: false, nearRouteM: 100 },
   { id: "named-water", label: "Named water", group: "landmarks", defaultOn: false, nearRouteM: 500 },
-  { id: "strava-segments", label: "Named trails", group: "landmarks", defaultOn: false, nearRouteM: 100 },
+  { id: "named-trails", label: "Named trails", group: "landmarks", defaultOn: false, nearRouteM: 100 },
   { id: "viewpoints", label: "Viewpoints & attractions", group: "landmarks", defaultOn: false, nearRouteM: 100 },
   { id: "historic", label: "Historic places", group: "landmarks", defaultOn: false, nearRouteM: 100 },
   { id: "named-parks", label: "Named parks & reserves", group: "landmarks", defaultOn: false, nearRouteM: 100 },

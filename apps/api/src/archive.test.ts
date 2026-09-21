@@ -37,13 +37,14 @@ test("isZipBytes detects a zip and rejects GPX", () => {
   assert.equal(isZipBytes(new TextEncoder().encode(GPX)), false);
 });
 
-test("parseActivitiesCsv reads Strava export columns and quoted dates", () => {
+test("parseActivitiesCsv reads account-export columns and quoted dates", () => {
   const rows = parseActivitiesCsv(CSV);
   assert.equal(rows.length, 3);
   assert.equal(rows[0].id, 12927088301);
   assert.equal(rows[0].name, "CSV Morning Ride");
   assert.equal(rows[0].type, "Ride");
   assert.equal(rows[0].filename, "activities/12927088301.gpx.gz");
+  assert.equal(rows[0].distance, 25000);
   assert.ok(rows[0].startDate);
   assert.equal(rows[1].filename, null);
 });
@@ -58,7 +59,8 @@ test("expandImportArchive uses activities.csv names and skips empty or missing f
     "export_129270883.zip",
   );
   assert.equal(tracks.length, 1);
-  assert.equal(tracks[0].stravaId, 12927088301);
+  assert.equal(tracks[0].origin, "archive");
+  assert.equal(tracks[0].externalId, 12927088301);
   assert.equal(tracks[0].name, "CSV Morning Ride");
   assert.equal(tracks[0].type, "Ride");
   assert.equal(new TextDecoder().decode(tracks[0].bytes).includes("<gpx"), true);
@@ -73,8 +75,8 @@ test("expandImportArchive imports loose track files when there is no CSV", () =>
   );
   assert.equal(tracks.length, 2);
   const numbered = tracks.find((track) => track.filename.startsWith("12999"));
-  assert.equal(numbered?.stravaId, 12999);
-  assert.equal(tracks.find((track) => track.filename === "loop.gpx")?.stravaId, null);
+  assert.equal(numbered?.externalId, 12999);
+  assert.equal(tracks.find((track) => track.filename === "loop.gpx")?.externalId, null);
 });
 
 test("maybeGunzip unwraps gzipped tracks", () => {
@@ -84,15 +86,24 @@ test("maybeGunzip unwraps gzipped tracks", () => {
   assert.deepEqual(maybeGunzip(encoded, "ride.gpx"), encoded);
 });
 
-test("overlayArchiveMeta prefers Strava CSV name, type, and date", () => {
+test("overlayArchiveMeta prefers archive CSV metadata", () => {
   const fields = overlayArchiveMeta(gpxToActivityFields(parseGpx(GPX), "12927088301.gpx.gz"), {
     name: "CSV Morning Ride",
     type: "Trail Run",
     startDate: "2024-07-04T20:00:00.000Z",
+    distance: 25_000,
+    movingTime: 3_000,
+    elapsedTime: 3_600,
+    elevationGain: 420,
+    averageSpeed: 8.3,
+    maxSpeed: 17.5,
   });
   assert.equal(fields.name, "CSV Morning Ride");
   assert.equal(fields.sportType, "TrailRun");
   assert.equal(fields.startDate, "2024-07-04T20:00:00.000Z");
+  assert.equal(fields.distance, 25_000);
+  assert.equal(fields.movingTime, 3_000);
+  assert.equal(fields.elevationGain, 420);
 });
 
 test("expandImportArchive rejects an empty or trackless zip", () => {

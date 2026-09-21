@@ -1,34 +1,24 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   formatDate,
   formatKm,
-  isUploadedActivity,
   type ActivitySummary,
-  type StatusPayload,
 } from "./api";
 
 type Props = {
-  status: StatusPayload | null;
   activities: ActivitySummary[];
   selectedId: number | null;
-  busy: boolean;
   importing: boolean;
   onSelect: (id: number) => void;
-  onSync: () => void;
-  onDisconnect: () => void;
   onImport: (files: File[]) => void;
   onRemove: (ids: number[]) => Promise<void>;
 };
 
 export function ActivityList({
-  status,
   activities,
   selectedId,
-  busy,
   importing,
   onSelect,
-  onSync,
-  onDisconnect,
   onImport,
   onRemove,
 }: Props) {
@@ -36,13 +26,10 @@ export function ActivityList({
   const [sport, setSport] = useState("all");
   const [dragOver, setDragOver] = useState(false);
   const [selecting, setSelecting] = useState(false);
-  const [stravaMenuOpen, setStravaMenuOpen] = useState(false);
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [removing, setRemoving] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
-  const stravaMenuRef = useRef<HTMLDivElement>(null);
-  const stravaMenuId = useId();
   const sports = useMemo(
     () => Array.from(new Set(activities.map((item) => item.sportType))).sort(),
     [activities],
@@ -57,11 +44,10 @@ export function ActivityList({
   }, [activities, query, sport]);
   const filteredIds = useMemo(() => filtered.map((item) => item.id), [filtered]);
   const selectedFiltered = filtered.filter((item) => checked.has(item.id));
-  const removable = selectedFiltered.filter(isUploadedActivity);
+  const removable = selectedFiltered;
   const allFilteredChecked = filtered.length > 0 && selectedFiltered.length === filtered.length;
   const someFilteredChecked = selectedFiltered.length > 0 && !allFilteredChecked;
-  const strava = status?.strava;
-  const locked = busy || importing || removing;
+  const locked = importing || removing;
 
   useEffect(() => {
     const live = new Set(activities.map((item) => item.id));
@@ -74,27 +60,6 @@ export function ActivityList({
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someFilteredChecked;
   }, [someFilteredChecked]);
-
-  useEffect(() => {
-    if (!stravaMenuOpen) return;
-
-    function onPointerDown(event: PointerEvent) {
-      if (stravaMenuRef.current && !stravaMenuRef.current.contains(event.target as Node)) {
-        setStravaMenuOpen(false);
-      }
-    }
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setStravaMenuOpen(false);
-    }
-
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [stravaMenuOpen]);
 
   function takeFiles(list: FileList | File[] | null) {
     const files = list ? Array.from(list) : [];
@@ -130,13 +95,11 @@ export function ActivityList({
 
   async function handleRemove() {
     if (!removable.length) return;
-    const skipped = selectedFiltered.length - removable.length;
     const detail =
       removable.length === 1
         ? `Remove “${removable[0].name}”?`
         : `Remove ${removable.length} uploaded ${removable.length === 1 ? "activity" : "activities"}?`;
-    const extra = skipped ? ` ${skipped} Strava ${skipped === 1 ? "activity" : "activities"} will be kept.` : "";
-    if (!window.confirm(`${detail}${extra}`)) return;
+    if (!window.confirm(detail)) return;
     setRemoving(true);
     try {
       await onRemove(removable.map((item) => item.id));
@@ -172,16 +135,7 @@ export function ActivityList({
         <div className="panel-block">
           <div className="eyebrow">Activities</div>
           <p className="muted">
-            {!status
-              ? "Checking Strava…"
-              : strava?.connected
-                ? `${strava.athlete ? `${strava.athlete.firstname} ${strava.athlete.lastname} · ` : ""}${strava.sync.streamsSynced} tracks${strava.sync.streamsPending ? ` · ${strava.sync.streamsPending} pending` : ""}`
-                : strava?.configured
-                  ? "Upload a track or Strava export zip, or "
-                  : "Add Strava keys to .env.local, or upload a track or Strava export zip."}
-            {status && strava?.configured && !strava.connected ? (
-              <a href="/api/strava/auth">connect Strava</a>
-            ) : null}
+            Import GPX, FIT, TCX, or a complete account export ZIP. Original archives are not retained.
           </p>
           <div className="row activity-toolbar">
             <button
@@ -190,50 +144,8 @@ export function ActivityList({
               onClick={() => fileInput.current?.click()}
               disabled={locked}
             >
-              {importing ? "Importing…" : "Upload files"}
+              {importing ? "Importing…" : "Import activities"}
             </button>
-            {strava?.connected && (
-              <div className="strava-menu" ref={stravaMenuRef}>
-                <button
-                  type="button"
-                  className="text-btn strava-menu-trigger"
-                  aria-haspopup="menu"
-                  aria-expanded={stravaMenuOpen}
-                  aria-controls={stravaMenuId}
-                  onClick={() => setStravaMenuOpen((value) => !value)}
-                  disabled={locked}
-                >
-                  {busy && !importing ? "Syncing…" : "Strava"}
-                  <span aria-hidden="true">▾</span>
-                </button>
-                {stravaMenuOpen && (
-                  <div className="strava-menu-panel" id={stravaMenuId} role="menu">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setStravaMenuOpen(false);
-                        onSync();
-                      }}
-                    >
-                      Refresh from Strava
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      role="menuitem"
-                      title="Unlink this Strava account so you can connect a different one"
-                      onClick={() => {
-                        setStravaMenuOpen(false);
-                        onDisconnect();
-                      }}
-                    >
-                      Disconnect Strava
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
             {activities.length > 0 && (
               <button
                 type="button"
@@ -291,9 +203,6 @@ export function ActivityList({
               <div className="row activity-actions">
                 <span className="muted">
                   {selectedFiltered.length} selected
-                  {removable.length !== selectedFiltered.length
-                    ? ` · ${removable.length} uploaded`
-                    : ""}
                 </span>
                 <button
                   type="button"
@@ -326,7 +235,8 @@ export function ActivityList({
               <strong>{item.name}</strong>
               <span>
                 {formatDate(item.startDate)} · {item.sportType}
-                {item.source === "gpx" ? " · GPX" : item.source === "fit" ? " · FIT" : item.source === "tcx" ? " · TCX" : ""}
+                {` · ${item.format.toUpperCase()}`}
+                {item.origin === "archive" ? " · Archive" : ""}
                 {item.hasGps ? ` · ${formatKm(item.distance)}` : " · no GPS"}
               </span>
             </button>
@@ -336,7 +246,7 @@ export function ActivityList({
           <p className="muted activity-empty">
             {activities.length
               ? "No matching activities."
-              : "No activities yet. Upload a GPX, FIT, TCX, or a Strava export zip, or sync Strava."}
+              : "No activities yet. Import GPX, FIT, TCX, or a complete account export ZIP."}
           </p>
         )}
       </div>

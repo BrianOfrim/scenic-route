@@ -10,7 +10,6 @@ import {
   dropPoiNames,
   mergeNamedWays,
   namedWaterFeatures,
-  namedWaysFromSegmentEfforts,
   pruneNestedAreas,
   rankPois,
   splitWays,
@@ -42,12 +41,13 @@ test("catalog puts neighbourhoods, campuses, and named parks in named-areas", ()
 });
 
 test("catalog includes named trail selectors", () => {
-  assert.equal(FEATURE_CATALOG.some((item) => item.id === "named-trails"), false);
-  const strava = FEATURE_CATALOG.find((item) => item.id === "strava-segments");
-  assert.ok(strava);
-  assert.equal(strava.label, "Named trails");
-  assert.equal(strava.bucket, "strava-ways");
-  assert.deepEqual(strava.selectors, []);
+  const trails = FEATURE_CATALOG.find((item) => item.id === "named-trails");
+  assert.ok(trails);
+  assert.equal(trails.label, "Named trails");
+  assert.equal(trails.bucket, "named-ways");
+  assert.deepEqual(trails.selectors, [
+    'nwr[highway~"^(path|track|footway|cycleway|bridleway)$"][name]',
+  ]);
 });
 
 test("collectNamedWays merges same-name segments into a labeled line", () => {
@@ -131,39 +131,7 @@ test("mergeNamedWays keeps the closer copy of a trail", () => {
   assert.ok(merged[0].distToRouteM <= Math.min(a[0].distToRouteM, b[0].distToRouteM));
 });
 
-test("namedWaysFromSegmentEfforts slices the GPS track into labeled lines", () => {
-  const route: [number, number][] = [
-    [53.0, -113.0],
-    [53.001, -113.001],
-    [53.002, -113.002],
-    [53.003, -113.003],
-    [53.004, -113.004],
-  ];
-  const trails = namedWaysFromSegmentEfforts(
-    [
-      { name: "Sprint", hidden: false, distance: 80, start_index: 0, end_index: 1 },
-      { name: "Hidden Climb", hidden: true, distance: 400, start_index: 0, end_index: 3 },
-      {
-        name: "ignored",
-        hidden: false,
-        distance: 900,
-        start_index: 1,
-        end_index: 4,
-        segment: { name: "Silverback" },
-      },
-    ],
-    route,
-    [-113.01, 52.99, -112.99, 53.01],
-  );
-  assert.equal(trails.length, 1);
-  assert.equal(trails[0].name, "Silverback");
-  assert.equal(trails[0].source, "strava");
-  assert.equal(trails[0].kind, "trail");
-  assert.equal(trails[0].geometry.coordinates[0].length, 4);
-  assert.deepEqual(trails[0].routeSpans, [{ start: 1, end: 4 }]);
-});
-
-test("mergeNamedWays prefers OpenStreetMap geometry over a Strava slice", () => {
+test("mergeNamedWays keeps OpenStreetMap geometry when combined with a user section", () => {
   const route: [number, number][] = [
     [38.58, -109.4],
     [38.581, -109.401],
@@ -183,12 +151,8 @@ test("mergeNamedWays prefers OpenStreetMap geometry over a Strava slice", () => 
     route,
     bbox,
   );
-  const strava = namedWaysFromSegmentEfforts(
-    [{ name: "Silverback", distance: 400, start_index: 0, end_index: 1 }],
-    route,
-    bbox,
-  );
-  const merged = mergeNamedWays(osm, strava);
+  const user = [{ ...osm[0], source: "user" as const, routeSpans: [{ start: 0, end: 1 }] }];
+  const merged = mergeNamedWays(osm, user);
   assert.equal(merged.length, 1);
   assert.equal(merged[0].source, "osm");
   assert.deepEqual(merged[0].routeSpans, [{ start: 0, end: 1 }]);

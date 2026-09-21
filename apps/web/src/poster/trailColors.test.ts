@@ -69,7 +69,7 @@ test("routeVertexColors lets the first trail win overlaps", () => {
   assert.deepEqual(colors, ["#0f766e", "#0f766e"]);
 });
 
-test("routeVertexColors uses Strava indexes and ignores nearby off-span GPS", () => {
+test("routeVertexColors uses route spans and ignores nearby off-span GPS", () => {
   const route: [number, number][] = [
     [53.0, -113.0],
     [53.001, -113.0],

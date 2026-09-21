@@ -24,9 +24,14 @@ export type ActivityRow = {
   segment_efforts?: string | null;
   source?: string | null;
   imported?: number | null;
+  origin?: string | null;
+  file_format?: string | null;
+  external_id?: string | null;
+  content_hash?: string | null;
 };
 
-export type ActivitySource = "strava" | "gpx" | "fit" | "tcx";
+export type ActivityOrigin = "upload" | "archive";
+export type ActivityFormat = "gpx" | "fit" | "tcx";
 
 export type ActivitySummary = {
   id: number;
@@ -41,12 +46,18 @@ export type ActivitySummary = {
   averageSpeed: number | null;
   hasGps: boolean;
   streamsSynced: boolean;
-  source: ActivitySource;
+  origin: ActivityOrigin;
+  format: ActivityFormat;
   imported: boolean;
 };
 
-export function activitySource(value: string | null | undefined): ActivitySource {
-  return value === "gpx" || value === "fit" || value === "tcx" ? value : "strava";
+export function activityOrigin(value: string | null | undefined): ActivityOrigin {
+  return value === "archive" ? "archive" : "upload";
+}
+
+export function activityFormat(value: string | null | undefined, legacySource?: string | null): ActivityFormat {
+  const candidate = value ?? legacySource;
+  return candidate === "fit" || candidate === "tcx" ? candidate : "gpx";
 }
 
 export function toActivitySummary(
@@ -66,6 +77,8 @@ export function toActivitySummary(
     | "streams_synced"
     | "source"
     | "imported"
+    | "origin"
+    | "file_format"
   >,
 ): ActivitySummary {
   return {
@@ -81,7 +94,8 @@ export function toActivitySummary(
     averageSpeed: row.average_speed,
     hasGps: row.has_gps === 1,
     streamsSynced: row.streams_synced === 1,
-    source: activitySource(row.source),
+    origin: activityOrigin(row.origin),
+    format: activityFormat(row.file_format, row.source),
     imported: isImported(row),
   };
 }
@@ -114,12 +128,15 @@ export async function listActivities(userId: string): Promise<ActivitySummary[]>
       | "streams_synced"
       | "source"
       | "imported"
+      | "origin"
+      | "file_format"
     >
   >(
     `SELECT id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
-            total_elevation_gain, average_speed, has_gps, streams_synced, source, imported
+            total_elevation_gain, average_speed, has_gps, streams_synced, source, imported,
+            origin, file_format
      FROM activities
-     WHERE user_id = $1
+     WHERE user_id = $1 AND imported = 1
      ORDER BY start_date DESC`,
     [userId],
   );
@@ -133,7 +150,7 @@ export async function getActivity(
   client?: SqlClient,
 ): Promise<ActivityRow | null> {
   return (
-    (await queryOne<ActivityRow>("SELECT * FROM activities WHERE user_id = $1 AND id = $2", [userId, id], client)) ??
+    (await queryOne<ActivityRow>("SELECT * FROM activities WHERE user_id = $1 AND id = $2 AND imported = 1", [userId, id], client)) ??
     null
   );
 }
@@ -204,24 +221,6 @@ export function activityToFeatureCollection(row: ActivityRow): FeatureCollection
       },
     ],
   };
-}
-
-export function getCachedSegmentEfforts(row: ActivityRow): unknown[] | null {
-  if (row.segment_efforts == null) return null;
-  try {
-    const parsed = JSON.parse(row.segment_efforts) as unknown;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return null;
-  }
-}
-
-export async function setCachedSegmentEfforts(userId: string, activityId: number, efforts: unknown[]) {
-  await query("UPDATE activities SET segment_efforts = $1 WHERE user_id = $2 AND id = $3", [
-    JSON.stringify(efforts),
-    userId,
-    activityId,
-  ]);
 }
 
 export async function listSportTypes(userId: string): Promise<string[]> {

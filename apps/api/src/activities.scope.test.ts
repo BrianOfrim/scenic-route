@@ -13,11 +13,10 @@ function source(name: string) {
 test("activity queries include user_id", () => {
   const activities = source("activities.ts");
   assert.match(activities, /FROM activities\s+WHERE user_id = \$1/s);
-  assert.match(activities, /WHERE user_id = \$1 AND id = \$2/);
+  assert.match(activities, /WHERE user_id = \$1 AND id = \$2 AND imported = 1/);
   assert.match(activities, /DELETE FROM activities WHERE user_id = \$1 AND id = \$2/);
 
-  const sync = source("sync.ts");
-  assert.match(sync, /ON CONFLICT \(user_id, id\)/);
-  assert.match(sync, /FROM activities\s+WHERE user_id = \$1/s);
-  assert.match(sync, /WHERE user_id = \$1 AND streams_synced = 0/);
+  const importer = source("importActivity.ts");
+  assert.match(importer, /WHERE user_id = \$1 AND content_hash = \$2 AND imported = 1/);
+  assert.match(importer, /WHERE user_id = \$1 AND id = \$2/);
 });

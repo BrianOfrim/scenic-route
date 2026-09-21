@@ -32,7 +32,6 @@ export function authSecret() {
 export function isPublicApiPath(path: string, method: string) {
   if (path === "/api/health") return true;
   if (path.startsWith("/api/auth/")) return true;
-  if (method === "GET" && path === "/api/strava/callback") return true;
   return false;
 }
 

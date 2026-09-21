@@ -40,7 +40,7 @@ export function SignIn({ onSent }: Props) {
           <p className="muted">Check your inbox for a sign-in link. It expires in a few minutes.</p>
         ) : (
           <>
-            <p className="muted">We’ll email you a magic link. Strava stays a connected data source, not the account.</p>
+            <p className="muted">We’ll email you a magic link. After signing in, import activity files from your device.</p>
             <form className="sign-in-form" onSubmit={(event) => void handleSubmit(event)}>
               <label>
                 Email

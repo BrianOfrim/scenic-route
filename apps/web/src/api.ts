@@ -2,7 +2,8 @@ import { trackGeneration, type GenerationTask } from "./gallery/generationState"
 import type { FeatureCollection, LineString } from "geojson";
 import { coalesceRequests } from "./inFlight";
 
-export type ActivitySource = "strava" | "gpx" | "fit" | "tcx";
+export type ActivityOrigin = "upload" | "archive";
+export type ActivityFormat = "gpx" | "fit" | "tcx";
 
 export type ActivitySummary = {
   id: number;
@@ -17,29 +18,9 @@ export type ActivitySummary = {
   averageSpeed: number | null;
   hasGps: boolean;
   streamsSynced: boolean;
-  source?: ActivitySource;
-  imported?: boolean;
-};
-
-export function isUploadedActivity(item: ActivitySummary): boolean {
-  return (
-    item.imported === true ||
-    item.source === "gpx" ||
-    item.source === "fit" ||
-    item.source === "tcx" ||
-    item.id >= 2_000_000_000_000
-  );
-}
-
-export type SyncProgress = {
-  listComplete: boolean;
-  listed: number;
-  streamsSynced: number;
-  streamsPending: number;
-  skipped: number;
-  done?: boolean;
-  rateLimited?: boolean;
-  retryAfter?: number;
+  origin: ActivityOrigin;
+  format: ActivityFormat;
+  imported: boolean;
 };
 
 export type SessionUser = {
@@ -54,17 +35,6 @@ export class AuthRequiredError extends Error {
     this.name = "AuthRequiredError";
   }
 }
-
-export type StatusPayload = {
-  user?: SessionUser;
-  strava: {
-    configured: boolean;
-    connected: boolean;
-    athlete: { firstname: string; lastname: string } | null;
-    sync: SyncProgress;
-  };
-  openrouter: { configured: boolean };
-};
 
 export type FeatureOption = {
   id: string;
@@ -119,10 +89,10 @@ export type NamedWay = {
   routeFrac: number;
   bearing: string;
   xy: { x: number; y: number; region: string };
-  source?: "osm" | "strava" | "user";
+  source?: "osm" | "user";
   colorName?: string;
   color?: string;
-  /** Inclusive GPS-stream indexes from Strava efforts. Prefer these over distance. */
+  /** Inclusive GPS-stream indexes for user-defined route sections. */
   routeSpans?: Array<{ start: number; end: number }>;
 };
 
@@ -306,16 +276,12 @@ export async function signOut() {
   });
 }
 
-export async function fetchStatus(): Promise<StatusPayload> {
-  return readJson(await apiFetch("/api/status"));
-}
-
 export async function fetchActivities(): Promise<ActivitySummary[]> {
   const body = await readJson<{ activities: ActivitySummary[] }>(await apiFetch("/api/activities"));
   return body.activities;
 }
 
-export async function importGpxFiles(files: File[] | FileList): Promise<{
+export async function importActivityFiles(files: File[] | FileList): Promise<{
   activities: ActivitySummary[];
   errors: Array<{ filename: string; error: string }>;
   skipped: number;
@@ -353,25 +319,6 @@ export async function fetchActivityTrack(id: number): Promise<{
   track: FeatureCollection<LineString>;
 }> {
   return readJson(await apiFetch(`/api/activities/${id}`));
-}
-
-export async function disconnectStrava(): Promise<{ removedActivities: number }> {
-  const body = await readJson<{ ok: boolean; removedActivities?: number }>(
-    await apiFetch("/api/strava/disconnect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    }),
-  );
-  return { removedActivities: body.removedActivities ?? 0 };
-}
-
-export async function syncStrava(): Promise<SyncProgress> {
-  const response = await apiFetch("/api/strava/sync", { method: "POST" });
-  if (response.status === 401) throw new AuthRequiredError();
-  const body = (await response.json()) as SyncProgress & { error?: string };
-  if (!response.ok && !body.rateLimited) throw new Error(body.error ?? "Sync failed");
-  return body;
 }
 
 export async function fetchFeatures(): Promise<FeatureOption[]> {

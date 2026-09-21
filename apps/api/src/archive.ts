@@ -3,14 +3,25 @@ import { ImportError } from "./gpx";
 
 const TRACK_EXT = /\.(gpx|fit|tcx)(\.gz)?$/i;
 const GZIP_MAGIC = [0x1f, 0x8b];
+const MAX_ARCHIVE_BYTES = 250 * 1024 * 1024;
+const MAX_ARCHIVE_ENTRIES = 20_000;
+const MAX_EXPANDED_BYTES = 512 * 1024 * 1024;
+const MAX_TRACK_BYTES = 64 * 1024 * 1024;
 
 export type ArchiveTrack = {
+  origin: "upload" | "archive";
   filename: string;
   bytes: Uint8Array;
-  stravaId: number | null;
+  externalId: number | null;
   name: string | null;
   type: string | null;
   startDate: string | null;
+  distance: number | null;
+  movingTime: number | null;
+  elapsedTime: number | null;
+  elevationGain: number | null;
+  averageSpeed: number | null;
+  maxSpeed: number | null;
 };
 
 export function isZipBytes(bytes: Uint8Array): boolean {
@@ -25,11 +36,33 @@ export function isZipBytes(bytes: Uint8Array): boolean {
 
 export function expandImportArchive(bytes: Uint8Array, zipName = "export.zip"): ArchiveTrack[] {
   if (!isZipBytes(bytes)) throw new ImportError("This file is not a zip archive");
+  if (bytes.byteLength > MAX_ARCHIVE_BYTES) throw new ImportError("This zip archive is too large");
 
   let entries: Record<string, Uint8Array>;
   try {
-    entries = unzipSync(bytes);
-  } catch {
+    let entryCount = 0;
+    let expandedBytes = 0;
+    entries = unzipSync(bytes, {
+      filter: (entry) => {
+        entryCount += 1;
+        if (entryCount > MAX_ARCHIVE_ENTRIES) {
+          throw new ImportError("This zip archive contains too many files");
+        }
+        const path = entry.name.replace(/\\/g, "/");
+        const wanted = TRACK_EXT.test(path) || path.split("/").pop()?.toLowerCase() === "activities.csv";
+        if (!wanted) return false;
+        if (entry.originalSize > MAX_TRACK_BYTES && TRACK_EXT.test(path)) {
+          throw new ImportError(`${basename(path)} is too large to import`);
+        }
+        expandedBytes += entry.originalSize;
+        if (expandedBytes > MAX_EXPANDED_BYTES) {
+          throw new ImportError("This zip archive expands beyond the import limit");
+        }
+        return true;
+      },
+    });
+  } catch (error) {
+    if (error instanceof ImportError) throw error;
     throw new ImportError("Could not read this zip archive");
   }
 
@@ -48,7 +81,7 @@ export function expandImportArchive(bytes: Uint8Array, zipName = "export.zip"): 
   if (!tracks.length) {
     throw new ImportError(
       zipName.toLowerCase().includes("export")
-        ? "This Strava export has no GPX, FIT, or TCX activities"
+        ? "This account export has no GPX, FIT, or TCX activities"
         : "This zip has no GPX, FIT, or TCX files",
     );
   }
@@ -74,24 +107,43 @@ export function parseActivitiesCsv(text: string): Array<{
   type: string | null;
   startDate: string | null;
   filename: string | null;
+  distance: number | null;
+  movingTime: number | null;
+  elapsedTime: number | null;
+  elevationGain: number | null;
+  averageSpeed: number | null;
+  maxSpeed: number | null;
 }> {
   const rows = parseCsv(text.replace(/^\uFEFF/, ""));
   if (rows.length < 2) return [];
   const headers = rows[0].map((header) => header.trim().toLowerCase().replace(/\s+/g, " "));
   const col = (name: string) => headers.indexOf(name);
+  const cols = (name: string) => headers.flatMap((header, index) => (header === name ? [index] : []));
   const idCol = col("activity id");
   const nameCol = col("activity name");
   const typeCol = col("activity type") >= 0 ? col("activity type") : col("sport type");
   const dateCol = col("activity date");
   const fileCol = col("filename");
+  const distanceCols = cols("distance");
+  const elapsedCols = cols("elapsed time");
+  const movingCols = cols("moving time");
+  const elevationCols = cols("elevation gain");
+  const averageSpeedCols = cols("average speed");
+  const maxSpeedCols = cols("max speed");
   if (fileCol < 0 && idCol < 0) return [];
 
   return rows.slice(1).map((row) => ({
-    id: parseStravaId(row[idCol] ?? ""),
+    id: parseExternalId(row[idCol] ?? ""),
     name: emptyToNull(row[nameCol] ?? ""),
     type: emptyToNull(row[typeCol] ?? ""),
     startDate: parseCsvDate(row[dateCol] ?? ""),
     filename: emptyToNull((row[fileCol] ?? "").replace(/\\/g, "/")),
+    distance: lastNumber(row, distanceCols),
+    movingTime: lastNumber(row, movingCols),
+    elapsedTime: lastNumber(row, elapsedCols),
+    elevationGain: lastNumber(row, elevationCols),
+    averageSpeed: lastNumber(row, averageSpeedCols),
+    maxSpeed: lastNumber(row, maxSpeedCols),
   }));
 }
 
@@ -107,12 +159,19 @@ function tracksFromCsv(files: Map<string, Uint8Array>, csvPath: string): Archive
     if (!data) continue;
     const filename = basename(row.filename);
     tracks.push({
+      origin: "archive",
       filename,
       bytes: maybeGunzip(data, filename),
-      stravaId: row.id ?? parseStravaId(filename),
+      externalId: row.id ?? parseExternalId(filename),
       name: row.name,
       type: row.type,
       startDate: row.startDate,
+      distance: row.distance,
+      movingTime: row.movingTime,
+      elapsedTime: row.elapsedTime,
+      elevationGain: row.elevationGain,
+      averageSpeed: row.averageSpeed,
+      maxSpeed: row.maxSpeed,
     });
   }
   return tracks;
@@ -124,12 +183,19 @@ function tracksFromFiles(files: Map<string, Uint8Array>): ArchiveTrack[] {
     if (!TRACK_EXT.test(path)) continue;
     const filename = basename(path);
     tracks.push({
+      origin: "archive",
       filename,
       bytes: maybeGunzip(data, filename),
-      stravaId: parseStravaId(filename),
+      externalId: parseExternalId(filename),
       name: null,
       type: null,
       startDate: null,
+      distance: null,
+      movingTime: null,
+      elapsedTime: null,
+      elevationGain: null,
+      averageSpeed: null,
+      maxSpeed: null,
     });
   }
   return tracks;
@@ -198,11 +264,21 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 
-function parseStravaId(value: string): number | null {
+function parseExternalId(value: string): number | null {
   const base = value.replace(/^.*[/\\]/, "").replace(/\.(gpx|fit|tcx)(\.gz)?$/i, "");
   if (!/^\d+$/.test(base)) return null;
   const id = Number(base);
   return Number.isSafeInteger(id) && id > 0 && id < 2_000_000_000_000 ? id : null;
+}
+
+function lastNumber(row: string[], indexes: number[]): number | null {
+  for (let i = indexes.length - 1; i >= 0; i -= 1) {
+    const raw = row[indexes[i]]?.trim();
+    if (!raw) continue;
+    const value = Number(raw);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
 }
 
 function parseCsvDate(raw: string): string | null {
