@@ -121,7 +121,13 @@ test("repairPlannerOutput in route-only mode strips landmarks and named geograph
       route: { treatment: "line", color: "red", startMarker: "dot", finishMarker: "dot", shapeNotes: "" },
       geography: [
         { kind: "trail", name: "River Valley Trail", placement: "along route", treatment: "write the name" },
-        { kind: "water", name: "", placement: "", treatment: "flat blue lakes" },
+        {
+          kind: "water",
+          name: "Lakes and rivers",
+          placement: "background shapes",
+          treatment: "flat blue lakes",
+          color: "navy",
+        },
       ],
       landmarks: [{ name: "Norsemen Inn", kind: "pub", placement: "upper-left", icon: "pub", pin: 1 }],
       text: { title: "T", subtitle: "S", stats: [], rules: "" },
@@ -134,9 +140,13 @@ test("repairPlannerOutput in route-only mode strips landmarks and named geograph
   const spec = validatePosterSpec(repaired);
   assert.deepEqual(spec.landmarks, []);
   assert.deepEqual(
-    spec.geography.map((item) => [item.kind, item.name, item.treatment]),
-    [["water", "", "flat blue lakes"]],
+    spec.geography.map((item) => [item.kind, item.name, item.treatment, item.color]),
+    [["water", "", "flat blue lakes", undefined]],
   );
+  const prompt = specToImagePrompt(spec);
+  assert.match(prompt, /Geography: water/);
+  assert.match(prompt, /unlabeled background map/i);
+  assert.doesNotMatch(prompt, /route-only poster: only the GPS track/i);
 });
 
 test("repairPlannerOutput coerces prose fields into the nested shape", () => {

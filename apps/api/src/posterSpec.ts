@@ -346,11 +346,8 @@ export function promptExclusions(routeOnly: boolean) {
 export const ROUTE_TRACE_RULE =
   "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and landmarks. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Do not snap the path onto a nearby road unless the schematic already shows that. Colored stretches on the schematic are a private name index only: look up the trail name, then discard the color. Paint the whole path as one styled route of even thickness. Do not copy the schematic's red or named-trail colors, and do not draw a colored stretch thinner or fainter than the rest. Never interrupt the line for a label, icon, or decoration: the route stays continuous and unoccluded; landmarks annotate it, they do not replace it. A prettier wrong path is a failed poster. North is up.";
 
-export const ROUTE_ONLY_TRACE_RULE =
-  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Paint the whole path as one styled route of even thickness. Never interrupt the line for a label, icon, or decoration. This poster has no landmarks, trail names, or named districts. A prettier wrong path is a failed poster. North is up.";
-
-export const GEOGRAPHY_NO_ANNOTATIONS_TRACE_RULE =
-  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and land cover. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Paint the whole path as one styled route of even thickness. Never interrupt the line for a label, icon, or decoration. Style geography from the schematic without inventing place names. This poster has no landmarks, trail names, or named districts. A prettier wrong path is a failed poster. North is up.";
+export const UNANNOTATED_MAP_TRACE_RULE =
+  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and land cover. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Paint the whole path as one styled route of even thickness. Never interrupt the line for a label, icon, or decoration. Render the visible roads, water, parks, and land-cover shapes from the schematic as a rich unlabeled background map. A prettier wrong path is a failed poster. North is up.";
 
 const t = (value?: string) => (value ?? "").trim();
 
@@ -360,9 +357,6 @@ export function isRouteOnlyPoster(spec: PosterSpec) {
   return !namedLandmarks && !namedGeography;
 }
 
-function hasGeographyLayers(spec: PosterSpec) {
-  return spec.geography.some((item) => t(item.kind) || t(item.treatment) || t(item.name));
-}
 const sentence = (value: string) => {
   const text = t(value);
   if (!text) return "";
@@ -402,22 +396,13 @@ function scrubIndexLanguage(text: string) {
 export function specToImagePrompt(spec: PosterSpec): string {
   const sections: string[] = [];
   const routeOnly = isRouteOnlyPoster(spec);
-  const geographyOnly = routeOnly && hasGeographyLayers(spec);
 
   const lead = scrubIndexLanguage(t(spec.finalPrompt) || fallbackPrompt(spec));
   sections.push(sentence(lead));
-  sections.push(
-    routeOnly
-      ? geographyOnly
-        ? GEOGRAPHY_NO_ANNOTATIONS_TRACE_RULE
-        : ROUTE_ONLY_TRACE_RULE
-      : ROUTE_TRACE_RULE,
-  );
+  sections.push(routeOnly ? UNANNOTATED_MAP_TRACE_RULE : ROUTE_TRACE_RULE);
   if (routeOnly) {
     sections.push(
-      geographyOnly
-        ? "This poster has no landmarks, trail names, or named districts. Style roads, water, forest, and other geography from the schematic. Do not invent place names."
-        : "This is a route-only poster: only the GPS track, optional start/finish markers, and the title block. Do not add landmark names, trail names, district labels, or invented place names.",
+      "Use the schematic's roads, water, parks, and land cover as an unlabeled background map. Do not add place names, landmark icons, trail labels, or district labels.",
     );
   }
 
@@ -506,9 +491,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
     paragraph([
       images.length ? `Reference images: ${images.join("; ")}.` : "",
       routeOnly
-        ? geographyOnly
-          ? "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and land cover; north is up. Paint that path as one styled line. Do not copy the schematic's red."
-          : "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns; north is up. Paint that path as one styled line. Do not copy the schematic's red."
+        ? "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and land cover; north is up. Paint that path as one styled line. Do not copy the schematic's red."
         : "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and landmarks; north is up. Paint that path as one styled line. Do not copy the schematic's route colors.",
       hasRouteOnly
         ? "The route-only image is the same red GPS track as the schematic, with geography removed. Every separate red stroke on it is a required segment — including lines that run parallel, hug a shore, or almost touch. Do not drop a stroke because water or another part of the route is nearby."
@@ -664,7 +647,7 @@ function fallbackPrompt(spec: PosterSpec): string {
     landmarks
       ? `Landmarks: ${landmarks}. A small marker may sit on the route at each index location; write each name and any icon beside the path so they occlude it as little as possible. Do not draw the numbers or a legend.`
       : isRouteOnlyPoster(spec)
-        ? "Route-only poster: no landmarks, trail names, or named districts."
+        ? "Render the schematic's roads, water, parks, and land cover as an unlabeled background map."
         : "",
     `Title exactly "${t(spec.text.title)}".`,
     t(spec.text.subtitle) ? `Subtitle exactly "${t(spec.text.subtitle)}".` : "",
