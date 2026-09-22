@@ -1,7 +1,6 @@
 import { beginGeneration, type GenerationTask } from "../gallery/generationState";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
-  fetchMaxReferences,
   fetchPosterCapabilities,
   fetchPosterContext,
   formatKm,
@@ -58,12 +57,11 @@ import { nearestPlaceName } from "./places";
 import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import {
+  activeImageModelsFromCapabilities,
   formatDurationMs,
   minMaxReferences,
-  resolveConfiguredImageModel,
   shortModelLabel,
   sumCosts,
-  uiImageModelFromCapabilities,
   variantCount,
 } from "./imageModels";
 
@@ -781,8 +779,7 @@ export function PosterPanel({
   const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
   const [, setModelRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
-  const [imageModel, setImageModel] = useState<ImageModelOption | null>(null);
-  const [configuredImageModel, setConfiguredImageModel] = useState<string | null>(null);
+  const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
   const [workflowStep, setWorkflowStep] = useState<PosterWorkflowStep>("crop");
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() => (refineFrom ? "customize" : "launch"));
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
@@ -809,15 +806,9 @@ export function PosterPanel({
     let cancelled = false;
     void fetchPosterCapabilities().then((caps) => {
       if (cancelled) return;
-      const configured = resolveConfiguredImageModel(caps.defaultModel);
-      setConfiguredImageModel(configured);
-      const model = uiImageModelFromCapabilities(caps.models, configured);
-      setImageModel(model);
-      if (configured) {
-        setMaxRefs(minMaxReferences([configured], model ? [model] : []) || caps.maxReferences);
-      } else {
-        setMaxRefs(caps.maxReferences);
-      }
+      const activeModels = activeImageModelsFromCapabilities(caps.models);
+      setImageModels(activeModels);
+      setMaxRefs(minMaxReferences(activeModels.map((model) => model.id), activeModels) || caps.maxReferences);
     });
     return () => {
       cancelled = true;
@@ -825,23 +816,9 @@ export function PosterPanel({
   }, []);
 
   const sheetMode = sheetSnap != null;
-  /** Image model comes only from OPENROUTER_IMAGE_MODEL (.env.local / Fly secrets). */
-  const activeImageModelIds = configuredImageModel ? [configuredImageModel] : [];
-
-  useEffect(() => {
-    if (!configuredImageModel) return;
-    if (imageModel) {
-      setMaxRefs(minMaxReferences([configuredImageModel], [imageModel]));
-      return;
-    }
-    let cancelled = false;
-    void fetchMaxReferences(configuredImageModel).then((value) => {
-      if (!cancelled) setMaxRefs(value);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [configuredImageModel, imageModel]);
+  /** New poster prompts render with Muse Image. */
+  const activeImageModelIds = imageModels.map((model) => model.id);
+  const imageModelFor = (id: string) => imageModels.find((model) => model.id === id);
 
   useEffect(() => {
     let cancelled = false;
@@ -1550,7 +1527,7 @@ export function PosterPanel({
   ) {
     if (!context) return;
     if (!activeImageModelIds.length) {
-      setError("Set OPENROUTER_IMAGE_MODEL in .env.local, then restart the API.");
+      setError("Image model capabilities are unavailable. Check the API configuration and try again.");
       return;
     }
     const jobs = (plannedSlots?.length
@@ -1595,7 +1572,7 @@ export function PosterPanel({
           paletteId: job.paletteId,
           styleLabel: planSlotLabel(job.styleId, job.paletteId),
           model: job.model,
-          label: shortModelLabel(job.model, imageModel?.id === job.model ? imageModel.name : undefined),
+          label: shortModelLabel(job.model, imageModelFor(job.model)?.name),
           startedAt,
           promptCost: job.promptCost,
         })),
@@ -1651,7 +1628,7 @@ export function PosterPanel({
                 ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.cost]))
                 : planCosts,
             }),
-          }, variantCount(variants, imageModel?.id === job.model ? imageModel.maxImages : undefined), () => references, tasks?.get(job.model));
+          }, variantCount(variants, imageModelFor(job.model)?.maxImages), () => references, tasks?.get(job.model));
           setModelRuns((current) =>
             current.map((run) =>
               run.key === job.key
@@ -1720,7 +1697,7 @@ export function PosterPanel({
         title: title.trim() || "New poster",
         styleId: slot.styleId,
         model,
-        variants: variantCount(variants, imageModel?.id === model ? imageModel.maxImages : undefined),
+        variants: variantCount(variants, imageModelFor(model)?.maxImages),
       })])),
     }));
     onGenerationStarted?.();
@@ -1996,7 +1973,7 @@ export function PosterPanel({
             : null;
   const planSlots = stylePlanSlots(styleIds, paletteIdsByStyle);
   const generateCount = planSlots.length * activeImageModelIds.reduce((sum, id) => {
-    const maxImages = imageModel?.id === id ? imageModel.maxImages : undefined;
+    const maxImages = imageModelFor(id)?.maxImages;
     return sum + variantCount(variants, maxImages);
   }, 0);
   const editingCustom = styleIds.includes("custom");

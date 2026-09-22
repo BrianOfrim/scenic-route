@@ -36,6 +36,18 @@ export function uiImageModelFromCapabilities(
   };
 }
 
+/** Muse Image is the sole model used for new poster generations. */
+export const ACTIVE_IMAGE_MODEL_IDS = ["meta/muse-image"] as const;
+
+/** Capability data supplies current limits and labels, with a safe fallback. */
+export function activeImageModelsFromCapabilities(models: ModelOptionLike[]): ModelOptionLike[] {
+  return ACTIVE_IMAGE_MODEL_IDS.map((id) => {
+    const found = models.find((model) => model.id === id);
+    if (found) return { ...found, qualities: found.qualities ?? [] };
+    return { id, name: id, maxReferences: 3, maxImages: 1, qualities: [] };
+  });
+}
+
 export function uniqueIds(ids: string[]) {
   const seen = new Set<string>();
   const next: string[] = [];

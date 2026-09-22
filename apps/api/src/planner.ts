@@ -155,7 +155,7 @@ export function buildPlannerMessages(input: PlannerInput) {
         input.routeOnly
           ? "Do not invent place names. Use exact spelling from the supplied stats and routeMarkers names only."
           : "Do not invent place names. Use exact spelling from the supplied landmarks, stats, and routeMarkers names.",
-        "North is up. The route is the hero. Leave a title block for the supplied text.",
+        "North is up. The route is the hero: plan it as the highest-contrast primary mark, clearly visible against every adjacent background and never lost in water, terrain, roads, textures, or labels. Put the title block only in unused negative space; it must never cover, crop, hide, or cut off any route segment. If space is tight, make the title block smaller or move it rather than sacrificing any part of the route.",
         "Do not request a scale bar, graphic scale, or distance ruler in decorations or elsewhere. Those will not be accurate; distance belongs only in the title-block stats.",
         "Honor routeMarkers. If enabled is false, startMarker and finishMarker must be none — do not draw start or finish symbols.",
         "If routeMarkers.mode is loop, start and finish are the same place: use one combined start/finish marker, not two.",
