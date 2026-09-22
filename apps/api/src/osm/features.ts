@@ -11,6 +11,7 @@ import {
   nearestOnRoute,
   padBbox,
   padMeters,
+  remapRouteSpans,
   schematicXY,
   simplifyTrack,
   type BBox,
@@ -240,7 +241,10 @@ export async function loadRouteFeatures(
     latlng: simplified.points,
     stops: simplified.kept,
     ways,
-    namedWays: collectNamedWays(namedWaysFc, latlng, padded, "osm", namedWayFeatures),
+    namedWays: collectNamedWays(namedWaysFc, latlng, padded, "osm", namedWayFeatures).map((way) => ({
+      ...way,
+      routeSpans: remapRouteSpans(way.routeSpans, simplified.indexes),
+    })),
     namedAreas,
     pois,
     stats: buildStats(row),
@@ -376,6 +380,7 @@ export function collectNamedWays(
   const ranked: Array<NamedWay & { score: number }> = [];
   for (const group of groups.values()) {
     const simplified = group.lines
+      .filter((line) => lineIntersectsBbox(line, bbox))
       .map((line) => simplifyCoords(line, MAX_LINE_POINTS))
       .filter((line) => line.length >= 2);
     if (!simplified.length) continue;
@@ -392,7 +397,9 @@ export function collectNamedWays(
       bearing: bearingWord(center, [anchor.lat, anchor.lng]),
       xy: schematicXY(anchor.lat, anchor.lng, bbox),
       source,
-      routeSpans: group.spans.length ? mergeRouteSpans(group.spans) : undefined,
+      routeSpans: group.spans.length
+        ? mergeRouteSpans(group.spans)
+        : routeSpansNearLines(latlng, simplified, nearRouteMForKind(group.kind, selected)),
       score: (KIND_WEIGHTS[group.kind] ?? 20) - anchor.distM / 50,
     });
   }
@@ -400,6 +407,71 @@ export function collectNamedWays(
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_NAMED_WAYS)
     .map(({ score: _score, ...row }) => row);
+}
+
+function lineIntersectsBbox(line: number[][], bbox: BBox): boolean {
+  if (!line.length) return false;
+  let minLng = Number.POSITIVE_INFINITY;
+  let minLat = Number.POSITIVE_INFINITY;
+  let maxLng = Number.NEGATIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
+  for (const point of line) {
+    if (point.length < 2) continue;
+    minLng = Math.min(minLng, point[0]);
+    minLat = Math.min(minLat, point[1]);
+    maxLng = Math.max(maxLng, point[0]);
+    maxLat = Math.max(maxLat, point[1]);
+  }
+  return minLng <= bbox[2] && maxLng >= bbox[0] && minLat <= bbox[3] && maxLat >= bbox[1];
+}
+
+function routeSpansNearLines(
+  route: LatLng[],
+  lines: number[][][],
+  maxM: number,
+): Array<{ start: number; end: number }> | undefined {
+  const spans: Array<{ start: number; end: number }> = [];
+  let start = -1;
+  for (let index = 0; index < route.length; index += 1) {
+    const near = distanceToLinesM(route[index], lines) <= maxM;
+    if (near && start < 0) start = index;
+    if (!near && start >= 0) {
+      spans.push({ start, end: index - 1 });
+      start = -1;
+    }
+  }
+  if (start >= 0) spans.push({ start, end: route.length - 1 });
+  return spans.length ? mergeRouteSpans(spans) : undefined;
+}
+
+function distanceToLinesM(point: LatLng, lines: number[][][]): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (const line of lines) {
+    for (let index = 1; index < line.length; index += 1) {
+      const a = line[index - 1];
+      const b = line[index];
+      if (a.length < 2 || b.length < 2) continue;
+      best = Math.min(best, distanceToSegmentM(point, [a[1], a[0]], [b[1], b[0]]));
+    }
+  }
+  return best;
+}
+
+function distanceToSegmentM(point: LatLng, a: LatLng, b: LatLng): number {
+  const midLat = ((a[0] + b[0]) / 2) * (Math.PI / 180);
+  const lngScale = 111_320 * Math.max(0.2, Math.abs(Math.cos(midLat)));
+  const latScale = 111_320;
+  const ax = a[1] * lngScale;
+  const ay = a[0] * latScale;
+  const bx = b[1] * lngScale;
+  const by = b[0] * latScale;
+  const px = point[1] * lngScale;
+  const py = point[0] * latScale;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const length2 = dx * dx + dy * dy;
+  const t = length2 <= 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / length2));
+  return Math.hypot(ax + t * dx - px, ay + t * dy - py);
 }
 
 export function mergeNamedWays(...lists: NamedWay[][]): NamedWay[] {

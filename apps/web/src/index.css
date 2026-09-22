@@ -1147,6 +1147,22 @@ button.map-schematic-tip-name:focus-visible {
   cursor: pointer;
 }
 
+.chip-extent {
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chip-extent:hover,
+.chip-extent:focus-visible {
+  color: var(--ink);
+}
+
 .poster-prompt {
   min-height: 80px;
   margin-top: 10px;
@@ -2465,6 +2481,12 @@ button.map-schematic-tip-name:focus-visible {
   }
 
   .chip-remove {
+    min-width: 28px;
+    min-height: 28px;
+    font-size: 18px;
+  }
+
+  .chip-extent {
     min-width: 28px;
     min-height: 28px;
     font-size: 18px;

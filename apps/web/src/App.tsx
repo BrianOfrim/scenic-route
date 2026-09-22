@@ -126,6 +126,10 @@ export function App() {
     end: number;
     nonce: number;
   } | null>(null);
+  const [editTrailExtent, setEditTrailExtent] = useState<{
+    name: string;
+    nonce: number;
+  } | null>(null);
   const [renameTrail, setRenameTrail] = useState<{
     name: string;
     next: string;
@@ -522,6 +526,7 @@ export function App() {
               onPlaceLandmark={(draft) => setPlaceLandmark({ ...draft, nonce: Date.now() })}
               onMoveLandmark={(draft) => setMoveLandmark({ ...draft, nonce: Date.now() })}
               onPlaceSection={(draft) => setPlaceSection({ ...draft, nonce: Date.now() })}
+              editTrailExtent={editTrailExtent}
               onRenameLandmark={(draft) =>
                 setRenameLandmark({ name: draft.from, next: draft.name, nonce: Date.now() })
               }
@@ -559,6 +564,7 @@ export function App() {
               placeLandmark={placeLandmark}
               moveLandmark={moveLandmark}
               placeSection={placeSection}
+              onEditTrailExtent={(name) => setEditTrailExtent({ name, nonce: Date.now() })}
               renameLandmark={renameLandmark}
               renameTrail={renameTrail}
             />

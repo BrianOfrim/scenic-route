@@ -319,7 +319,9 @@ export function savedSetupNames(record: PosterRecord): SavedSetupNames {
 }
 
 export function featureIdsToResolveNames(featureIds: string[], names: SavedSetupNames): string[] {
-  const ids = [...(featureIds.length ? featureIds : DEFAULT_FEATURE_IDS)];
+  const ids = [...new Set((featureIds.length ? featureIds : DEFAULT_FEATURE_IDS).map((id) =>
+    id === "strava-segments" ? "named-trails" : id,
+  ))];
   const hasLandmark = ids.some((id) => FEATURE_CATALOG.some((item) => item.id === id && item.group === "landmarks"));
   const need = names.labels.length > 0 || names.trailNames.length > 0 || names.areaNames.length > 0;
   if (hasLandmark || !need) return ids;

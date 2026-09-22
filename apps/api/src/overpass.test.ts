@@ -46,7 +46,8 @@ test("catalog includes named trail selectors", () => {
   assert.equal(trails.label, "Named trails");
   assert.equal(trails.bucket, "named-ways");
   assert.deepEqual(trails.selectors, [
-    'nwr[highway~"^(path|track|footway|cycleway|bridleway)$"][name]',
+    'way[highway~"^(path|track|footway|cycleway|bridleway)$"][name]',
+    'relation[type=route][route~"^(hiking|foot|bicycle|mtb)$"][name]',
   ]);
 });
 
@@ -85,6 +86,7 @@ test("collectNamedWays merges same-name segments into a labeled line", () => {
   const trails = collectNamedWays(geojson, route, [-109.5, 38.57, -109.39, 38.61]);
   assert.equal(trails.length, 1);
   assert.equal(trails[0].name, "Porcupine Rim");
+  assert.deepEqual(trails[0].routeSpans, [{ start: 0, end: 1 }]);
   assert.equal(trails[0].kind, "trail");
   assert.equal(trails[0].geometry.type, "MultiLineString");
   assert.equal(trails[0].geometry.coordinates.length, 2);
