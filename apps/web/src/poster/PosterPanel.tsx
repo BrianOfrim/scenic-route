@@ -57,11 +57,11 @@ import { nearestPlaceName } from "./places";
 import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import {
-  activeImageModelsFromCapabilities,
   formatDurationMs,
   minMaxReferences,
   shortModelLabel,
   sumCosts,
+  uiImageModelFromCapabilities,
   variantCount,
 } from "./imageModels";
 
@@ -806,9 +806,10 @@ export function PosterPanel({
     let cancelled = false;
     void fetchPosterCapabilities().then((caps) => {
       if (cancelled) return;
-      const activeModels = activeImageModelsFromCapabilities(caps.models);
-      setImageModels(activeModels);
-      setMaxRefs(minMaxReferences(activeModels.map((model) => model.id), activeModels) || caps.maxReferences);
+      const configuredModel = uiImageModelFromCapabilities(caps.models, caps.defaultModel);
+      const models = configuredModel ? [configuredModel] : [];
+      setImageModels(models);
+      setMaxRefs(minMaxReferences(models.map((model) => model.id), models) || caps.maxReferences);
     });
     return () => {
       cancelled = true;
@@ -816,7 +817,7 @@ export function PosterPanel({
   }, []);
 
   const sheetMode = sheetSnap != null;
-  /** New poster prompts render with Muse Image. */
+  /** New poster prompts use the model configured by OPENROUTER_IMAGE_MODEL. */
   const activeImageModelIds = imageModels.map((model) => model.id);
   const imageModelFor = (id: string) => imageModels.find((model) => model.id === id);
 

@@ -17,7 +17,6 @@ import {
   uiImageModelFromCapabilities,
   uniqueIds,
   clampVariants,
-  activeImageModelsFromCapabilities,
   variantCount,
 } from "./imageModels";
 
@@ -112,15 +111,6 @@ test("uiImageModelFromCapabilities returns only the configured server model", ()
     maxImages: 1,
     qualities: [],
   });
-});
-
-test("activeImageModelsFromCapabilities uses Muse Image only", () => {
-  const models = [
-    { id: "meta/muse-image", name: "Muse Image", maxReferences: 3, maxImages: 1, qualities: [] },
-    { id: "openai/gpt-image-2.5-sunburst", name: "GPT Image 2.5 Sunburst", maxReferences: 16, maxImages: 10, qualities: ["high"] },
-  ];
-  assert.deepEqual(activeImageModelsFromCapabilities(models), [models[0]]);
-  assert.deepEqual(activeImageModelsFromCapabilities([]).map((model) => model.id), ["meta/muse-image"]);
 });
 
 test("minMaxReferences uses the most restrictive selected model", () => {
