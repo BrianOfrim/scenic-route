@@ -257,7 +257,7 @@ test("specToImagePrompt tells the model named regions are washes not pins", () =
   assert.doesNotMatch(prompt, /[{}\[\]]/);
 });
 
-test("specToImagePrompt describes a route-only poster when there are no named features", () => {
+test("specToImagePrompt renders an unlabeled map when there are no named features", () => {
   const prompt = specToImagePrompt(
     validatePosterSpec({
       ...sample,
@@ -265,11 +265,12 @@ test("specToImagePrompt describes a route-only poster when there are no named fe
       landmarks: [],
     }),
   );
-  assert.match(prompt, /route-only poster/i);
-  assert.match(prompt, /no landmarks, trail names, or named districts/);
+  assert.match(prompt, /rich unlabeled background map/i);
+  assert.match(prompt, /Do not add place names, landmark icons, trail labels, or district labels/);
   assert.match(prompt, /no text other than the title block and optional start\/finish names/);
   assert.match(prompt, /no landmark names, trail names, district labels, or invented place names/);
-  assert.doesNotMatch(prompt, /relative to water, roads, and landmarks/);
+  assert.match(prompt, /relative to water, roads, and land cover/);
+  assert.doesNotMatch(prompt, /route-only poster/i);
   assert.doesNotMatch(prompt, /Castle Mountain/);
   assert.doesNotMatch(prompt, /listed landmark, trail, region/);
 });
@@ -282,8 +283,8 @@ test("specToImagePrompt keeps geography without annotations when layers have no 
       landmarks: [],
     }),
   );
-  assert.match(prompt, /no landmarks, trail names, or named districts/);
-  assert.match(prompt, /Style roads, water, forest/);
+  assert.match(prompt, /rich unlabeled background map/i);
+  assert.match(prompt, /roads, water, parks, and land cover as an unlabeled background map/);
   assert.match(prompt, /flat blue lakes/);
   assert.match(prompt, /relative to water, roads, and land cover/);
   assert.doesNotMatch(prompt, /route-only poster: only the GPS track/i);

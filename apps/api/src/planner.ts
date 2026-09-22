@@ -201,17 +201,27 @@ function splitList(value: unknown): string[] {
     .filter(Boolean);
 }
 
-/** Drop named trails/districts; keep unlabeled layer treatments (roads, water, etc.). */
+/**
+ * Drop named trails/districts while retaining ordinary map layers.
+ *
+ * Planner models commonly give an unlabeled layer a descriptive name (for
+ * example, "Major roads") and a palette colour. Neither means that the
+ * finished poster should print a map label. Removing those records entirely
+ * turns the no-annotations option into a route-only poster, so keep the layer
+ * and clear its annotation fields. A retained colour is interpreted as a
+ * named-trail index later in prompt assembly, so it must be cleared too.
+ */
 function stripNamedGeography(geography: unknown[]) {
-  return geography.filter(isRecord).filter((item) => {
-    if (str(item.name)) return false;
-    if (str(item.color)) return false;
-    if (/^trail$/i.test(str(item.kind))) return false;
-    if (/stretch of the GPS track|pale wash|across the (region|district)|not a pin/i.test(str(item.treatment))) {
-      return false;
-    }
-    return Boolean(str(item.kind) || str(item.treatment));
-  });
+  return geography
+    .filter(isRecord)
+    .filter((item) => {
+      if (/^trail$/i.test(str(item.kind))) return false;
+      if (/stretch of the GPS track|pale wash|across the (region|district)|not a pin/i.test(str(item.treatment))) {
+        return false;
+      }
+      return Boolean(str(item.kind) || str(item.treatment));
+    })
+    .map((item) => ({ ...item, name: "", color: "", letter: "" }));
 }
 
 /** "Castle Mountain — peak, upper-right" | "Castle Mountain (upper-right)" | "Castle Mountain: upper-right" */
