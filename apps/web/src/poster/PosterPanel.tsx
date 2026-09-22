@@ -41,6 +41,7 @@ import {
   nextTrailAliases,
   relocateLandmark,
   renamedLandmark,
+  resizedNamedWay,
   trailSourceName,
   userLandmark,
   userNamedWay,
@@ -265,6 +266,7 @@ function TrailChip({
   onDraft,
   onSave,
   onCancel,
+  onEditExtent,
   onRemove,
   onHighlightChange,
 }: {
@@ -278,6 +280,7 @@ function TrailChip({
   onDraft: (value: string) => void;
   onSave: (value: string) => void;
   onCancel: () => void;
+  onEditExtent: () => void;
   onRemove: () => void;
   onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
 }) {
@@ -327,6 +330,20 @@ function TrailChip({
       ) : (
         <button type="button" className="chip-name" onClick={onEdit}>
           {trail.name}
+        </button>
+      )}
+      {!editing && (
+        <button
+          type="button"
+          className="chip-extent"
+          aria-label={`Edit start and end of ${trail.name}`}
+          title={`Edit start and end of ${trail.name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onEditExtent();
+          }}
+        >
+          ↔
         </button>
       )}
       <button
@@ -655,6 +672,7 @@ type Props = {
   placeLandmark?: { name: string; lat: number; lng: number; nonce: number } | null;
   moveLandmark?: { name: string; lat: number; lng: number; nonce: number } | null;
   placeSection?: { name: string; start: number; end: number; nonce: number } | null;
+  onEditTrailExtent?: (name: string) => void;
   renameTrail?: { name: string; next: string; nonce: number } | null;
   renameLandmark?: { name: string; next: string; nonce: number } | null;
   onHighlightChange?: (highlight: { kind: "area" | "trail" | "poi"; name: string } | null) => void;
@@ -686,6 +704,7 @@ export function PosterPanel({
   placeLandmark,
   moveLandmark,
   placeSection,
+  onEditTrailExtent,
   renameTrail: renameTrailEvent,
   renameLandmark: renameLandmarkEvent,
   onHighlightChange,
@@ -832,7 +851,7 @@ export function PosterPanel({
       setContext(null);
       setError(null);
     }
-    fetchPosterContext(activityId, featureIds.filter((id) => id !== "named-trails"), featureQuery)
+    fetchPosterContext(activityId, featureIds, featureQuery)
       .then((next) => {
         if (cancelled) return;
         setContext(next);
@@ -1241,10 +1260,16 @@ export function PosterPanel({
     const [lo] = clampCrop(context.latlng.length, cropStart, cropEnd);
     const start = lo + Math.min(placeSection.start, placeSection.end);
     const end = lo + Math.max(placeSection.start, placeSection.end);
-    const way = userNamedWay(placeSection.name, start, end, context.latlng, displayBbox ?? context.bbox);
+    const source = trailSourceName(placeSection.name, trailAliases);
+    const existing = selectedNamedWays.find((trail) => trailSourceName(trail.name, trailAliases) === source);
+    const way = existing
+      ? resizedNamedWay({ ...existing, name: source }, start, end, context.latlng, displayBbox ?? context.bbox)
+      : userNamedWay(source, start, end, context.latlng, displayBbox ?? context.bbox);
     if (!way) return;
     addCustomWay(way);
-    setLandmarkHint(`Named “${way.name}” on the schematic`);
+    setTrailNames((current) => (current.includes(source) ? current : [...current, source]));
+    dismissedAutoNames.current.trails.delete(source);
+    setLandmarkHint(existing ? `Updated the extent of “${placeSection.name}”` : `Named “${way.name}” on the schematic`);
   }, [placeSection]);
 
   useEffect(() => {
@@ -1758,9 +1783,13 @@ export function PosterPanel({
   }
 
   function addCustomWay(way: NamedWay) {
-    setCustomWays((current) =>
-      current.some((item) => item.name.toLowerCase() === way.name.toLowerCase()) ? current : [...current, way],
-    );
+    setCustomWays((current) => {
+      const index = current.findIndex((item) => item.name.toLowerCase() === way.name.toLowerCase());
+      if (index < 0) return [...current, way];
+      const next = [...current];
+      next[index] = way;
+      return next;
+    });
   }
 
   function toggleFeature(id: string) {
@@ -2452,6 +2481,7 @@ export function PosterPanel({
                       renameTrail(trail.name, value);
                     }}
                     onCancel={() => setEditingTrail(null)}
+                    onEditExtent={() => onEditTrailExtent?.(trail.name)}
                     onRemove={() => {
                       removeTrail(trail.name);
                       setSelectedChip(null);
@@ -2606,6 +2636,7 @@ export function PosterPanel({
                           renameTrail(trail.name, value);
                         }}
                         onCancel={() => setEditingTrail(null)}
+                        onEditExtent={() => onEditTrailExtent?.(trail.name)}
                         onRemove={() => {
                           removeTrail(trail.name);
                           setSelectedChip(null);

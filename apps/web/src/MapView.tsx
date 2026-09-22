@@ -88,6 +88,7 @@ type Props = {
   onPlaceLandmark?: (draft: LandmarkDraft) => void;
   onMoveLandmark?: (draft: LandmarkDraft) => void;
   onPlaceSection?: (draft: SectionDraft) => void;
+  editTrailExtent?: { name: string; nonce: number } | null;
   onRenameLandmark?: (draft: RenameDraft) => void;
   onRenameTrail?: (draft: RenameDraft) => void;
 };
@@ -119,6 +120,7 @@ export function MapView({
   onPlaceLandmark,
   onMoveLandmark,
   onPlaceSection,
+  editTrailExtent,
   onRenameLandmark,
   onRenameTrail,
 }: Props) {
@@ -128,6 +130,7 @@ export function MapView({
   const [draft, setDraft] = useState<NameDraft | null>(null);
   const [selectedHit, setSelectedHit] = useState<SchematicHover | null>(null);
   const [sectionStart, setSectionStart] = useState<number | null>(null);
+  const [sectionEditName, setSectionEditName] = useState("");
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -160,6 +163,7 @@ export function MapView({
   const modeRef = useRef(mode);
   const draftRef = useRef(draft);
   const sectionStartRef = useRef(sectionStart);
+  const sectionEditNameRef = useRef(sectionEditName);
   const sectionHoverRef = useRef<number | null>(null);
   const labelingRef = useRef(labelingEnabled);
   const highlightRef = useRef(highlight);
@@ -204,6 +208,7 @@ export function MapView({
   modeRef.current = mode;
   draftRef.current = draft;
   sectionStartRef.current = sectionStart;
+  sectionEditNameRef.current = sectionEditName;
   labelingRef.current = labelingEnabled;
 
   useEffect(() => {
@@ -341,7 +346,7 @@ export function MapView({
       }
       setDraft({
         kind: "section",
-        name: draftRef.current?.kind === "section" ? draftRef.current.name : "",
+        name: sectionEditNameRef.current || (draftRef.current?.kind === "section" ? draftRef.current.name : ""),
         start,
         end: hit.index,
         x: event.point.x,
@@ -611,6 +616,7 @@ export function MapView({
     setDraft(null);
     setSelectedHit(null);
     setSectionStart(null);
+    setSectionEditName("");
     setHint(null);
     sectionHoverRef.current = null;
     if (landmarkDragRef.current) {
@@ -673,11 +679,26 @@ export function MapView({
       }
       setMode("browse");
       setToolsOpen(false);
+      setSectionEditName("");
       setHint(null);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [mode, draft, sectionStart, selectedHit]);
+
+  useEffect(() => {
+    if (!editTrailExtent?.name) return;
+    setMode("section");
+    setToolsOpen(true);
+    setDraft(null);
+    setSelectedHit(null);
+    setSectionEditName(editTrailExtent.name);
+    setSectionStart(null);
+    sectionHoverRef.current = null;
+    onNeedSchematicRef.current?.();
+    setHint(`Click the new start of “${editTrailExtent.name}”`);
+    mapRef.current?.triggerRepaint();
+  }, [editTrailExtent]);
 
   function toggleMode(next: AnnotateMode) {
     const chosen = mode === next ? "browse" : next;
@@ -685,6 +706,7 @@ export function MapView({
     setDraft(null);
     setSelectedHit(null);
     setSectionStart(null);
+    setSectionEditName("");
     sectionHoverRef.current = null;
     if (landmarkDragRef.current) {
       landmarkDragRef.current = null;
@@ -707,6 +729,7 @@ export function MapView({
         setDraft(null);
         setSelectedHit(null);
         setSectionStart(null);
+        setSectionEditName("");
         sectionHoverRef.current = null;
         if (landmarkDragRef.current) {
           landmarkDragRef.current = null;
@@ -733,7 +756,7 @@ export function MapView({
       setHint("Click to place another landmark");
     } else if (draft.kind === "section") {
       onPlaceSectionRef.current?.({ name, start: draft.start, end: draft.end });
-      setHint("Click the start of another stretch");
+      setHint(sectionEditName ? `Updated “${name}”` : "Click the start of another stretch");
     } else if (draft.target === "landmark") {
       const taken = (poisRef.current ?? []).map((poi) => poi.name);
       if (taken.some((item) => item !== draft.from && item.trim().toLowerCase() === name.toLowerCase())) {
@@ -753,6 +776,7 @@ export function MapView({
     }
     setDraft(null);
     setSectionStart(null);
+    setSectionEditName("");
     sectionHoverRef.current = null;
     mapRef.current?.triggerRepaint();
   }
@@ -850,6 +874,24 @@ export function MapView({
                   Rename
                 </button>
               )}
+              {selectedHit.kind === "trail" && (
+                <button
+                  type="button"
+                  className="text-btn"
+                  onClick={() => {
+                    setMode("section");
+                    setToolsOpen(true);
+                    setSectionEditName(selectedHit.name);
+                    setSectionStart(null);
+                    sectionHoverRef.current = null;
+                    setSelectedHit(null);
+                    setHint(`Click the new start of “${selectedHit.name}”`);
+                    mapRef.current?.triggerRepaint();
+                  }}
+                >
+                  Edit extent
+                </button>
+              )}
               <button
                 type="button"
                 className="text-btn"
@@ -891,13 +933,14 @@ export function MapView({
                   ref={nameInputRef}
                   className="search"
                   value={draft.name}
+                  readOnly={draft.kind === "section" && Boolean(sectionEditName)}
                   placeholder={draft.kind === "landmark" ? "e.g. The old oak" : "e.g. Grandma's hill"}
                   onChange={(event) => setDraft({ ...draft, name: event.target.value })}
                 />
               </label>
               <div className="map-annotate-actions">
                 <button className="button" type="submit" disabled={!draft.name.trim()}>
-                  {draft.kind === "rename" ? "Save" : "Add"}
+                  {draft.kind === "rename" || (draft.kind === "section" && sectionEditName) ? "Save" : "Add"}
                 </button>
                 <button
                   className="text-btn"

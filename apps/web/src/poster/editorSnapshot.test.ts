@@ -414,6 +414,17 @@ test("featureIdsToResolveNames leaves an explicit landmark set alone", () => {
   );
 });
 
+test("featureIdsToResolveNames migrates the legacy Strava trail layer", () => {
+  assert.deepEqual(
+    featureIdsToResolveNames(["lakes", "strava-segments"], {
+      labels: [],
+      trailNames: ["North Shore"],
+      areaNames: [],
+    }),
+    ["lakes", "named-trails"],
+  );
+});
+
 test("namesFromPrompt ignores style clauses after hand-lettered place names", () => {
   const names = namesFromPrompt(
     "The map shows hand-lettered names for Jubilee Park, Rudy Swanson Recreation Park, and University of Alberta - Augustana Campus, an ornate fantasy compass rose, and an illuminated title cartouche reading 'Ride'.",

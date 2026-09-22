@@ -181,6 +181,17 @@ export function userNamedWay(
   };
 }
 
+export function resizedNamedWay(
+  trail: NamedWay,
+  startIndex: number,
+  endIndex: number,
+  route: LatLng[],
+  bbox: BBoxCorners | null | undefined,
+): NamedWay | null {
+  const resized = userNamedWay(trail.name, startIndex, endIndex, route, bbox);
+  return resized ? { ...resized, kind: trail.kind, source: trail.source } : null;
+}
+
 export function bearingWord(from: LatLng, to: LatLng): string {
   const lat1 = (from[0] * Math.PI) / 180;
   const lat2 = (to[0] * Math.PI) / 180;

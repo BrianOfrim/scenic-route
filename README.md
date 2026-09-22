@@ -27,7 +27,7 @@ npm run dev
 
 Open [http://localhost:5174](http://localhost:5174), sign in, and choose **Import activities**. You can upload GPX, FIT, or TCX files individually or in batches, including gzip-compressed tracks. A full Strava account-export ZIP can be uploaded directly; the importer reads `activities.csv` and matching files without retaining the original archive. Imported tracks land in Postgres (`DATABASE_URL`, default `scenic_route`). An existing `data/scenic-route.sqlite` is imported once if the database is empty.
 
-The account export supplies activity names, sport, date, distance, duration, elevation, and speed where present. In the supplied sample, `segments.csv` contains only one segment ID/name pair—no geometry or per-activity mapping—and segment efforts are not embedded in its GPX/FIT files. Named trails therefore come from OpenStreetMap or sections a user names in the editor, not from the Strava API.
+The account export supplies activity names, sport, date, distance, duration, elevation, and speed where present. In the supplied sample, `segments.csv` contains only one segment ID/name pair—no geometry or per-activity mapping—and segment efforts are not embedded in its GPX/FIT files. Named trails therefore come from named OpenStreetMap paths and trail-route relations, or from sections a user names in the editor, not from the Strava API. A selected trail's start and end can be re-marked on the GPS track from its trail chip or map selection.
 
 ## Flow
 

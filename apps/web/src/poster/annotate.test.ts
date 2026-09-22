@@ -7,6 +7,7 @@ import {
   orderedSpan,
   relocateLandmark,
   renamedLandmark,
+  resizedNamedWay,
   schematicXY,
   trailSourceName,
   userLandmark,
@@ -96,6 +97,17 @@ test("userNamedWay orders flipped clicks and needs at least two points", () => {
   assert.deepEqual(way.routeSpans, [{ start: 1, end: 3 }]);
   assert.equal(userNamedWay("Same point", 2, 2, northSouth, bbox)?.routeSpans?.[0].end, 3);
   assert.equal(userNamedWay("Empty", 0, 1, [], bbox), null);
+});
+
+test("resizedNamedWay keeps an OSM trail identity while replacing its route extent", () => {
+  const original = userNamedWay("North Shore", 0, 2, northSouth, bbox);
+  assert.ok(original);
+  const resized = resizedNamedWay({ ...original, kind: "trail", source: "osm" }, 1, 3, northSouth, bbox);
+  assert.ok(resized);
+  assert.equal(resized.name, "North Shore");
+  assert.equal(resized.kind, "trail");
+  assert.equal(resized.source, "osm");
+  assert.deepEqual(resized.routeSpans, [{ start: 1, end: 3 }]);
 });
 
 test("trail aliases keep the original name as identity", () => {

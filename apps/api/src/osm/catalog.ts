@@ -197,7 +197,10 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     label: "Named trails",
     group: "landmarks",
     bucket: "named-ways",
-    selectors: ['nwr[highway~"^(path|track|footway|cycleway|bridleway)$"][name]'],
+    selectors: [
+      'way[highway~"^(path|track|footway|cycleway|bridleway)$"][name]',
+      'relation[type=route][route~"^(hiking|foot|bicycle|mtb)$"][name]',
+    ],
     defaultOn: false,
     weight: 80,
     nearRouteM: 100,
