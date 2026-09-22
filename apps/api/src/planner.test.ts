@@ -54,6 +54,8 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.match(String(messages[0].content), /small marker on the route/);
   assert.match(String(messages[0].content), /never occlude, break, or replace the route/);
   assert.match(String(messages[0].content), /one line in route.color/);
+  assert.match(String(messages[0].content), /highest-contrast primary mark/);
+  assert.match(String(messages[0].content), /title block only in unused negative space/i);
   assert.match(String(messages[0].content), /do not copy the schematic's route colors/);
   assert.match(String(messages[0].content), /"landmarks":\[\{"name":""/);
   const user = JSON.parse(String(messages[1].content)) as {

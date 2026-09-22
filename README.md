@@ -2,7 +2,7 @@
 
 Local-first route-poster studio. Import your track files, pick an activity, choose OpenStreetMap geography and landmarks, then generate a stylized route poster.
 
-An LLM turns the ride, selected features, style, and stats into a structured JSON prompt. That spec plus grounding images (schematic map, terrain tiles, streets or satellite, route silhouette) go to an OpenRouter image model. Saved posters live in a gallery.
+An LLM turns the ride, selected features, style, and stats into a structured JSON prompt. That spec plus grounding images (schematic map, terrain tiles, streets or satellite, route silhouette) are rendered by Meta Muse Image. Saved posters live in a gallery.
 
 ## Setup
 
@@ -18,6 +18,7 @@ Create an OpenRouter key at [https://openrouter.ai/keys](https://openrouter.ai/k
 ```
 OPENROUTER_API_KEY=
 OPENROUTER_MODEL=meta/muse-spark-1.3-contributor
+# Server default used for image-model discovery and poster generation.
 OPENROUTER_IMAGE_MODEL=meta/muse-image
 ```
 
@@ -34,7 +35,7 @@ The account export supplies activity names, sport, date, distance, duration, ele
 1. Import one or more tracks, then select an activity on the map.
 2. **Make poster** — crop the track, choose Map or Route only, tick geography and landmark layers (or skip them in Route only), pick a style or write a custom prompt, choose which stats appear.
 3. Toggle grounding images. The schematic preview is immediate; terrain/streets/satellite snapshots are taken from a hidden MapLibre map (tiles proxied so the canvas is not tainted).
-4. **Generate poster** — plans a structured prompt and runs the OpenRouter image model in one step, then saves to `data/posters/`.
+4. **Generate poster** — plans a structured prompt, then renders a Muse Image poster.
 5. Browse results in **Gallery** (lightbox, details, download, delete, refine).
 
 ## Layout

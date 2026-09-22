@@ -35,7 +35,6 @@ const COSTUME_CLICHE: Record<string, RegExp> = {
   risograph: /fluorescent pink|\bteal\b/i,
   "linen-postcard": /chrome-teal|bumper-red|chrome bumper/i,
   "art-nouveau": /gold-green|muted-rose/i,
-  linocut: /vermilion|iron-black/i,
 };
 
 test("default poster style is Risograph", () => {
@@ -43,11 +42,14 @@ test("default poster style is Risograph", () => {
   assert.equal(DEFAULT_POSTER_STYLE.label, "Risograph");
 });
 
+test("Linocut is not available as a new-poster style", () => {
+  assert.equal(POSTER_STYLES.some((style) => style.id === "linocut"), false);
+});
+
 test("styleById returns the matching preset", () => {
   assert.equal(styleById("blueprint").label, "Blueprint");
   assert.equal(styleById("linen-postcard").label, "Linen postcard");
   assert.equal(styleById("art-nouveau").label, "Art nouveau");
-  assert.equal(styleById("linocut").label, "Linocut");
   assert.equal(styleById("missing").id, DEFAULT_POSTER_STYLE.id);
 });
 
@@ -62,7 +64,6 @@ test("style presets do not require mountains", () => {
   assert.doesNotMatch(styleById("vintage-topo").prompt, /mountain/i);
   assert.doesNotMatch(styleById("linen-postcard").prompt, /mountain|peak/i);
   assert.doesNotMatch(styleById("art-nouveau").prompt, /mountain|peak/i);
-  assert.doesNotMatch(styleById("linocut").prompt, /mountain|peak/i);
 });
 
 test("identity prompts still name their hues", () => {
@@ -82,6 +83,19 @@ test("costume base prompts do not name costume hues", () => {
   }
 });
 
+test("Swiss and transit prompts lock the GPT-inspired type hierarchy without locking palette colors", () => {
+  const swiss = styleById("swiss");
+  assert.match(swiss.prompt, /huge ultra-bold geometric grotesk sans serif/i);
+  assert.match(swiss.prompt, /does not fill the available width, left-justify/i);
+  assert.doesNotMatch(swiss.prompt, /lower margin|beneath the map/i);
+  assert.doesNotMatch(swiss.prompt, /off-white paper|hairline grey|accent-color/i);
+
+  const transit = styleById("transit");
+  assert.match(transit.prompt, /very large, ultra-bold, tightly tracked sans serif/i);
+  assert.doesNotMatch(transit.prompt, /centered|header band|above the map|directly beneath/i);
+  assert.doesNotMatch(transit.prompt, /colored route|cream field/i);
+});
+
 test("canonical Auto uses the first named palette", () => {
   const swiss = resolveStyleColor(styleById("swiss"), AUTO_PALETTE_ID);
   assert.equal(swiss.openPalette, false);
@@ -98,11 +112,6 @@ test("open Auto omits colors and does not reintroduce the cliché pair", () => {
   assert.doesNotMatch(styleById("risograph").prompt, /fluorescent pink|\bpink\b/i);
   assert.doesNotMatch(riso.prompt, /fluorescent pink|\bteal\b/i);
   assert.match(riso.prompt, /Pick any two Riso inks/i);
-  const linocut = resolveStyleColor(styleById("linocut"), AUTO_PALETTE_ID);
-  assert.equal(linocut.openPalette, true);
-  assert.deepEqual(linocut.palette, []);
-  assert.doesNotMatch(styleById("linocut").prompt, /vermilion/i);
-  assert.match(linocut.prompt, /do not default to black and vermilion/i);
   const watercolour = resolveStyleColor(styleById("watercolour"), AUTO_PALETTE_ID);
   assert.equal(watercolour.openPalette, true);
   assert.deepEqual(watercolour.palette, []);
@@ -119,7 +128,7 @@ test("open presets lock drums without changing the process prompt", () => {
 
 test("every costume style with palettes has Auto plus named presets", () => {
   const costume = POSTER_STYLES.filter((item) => isCostumeStyle(item) && showsPalettePicker(item));
-  assert.ok(costume.length >= 9);
+  assert.ok(costume.length >= 8);
   for (const style of costume) {
     assert.ok((style.palettes?.length ?? 0) >= 3, style.id);
   }

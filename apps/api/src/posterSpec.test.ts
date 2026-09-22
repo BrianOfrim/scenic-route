@@ -133,6 +133,10 @@ test("specToImagePrompt renders prose without JSON or empty fields", () => {
   assert.match(prompt, /Trace that line exactly/);
   assert.match(prompt, /A prettier wrong path is a failed poster/);
   assert.match(prompt, /Never interrupt the line for a label, icon, or decoration/);
+  assert.match(prompt, /Route visibility is non-negotiable/);
+  assert.match(prompt, /strong contrast with its immediate background/);
+  assert.match(prompt, /Title-block safety is non-negotiable/);
+  assert.match(prompt, /never on, over, through, or beyond the route/);
   assert.match(prompt, /Route: single accent line, in red\./);
   assert.match(prompt, /Start marker: green dot\. Finish marker: black dot\./);
   assert.match(prompt, /1 "Castle Mountain" \(upper-right; icon: peak\)/);

@@ -42,9 +42,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "swiss",
     label: "Swiss minimal",
     prompt:
-      "Swiss modernist map poster: off-white paper, hairline grey roads, a single accent-color route, Helvetica title block, generous negative space, no ornament, no texture beyond a faint paper tooth.",
+      "Swiss modernist map poster: hairline roads, a single accent route, generous negative space, no ornament, no texture beyond a faint paper tooth. Make the title the dominant graphic element: huge ultra-bold geometric grotesk sans serif, with tight but readable tracking, a single clean baseline, and a wide, confident wordmark. When the title block does not fill the available width, left-justify the title and its date, distance, and duration line; otherwise use the composition's natural balance. Set the date, distance, and duration in the same sans serif at a smaller regular weight with middle-dot separators. Preserve ample blank space around the type; crisp lettering only, with no decorative forms, serifs, outlines, shadows, or small timid title.",
     palette: ["off-white", "grey", "red"],
-    typography: "Helvetica",
+    typography: "huge ultra-bold geometric grotesk title with smaller regular sans metadata",
     colorMode: "canonical",
     palettes: [
       { id: "red", label: "Red", colors: ["off-white", "grey", "red"] },
@@ -100,9 +100,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "transit",
     label: "Transit diagram",
     prompt:
-      "Beck-style transit diagram: 45-degree and horizontal lines only, landmarks as named station dots, a bold colored route on a cream field, small sans-serif tags. Schematic, not geographic texture.",
+      "Beck-style transit diagram: 45-degree and horizontal lines only, landmarks as named station dots, a bold route, and small sans-serif tags. Schematic, not geographic texture. Use a clean Swiss/neo-grotesk sans-serif system: set the title in a very large, ultra-bold, tightly tracked sans serif. Set the date, distance, and duration in the same typeface at a smaller semibold weight with middle-dot separators. Keep the title on one line; crisp, flat vector lettering only, with no hand lettering, serifs, outlines, shadows, or decorative effects.",
     palette: ["cream", "route-red", "navy"],
-    typography: "small sans-serif",
+    typography: "ultra-bold neo-grotesk header title with semibold sans metadata",
     colorMode: "canonical",
     palettes: [
       { id: "central-red", label: "Central red", colors: ["cream", "route-red", "navy"] },
@@ -186,22 +186,6 @@ export const POSTER_STYLES: PosterStyle[] = [
       { id: "twilight", label: "Twilight", colors: ["ivory", "violet", "gold"] },
       { id: "autumn", label: "Autumn", colors: ["cream", "olive", "russet"] },
       { id: "peacock", label: "Peacock", colors: ["cream", "teal", "gold"] },
-    ],
-  },
-  {
-    id: "linocut",
-    label: "Linocut",
-    prompt:
-      "Western linocut print: two or three inks, carved gouges and knife marks, cream stock, bold reduced landforms. The route is the loudest carved stroke. Hand-cut block print, not Japanese woodblock and not risograph halftone.",
-    palette: [],
-    typography: "carved block caps",
-    colorMode: "open",
-    openHint: "Pick two or three inks; do not default to black and vermilion.",
-    palettes: [
-      { id: "black-vermilion", label: "Black + vermilion", colors: ["cream", "iron-black", "vermilion"] },
-      { id: "navy-cream", label: "Navy + cream", colors: ["cream", "navy"] },
-      { id: "forest-ochre", label: "Forest + ochre", colors: ["cream", "forest", "ochre"] },
-      { id: "indigo-crimson", label: "Indigo + crimson", colors: ["cream", "indigo", "crimson"] },
     ],
   },
   {
