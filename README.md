@@ -1,8 +1,29 @@
 # Scenic Route
 
-Local-first route-poster studio. Import your track files, pick an activity, choose OpenStreetMap geography and landmarks, then generate a stylized route poster.
+Route-image studio. Import a GPS activity, choose how much of the surrounding map to show, and generate a stylized image of the route to share.
 
-An LLM turns the ride, selected features, style, and stats into a structured JSON prompt. That spec plus grounding images (schematic map, terrain tiles, streets or satellite, route silhouette) are rendered by Meta Muse Image. Saved posters live in a gallery.
+A chat model on OpenRouter turns the ride, geography, theme, and stats into a structured prompt. Meta Muse Image renders that prompt from grounding images: a schematic of the route, plus a satellite snapshot when the image model accepts a second reference. Finished images live in a gallery.
+
+Production: [https://scenic-route.ca](https://scenic-route.ca)
+
+## Flow
+
+1. Sign in with an emailed magic link.
+2. Import one or more tracks, then select an activity. The map can show streets, satellite, or the schematic.
+3. **Create image** uses the defaults: the full track, annotations off, every geography layer on, the Risograph theme, one variant, and a 4:5 frame. On a phone this is the launch sheet; **Customize** opens the rest of the editor. On a wider screen the composer is the full editor, and the button reads **Generate image**.
+4. While an image is generating it appears in **Gallery** as a pending card. Open a finished image to download it, share it, favourite it, read its details, **Refine image** with a follow-up prompt, or **Edit setup** and generate again from the same crop, geography, and theme.
+
+## Customize
+
+These controls stay off the default path. **Edit setup** restores them from the image that was generated.
+
+- **Crop** trims the track and snaps to recorded pauses. Start and finish markers can be shown or hidden.
+- **Geography** draws OpenStreetMap context: major roads, residential streets, paths and trails, railways, lakes, rivers, forest, parks, farmland, wetlands, grassland, beaches, coastline, rock, cliffs, and glaciers. Visibility is local; changing a checkbox does not refetch the map. The extent can be the whole map box, a corridor along the route, a tighter band with wider ends, whole areas the route touches, a rotated box, a convex hull, the inside of a loop, or a rectangle or polygon drawn on the map.
+- **Annotations** are off until turned on. They add landmarks near the route (peaks, towns, neighbourhoods, named water, trails, viewpoints, historic places, parks, structures, food, worship, lodging, playgrounds, schools, colleges, cemeteries), each with its own search distance. Named trails can be renamed and their start and end re-marked on the GPS track. Landmarks can be searched, placed, moved, and renamed. Large areas are lettered washes; trails and pins are a private index for the model, and the finished image is asked to show the names.
+- **Stats** default to title, date, distance, and moving time. Sport, elapsed time, elevation gain, and average speed can be added when the activity has them.
+- **Themes** are Middle-earth, Vintage topo, Swiss minimal, Blueprint, WPA park, Watercolour journal, Star chart, Transit diagram, Art deco, 16-bit RPG, Risograph, Linen postcard, Art nouveau, and a custom prompt. Several themes offer palettes, including Auto. The desktop composer can plan more than one theme at once; the phone editor keeps a single theme.
+
+Named trails come from named OpenStreetMap paths and trail-route relations, or from stretches named in the editor. A Strava account export supplies activity names and stats, not trail geometry.
 
 ## Setup
 
@@ -18,7 +39,7 @@ Create an OpenRouter key at [https://openrouter.ai/keys](https://openrouter.ai/k
 ```
 OPENROUTER_API_KEY=
 OPENROUTER_MODEL=meta/muse-spark-1.3-contributor
-# Server default used for image-model discovery and poster generation.
+# Chat model for the poster spec. Image model for generation.
 OPENROUTER_IMAGE_MODEL=meta/muse-image
 ```
 
@@ -26,25 +47,17 @@ OPENROUTER_IMAGE_MODEL=meta/muse-image
 npm run dev
 ```
 
-Open [http://localhost:5174](http://localhost:5174), sign in, and choose **Import activities**. You can upload GPX, FIT, or TCX files individually or in batches, including gzip-compressed tracks. A full Strava account-export ZIP can be uploaded directly; the importer reads `activities.csv` and matching files without retaining the original archive. Imported tracks land in Postgres (`DATABASE_URL`, default `scenic_route`). An existing `data/scenic-route.sqlite` is imported once if the database is empty.
+Open [http://localhost:5174](http://localhost:5174). Sign-in emails a magic link. Without `RESEND_API_KEY` and `RESEND_FROM`, the API prints that link in its log. After signing in, choose **Import activities**. You can upload GPX, FIT, or TCX files individually or in batches, including gzip-compressed tracks. A full Strava account-export ZIP can be uploaded directly; the importer reads `activities.csv` and matching files without retaining the original archive.
 
-The account export supplies activity names, sport, date, distance, duration, elevation, and speed where present. In the supplied sample, `segments.csv` contains only one segment ID/name pair—no geometry or per-activity mapping—and segment efforts are not embedded in its GPX/FIT files. Named trails therefore come from named OpenStreetMap paths and trail-route relations, or from sections a user names in the editor, not from the Strava API. A selected trail's start and end can be re-marked on the GPS track from its trail chip or map selection.
-
-## Flow
-
-1. Import one or more tracks, then select an activity on the map.
-2. **Make poster** — crop the track, choose Map or Route only, tick geography and landmark layers (or skip them in Route only), pick a style or write a custom prompt, choose which stats appear.
-3. Toggle grounding images. The schematic preview is immediate; terrain/streets/satellite snapshots are taken from a hidden MapLibre map (tiles proxied so the canvas is not tainted).
-4. **Generate poster** — plans a structured prompt, then renders a Muse Image poster.
-5. Browse results in **Gallery** (lightbox, details, download, delete, refine).
+Imported tracks are stored per account in Postgres (`DATABASE_URL`, default `scenic_route`). An existing `data/scenic-route.sqlite` is imported once if the database is empty. Images are written under `data/` unless R2 is configured (`R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`).
 
 ## Layout
 
 | Path | Role |
 |------|------|
 | `apps/web` | Vite + React + MapLibre UI (port 5174) |
-| `apps/api` | Hono: imports, Postgres, OSM/Overpass, planner, image gen (port 8790) |
-| `data/` | OSM cache, posters (legacy SQLite is imported on first Postgres boot) |
+| `apps/api` | Hono: auth, imports, Postgres, OSM/Overpass, planner, image gen (port 8790) |
+| `data/` | OSM cache and local images (legacy SQLite is imported on first Postgres boot) |
 
 ## Commands
 
@@ -67,6 +80,4 @@ To inspect performance:
 
 ## Production
 
-Production app: [https://scenic-route.ca](https://scenic-route.ca) (Fly.io app `scenic-route`; fallback host `scenic-route.fly.dev`).
-
-Hostname-sensitive config is env-only (`WEB_ORIGIN`, `BETTER_AUTH_URL`, `RESEND_FROM`). After DNS/certs are live, set Fly secrets to the `.ca` values (see deploy notes below). Local defaults in `.env.example` stay on `localhost`.
+The Fly.io app is `scenic-route` (`scenic-route.fly.dev` is the fallback host). Production Postgres is Neon, and images are stored in R2. Hostname-sensitive config is env-only (`WEB_ORIGIN`, `BETTER_AUTH_URL`, `RESEND_FROM`, `DATABASE_URL`). Local defaults in `.env.example` stay on `localhost`.
