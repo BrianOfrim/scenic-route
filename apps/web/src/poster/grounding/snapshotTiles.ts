@@ -1,4 +1,5 @@
 import { Map } from "../../maplibre";
+import { maskImageToRegion, maskIsActive, projectorForFrame, type GeoMask, type MapFrame } from "./geoMask";
 import { canvasSize, drawRouteEndMarkers } from "./renderSchematic";
 
 export type TileSource = "osm" | "topo" | "satellite";
@@ -9,13 +10,16 @@ const TILE_URLS: Record<TileSource, string> = {
   satellite: "/api/tiles/satellite/{z}/{x}/{y}.png",
 };
 
+export type SatelliteFrame = MapFrame & {
+  url: string;
+  scale: number;
+};
+
 export async function snapshotTiles(options: {
   source: TileSource;
   bbox: [[number, number], [number, number]];
-  latlng: [number, number][];
   aspectRatio: string;
-  routeMarkers?: false | "ends" | "loop";
-}): Promise<string> {
+}): Promise<SatelliteFrame> {
   const { width, height } = canvasSize(options.aspectRatio);
   const container = document.createElement("div");
   container.style.cssText = `position:fixed;left:-10000px;top:0;width:${width}px;height:${height}px;`;
@@ -54,19 +58,47 @@ export async function snapshotTiles(options: {
     map.resize();
     map.fitBounds(bounds, { padding: 24, animate: false });
     await waitFor(map, "idle");
-    return compositeRoute(map, options.latlng, options.routeMarkers ?? "ends", options.source);
+    return captureFrame(map, options.source);
   } finally {
     map.remove();
     container.remove();
   }
 }
 
-function compositeRoute(
-  map: Map,
-  latlng: [number, number][],
-  markers: false | "ends" | "loop",
-  source: TileSource,
-): string {
+/** Apply the geography mask, then draw the GPS track on a captured satellite frame. */
+export function renderMaskedSatellite(
+  frame: SatelliteFrame,
+  options: {
+    latlng: [number, number][];
+    routeMarkers?: false | "ends" | "loop";
+    mask?: GeoMask | null;
+  },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Could not create a 2D canvas context"));
+        return;
+      }
+      ctx.drawImage(image, 0, 0, frame.width, frame.height);
+      const project = projectorForFrame(frame);
+      if (options.mask && maskIsActive(options.mask)) {
+        maskImageToRegion(ctx, project, options.mask, options.latlng);
+      }
+      overlayRoute(ctx, project, options.latlng, options.routeMarkers ?? "ends", frame.scale);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    image.onerror = () => reject(new Error("Could not read the satellite image"));
+    image.src = frame.url;
+  });
+}
+
+function captureFrame(map: Map, source: TileSource): SatelliteFrame {
   const gl = map.getCanvas();
   const canvas = document.createElement("canvas");
   canvas.width = gl.width;
@@ -75,24 +107,30 @@ function compositeRoute(
   if (!ctx) throw new Error("Could not create a 2D canvas context");
   ctx.drawImage(gl, 0, 0);
   const cssW = gl.clientWidth || canvas.width;
+  const cssH = gl.clientHeight || canvas.height;
   const scale = cssW ? canvas.width / cssW : 1;
-  overlayRoute(ctx, map, latlng, markers, scale);
+  const nw = map.unproject([0, 0]);
+  const se = map.unproject([cssW, cssH]);
   const mime = source === "satellite" ? "image/jpeg" : "image/png";
-  return canvas.toDataURL(mime, 0.85);
+  return {
+    url: canvas.toDataURL(mime, 0.85),
+    width: canvas.width,
+    height: canvas.height,
+    nw: [nw.lng, nw.lat],
+    se: [se.lng, se.lat],
+    scale,
+  };
 }
 
 function overlayRoute(
   ctx: CanvasRenderingContext2D,
-  map: Map,
+  project: (lng: number, lat: number) => [number, number],
   latlng: [number, number][],
   markers: false | "ends" | "loop",
   scale: number,
 ) {
   if (latlng.length < 2) return;
-  const points = latlng.map(([lat, lng]) => {
-    const p = map.project([lng, lat]);
-    return [p.x * scale, p.y * scale] as [number, number];
-  });
+  const points = latlng.map(([lat, lng]) => project(lng, lat));
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.strokeStyle = "#111";

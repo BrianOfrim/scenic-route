@@ -59,6 +59,8 @@ export type RenderSchematicOptions = {
   };
   aspectRatio?: AspectRatio | string;
   silhouette?: boolean;
+  /** Lng/lat ring. Background geography outside it is hidden. The route is not clipped. */
+  clipPolygon?: [number, number][];
 };
 
 export type SchematicLayers = NonNullable<RenderSchematicOptions["layers"]>;
@@ -198,6 +200,19 @@ export function drawSchematicScene(
   ctx.fillRect(0, 0, view.width, view.height);
 
   if (!options.silhouette) {
+    const clip = options.clipPolygon;
+    const canClip = Boolean(clip && clip.length >= 3);
+    if (canClip && clip) {
+      ctx.save();
+      ctx.beginPath();
+      clip.forEach(([lng, lat], index) => {
+        const [x, y] = project(lng, lat);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      ctx.clip();
+    }
     if (layers["vegetation"] !== false) fillBucket(ctx, ways["vegetation"], project, "rgba(199, 211, 151, 0.5)");
     if (layers["rock"] !== false) fillBucket(ctx, ways["rock"], project, "rgba(166, 160, 151, 0.5)");
     if (layers["beaches"] !== false) fillBucket(ctx, ways["beaches"], project, "rgba(235, 215, 159, 0.65)");
@@ -243,6 +258,7 @@ export function drawSchematicScene(
       strokeBucket(ctx, ways.rail, project);
       ctx.setLineDash([]);
     }
+    if (canClip) ctx.restore();
   }
 
   const trails = (options.namedWays ?? []).flatMap((trail) =>
@@ -506,7 +522,14 @@ function fillGeometry(
   if (!geometry) return;
   if (geometry.type === "Polygon") fillRings(ctx, geometry.coordinates, project);
   else if (geometry.type === "MultiPolygon") {
-    for (const polygon of geometry.coordinates) fillRings(ctx, polygon, project);
+    ctx.beginPath();
+    let traced = false;
+    for (const polygon of geometry.coordinates) {
+      if (!polygon.length) continue;
+      traceRings(ctx, polygon, project);
+      traced = true;
+    }
+    if (traced) ctx.fill();
   }
 }
 
@@ -532,6 +555,15 @@ function fillRings(
 ) {
   if (!rings.length) return;
   ctx.beginPath();
+  traceRings(ctx, rings, project);
+  ctx.fill();
+}
+
+function traceRings(
+  ctx: CanvasRenderingContext2D,
+  rings: GeoJSON.Position[][],
+  project: (lng: number, lat: number) => [number, number],
+) {
   for (const ring of rings) {
     ring.forEach(([lng, lat], index) => {
       const [x, y] = project(lng, lat);
@@ -540,7 +572,6 @@ function fillRings(
     });
     ctx.closePath();
   }
-  ctx.fill();
 }
 
 function strokePoints(ctx: CanvasRenderingContext2D, points: [number, number][]) {

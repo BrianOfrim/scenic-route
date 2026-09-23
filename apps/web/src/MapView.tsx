@@ -3,6 +3,8 @@ import type { StyleSpecification } from "maplibre-gl";
 import { Map, Marker, NavigationControl } from "./maplibre";
 import type { NamedArea, NamedWay, PosterPoi, PosterWays } from "./api";
 import { nearestTrailName } from "./poster/trailColors";
+import { maskIsActive, veilOutsideMask, type GeoMask } from "./poster/grounding/geoMask";
+import type { GeoEdit } from "./poster/polygonEdit";
 import {
   drawSchematicScene,
   schematicLineScale,
@@ -91,6 +93,15 @@ type Props = {
   editTrailExtent?: { name: string; nonce: number } | null;
   onRenameLandmark?: (draft: RenameDraft) => void;
   onRenameTrail?: (draft: RenameDraft) => void;
+  /** Lng/lat vertices of a geography outline. */
+  geoOutline?: [number, number][];
+  geoOutlineActive?: boolean;
+  geoOutlinePreview?: boolean;
+  geoOutlineKind?: "polygon" | "rectangle";
+  geoOutlineSelected?: number | null;
+  geoRectPending?: boolean;
+  geoMask?: GeoMask | null;
+  onGeoEdit?: (edit: GeoEdit) => void;
 };
 
 const DEFAULT_CENTER: [number, number] = [-112.83, 53.02];
@@ -123,6 +134,14 @@ export function MapView({
   editTrailExtent,
   onRenameLandmark,
   onRenameTrail,
+  geoOutline,
+  geoOutlineActive = false,
+  geoOutlinePreview = false,
+  geoOutlineKind = "polygon",
+  geoOutlineSelected = null,
+  geoRectPending = false,
+  geoMask = null,
+  onGeoEdit,
 }: Props) {
   const [mode, setMode] = useState<AnnotateMode>("browse");
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -156,6 +175,15 @@ export function MapView({
   const skipAnnotateClickRef = useRef(false);
   const onRenameLandmarkRef = useRef(onRenameLandmark);
   const onRenameTrailRef = useRef(onRenameTrail);
+  const geoOutlineRef = useRef(geoOutline);
+  const geoOutlineActiveRef = useRef(geoOutlineActive);
+  const geoOutlinePreviewRef = useRef(geoOutlinePreview);
+  const geoKindRef = useRef(geoOutlineKind);
+  const geoSelectedRef = useRef(geoOutlineSelected);
+  const geoRectPendingRef = useRef(geoRectPending);
+  const onGeoEditRef = useRef(onGeoEdit);
+  const geoMaskRef = useRef(geoMask);
+  const geoDragRef = useRef<{ index: number } | null>(null);
   const onRenameLandmarkStartRef = useRef<(name: string, point: { x: number; y: number }) => void>(() => {});
   const onRenameTrailStartRef = useRef<(name: string, point: { x: number; y: number }) => void>(() => {});
   const basemapRef = useRef(basemap);
@@ -198,6 +226,14 @@ export function MapView({
     setHint("Rename this landmark");
   };
   onRenameTrailRef.current = onRenameTrail;
+  geoOutlineRef.current = geoOutline;
+  geoOutlineActiveRef.current = geoOutlineActive;
+  geoOutlinePreviewRef.current = geoOutlinePreview;
+  geoKindRef.current = geoOutlineKind;
+  geoSelectedRef.current = geoOutlineSelected;
+  geoRectPendingRef.current = geoRectPending;
+  onGeoEditRef.current = onGeoEdit;
+  geoMaskRef.current = geoMask;
   onRenameTrailStartRef.current = (name, point) => {
     setMode("browse");
     setSectionStart(null);
@@ -266,6 +302,7 @@ export function MapView({
         onMoveLandmark: onMoveLandmarkRef,
         labeling: labelingRef,
         onMovedLandmark: (name) => setHint(`Moved ${name}`),
+        geoMask: geoMaskRef.current,
       });
       fit(map, cropRef.current ?? trackRef.current, 0, bottom);
     };
@@ -281,6 +318,11 @@ export function MapView({
         basemap: basemapRef.current,
         highlight: highlightRef.current,
         preview: annotatePreview(cropRef.current ?? trackRef.current, sectionStartRef.current, sectionHoverRef.current, draftRef.current),
+        geoOutline: geoOutlineRef.current,
+        geoOutlineActive: geoOutlineActiveRef.current,
+        geoOutlinePreview: geoOutlinePreviewRef.current,
+        geoOutlineSelected: geoSelectedRef.current,
+        geoMask: geoMaskRef.current,
       });
     };
     const onAnnotateClick = (event: {
@@ -292,9 +334,36 @@ export function MapView({
         skipAnnotateClickRef.current = false;
         return;
       }
-      if (!labelingRef.current || basemapRef.current !== "schematic") return;
       const target = event.originalEvent?.target;
       if (target instanceof Element && (target.closest(".map-annotate") || target.closest(".map-schematic-tip"))) return;
+      if (geoOutlineActiveRef.current) {
+        const kind = geoKindRef.current;
+        const points = geoOutlineRef.current ?? [];
+        if (kind === "rectangle") {
+          if (geoRectPendingRef.current) {
+            onGeoEditRef.current?.({ type: "rect-commit", lng: event.lngLat.lng, lat: event.lngLat.lat });
+            map.triggerRepaint();
+            return;
+          }
+          const hit = hitOutlineVertex(map, event.point, points, touchUiRef.current);
+          if (hit != null) {
+            onGeoEditRef.current?.({ type: "select", index: hit });
+            return;
+          }
+          onGeoEditRef.current?.({ type: "rect-start", lng: event.lngLat.lng, lat: event.lngLat.lat });
+          map.triggerRepaint();
+          return;
+        }
+        const hit = hitOutlineVertex(map, event.point, points, touchUiRef.current);
+        if (hit != null) {
+          onGeoEditRef.current?.({ type: "select", index: hit });
+          return;
+        }
+        onGeoEditRef.current?.({ type: "add", lng: event.lngLat.lng, lat: event.lngLat.lat });
+        map.triggerRepaint();
+        return;
+      }
+      if (!labelingRef.current || basemapRef.current !== "schematic") return;
       if (modeRef.current === "browse") {
         if (!touchUiRef.current) return;
         const hit = hitTestSchematic(
@@ -357,6 +426,28 @@ export function MapView({
       map.triggerRepaint();
     };
     const onHoverMove = (event: { point: { x: number; y: number }; lngLat: { lng: number; lat: number }; originalEvent?: MouseEvent }) => {
+      if (geoDragRef.current) {
+        hover.hide();
+        onGeoEditRef.current?.({
+          type: "move",
+          index: geoDragRef.current.index,
+          lng: event.lngLat.lng,
+          lat: event.lngLat.lat,
+        });
+        map.getCanvas().style.cursor = "grabbing";
+        map.triggerRepaint();
+        return;
+      }
+      if (geoOutlineActiveRef.current) {
+        hover.hide();
+        if (geoRectPendingRef.current) {
+          onGeoEditRef.current?.({ type: "rect-preview", lng: event.lngLat.lng, lat: event.lngLat.lat });
+          map.triggerRepaint();
+        }
+        const hit = hitOutlineVertex(map, event.point, geoOutlineRef.current ?? [], touchUiRef.current);
+        map.getCanvas().style.cursor = hit != null ? "grab" : "crosshair";
+        return;
+      }
       if (touchUiRef.current) {
         hover.hide();
         return;
@@ -409,6 +500,20 @@ export function MapView({
       lngLat: { lng: number; lat: number };
       originalEvent?: Event;
     }) => {
+      if (geoOutlineActiveRef.current) {
+        if (geoRectPendingRef.current) return;
+        const hit = hitOutlineVertex(map, event.point, geoOutlineRef.current ?? [], touchUiRef.current);
+        if (hit == null) return;
+        const kind = geoKindRef.current;
+        if (kind !== "polygon" && kind !== "rectangle") return;
+        geoDragRef.current = { index: hit };
+        onGeoEditRef.current?.({ type: "move-start", index: hit });
+        onGeoEditRef.current?.({ type: "select", index: hit });
+        map.dragPan.disable();
+        map.getCanvas().style.cursor = "grabbing";
+        skipAnnotateClickRef.current = true;
+        return;
+      }
       if (!labelingRef.current || modeRef.current !== "browse" || draftRef.current) return;
       const target = event.originalEvent?.target;
       if (target instanceof Element && (target.closest(".map-annotate") || target.closest(".map-schematic-tip"))) {
@@ -448,6 +553,12 @@ export function MapView({
       map.triggerRepaint();
     };
     const finishLandmarkDrag = () => {
+      if (geoDragRef.current) {
+        geoDragRef.current = null;
+        map.dragPan.enable();
+        onGeoEditRef.current?.({ type: "move-end" });
+        skipAnnotateClickRef.current = true;
+      }
       const drag = landmarkDragRef.current;
       if (!drag) return;
       landmarkDragRef.current = null;
@@ -472,10 +583,17 @@ export function MapView({
       styleReadyRef.current = true;
       paint();
     };
+    const onGeoContext = (event: { preventDefault: () => void; point: { x: number; y: number } }) => {
+      if (!geoOutlineActiveRef.current || geoKindRef.current !== "polygon") return;
+      event.preventDefault();
+      const hit = hitOutlineVertex(map, event.point, geoOutlineRef.current ?? [], touchUiRef.current);
+      if (hit != null) onGeoEditRef.current?.({ type: "remove", index: hit });
+    };
     map.on("load", markStyleReady);
     map.on("style.load", markStyleReady);
     map.on("render", redrawSchematic);
     map.on("click", onAnnotateClick);
+    map.on("contextmenu", onGeoContext);
     map.on("mousedown", onLandmarkPointerDown);
     map.on("touchstart", onLandmarkPointerDown);
     map.on("mousemove", onLandmarkPointerMove);
@@ -490,6 +608,7 @@ export function MapView({
       map.off("style.load", markStyleReady);
       map.off("render", redrawSchematic);
       map.off("click", onAnnotateClick);
+      map.off("contextmenu", onGeoContext);
       map.off("mousedown", onLandmarkPointerDown);
       map.off("touchstart", onLandmarkPointerDown);
       map.off("mousemove", onLandmarkPointerMove);
@@ -602,13 +721,18 @@ export function MapView({
         sectionHoverRef.current,
         draftRef.current,
       ),
+      geoOutline: geoOutlineRef.current,
+      geoOutlineActive: geoOutlineActiveRef.current,
+      geoOutlinePreview: geoOutlinePreviewRef.current,
+      geoOutlineSelected: geoSelectedRef.current,
+      geoMask: geoMaskRef.current,
     });
   }, [highlight]);
 
   useEffect(() => {
     mapRef.current?.triggerRepaint();
     hoverRef.current?.hide();
-  }, [ways, schematicLayers, pois, namedWays, namedAreas]);
+  }, [ways, schematicLayers, pois, namedWays, namedAreas, geoOutline, geoOutlineActive, geoOutlinePreview, geoOutlineSelected, geoRectPending, geoMask]);
 
   useEffect(() => {
     setMode("browse");
@@ -636,9 +760,11 @@ export function MapView({
 
   useEffect(() => {
     const canvas = mapRef.current?.getCanvas();
-    if (canvas) canvas.style.cursor = mode === "browse" || basemap !== "schematic" ? "" : "crosshair";
+    if (canvas) {
+      canvas.style.cursor = geoOutlineActive || (mode !== "browse" && basemap === "schematic") ? "crosshair" : "";
+    }
     mapRef.current?.triggerRepaint();
-  }, [mode, basemap, draftAnchor, sectionStart]);
+  }, [mode, basemap, draftAnchor, sectionStart, geoOutlineActive]);
 
   useEffect(() => {
     if (!draftAnchor) return;
@@ -1031,6 +1157,7 @@ function syncMapChrome(
     onMoveLandmark?: { current?: (draft: LandmarkDraft) => void };
     labeling?: { current: boolean };
     onMovedLandmark?: (name: string) => void;
+    geoMask?: GeoMask | null;
   },
 ) {
   if (basemap === "schematic") {
@@ -1045,6 +1172,7 @@ function syncMapChrome(
       namedAreas: data.namedAreas,
       basemap,
       highlight: data.highlight,
+      geoMask: data.geoMask,
     });
     return;
   }
@@ -1058,6 +1186,7 @@ function syncMapChrome(
     namedAreas: data.namedAreas,
     basemap,
     highlight: data.highlight,
+    geoMask: data.geoMask,
   });
   syncPoiMarkers(map, markersRef, data.pois, data.onRemovePoi, {
     draggable: Boolean(data.labeling?.current),
@@ -1081,6 +1210,11 @@ function paintSchematicOverlay(
     basemap: Basemap;
     highlight?: LandmarkHighlight | null;
     preview?: AnnotatePreview | null;
+    geoOutline?: [number, number][];
+    geoOutlineActive?: boolean;
+    geoOutlinePreview?: boolean;
+    geoOutlineSelected?: number | null;
+    geoMask?: GeoMask | null;
   },
 ) {
   if (!canvas) return;
@@ -1103,9 +1237,17 @@ function paintSchematicOverlay(
   };
   if (data.basemap !== "schematic") {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (data.basemap === "satellite" && data.geoMask && maskIsActive(data.geoMask)) {
+      veilOutsideMask(ctx, project, data.geoMask, data.latlng ?? [], canvas.width, canvas.height);
+    }
     const scale = (sx + sy) / 2;
     paintStreetAnnotations(ctx, project, data.namedAreas, data.namedWays, scale);
     paintStreetTrack(ctx, data.latlng ?? [], data.stops, project, scale);
+    const outline = data.geoOutlineActive || data.geoOutlinePreview ? data.geoOutline : undefined;
+    paintGeoOutline(ctx, outline, project, scale, {
+      handles: Boolean(data.geoOutlineActive),
+      selected: data.geoOutlineSelected,
+    });
     paintChipHighlight(ctx, project, data, scale);
     return;
   }
@@ -1118,6 +1260,10 @@ function paintSchematicOverlay(
       namedWays: data.namedWays,
       namedAreas: data.namedAreas,
       layers: data.layers ?? undefined,
+      clipPolygon:
+        (data.geoOutlineActive || data.geoOutlinePreview) && data.geoOutline && data.geoOutline.length >= 3
+          ? data.geoOutline
+          : undefined,
     },
     project,
     {
@@ -1128,8 +1274,71 @@ function paintSchematicOverlay(
     },
   );
   const lineScale = schematicLineScale(map.getZoom()) * ((sx + sy) / 2);
+  const outline = data.geoOutlineActive || data.geoOutlinePreview ? data.geoOutline : undefined;
+  paintGeoOutline(ctx, outline, project, lineScale, {
+    handles: Boolean(data.geoOutlineActive),
+    selected: data.geoOutlineSelected,
+  });
   paintAnnotatePreview(ctx, project, data.preview, lineScale);
   paintChipHighlight(ctx, project, data, lineScale);
+}
+
+function paintGeoOutline(
+  ctx: CanvasRenderingContext2D,
+  points: [number, number][] | undefined,
+  project: (lng: number, lat: number) => [number, number],
+  scale: number,
+  options: { handles?: boolean; selected?: number | null } = {},
+) {
+  if (!points?.length) return;
+  const handles = options.handles !== false;
+  ctx.save();
+  ctx.beginPath();
+  points.forEach(([lng, lat], index) => {
+    const [x, y] = project(lng, lat);
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  if (points.length >= 3) ctx.closePath();
+  ctx.strokeStyle = "#1d4e89";
+  ctx.lineWidth = 2 * scale;
+  ctx.setLineDash([6 * scale, 4 * scale]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  if (handles) {
+    points.forEach(([lng, lat], index) => {
+      const [x, y] = project(lng, lat);
+      const selected = options.selected === index;
+      ctx.beginPath();
+      ctx.arc(x, y, (selected ? 7 : 4) * scale, 0, Math.PI * 2);
+      ctx.fillStyle = selected ? "#ffffff" : "#1d4e89";
+      ctx.fill();
+      ctx.lineWidth = 2 * scale;
+      ctx.strokeStyle = "#1d4e89";
+      ctx.stroke();
+    });
+  }
+  ctx.restore();
+}
+
+function hitOutlineVertex(
+  map: Map,
+  point: { x: number; y: number },
+  points: [number, number][],
+  touch: boolean,
+): number | null {
+  const limit = (touch ? 22 : 12) ** 2;
+  let best = limit;
+  let index = -1;
+  points.forEach(([lng, lat], item) => {
+    const projected = map.project([lng, lat]);
+    const dist = (projected.x - point.x) ** 2 + (projected.y - point.y) ** 2;
+    if (dist <= best) {
+      best = dist;
+      index = item;
+    }
+  });
+  return index >= 0 ? index : null;
 }
 
 function paintStreetTrack(

@@ -19,6 +19,7 @@ import {
 } from "../geo";
 import { formatDate, formatDuration, formatElevation, formatKm, formatSpeed } from "../format";
 import { KIND_WEIGHTS, nearRouteMForKind, resolveFeatures, type FeatureDef } from "./catalog";
+import { corridorForRoute } from "./corridor";
 import { collection, emptyCollection, queryOverpass, unionQuery } from "./overpass";
 
 const MAX_POIS = 25;
@@ -121,6 +122,11 @@ export type PosterContext = {
   stats: FormattedStat[];
   warnings: string[];
   featureIds: string[];
+  corridor: {
+    meters: number;
+    minM: number;
+    maxM: number;
+  };
 };
 
 const WAY_BUCKETS = [
@@ -222,6 +228,7 @@ export async function loadRouteFeatures(
     ),
     namedAreas,
   );
+  const corridor = corridorForRoute(latlng, loop);
   const result: PosterContext = {
     activity: {
       id: row.id,
@@ -250,6 +257,7 @@ export async function loadRouteFeatures(
     stats: buildStats(row),
     warnings,
     featureIds: features.map((item) => item.id),
+    corridor,
   };
   if (timings) {
     timings.prepare = prepared - started;

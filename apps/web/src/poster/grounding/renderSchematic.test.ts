@@ -33,6 +33,37 @@ test("new land cover and shoreline layers render only while selected", () => {
   }
 });
 
+test("a custom polygon clips background geography and leaves the route outside the clip", () => {
+  const ways = {
+    roads: { features: [{ geometry: { type: "LineString" as const, coordinates: [[0, 0], [2, 2]] } }] },
+  };
+  const layers = { ...schematicLayersFromFeatureIds(["major-roads"], false), labels: false };
+  for (const points of [2, 3] as const) {
+    let clips = 0;
+    let clipped = false;
+    let strokesWhileClipped = 0;
+    let strokesAfterClip = 0;
+    const ctx = new Proxy({}, {
+      get: (_target, key) => {
+        if (key === "clip") return () => { clips++; clipped = true; };
+        if (key === "restore") return () => { clipped = false; };
+        if (key === "stroke") return () => { if (clipped) strokesWhileClipped++; else strokesAfterClip++; };
+        return () => {};
+      },
+      set: () => true,
+    }) as CanvasRenderingContext2D;
+    drawSchematicScene(ctx, {
+      latlng: [[0, 0], [1, 1]],
+      ways,
+      layers,
+      clipPolygon: (points === 3 ? [[0, 0], [1, 0], [0, 1]] : [[0, 0], [1, 0]]) as [number, number][],
+    }, (lng, lat) => [lng, lat], { width: 100, height: 100, northArrow: false });
+    assert.equal(clips, points >= 3 ? 1 : 0);
+    assert.equal(strokesWhileClipped, points >= 3 ? 1 : 0, "roads stay inside the clip");
+    assert.ok(strokesAfterClip >= 1, "the route is drawn after the clip is lifted");
+  }
+});
+
 test("retained lakes and rivers can each be hidden independently", () => {
   const ways = {
     water: { features: [{ geometry: { type: "Polygon" as const, coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } }] },

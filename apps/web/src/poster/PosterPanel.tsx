@@ -17,6 +17,50 @@ import {
   type PosterSpec,
   type PosterWays,
 } from "../api";
+import { clipWaysToCorridor, defaultCorridorM, formatCorridorM } from "../../../api/src/osm/corridor";
+import {
+  clipWaysKeepingTouchedAreas,
+  clipWaysWiderAtEnds,
+  convexHullRing,
+  dropResidentialStreets,
+  endRadiusM,
+  loopBandRing,
+  rectangleRing,
+  rectangleTooSmall,
+  radiusAlongRoute,
+  rotatedBoxRing,
+  shapePadM,
+  touchedAreaRings,
+  type LngLat,
+} from "../../../api/src/osm/geoExtent";
+import {
+  appendOutlinePoint,
+  commitOutline,
+  emptyOutline,
+  liveOutline,
+  pointsChanged,
+  redoOutline,
+  removeOutlinePoint,
+  undoOutline,
+  type GeoEdit,
+  type OutlineHistory,
+} from "./polygonEdit";
+
+type GeoScope = "all" | "corridor" | "ends" | "areas" | "box" | "hull" | "loop" | "rectangle" | "polygon";
+
+const GEO_SCOPES: { id: GeoScope; label: string; hint: string }[] = [
+  { id: "all", label: "All", hint: "Everything in the route's map box." },
+  { id: "corridor", label: "Corridor", hint: "Roads, water, and landcover within this distance of the route." },
+  { id: "ends", label: "Wider ends", hint: "A tighter band along the route, with more context around the start and finish." },
+  { id: "areas", label: "Along areas", hint: "The corridor, plus any park, lake, or land area the route touches, kept whole." },
+  { id: "box", label: "Rotated box", hint: "A rectangle turned to match the route, so the empty corners of a diagonal ride drop out." },
+  { id: "hull", label: "Convex hull", hint: "The smallest convex outline around the route, with a little padding." },
+  { id: "loop", label: "Inside loop", hint: "Geography inside a closed route, plus a thin band outside it." },
+  { id: "rectangle", label: "Rectangle", hint: "Click two corners on the map. Drag a corner to resize." },
+  { id: "polygon", label: "Polygon", hint: "Click the map to add a corner. Drag a corner to move it. Right-click a corner to remove it." },
+];
+
+const SHAPE_SCOPES = new Set<GeoScope>(["box", "hull", "loop", "rectangle", "polygon"]);
 import { clampCrop, isClosedLoop, isNearCroppedRoute, paddedBbox, schematicBbox, shiftRouteSpans, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
 import {
   FEATURE_CATALOG,
@@ -34,7 +78,8 @@ import {
   renderSchematicDataUrl,
   schematicLayersFromFeatureIds,
 } from "./grounding/renderSchematic";
-import { snapshotTiles } from "./grounding/snapshotTiles";
+import { maskIsActive, type GeoMask } from "./grounding/geoMask";
+import { renderMaskedSatellite, snapshotTiles, type SatelliteFrame } from "./grounding/snapshotTiles";
 import {
   applyTrailAlias,
   nextTrailAliases,
@@ -111,6 +156,8 @@ const ROUTE_ONLY_LEGEND = "red = GPS track";
 
 const SATELLITE_LEGEND =
   "real aerial imagery of the same frame; red = GPS track; use for land cover, water, vegetation, and built form; every red stroke is a required segment; do not copy the photograph";
+
+const SATELLITE_MASK_LEGEND = `${SATELLITE_LEGEND}; black margin is empty, not land, water, or sky`;
 
 
 function chipHighlight(
@@ -403,6 +450,7 @@ function groundingLayers(
   showMarkers: boolean,
   annotations = true,
   hasGeography = false,
+  satelliteMasked = false,
 ): GroundingLayer[] {
   if (!schematicUrl) return [];
   const layers: GroundingLayer[] = [
@@ -415,7 +463,7 @@ function groundingLayers(
   if (maxRefs >= 2 && satelliteUrl) {
     layers.push({
       role: "satellite",
-      legend: SATELLITE_LEGEND,
+      legend: satelliteMasked ? SATELLITE_MASK_LEGEND : SATELLITE_LEGEND,
       dataUrl: satelliteUrl,
     });
   }
@@ -661,6 +709,17 @@ type Props = {
   onNamedAreasChange?: (areas: NamedArea[]) => void;
   onWaysChange?: (ways: PosterWays | null) => void;
   onSchematicLayersChange?: (layers: ReturnType<typeof schematicLayersFromFeatureIds> | null) => void;
+  onNeedSchematic?: () => void;
+  onGeoMaskChange?: (mask: GeoMask | null) => void;
+  onGeoOutlineChange?: (outline: {
+    active: boolean;
+    preview: boolean;
+    kind: "polygon" | "rectangle";
+    points: [number, number][];
+    selected: number | null;
+    rectPending: boolean;
+  }) => void;
+  onBindGeoEdit?: (handler: (edit: GeoEdit) => void) => void;
   onRouteOnlyChange?: (routeOnly: boolean) => void;
   refineFrom?: PosterRecord | null;
   dismissPoi?: { name: string; nonce: number } | null;
@@ -693,6 +752,10 @@ export function PosterPanel({
   onNamedAreasChange,
   onWaysChange,
   onSchematicLayersChange,
+  onNeedSchematic,
+  onGeoOutlineChange,
+  onGeoMaskChange,
+  onBindGeoEdit,
   onRouteOnlyChange,
   refineFrom,
   dismissPoi,
@@ -719,6 +782,12 @@ export function PosterPanel({
   const seeded = useMemo(() => editorSeed(refineFrom), [refineFrom]);
   const [selectedChip, setSelectedChip] = useState<{ kind: "area" | "trail" | "poi"; name: string } | null>(null);
   const [context, setContext] = useState<PosterContext | null>(null);
+  const [corridorOverride, setCorridorOverride] = useState<number | null>(null);
+  const [geoScope, setGeoScope] = useState<GeoScope>("corridor");
+  const [majorOnly, setMajorOnly] = useState(false);
+  const [polygon, setPolygon] = useState<OutlineHistory>(emptyOutline);
+  const [rectangle, setRectangle] = useState<OutlineHistory>(emptyOutline);
+  const [rectAnchor, setRectAnchor] = useState<LngLat | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [featureIds, setFeatureIds] = useState<string[]>(() => seeded?.featureIds ?? DEFAULT_FEATURE_IDS);
@@ -776,6 +845,8 @@ export function PosterPanel({
   const variants = DEFAULT_VARIANTS;
   const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
   const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
+  const [satelliteShot, setSatelliteShot] = useState<SatelliteFrame | null>(null);
+  const satelliteShotRef = useRef<SatelliteFrame | null>(null);
   const [, setModelRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
@@ -950,6 +1021,175 @@ export function PosterPanel({
     return sliceTrack(context.latlng, cropStart, cropEnd);
   }, [context, cropStart, cropEnd]);
 
+  const corridorMeters = useMemo(() => {
+    const limits = context?.corridor;
+    if (!limits) return null;
+    const clamp = (meters: number) => Math.min(limits.maxM, Math.max(limits.minM, meters));
+    if (corridorOverride != null) return clamp(corridorOverride);
+    const fullTrack = croppedLatLng.length === context.latlng.length;
+    if (fullTrack) return clamp(limits.meters);
+    return clamp(defaultCorridorM(croppedLatLng, isClosedLoop(croppedLatLng)));
+  }, [context, corridorOverride, croppedLatLng]);
+
+  const visibleWays = useMemo(() => {
+    if (!context?.ways) return null;
+    let ways = context.ways;
+    if (croppedLatLng.length >= 2 && corridorMeters != null) {
+      if (geoScope === "corridor") ways = clipWaysToCorridor(ways, croppedLatLng, corridorMeters);
+      else if (geoScope === "ends") ways = clipWaysWiderAtEnds(ways, croppedLatLng, corridorMeters);
+      else if (geoScope === "areas") ways = clipWaysKeepingTouchedAreas(ways, croppedLatLng, corridorMeters);
+    }
+    if (majorOnly) ways = dropResidentialStreets(ways);
+    return ways;
+  }, [context, croppedLatLng, corridorMeters, geoScope, majorOnly]);
+
+  const shapeRing = useMemo(() => {
+    if (croppedLatLng.length < 2) return null;
+    if (geoScope === "box") return rotatedBoxRing(croppedLatLng, shapePadM(croppedLatLng));
+    if (geoScope === "hull") return convexHullRing(croppedLatLng, shapePadM(croppedLatLng));
+    if (geoScope === "loop") return loopBandRing(croppedLatLng, 180);
+    if (geoScope === "polygon") return polygon.points.length >= 3 ? polygon.points : null;
+    if (geoScope === "rectangle") return rectangle.points.length >= 3 ? rectangle.points : null;
+    return null;
+  }, [croppedLatLng, geoScope, polygon.points, rectangle.points]);
+
+  const clipPolygon = SHAPE_SCOPES.has(geoScope) ? shapeRing ?? undefined : undefined;
+  const satelliteMask = useMemo((): GeoMask | null => {
+    if (croppedLatLng.length < 2) return null;
+    if (SHAPE_SCOPES.has(geoScope)) {
+      return shapeRing && shapeRing.length >= 3 ? { rings: [shapeRing] } : null;
+    }
+    if (geoScope === "all" || corridorMeters == null) return null;
+    const bandM =
+      geoScope === "ends" ? radiusAlongRoute(croppedLatLng, corridorMeters, endRadiusM(corridorMeters)) : corridorMeters;
+    const rings =
+      geoScope === "areas" && context?.ways ? touchedAreaRings(context.ways, croppedLatLng, corridorMeters) : [];
+    return { rings, bandM };
+  }, [croppedLatLng, geoScope, shapeRing, corridorMeters, context?.ways]);
+  const editingOutline = geoScope === "polygon" || geoScope === "rectangle";
+  const activeOutline = geoScope === "rectangle" ? rectangle : polygon;
+
+  const onGeoOutlineChangeRef = useRef(onGeoOutlineChange);
+  onGeoOutlineChangeRef.current = onGeoOutlineChange;
+  useEffect(() => {
+    onGeoOutlineChangeRef.current?.({
+      active: editingOutline,
+      preview: !editingOutline && (shapeRing?.length ?? 0) >= 3,
+      kind: geoScope === "rectangle" ? "rectangle" : "polygon",
+      points: editingOutline ? activeOutline.points : shapeRing ?? [],
+      selected: editingOutline ? activeOutline.selected : null,
+      rectPending: geoScope === "rectangle" && rectAnchor != null,
+    });
+  }, [editingOutline, geoScope, activeOutline, shapeRing, rectAnchor]);
+
+  useEffect(() => {
+    onGeoMaskChange?.(satelliteMask);
+  }, [satelliteMask, onGeoMaskChange]);
+
+  const polygonRef = useRef(polygon);
+  const rectangleRef = useRef(rectangle);
+  const rectAnchorRef = useRef(rectAnchor);
+  const geoScopeRef = useRef(geoScope);
+  polygonRef.current = polygon;
+  rectangleRef.current = rectangle;
+  rectAnchorRef.current = rectAnchor;
+  geoScopeRef.current = geoScope;
+  const polygonDrag = useRef<LngLat[] | null>(null);
+  const rectResize = useRef<{ opposite: LngLat; base: LngLat[] } | null>(null);
+  const rectDraftBase = useRef<LngLat[] | null>(null);
+
+  const handleGeoEdit = useCallback((edit: GeoEdit) => {
+    if (geoScopeRef.current === "polygon") {
+      if (edit.type === "add") setPolygon((state) => appendOutlinePoint(state, [edit.lng, edit.lat]));
+      else if (edit.type === "select") setPolygon((state) => ({ ...state, selected: edit.index }));
+      else if (edit.type === "remove") setPolygon((state) => removeOutlinePoint(state, edit.index));
+      else if (edit.type === "move-start") {
+        polygonDrag.current = polygonRef.current.points.map((point) => [point[0], point[1]]);
+      } else if (edit.type === "move") {
+        setPolygon((state) =>
+          liveOutline(
+            state,
+            state.points.map((point, index) => (index === edit.index ? [edit.lng, edit.lat] : point)),
+            edit.index,
+          ),
+        );
+      } else if (edit.type === "move-end") {
+        const base = polygonDrag.current;
+        polygonDrag.current = null;
+        if (!base) return;
+        setPolygon((state) =>
+          pointsChanged(base, state.points) ? { ...state, past: [...state.past, base].slice(-50), future: [] } : state,
+        );
+      }
+      return;
+    }
+    if (geoScopeRef.current !== "rectangle") return;
+    if (edit.type === "select") setRectangle((state) => ({ ...state, selected: edit.index }));
+    else if (edit.type === "rect-start") {
+      rectDraftBase.current = rectangleRef.current.points.map((point) => [point[0], point[1]]);
+      setRectAnchor([edit.lng, edit.lat]);
+    } else if (edit.type === "rect-preview" && rectAnchorRef.current) {
+      setRectangle((state) => liveOutline(state, rectangleRing(rectAnchorRef.current as LngLat, [edit.lng, edit.lat]), null));
+    } else if (edit.type === "rect-commit" && rectAnchorRef.current) {
+      const ring = rectangleRing(rectAnchorRef.current, [edit.lng, edit.lat]);
+      const base = rectDraftBase.current ?? [];
+      setRectAnchor(null);
+      rectDraftBase.current = null;
+      if (rectangleTooSmall(ring)) {
+        setRectangle((state) => liveOutline(state, base, null));
+        return;
+      }
+      setRectangle((state) => commitOutline({ ...state, points: base }, ring, null));
+    } else if (edit.type === "move-start" && rectangleRef.current.points.length === 4) {
+      const opposite = rectangleRef.current.points[(edit.index + 2) % 4];
+      rectResize.current = {
+        opposite: [opposite[0], opposite[1]],
+        base: rectangleRef.current.points.map((point) => [point[0], point[1]]),
+      };
+    } else if (edit.type === "move" && rectResize.current) {
+      const ring = rectangleRing([edit.lng, edit.lat], rectResize.current.opposite);
+      setRectangle((state) => liveOutline(state, ring, null));
+    } else if (edit.type === "move-end") {
+      const resize = rectResize.current;
+      rectResize.current = null;
+      if (!resize) return;
+      setRectangle((state) =>
+        pointsChanged(resize.base, state.points) ? { ...state, past: [...state.past, resize.base].slice(-50), future: [] } : state,
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    onBindGeoEdit?.(handleGeoEdit);
+  }, [onBindGeoEdit, handleGeoEdit]);
+
+  useEffect(() => {
+    if (geoScope !== "polygon" && geoScope !== "rectangle") return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable='true']")) return;
+      const meta = event.metaKey || event.ctrlKey;
+      const apply = geoScope === "polygon" ? setPolygon : setRectangle;
+      if (meta && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        apply((state) => (event.shiftKey ? redoOutline(state) : undoOutline(state)));
+      } else if (meta && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        apply(redoOutline);
+      } else if (event.key === "Escape" && geoScope === "rectangle" && rectAnchorRef.current) {
+        const base = rectDraftBase.current;
+        setRectAnchor(null);
+        rectDraftBase.current = null;
+        if (base) setRectangle((state) => liveOutline(state, base, null));
+      } else if ((event.key === "Backspace" || event.key === "Delete") && geoScope === "polygon") {
+        setPolygon((state) => (state.selected == null ? state : removeOutlinePoint(state, state.selected)));
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [geoScope]);
+
   const stopIndexes = useMemo(() => {
     const last = Math.max(0, (context?.latlng.length ?? 1) - 1);
     return [...new Set((context?.stops ?? []).filter((index) => index >= 0 && index <= last))].sort((a, b) => a - b);
@@ -1084,8 +1324,8 @@ export function PosterPanel({
   }, [routeOnly, onRouteOnlyChange]);
 
   useEffect(() => {
-    onWaysChange?.(context?.ways ?? null);
-  }, [context, onWaysChange]);
+    onWaysChange?.(visibleWays);
+  }, [visibleWays, onWaysChange]);
 
   useEffect(() => {
     onSchematicLayersChange?.(schematicLayers);
@@ -1265,8 +1505,9 @@ export function PosterPanel({
       onStopsChange?.([]);
       onWaysChange?.(null);
       onSchematicLayersChange?.(null);
+      onGeoMaskChange?.(null);
     },
-    [onCropChange, onStopsChange, onWaysChange, onSchematicLayersChange],
+    [onCropChange, onStopsChange, onWaysChange, onSchematicLayersChange, onGeoMaskChange],
   );
 
   useEffect(() => {
@@ -1281,7 +1522,8 @@ export function PosterPanel({
         renderSchematicDataUrl({
           latlng: croppedLatLng,
           bbox: groundingBbox,
-          ways: context?.ways,
+          ways: visibleWays ?? undefined,
+          clipPolygon,
           pois: posterPois,
           namedWays: posterWays,
           namedAreas: posterAreas,
@@ -1295,10 +1537,12 @@ export function PosterPanel({
       performance.clearMeasures("schematic.render-and-png");
       performance.measure("schematic.render-and-png", { start: renderStart, end: performance.now() });
     }
-  }, [context, croppedLatLng, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
+  }, [visibleWays, clipPolygon, croppedLatLng, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
 
   useEffect(() => {
     if (croppedLatLng.length < 2 || !groundingBbox || maxRefs < 2) {
+      satelliteShotRef.current = null;
+      setSatelliteShot(null);
       setSatelliteUrl(null);
       return;
     }
@@ -1306,9 +1550,32 @@ export function PosterPanel({
     void snapshotTiles({
       source: "satellite",
       bbox: groundingBbox,
-      latlng: croppedLatLng,
       aspectRatio,
+    })
+      .then((shot) => {
+        if (cancelled) return;
+        satelliteShotRef.current = shot;
+        setSatelliteShot(shot);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        satelliteShotRef.current = null;
+        setSatelliteShot(null);
+        setSatelliteUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [croppedLatLng, groundingBbox, aspectRatio, maxRefs]);
+
+  useEffect(() => {
+    const shot = satelliteShot;
+    if (!shot || croppedLatLng.length < 2) return;
+    let cancelled = false;
+    void renderMaskedSatellite(shot, {
+      latlng: croppedLatLng,
       routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
+      mask: satelliteMask,
     })
       .then((url) => {
         if (!cancelled) setSatelliteUrl(url);
@@ -1319,7 +1586,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [croppedLatLng, groundingBbox, aspectRatio, showRouteMarkers, maxRefs]);
+  }, [satelliteShot, satelliteMask, croppedLatLng, showRouteMarkers]);
 
   useEffect(() => {
     const layers = groundingLayers(
@@ -1330,6 +1597,7 @@ export function PosterPanel({
       showRouteMarkers,
       !routeOnly,
       hasGeographyLayers,
+      maskIsActive(satelliteMask),
     );
     if (!layers.length) {
       setModelRefs([]);
@@ -1351,6 +1619,7 @@ export function PosterPanel({
     croppedLatLng,
     routeOnly,
     hasGeographyLayers,
+    satelliteMask,
   ]);
 
   useEffect(() => {
@@ -1369,14 +1638,21 @@ export function PosterPanel({
 
   async function ensureSatellite(): Promise<string | null> {
     if (maxRefs < 2 || croppedLatLng.length < 2 || !groundingBbox) return null;
-    if (satelliteUrl) return satelliteUrl;
     try {
-      return await snapshotTiles({
-        source: "satellite",
-        bbox: groundingBbox,
+      let shot = satelliteShotRef.current;
+      if (!shot) {
+        shot = await snapshotTiles({
+          source: "satellite",
+          bbox: groundingBbox,
+          aspectRatio,
+        });
+        satelliteShotRef.current = shot;
+        setSatelliteShot(shot);
+      }
+      return await renderMaskedSatellite(shot, {
         latlng: croppedLatLng,
-        aspectRatio,
         routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
+        mask: satelliteMask,
       });
     } catch {
       return null;
@@ -1393,6 +1669,7 @@ export function PosterPanel({
       showRouteMarkers,
       !routeOnly,
       hasGeographyLayers,
+      maskIsActive(satelliteMask),
     );
   }
 
@@ -2392,6 +2669,111 @@ export function PosterPanel({
             className={workflowPane("geography")}
             hint={featuresRefreshing ? <FeatureQueryHint label="Querying OpenStreetMap…" /> : undefined}
           >
+            <div className="geo-scope" role="radiogroup" aria-label="Background geography">
+              {GEO_SCOPES.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`text-btn${geoScope === item.id ? " on" : ""}`}
+                  role="radio"
+                  aria-checked={geoScope === item.id}
+                  onClick={() => {
+                    setGeoScope(item.id);
+                    if (item.id === "rectangle") setRectAnchor(null);
+                    if (item.id === "polygon" || item.id === "rectangle" || item.id === "box" || item.id === "hull" || item.id === "loop") {
+                      onNeedSchematic?.();
+                    }
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <p className="muted">
+              {geoScope === "loop" && croppedLatLng.length >= 2 && !shapeRing
+                ? "This route doesn't close, so there is no interior to keep."
+                : GEO_SCOPES.find((item) => item.id === geoScope)?.hint}
+            </p>
+            {(geoScope === "corridor" || geoScope === "ends" || geoScope === "areas") && context?.corridor && corridorMeters != null && (
+              <label className="corridor-range">
+                <span className="corridor-range-label">
+                  <span>{geoScope === "ends" ? "Middle of the route" : "Around the route"}</span>
+                  <span>
+                    {formatCorridorM(corridorMeters)}
+                    {geoScope === "ends" ? ` · ends ${formatCorridorM(endRadiusM(corridorMeters))}` : ""}
+                  </span>
+                </span>
+                <input
+                  type="range"
+                  min={context.corridor.minM}
+                  max={context.corridor.maxM}
+                  step={50}
+                  value={corridorMeters}
+                  onChange={(event) => setCorridorOverride(Number(event.target.value))}
+                />
+              </label>
+            )}
+            {(geoScope === "polygon" || geoScope === "rectangle") && (
+              <div className="geo-polygon-actions">
+                <button
+                  type="button"
+                  className="text-btn"
+                  disabled={activeOutline.past.length === 0}
+                  onClick={() => (geoScope === "polygon" ? setPolygon(undoOutline) : setRectangle(undoOutline))}
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  className="text-btn"
+                  disabled={activeOutline.future.length === 0}
+                  onClick={() => (geoScope === "polygon" ? setPolygon(redoOutline) : setRectangle(redoOutline))}
+                >
+                  Redo
+                </button>
+                {geoScope === "polygon" && (
+                  <button
+                    type="button"
+                    className="text-btn"
+                    disabled={polygon.selected == null}
+                    onClick={() => setPolygon((state) => (state.selected == null ? state : removeOutlinePoint(state, state.selected)))}
+                  >
+                    Remove
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="text-btn"
+                  disabled={activeOutline.points.length === 0 && rectAnchor == null}
+                  onClick={() => {
+                    if (geoScope === "polygon") setPolygon((state) => commitOutline(state, [], null));
+                    else {
+                      setRectAnchor(null);
+                      setRectangle((state) => commitOutline(state, [], null));
+                    }
+                  }}
+                >
+                  Clear
+                </button>
+                <span className="muted">
+                  {geoScope === "polygon"
+                    ? polygon.points.length < 3
+                      ? `${polygon.points.length} of 3 points`
+                      : polygon.selected == null
+                        ? `${polygon.points.length} points`
+                        : `Point ${polygon.selected + 1} selected`
+                    : rectAnchor
+                      ? "Click the opposite corner"
+                      : rectangle.points.length >= 4
+                        ? "Drag a corner to resize"
+                        : "Click the first corner"}
+                </span>
+              </div>
+            )}
+            <label className="check">
+              <input type="checkbox" checked={majorOnly} onChange={() => setMajorOnly((value) => !value)} />
+              Major features only
+            </label>
             <div className="poster-geo-grid">
               {catalog
                 .filter((item) => item.group === "geography")

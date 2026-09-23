@@ -121,6 +121,11 @@ export type PosterContext = {
   stats: FormattedStat[];
   warnings: string[];
   featureIds: string[];
+  corridor?: {
+    meters: number;
+    minM: number;
+    maxM: number;
+  };
 };
 
 export type PosterSpec = {
