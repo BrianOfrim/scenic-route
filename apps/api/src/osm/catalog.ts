@@ -16,6 +16,10 @@ export type FeatureDef = {
 export const DEFAULT_NEAR_ROUTE_M = 100;
 export const MAX_NEAR_ROUTE_M = 20_000;
 
+/** Sidewalks, crossings, islands, and the short links between them. Absent footway tags still match. */
+const NOT_SIDEWALK =
+  "[footway!=sidewalk][footway!=crossing][footway!=traffic_island][footway!=link]";
+
 export const FEATURE_CATALOG: FeatureDef[] = [
   {
     id: "major-roads",
@@ -38,7 +42,9 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     label: "Paths & trails",
     group: "geography",
     bucket: "paths",
-    selectors: ['way[highway~"^(cycleway|track|footway|path|bridleway|pedestrian)$"]'],
+    selectors: [
+      `way[highway~"^(cycleway|track|footway|path|bridleway|pedestrian)$"]${NOT_SIDEWALK}`,
+    ],
     defaultOn: true,
   },
   {
@@ -198,7 +204,7 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     group: "landmarks",
     bucket: "named-ways",
     selectors: [
-      'way[highway~"^(path|track|footway|cycleway|bridleway)$"][name]',
+      `way[highway~"^(path|track|footway|cycleway|bridleway)$"][name]${NOT_SIDEWALK}`,
       'relation[type=route][route~"^(hiking|foot|bicycle|mtb)$"][name]',
     ],
     defaultOn: false,
