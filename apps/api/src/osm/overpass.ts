@@ -21,6 +21,8 @@ const RETRYABLE = new Set([429, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+/** How many times an oversized tile is quartered before that piece is dropped. */
+const MAX_OVERSIZE_SPLITS = 3;
 const TAG_KEYS = [
   "highway",
   "natural",
@@ -57,11 +59,18 @@ export function collection(features: Feature[]): FeatureCollection {
   return { type: "FeatureCollection", features };
 }
 
+type OverpassPoster = (query: string) => Promise<{ elements?: unknown[] }>;
+
+export function isOversizedOverpassError(error: unknown): boolean {
+  return error instanceof Error && /response exceeded \d+ bytes/.test(error.message);
+}
+
 export async function queryOverpass(
   queryBody: string,
   bbox: BBox,
   warnings: string[],
   label: string,
+  post: OverpassPoster = postOverpass,
 ): Promise<FeatureCollection> {
   const tiles = shouldTile(bbox) ? tileBboxes(bbox) : [bbox];
   if (tiles.some((tile) => bboxDiagonal(tile) > MAX_OVERPASS_DIAGONAL_M)) {
@@ -72,12 +81,16 @@ export async function queryOverpass(
   const seen = new Set<string>();
   let fetchMs = 0;
   let convertMs = 0;
-  for (const tile of tiles) {
+  let fetchedTiles = 0;
+  let oversizedLeft = 0;
+
+  async function loadTile(tile: BBox, splits: number): Promise<void> {
     const started = performance.now();
     try {
-      const payload = await postOverpass(buildQuery(queryBody, tile));
+      const payload = await post(buildQuery(queryBody, tile));
       const fetched = performance.now();
       fetchMs += fetched - started;
+      fetchedTiles += 1;
       for (const feature of elementsToFeatures(payload.elements ?? [])) {
         const id = String(feature.properties?.id ?? "");
         if (id && seen.has(id)) continue;
@@ -87,10 +100,26 @@ export async function queryOverpass(
       convertMs += performance.now() - fetched;
     } catch (error) {
       fetchMs += performance.now() - started;
+      fetchedTiles += 1;
+      if (isOversizedOverpassError(error) && splits < MAX_OVERSIZE_SPLITS) {
+        for (const child of tileBboxes(tile)) await loadTile(child, splits + 1);
+        return;
+      }
+      if (isOversizedOverpassError(error)) {
+        oversizedLeft += 1;
+        return;
+      }
       warnings.push(`Overpass ${label} failed: ${error instanceof Error ? error.message : error}`);
     }
   }
-  timing("query", { label, tiles: tiles.length, features: merged.length, fetchMs, convertMs });
+
+  for (const tile of tiles) await loadTile(tile, 0);
+  if (oversizedLeft) {
+    warnings.push(
+      `Overpass ${label}: ${oversizedLeft} ${oversizedLeft === 1 ? "area" : "areas"} still exceeded ${MAX_RESPONSE_BYTES} bytes after splitting`,
+    );
+  }
+  timing("query", { label, tiles: fetchedTiles, features: merged.length, fetchMs, convertMs });
   return collection(merged);
 }
 
