@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   AuthRequiredError,
   fetchActivities,
@@ -25,7 +25,9 @@ import { ProfileMenu } from "./ProfileMenu";
 import { SignIn } from "./SignIn";
 import { MapView, type Basemap, type LandmarkHighlight } from "./MapView";
 import { PosterPanel, type PosterSheetSnap } from "./poster/PosterPanel";
+import type { GeoMask } from "./poster/grounding/geoMask";
 import type { SchematicLayers } from "./poster/grounding/renderSchematic";
+import type { GeoEdit } from "./poster/polygonEdit";
 import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
 
 type MobilePane = "activities" | "map";
@@ -104,6 +106,26 @@ export function App() {
   const [namedAreas, setNamedAreas] = useState<NamedArea[]>([]);
   const [mapHighlight, setMapHighlight] = useState<LandmarkHighlight | null>(null);
   const [ways, setWays] = useState<PosterWays | null>(null);
+  const [geoOverlay, setGeoOverlay] = useState<{
+    active: boolean;
+    preview: boolean;
+    kind: "polygon" | "rectangle";
+    points: [number, number][];
+    selected: number | null;
+    rectPending: boolean;
+  }>({
+    active: false,
+    preview: false,
+    kind: "polygon",
+    points: [],
+    selected: null,
+    rectPending: false,
+  });
+  const [geoMask, setGeoMask] = useState<GeoMask | null>(null);
+  const geoEditRef = useRef<(edit: GeoEdit) => void>(() => {});
+  const bindGeoEdit = useCallback((handler: (edit: GeoEdit) => void) => {
+    geoEditRef.current = handler;
+  }, []);
   const [schematicLayers, setSchematicLayers] = useState<SchematicLayers | null>(null);
   const [dismissPoi, setDismissPoi] = useState<{ name: string; nonce: number } | null>(null);
   const [dismissArea, setDismissArea] = useState<{ name: string; nonce: number } | null>(null);
@@ -531,6 +553,14 @@ export function App() {
                 setRenameLandmark({ name: draft.from, next: draft.name, nonce: Date.now() })
               }
               onRenameTrail={(draft) => setRenameTrail({ name: draft.from, next: draft.name, nonce: Date.now() })}
+              geoOutline={geoOverlay.points}
+              geoOutlineActive={geoOverlay.active}
+              geoOutlinePreview={geoOverlay.preview}
+              geoOutlineKind={geoOverlay.kind}
+              geoOutlineSelected={geoOverlay.selected}
+              geoRectPending={geoOverlay.rectPending}
+              geoMask={posterOpen ? geoMask : null}
+              onGeoEdit={(edit) => geoEditRef.current(edit)}
             />
           </main>
           {posterOpen && selectedId != null ? (
@@ -553,6 +583,10 @@ export function App() {
               onHighlightChange={setMapHighlight}
               onWaysChange={setWays}
               onSchematicLayersChange={setSchematicLayers}
+              onNeedSchematic={() => setBasemap("schematic")}
+              onGeoOutlineChange={setGeoOverlay}
+              onGeoMaskChange={setGeoMask}
+              onBindGeoEdit={bindGeoEdit}
               onRouteOnlyChange={setRouteOnly}
               onGenerationStarted={() => {
                 closePoster();

@@ -1012,6 +1012,27 @@ button.map-schematic-tip-name:focus-visible {
   margin: 6px 0;
 }
 
+.geo-scope {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.geo-scope .text-btn {
+  border-radius: 999px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.geo-polygon-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 8px;
+}
+
 .corridor-range {
   display: flex;
   flex-direction: column;

@@ -19,7 +19,7 @@ import {
 } from "../geo";
 import { formatDate, formatDuration, formatElevation, formatKm, formatSpeed } from "../format";
 import { KIND_WEIGHTS, nearRouteMForKind, resolveFeatures, type FeatureDef } from "./catalog";
-import { clipWaysToCorridor, corridorForRoute } from "./corridor";
+import { corridorForRoute } from "./corridor";
 import { collection, emptyCollection, queryOverpass, unionQuery } from "./overpass";
 
 const MAX_POIS = 25;
@@ -247,7 +247,7 @@ export async function loadRouteFeatures(
     bbox: bboxToCorners(padded),
     latlng: simplified.points,
     stops: simplified.kept,
-    ways: clipWaysToCorridor(ways, latlng, corridor.maxM),
+    ways,
     namedWays: collectNamedWays(namedWaysFc, latlng, padded, "osm", namedWayFeatures).map((way) => ({
       ...way,
       routeSpans: remapRouteSpans(way.routeSpans, simplified.indexes),

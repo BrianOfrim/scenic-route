@@ -16,7 +16,7 @@ export type CorridorSettings = {
   /** Slider default for this route. */
   meters: number;
   minM: number;
-  /** Geometry is clipped to this width so the slider can tighten without another map query. */
+  /** Widest corridor the slider offers. */
   maxM: number;
 };
 
@@ -65,15 +65,28 @@ export function clipWaysToCorridor<T extends { features?: unknown[] }>(
   ways: Record<string, T>,
   route: LatLng[],
   radiusM: number,
+  vertexRadius?: number[],
 ): Record<string, T> {
-  if (route.length < 2 || !Number.isFinite(radiusM) || radiusM <= 0) return ways;
-  const index = new RouteIndex(route, radiusM);
+  const maxM = vertexRadius?.length === route.length ? Math.max(radiusM, ...vertexRadius) : radiusM;
+  if (route.length < 2 || !Number.isFinite(maxM) || maxM <= 0) return ways;
+  const index = new RouteIndex(route, maxM, vertexRadius);
   const clipped = {} as Record<string, T>;
   for (const [key, bucket] of Object.entries(ways)) {
-    const features = (bucket?.features ?? []).flatMap((feature) => clipFeature(feature as CorridorFeature, index, radiusM));
+    const features = (bucket?.features ?? []).flatMap((feature) => clipFeature(feature as CorridorFeature, index));
     clipped[key] = { ...bucket, features: features as T["features"] };
   }
   return clipped;
+}
+
+/** Corridor whose width follows the route. `vertexRadius` matches `route` one for one. */
+export function clipWaysToVariableCorridor<T extends { features?: unknown[] }>(
+  ways: Record<string, T>,
+  route: LatLng[],
+  vertexRadius: number[],
+): Record<string, T> {
+  if (vertexRadius.length !== route.length) return ways;
+  const maxM = vertexRadius.reduce((max, radius) => Math.max(max, radius), 0);
+  return clipWaysToCorridor(ways, route, maxM, vertexRadius);
 }
 
 function snapCorridor(meters: number, minM: number, maxM: number): number {
@@ -128,34 +141,57 @@ function unproject(point: Pt, lat0: number): [number, number] {
 class RouteIndex {
   readonly lat0: number;
   readonly radius: number;
-  private readonly segments: Array<{ a: Pt; b: Pt }> = [];
+  private readonly variable: boolean;
+  private readonly segments: Array<{ a: Pt; b: Pt; radius: number }> = [];
   private readonly grid = new Map<string, number[]>();
   private readonly cell: number;
   private readonly capsules: Ring[];
 
-  constructor(route: LatLng[], radius: number) {
-    this.radius = radius;
-    this.cell = Math.max(50, radius);
+  constructor(route: LatLng[], radius: number, vertexRadius?: number[]) {
+    const variable = vertexRadius != null && vertexRadius.length === route.length;
+    const maxR = variable ? Math.max(radius, ...vertexRadius) : radius;
+    this.radius = maxR;
+    this.variable = variable;
+    this.cell = Math.max(50, maxR);
     const lat0 = route.reduce((sum, point) => sum + point[0], 0) / route.length;
     this.lat0 = lat0;
     const local = route.map(([lat, lng]) => project(lng, lat, lat0));
-    const indexed = simplify(local, 20, 800);
-    for (let i = 1; i < indexed.length; i += 1) {
-      const a = indexed[i - 1];
-      const b = indexed[i];
+    if (variable && vertexRadius) {
+      const step = Math.max(35, Math.min(...vertexRadius) / 5);
+      const samples = sampleRadii(local, vertexRadius, step);
+      this.addSamples(samples);
+      const coarse = sampleRadii(local, vertexRadius, Math.max(80, step * 2));
+      this.capsules = capsulesFrom(coarse);
+    } else {
+      const indexed = simplify(local, 20, 800);
+      for (let i = 1; i < indexed.length; i += 1) {
+        const a = indexed[i - 1];
+        const b = indexed[i];
+        if (hypot(a, b) < 0.5) continue;
+        const id = this.segments.length;
+        this.segments.push({ a, b, radius: this.radius });
+        this.cover(a, b, id);
+      }
+      const spine = simplify(local, Math.max(30, radius / 6), 180);
+      this.capsules = [];
+      for (let i = 1; i < spine.length; i += 1) {
+        const a = spine[i - 1];
+        const b = spine[i];
+        this.capsules.push(hypot(a, b) < 1 ? circle(a, radius, 10) : stadium(a, b, radius, 5));
+      }
+    }
+    if (!this.capsules.length && local.length) this.capsules.push(circle(local[0], this.radius, 10));
+  }
+
+  private addSamples(samples: Array<Pt & { r: number }>) {
+    for (let i = 1; i < samples.length; i += 1) {
+      const a = samples[i - 1];
+      const b = samples[i];
       if (hypot(a, b) < 0.5) continue;
       const id = this.segments.length;
-      this.segments.push({ a, b });
+      this.segments.push({ a, b, radius: Math.max(a.r, b.r) });
       this.cover(a, b, id);
     }
-    const spine = simplify(local, Math.max(30, radius / 6), 180);
-    this.capsules = [];
-    for (let i = 1; i < spine.length; i += 1) {
-      const a = spine[i - 1];
-      const b = spine[i];
-      this.capsules.push(hypot(a, b) < 1 ? circle(a, radius, 10) : stadium(a, b, radius, 5));
-    }
-    if (!this.capsules.length && local.length) this.capsules.push(circle(local[0], radius, 10));
   }
 
   distance(point: Pt): number {
@@ -179,12 +215,32 @@ class RouteIndex {
     return best;
   }
 
+  /** True when the point falls inside this corridor, including a width that changes along the route. */
+  inside(point: Pt): boolean {
+    const reach = this.radius + this.cell;
+    const minX = Math.floor((point.x - reach) / this.cell);
+    const maxX = Math.floor((point.x + reach) / this.cell);
+    const minY = Math.floor((point.y - reach) / this.cell);
+    const maxY = Math.floor((point.y + reach) / this.cell);
+    for (let ix = minX; ix <= maxX; ix += 1) {
+      for (let iy = minY; iy <= maxY; iy += 1) {
+        const hits = this.grid.get(`${ix}:${iy}`);
+        if (!hits) continue;
+        for (const id of hits) {
+          const segment = this.segments[id];
+          if (segmentDistance(point, segment.a, segment.b) <= segment.radius) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   clipPolygon(rings: Ring[]): Ring[][] {
     const outer = rings[0];
     if (!outer || outer.length < 3) return [];
     const bounds = ringBounds(outer);
     if (!this.boundsMeet(bounds)) return [];
-    if (this.ringInside(outer)) return [rings.map((ring) => ring.slice())];
+    if (!this.variable && this.ringInside(outer)) return [rings.map((ring) => ring.slice())];
     const outline = simplify(dedupe(outer), Math.max(15, this.radius / 8), 220);
     const pieces: Ring[][] = [];
     for (const capsule of this.capsules) {
@@ -236,15 +292,15 @@ class RouteIndex {
 
 type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 
-function clipFeature(feature: CorridorFeature, index: RouteIndex, radius: number): CorridorFeature[] {
+function clipFeature(feature: CorridorFeature, index: RouteIndex): CorridorFeature[] {
   const geometry = feature.geometry;
   if (!geometry) return [];
   if (geometry.type === "LineString") {
-    const lines = clipLine(asLine(geometry.coordinates), index, radius);
+    const lines = clipLine(asLine(geometry.coordinates), index);
     return lines.map((line) => ({ ...feature, geometry: { type: "LineString", coordinates: line } }));
   }
   if (geometry.type === "MultiLineString") {
-    const lines = asLines(geometry.coordinates).flatMap((line) => clipLine(line, index, radius));
+    const lines = asLines(geometry.coordinates).flatMap((line) => clipLine(line, index));
     if (!lines.length) return [];
     if (lines.length === 1) return [{ ...feature, geometry: { type: "LineString", coordinates: lines[0] } }];
     return [{ ...feature, geometry: { type: "MultiLineString", coordinates: lines } }];
@@ -263,7 +319,7 @@ function clipFeature(feature: CorridorFeature, index: RouteIndex, radius: number
     const point = asPoint(geometry.coordinates);
     if (!point) return [];
     const local = project(point[0], point[1], index.lat0);
-    return index.distance(local) <= radius ? [feature] : [];
+    return index.inside(local) ? [feature] : [];
   }
   return [feature];
 }
@@ -276,10 +332,10 @@ function polygonPieces(feature: CorridorFeature, rings: number[][][], index: Rou
   return [{ ...feature, geometry: { type: "MultiPolygon", coordinates } }];
 }
 
-function clipLine(line: number[][], index: RouteIndex, radius: number): number[][][] {
+function clipLine(line: number[][], index: RouteIndex): number[][][] {
   if (line.length < 2) return [];
   const local = line.map(([lng, lat]) => project(lng, lat, index.lat0));
-  const step = Math.max(25, radius / 5);
+  const step = Math.max(25, index.radius / 5);
   const samples: Pt[] = [local[0]];
   for (let i = 1; i < local.length; i += 1) {
     const a = local[i - 1];
@@ -290,17 +346,17 @@ function clipLine(line: number[][], index: RouteIndex, radius: number): number[]
       samples.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
     }
   }
-  const inside = samples.map((point) => index.distance(point) <= radius);
+  const inside = samples.map((point) => index.inside(point));
   const runs: Pt[][] = [];
   let run: Pt[] = [];
   for (let i = 0; i < samples.length; i += 1) {
     if (inside[i]) {
-      if (!run.length && i > 0) run.push(boundary(samples[i - 1], samples[i], index, radius));
+      if (!run.length && i > 0) run.push(boundary(samples[i - 1], samples[i], index));
       run.push(samples[i]);
       continue;
     }
     if (!run.length) continue;
-    run.push(boundary(samples[i], samples[i - 1], index, radius));
+    run.push(boundary(samples[i], samples[i - 1], index));
     if (run.length >= 2) runs.push(simplify(run, 12, 400));
     run = [];
   }
@@ -310,15 +366,44 @@ function clipLine(line: number[][], index: RouteIndex, radius: number): number[]
     .filter((points) => points.length >= 2);
 }
 
-function boundary(outside: Pt, inside: Pt, index: RouteIndex, radius: number): Pt {
+function boundary(outside: Pt, inside: Pt, index: RouteIndex): Pt {
   let lo = outside;
   let hi = inside;
   for (let i = 0; i < 14; i += 1) {
     const mid = { x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2 };
-    if (index.distance(mid) <= radius) hi = mid;
+    if (index.inside(mid)) hi = mid;
     else lo = mid;
   }
   return hi;
+}
+
+function sampleRadii(local: Pt[], radii: number[], step: number): Array<Pt & { r: number }> {
+  const first = local[0];
+  if (!first) return [];
+  const out: Array<Pt & { r: number }> = [{ x: first.x, y: first.y, r: radii[0] ?? 0 }];
+  for (let i = 1; i < local.length; i += 1) {
+    const a = local[i - 1];
+    const b = local[i];
+    const count = Math.max(1, Math.ceil(hypot(a, b) / step));
+    const r0 = radii[i - 1] ?? 0;
+    const r1 = radii[i] ?? r0;
+    for (let s = 1; s <= count; s += 1) {
+      const t = s / count;
+      out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, r: r0 + (r1 - r0) * t });
+    }
+  }
+  return out;
+}
+
+function capsulesFrom(samples: Array<Pt & { r: number }>): Ring[] {
+  const capsules: Ring[] = [];
+  for (let i = 1; i < samples.length; i += 1) {
+    const a = samples[i - 1];
+    const b = samples[i];
+    const radius = Math.max(a.r, b.r);
+    capsules.push(hypot(a, b) < 1 ? circle(a, radius, 8) : stadium(a, b, radius, 4));
+  }
+  return capsules;
 }
 
 function toLocalRings(rings: number[][][], lat0: number): Ring[] {
