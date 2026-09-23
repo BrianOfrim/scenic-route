@@ -2183,7 +2183,7 @@ export function PosterPanel({
       ) : (
         <div className="panel-block poster-head">
           <div>
-            <div className="eyebrow">Social images</div>
+            <div className="eyebrow">Composer</div>
             <strong>{panelTitle}</strong>
           </div>
           <button type="button" className="text-btn" onClick={onClose}>
