@@ -506,7 +506,14 @@ function fillGeometry(
   if (!geometry) return;
   if (geometry.type === "Polygon") fillRings(ctx, geometry.coordinates, project);
   else if (geometry.type === "MultiPolygon") {
-    for (const polygon of geometry.coordinates) fillRings(ctx, polygon, project);
+    ctx.beginPath();
+    let traced = false;
+    for (const polygon of geometry.coordinates) {
+      if (!polygon.length) continue;
+      traceRings(ctx, polygon, project);
+      traced = true;
+    }
+    if (traced) ctx.fill();
   }
 }
 
@@ -532,6 +539,15 @@ function fillRings(
 ) {
   if (!rings.length) return;
   ctx.beginPath();
+  traceRings(ctx, rings, project);
+  ctx.fill();
+}
+
+function traceRings(
+  ctx: CanvasRenderingContext2D,
+  rings: GeoJSON.Position[][],
+  project: (lng: number, lat: number) => [number, number],
+) {
   for (const ring of rings) {
     ring.forEach(([lng, lat], index) => {
       const [x, y] = project(lng, lat);
@@ -540,7 +556,6 @@ function fillRings(
     });
     ctx.closePath();
   }
-  ctx.fill();
 }
 
 function strokePoints(ctx: CanvasRenderingContext2D, points: [number, number][]) {

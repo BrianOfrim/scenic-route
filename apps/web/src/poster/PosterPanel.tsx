@@ -17,6 +17,7 @@ import {
   type PosterSpec,
   type PosterWays,
 } from "../api";
+import { clipWaysToCorridor, defaultCorridorM, formatCorridorM } from "../../../api/src/osm/corridor";
 import { clampCrop, isClosedLoop, isNearCroppedRoute, paddedBbox, schematicBbox, shiftRouteSpans, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
 import {
   FEATURE_CATALOG,
@@ -719,6 +720,7 @@ export function PosterPanel({
   const seeded = useMemo(() => editorSeed(refineFrom), [refineFrom]);
   const [selectedChip, setSelectedChip] = useState<{ kind: "area" | "trail" | "poi"; name: string } | null>(null);
   const [context, setContext] = useState<PosterContext | null>(null);
+  const [corridorOverride, setCorridorOverride] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [featureIds, setFeatureIds] = useState<string[]>(() => seeded?.featureIds ?? DEFAULT_FEATURE_IDS);
@@ -950,6 +952,22 @@ export function PosterPanel({
     return sliceTrack(context.latlng, cropStart, cropEnd);
   }, [context, cropStart, cropEnd]);
 
+  const corridorMeters = useMemo(() => {
+    const limits = context?.corridor;
+    if (!limits) return null;
+    const clamp = (meters: number) => Math.min(limits.maxM, Math.max(limits.minM, meters));
+    if (corridorOverride != null) return clamp(corridorOverride);
+    const fullTrack = croppedLatLng.length === context.latlng.length;
+    if (fullTrack) return clamp(limits.meters);
+    return clamp(defaultCorridorM(croppedLatLng, isClosedLoop(croppedLatLng)));
+  }, [context, corridorOverride, croppedLatLng]);
+
+  const visibleWays = useMemo(() => {
+    if (!context?.ways) return null;
+    if (corridorMeters == null || croppedLatLng.length < 2) return context.ways;
+    return clipWaysToCorridor(context.ways, croppedLatLng, corridorMeters);
+  }, [context, croppedLatLng, corridorMeters]);
+
   const stopIndexes = useMemo(() => {
     const last = Math.max(0, (context?.latlng.length ?? 1) - 1);
     return [...new Set((context?.stops ?? []).filter((index) => index >= 0 && index <= last))].sort((a, b) => a - b);
@@ -1084,8 +1102,8 @@ export function PosterPanel({
   }, [routeOnly, onRouteOnlyChange]);
 
   useEffect(() => {
-    onWaysChange?.(context?.ways ?? null);
-  }, [context, onWaysChange]);
+    onWaysChange?.(visibleWays);
+  }, [visibleWays, onWaysChange]);
 
   useEffect(() => {
     onSchematicLayersChange?.(schematicLayers);
@@ -1281,7 +1299,7 @@ export function PosterPanel({
         renderSchematicDataUrl({
           latlng: croppedLatLng,
           bbox: groundingBbox,
-          ways: context?.ways,
+          ways: visibleWays ?? undefined,
           pois: posterPois,
           namedWays: posterWays,
           namedAreas: posterAreas,
@@ -1295,7 +1313,7 @@ export function PosterPanel({
       performance.clearMeasures("schematic.render-and-png");
       performance.measure("schematic.render-and-png", { start: renderStart, end: performance.now() });
     }
-  }, [context, croppedLatLng, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
+  }, [visibleWays, croppedLatLng, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
 
   useEffect(() => {
     if (croppedLatLng.length < 2 || !groundingBbox || maxRefs < 2) {
@@ -2392,6 +2410,25 @@ export function PosterPanel({
             className={workflowPane("geography")}
             hint={featuresRefreshing ? <FeatureQueryHint label="Querying OpenStreetMap…" /> : undefined}
           >
+            {context?.corridor && corridorMeters != null && (
+              <>
+                <label className="corridor-range">
+                  <span className="corridor-range-label">
+                    <span>Around the route</span>
+                    <span>{formatCorridorM(corridorMeters)}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={context.corridor.minM}
+                    max={context.corridor.maxM}
+                    step={50}
+                    value={corridorMeters}
+                    onChange={(event) => setCorridorOverride(Number(event.target.value))}
+                  />
+                </label>
+                <p className="muted">Roads, water, and landcover within this distance of the route.</p>
+              </>
+            )}
             <div className="poster-geo-grid">
               {catalog
                 .filter((item) => item.group === "geography")

@@ -1012,6 +1012,26 @@ button.map-schematic-tip-name:focus-visible {
   margin: 6px 0;
 }
 
+.corridor-range {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.corridor-range-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.corridor-range input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--ink);
+}
+
 .poster-geo-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2187,6 +2207,10 @@ button.map-schematic-tip-name:focus-visible {
 
   .poster-panel.is-sheet .check {
     margin: 6px 0;
+  }
+
+  .poster-panel.is-sheet .corridor-range input[type="range"] {
+    min-height: 44px;
   }
 
   .poster-panel.is-sheet .poster-geo-grid {
