@@ -46,9 +46,20 @@ test("catalog includes named trail selectors", () => {
   assert.equal(trails.label, "Named trails");
   assert.equal(trails.bucket, "named-ways");
   assert.deepEqual(trails.selectors, [
-    'way[highway~"^(path|track|footway|cycleway|bridleway)$"][name]',
+    'way[highway~"^(path|track|footway|cycleway|bridleway)$"][name][footway!=sidewalk][footway!=crossing][footway!=traffic_island][footway!=link]',
     'relation[type=route][route~"^(hiking|foot|bicycle|mtb)$"][name]',
   ]);
+});
+
+test("paths selector keeps trails and drops sidewalks", () => {
+  const paths = FEATURE_CATALOG.find((item) => item.id === "paths");
+  assert.ok(paths);
+  assert.equal(paths.selectors.length, 1);
+  const selector = paths.selectors[0];
+  assert.match(selector, /highway~"\^\(cycleway\|track\|footway\|path\|bridleway\|pedestrian\)\$"/);
+  for (const excluded of ["sidewalk", "crossing", "traffic_island", "link"]) {
+    assert.match(selector, new RegExp(`footway!=${excluded}`));
+  }
 });
 
 test("collectNamedWays merges same-name segments into a labeled line", () => {
