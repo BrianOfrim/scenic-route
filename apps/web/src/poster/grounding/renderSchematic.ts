@@ -1,7 +1,9 @@
 import type { Geometry } from "geojson";
 import { routeVertexColors } from "../trailColors";
 
-export type AspectRatio = "2:3" | "3:4" | "1:1" | "4:3" | "16:9";
+export type AspectRatio = "4:5" | "2:3" | "3:4" | "1:1" | "4:3" | "16:9";
+
+export const DEFAULT_ASPECT_RATIO: AspectRatio = "4:5";
 
 type WayFeature = {
   properties?: { class?: string } | null;
@@ -170,7 +172,7 @@ export function renderSchematicDataUrl(options: RenderSchematicOptions): string 
 }
 
 export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchematicOptions): string {
-  const aspect = options.aspectRatio ?? "2:3";
+  const aspect = options.aspectRatio ?? DEFAULT_ASPECT_RATIO;
   const { width, height } = canvasSize(aspect);
   canvas.width = width;
   canvas.height = height;

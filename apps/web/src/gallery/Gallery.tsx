@@ -215,7 +215,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         if (!cancelled) setPosters(items);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load posters");
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load images");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -442,10 +442,10 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         {loading ? (
           <p className="muted feature-query-block">
             <span className="spinner" aria-hidden="true" />
-            Loading posters…
+            Loading images…
           </p>
         ) : !visible.length && !generation.pending.length ? (
-          <p className="muted">{favoritesOnly ? "No favourited posters yet." : "No posters yet."}</p>
+          <p className="muted">{favoritesOnly ? "No favourited images yet." : "No images yet."}</p>
         ) : null}
       </div>
       {active && (

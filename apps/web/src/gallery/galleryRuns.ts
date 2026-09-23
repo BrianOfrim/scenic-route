@@ -298,7 +298,7 @@ export function runHeadline(
     detail: [
       summarizeLabels(styles, 3, "theme"),
       summarizeLabels(models, 2, "model"),
-      posters.length > 1 ? `${posters.length} posters` : null,
+      posters.length > 1 ? `${posters.length} images` : null,
     ]
       .filter(Boolean)
       .join(" · "),

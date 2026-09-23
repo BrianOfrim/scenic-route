@@ -1,7 +1,7 @@
 import { areaLetter } from "./areaLetters";
 import type { NamedArea, NamedWay, PosterPoi } from "./osm/features";
 import { chatJson } from "./openrouter";
-import { POSTER_SPEC_SCHEMA, validatePosterSpec, type PosterSpec } from "./posterSpec";
+import { DEFAULT_ASPECT_RATIO, POSTER_SPEC_SCHEMA, validatePosterSpec, type PosterSpec } from "./posterSpec";
 import { TRAIL_TREATMENT, trailColorName } from "./trailColors";
 
 export type PlannerInput = {
@@ -49,7 +49,7 @@ const REGION_TREATMENT =
  */
 export const POSTER_SPEC_SHAPE = {
   style: { name: "", medium: "", palette: [""], typography: "", texture: "", references: "" },
-  composition: { aspectRatio: "2:3", routePlacement: "", titleBlock: "", border: "", decorations: [""] },
+  composition: { aspectRatio: DEFAULT_ASPECT_RATIO, routePlacement: "", titleBlock: "", border: "", decorations: [""] },
   route: { treatment: "", color: "", startMarker: "", finishMarker: "", startName: "", finishName: "", shapeNotes: "" },
   geography: [{ kind: "", name: "", placement: "", treatment: "", color: "", letter: "" }],
   landmarks: [{ name: "", kind: "", placement: "", icon: "", pin: 1 }],

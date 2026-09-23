@@ -86,10 +86,12 @@ const defaults = {
   areaNames: ["Banff"],
 };
 
-test("asAspectRatio falls back to 2:3", () => {
+test("asAspectRatio falls back to 4:5", () => {
+  assert.equal(asAspectRatio("4:5"), "4:5");
+  assert.equal(asAspectRatio("2:3"), "2:3");
   assert.equal(asAspectRatio("3:4"), "3:4");
-  assert.equal(asAspectRatio("nope"), "2:3");
-  assert.equal(asAspectRatio(undefined), "2:3");
+  assert.equal(asAspectRatio("nope"), "4:5");
+  assert.equal(asAspectRatio(undefined), "4:5");
 });
 
 test("styleIdFromRecord uses a known style or custom", () => {

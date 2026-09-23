@@ -385,7 +385,7 @@ export async function generatePoster(
   task?: GenerationTask,
 ): Promise<PosterRecord[]> {
   const details = body as { spec?: PosterSpec; model?: string; styleId?: string; variants?: number };
-  return trackGeneration({ ...details, variants: pendingCount ?? details.variants, title: details.spec?.text.title || "New poster" }, async () => {
+  return trackGeneration({ ...details, variants: pendingCount ?? details.variants, title: details.spec?.text.title || "New image" }, async () => {
     // Register placeholders before preparing references; preparation also runs in the background.
     const requestBody = prepareReferences
       ? { ...details, references: await prepareReferences() }
@@ -399,7 +399,7 @@ export async function generatePoster(
     );
     if (Array.isArray(payload.posters) && payload.posters.length) return payload.posters;
     if (payload.posterId) return [payload as PosterRecord];
-    throw new Error("Poster generation returned no images");
+    throw new Error("Image generation returned no images");
   }, task);
 }
 

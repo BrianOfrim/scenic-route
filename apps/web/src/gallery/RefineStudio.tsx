@@ -56,7 +56,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange }: Props
         variants: 1,
         model: selected.model,
       });
-      if (!records.length) throw new Error("Poster refinement failed");
+      if (!records.length) throw new Error("Image refinement failed");
       onPostersChange((current) => {
         const seen = new Set(records.map((item) => item.posterId));
         return [...records, ...current.filter((item) => !seen.has(item.posterId))];
@@ -64,7 +64,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange }: Props
       setSelectedId(records[0].posterId);
       setRequest("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Poster refinement failed");
+      setError(err instanceof Error ? err.message : "Image refinement failed");
     } finally {
       setBusy(false);
     }

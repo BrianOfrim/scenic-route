@@ -120,7 +120,7 @@ test("runHeadline shares title, mixed labels and count without costs", () => {
   assert.equal(headline.title, "Bow Valley");
   assert.match(headline.detail, /Middle-earth \/ Vintage topo/);
   assert.match(headline.detail, /Gemini test \/ flux-test/);
-  assert.match(headline.detail, /2 posters/);
+  assert.match(headline.detail, /2 images/);
   assert.doesNotMatch(headline.detail, /\$|cost/i);
 });
 

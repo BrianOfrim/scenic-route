@@ -1,5 +1,7 @@
 import { TRAIL_COLOR_NAMES } from "./trailColors";
 
+export const DEFAULT_ASPECT_RATIO = "4:5";
+
 export type PosterSpecStyle = {
   name: string;
   medium: string;
@@ -242,7 +244,7 @@ export function validatePosterSpec(raw: unknown): PosterSpec {
       references: asString(style.references),
     },
     composition: {
-      aspectRatio: asString(composition.aspectRatio, "2:3"),
+      aspectRatio: asString(composition.aspectRatio, DEFAULT_ASPECT_RATIO),
       routePlacement: asString(composition.routePlacement),
       titleBlock: asString(composition.titleBlock),
       border: asString(composition.border),
