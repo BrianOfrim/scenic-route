@@ -3,7 +3,7 @@ import { getActivity } from "./activities";
 import { revisePosterPrompt } from "./modifyPrompt";
 import { createImage, listImageModels, maxImageOutputs, maxImageReferences, resolveImageModel } from "./openrouter";
 import { isSafePosterId } from "./paths";
-import { specToImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
+import { DEFAULT_ASPECT_RATIO, specToImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
 import { posterStore } from "./storage";
 
 export class PosterError extends Error {
@@ -219,7 +219,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
   const modelName = listed.find((item) => item.id === model)?.name || model;
   const count = variantCount(body.variants, await maxImageOutputs(model));
   const batchId = sanitizeBatchId(body.batchId) ?? (count > 1 ? newBatchId() : undefined);
-  const aspectRatio = (body.aspectRatio || spec.composition.aspectRatio || "2:3").trim();
+  const aspectRatio = (body.aspectRatio || spec.composition.aspectRatio || DEFAULT_ASPECT_RATIO).trim();
   const incoming = dataUrls(body.references);
   if (!incoming.length) throw new PosterError("at least one grounding image is required");
 
@@ -299,10 +299,10 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
   const request = body.request?.trim() ?? "";
   if (!request) throw new PosterError("a modification request is required");
   const source = await readPosterRecord(userId, body.posterId);
-  if (!source) throw new PosterError("poster not found", 404);
+  if (!source) throw new PosterError("image not found", 404);
   const previousUrl = pngDataUrl(await readPosterPng(userId, source.posterId));
   const grounding = await readPosterGroundingUrls(userId, source.posterId, source.referenceCount);
-  if (!grounding.length) throw new PosterError("previous poster is missing grounding images");
+  if (!grounding.length) throw new PosterError("previous image is missing grounding images");
 
   const revised = await revisePosterPrompt({
     imageUrl: previousUrl,
@@ -371,9 +371,9 @@ export async function readPosterRecord(userId: string, posterId: string): Promis
 }
 
 export async function readPosterPng(userId: string, posterId: string): Promise<Buffer> {
-  if (!isSafePosterId(posterId)) throw new PosterError("poster not found", 404);
+  if (!isSafePosterId(posterId)) throw new PosterError("image not found", 404);
   const bytes = await posterStore().get(userId, `${posterId}.png`);
-  if (!bytes) throw new PosterError("poster not found", 404);
+  if (!bytes) throw new PosterError("image not found", 404);
   return bytes;
 }
 
@@ -465,7 +465,7 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     finishPlace: typeof raw.finishPlace === "string" ? raw.finishPlace : "",
     placesEdited: raw.placesEdited === true,
     statIds: stringList(raw.statIds),
-    aspectRatio: typeof raw.aspectRatio === "string" && raw.aspectRatio.trim() ? raw.aspectRatio.trim() : "2:3",
+    aspectRatio: typeof raw.aspectRatio === "string" && raw.aspectRatio.trim() ? raw.aspectRatio.trim() : DEFAULT_ASPECT_RATIO,
     styleIds: stringList(raw.styleIds),
     stylePrompt: typeof raw.stylePrompt === "string" ? raw.stylePrompt : "",
     paletteId: typeof raw.paletteId === "string" && raw.paletteId.trim() ? raw.paletteId.trim() : "auto",
@@ -497,15 +497,15 @@ function sanitizeBatchId(value?: string) {
 
 export async function setPosterFavorite(userId: string, posterId: string, favorited: boolean): Promise<PosterRecord> {
   const record = await readPosterRecord(userId, posterId);
-  if (!record) throw new PosterError("poster not found", 404);
+  if (!record) throw new PosterError("image not found", 404);
   const next: PosterRecord = { ...record, userId, favorited };
   await posterStore().put(userId, `${posterId}.json`, Buffer.from(JSON.stringify(next, null, 2)), "application/json");
   return next;
 }
 
 export async function deletePoster(userId: string, posterId: string) {
-  if (!isSafePosterId(posterId)) throw new PosterError("poster not found", 404);
+  if (!isSafePosterId(posterId)) throw new PosterError("image not found", 404);
   const record = await readPosterRecord(userId, posterId);
-  if (!record) throw new PosterError("poster not found", 404);
+  if (!record) throw new PosterError("image not found", 404);
   await posterStore().removeByPosterId(userId, posterId);
 }

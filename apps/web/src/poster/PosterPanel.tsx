@@ -30,9 +30,9 @@ import {
 } from "./featureCatalog";
 import { planContactSheets, renderContactSheets, type GroundingLayer } from "./grounding/contactSheet";
 import {
+  DEFAULT_ASPECT_RATIO,
   renderSchematicDataUrl,
   schematicLayersFromFeatureIds,
-  type AspectRatio,
 } from "./grounding/renderSchematic";
 import { snapshotTiles } from "./grounding/snapshotTiles";
 import {
@@ -97,7 +97,6 @@ type GenerationRun = {
 };
 
 
-const DEFAULT_ASPECT_RATIO: AspectRatio = "2:3";
 const DEFAULT_VARIANTS = 1;
 const EMPTY_POIS: PosterPoi[] = [];
 const EMPTY_WAYS: NamedWay[] = [];
@@ -773,7 +772,7 @@ export function PosterPanel({
   const [lookingUp, setLookingUp] = useState(false);
   const [landmarkChoices, setLandmarkChoices] = useState<PosterPoi[] | null>(null);
   const [landmarkHint, setLandmarkHint] = useState<string | null>(null);
-  const aspectRatio = DEFAULT_ASPECT_RATIO;
+  const aspectRatio = seeded?.aspectRatio ?? DEFAULT_ASPECT_RATIO;
   const variants = DEFAULT_VARIANTS;
   const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
   const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
@@ -936,7 +935,7 @@ export function PosterPanel({
         }
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load poster context");
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load image setup");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -1646,7 +1645,7 @@ export function PosterPanel({
           };
         } catch (err) {
           tasks?.get(job.model)?.finish(err);
-          const error = err instanceof Error ? err.message : "Poster generation failed";
+          const error = err instanceof Error ? err.message : "Image generation failed";
           setModelRuns((current) =>
             current.map((run) =>
               run.key === job.key ? { ...run, finishedAt: Date.now(), error } : run,
@@ -1674,14 +1673,14 @@ export function PosterPanel({
           `${stylePlanSlots(styleIds, paletteIdsByStyle).length > 1 ? `${theme} · ` : ""}${model}: ${item.error}`,
         ];
       });
-      if (!records.length) throw new Error(failures.join(" · ") || "Poster generation failed");
+      if (!records.length) throw new Error(failures.join(" · ") || "Image generation failed");
       setActiveStyleId(records[0].styleId || activeStyleId);
       if (failures.length) {
-        setError(`${failures.length} poster${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
+        setError(`${failures.length} image${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
       }
     } catch (err) {
       if (tasks) throw err;
-      setError(err instanceof Error ? err.message : "Poster generation failed");
+      setError(err instanceof Error ? err.message : "Image generation failed");
     } finally {
       setGenerating(false);
     }
@@ -1695,7 +1694,7 @@ export function PosterPanel({
     const submissions = slots.map((slot) => ({
       slot,
       tasks: new Map(activeImageModelIds.map((model) => [model, beginGeneration({
-        title: title.trim() || "New poster",
+        title: title.trim() || "New image",
         styleId: slot.styleId,
         model,
         variants: variantCount(variants, imageModelFor(model)?.maxImages),
@@ -1705,7 +1704,7 @@ export function PosterPanel({
     await Promise.all(submissions.map(async ({ slot, tasks }) => {
       try {
         const planned = await handlePlan([slot], true);
-        if (!planned?.length) throw new Error("Poster generation failed");
+        if (!planned?.length) throw new Error("Image generation failed");
         await handleGenerate(planned, tasks);
         tasks.forEach((task) => task.finish());
       } catch (error) {
@@ -2034,7 +2033,7 @@ export function PosterPanel({
     }
     return steps;
   }, [showOnMapStep, sheetMode]);
-  const panelTitle = context?.activity.name ?? activityLabel ?? "Create poster";
+  const panelTitle = context?.activity.name ?? activityLabel ?? "Create an image";
   const peekStatus =
     loading && !showEditor
       ? "Loading activity…"
@@ -2147,7 +2146,7 @@ export function PosterPanel({
           <button
             type="button"
             className="poster-sheet-handle"
-            aria-label="Resize poster sheet"
+            aria-label="Resize image editor"
             onPointerDown={onSheetPointerDown}
             onPointerUp={onSheetPointerUp}
           >
@@ -2165,7 +2164,7 @@ export function PosterPanel({
             </div>
           </div>
           {showEditor && context && sheetSnap !== "peek" && !launchMode && (
-            <nav className="poster-workflow-nav" aria-label="Poster steps">
+            <nav className="poster-workflow-nav" aria-label="Image creation steps">
               {workflowSteps.map((step) => (
                 <button
                   key={step.id}
@@ -2184,7 +2183,7 @@ export function PosterPanel({
       ) : (
         <div className="panel-block poster-head">
           <div>
-            <div className="eyebrow">Poster</div>
+            <div className="eyebrow">Social images</div>
             <strong>{panelTitle}</strong>
           </div>
           <button type="button" className="text-btn" onClick={onClose}>
@@ -2209,7 +2208,7 @@ export function PosterPanel({
         <div className="panel-block poster-launch sheet-from-half">
           <fieldset className="poster-editor-fieldset" disabled={busy}>
             <p className="muted poster-launch-summary">
-              {formatKm(croppedKm)} · annotations off
+              Create an image of this route to share on social media. {formatKm(croppedKm)} · annotations off
             </p>
             <div className="poster-option-row">
               <label className="poster-field">
@@ -2257,7 +2256,7 @@ export function PosterPanel({
                 ? `Planning… ${elapsed}s`
                 : generating
                   ? `Generating… ${elapsed}s`
-                  : "Make poster"}
+                  : "Create image"}
             </button>
             <button
               className="text-btn"
@@ -2277,7 +2276,7 @@ export function PosterPanel({
             <div className="panel-block sheet-from-half">
               <p className="muted">
                 Setup restored from gallery. Adjust crop, landmarks, or themes, then generate again. View
-                generated posters in the gallery.
+                generated images in the gallery.
               </p>
             </div>
           ) : null}
@@ -2382,7 +2381,7 @@ export function PosterPanel({
                   ? "Start and finish are the same place — one combined marker. "
                   : "Green start · black finish. "
                 : ""}
-              The finished poster writes this name at the start/finish marker.
+              The finished image writes this name at the start/finish marker.
             </p>
           </PosterSection>
 
@@ -2664,11 +2663,11 @@ export function PosterPanel({
                 {(selectedPois.length > 0 || selectedNamedWays.length > 0 || selectedNamedAreas.length > 0) && (
                   <p className="muted">
                     Neighbourhoods, campuses, and large named parks are ochre washes with a letter,
-                    not pins. The wash is the exact area to label on the poster. Letters and trail
+                    not pins. The wash is the exact area to label on the image. Letters and trail
                     colors are a private index — look up the name, then discard the letter and the
                     schematic colors. Parks stay green; other districts should not be brown just
                     because the schematic wash is ochre. Numbered discs are a location index. The
-                    poster should show the names, not the letters, numbers, schematic colors, or a
+                    image should show the names, not the letters, numbers, schematic colors, or a
                     legend.
                   </p>
                 )}
@@ -2706,7 +2705,7 @@ export function PosterPanel({
           </PosterSection>
 
           <PosterSection
-            title="Stats on poster"
+            title="Stats on image"
             accordion={false}
             showTitle={!sheetMode}
             className={workflowPane("stats")}
@@ -2791,7 +2790,7 @@ export function PosterPanel({
                   {!styleIds.length
                     ? "Select a theme to generate"
                     : planSlots.length > 1
-                      ? `${planSlots.length} posters — one per selected theme and palette`
+                      ? `${planSlots.length} images — one per selected theme and palette`
                       : "Select more themes or palettes to compare"}
                 </p>
                 {paletteStyles.map((style) => {
@@ -2855,7 +2854,7 @@ export function PosterPanel({
                       ? generateProgress.total > 1
                         ? `Generating ${generateProgress.done}/${generateProgress.total}… ${elapsed}s`
                         : `Generating… ${elapsed}s`
-                      : "Generate poster"}
+                      : "Generate image"}
                 </button>
                 {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
               </div>
@@ -2912,9 +2911,9 @@ export function PosterPanel({
                           : `Generating… ${elapsed}s`
                       : generateCount > 1
                         ? planSlots.length > 1
-                          ? `Generate ${planSlots.length} posters (${generateCount} variants)`
+                          ? `Generate ${planSlots.length} images (${generateCount} variants)`
                           : `Generate ${generateCount} variants`
-                        : "Generate poster"}
+                        : "Generate image"}
                 </button>
                 {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
               </div>

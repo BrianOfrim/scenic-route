@@ -1,7 +1,7 @@
 import type { NamedWay, PosterPoi, PosterRecord, PosterSpec } from "../api";
 import { clampCrop } from "./crop";
 import { DEFAULT_FEATURE_IDS, FEATURE_CATALOG } from "./featureCatalog";
-import type { AspectRatio } from "./grounding/renderSchematic";
+import { DEFAULT_ASPECT_RATIO, type AspectRatio } from "./grounding/renderSchematic";
 import { AUTO_PALETTE_ID, DEFAULT_POSTER_STYLE, POSTER_STYLES, planSlotKey, snapshotPaletteIds } from "./styles";
 
 const NAMED_REGION_KINDS = new Set([
@@ -21,7 +21,7 @@ export type SavedSetupNames = {
   areaNames: string[];
 };
 
-const ASPECTS: AspectRatio[] = ["2:3", "3:4", "1:1", "4:3", "16:9"];
+const ASPECTS: AspectRatio[] = ["4:5", "2:3", "3:4", "1:1", "4:3", "16:9"];
 
 export type PosterEditorSnapshot = {
   featureIds: string[];
@@ -84,7 +84,7 @@ export type EditorCapture = {
 };
 
 export function asAspectRatio(value?: string | null): AspectRatio {
-  return ASPECTS.includes(value as AspectRatio) ? (value as AspectRatio) : "2:3";
+  return ASPECTS.includes(value as AspectRatio) ? (value as AspectRatio) : DEFAULT_ASPECT_RATIO;
 }
 
 function snapshotPalettes(

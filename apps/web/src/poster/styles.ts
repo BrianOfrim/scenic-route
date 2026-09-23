@@ -64,7 +64,7 @@ export const POSTER_STYLES: PosterStyle[] = [
   },
   {
     id: "wpa",
-    label: "WPA park poster",
+    label: "WPA park",
     prompt:
       "1930s WPA National Park poster: flat bold poster colors, screen-print grain, big stacked title, simplified landforms, a heroic composition. The route is a strong graphic path through the landscape.",
     palette: ["poster-orange", "forest-green", "cream"],
