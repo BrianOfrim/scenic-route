@@ -21,7 +21,7 @@ export type SavedSetupNames = {
   areaNames: string[];
 };
 
-const ASPECTS: AspectRatio[] = ["4:5", "2:3", "3:4", "1:1", "4:3", "16:9"];
+const ASPECTS: AspectRatio[] = ["3:4", "2:3", "1:1", "4:3", "16:9"];
 
 export type PosterEditorSnapshot = {
   featureIds: string[];

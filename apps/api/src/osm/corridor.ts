@@ -89,6 +89,37 @@ export function clipWaysToVariableCorridor<T extends { features?: unknown[] }>(
   return clipWaysToCorridor(ways, route, maxM, vertexRadius);
 }
 
+/** Keep each feature whole when any part of it meets the corridor. */
+export function keepWaysTouchingCorridor<T extends { features?: unknown[] }>(
+  ways: Record<string, T>,
+  route: LatLng[],
+  radiusM: number,
+  vertexRadius?: number[],
+): Record<string, T> {
+  const maxM = vertexRadius?.length === route.length ? Math.max(radiusM, ...vertexRadius) : radiusM;
+  if (route.length < 2 || !Number.isFinite(maxM) || maxM <= 0) return ways;
+  const index = new RouteIndex(route, maxM, vertexRadius);
+  const kept = {} as Record<string, T>;
+  for (const [key, bucket] of Object.entries(ways)) {
+    const features = (bucket?.features ?? []).filter(
+      (feature) => clipFeature(feature as CorridorFeature, index).length > 0,
+    );
+    kept[key] = { ...bucket, features: features as T["features"] };
+  }
+  return kept;
+}
+
+/** Same as `keepWaysTouchingCorridor`, with a width that follows the route. */
+export function keepWaysTouchingVariableCorridor<T extends { features?: unknown[] }>(
+  ways: Record<string, T>,
+  route: LatLng[],
+  vertexRadius: number[],
+): Record<string, T> {
+  if (vertexRadius.length !== route.length) return ways;
+  const maxM = vertexRadius.reduce((max, radius) => Math.max(max, radius), 0);
+  return keepWaysTouchingCorridor(ways, route, maxM, vertexRadius);
+}
+
 function snapCorridor(meters: number, minM: number, maxM: number): number {
   const snapped = Math.round(meters / CORRIDOR_STEP_M) * CORRIDOR_STEP_M;
   return Math.min(maxM, Math.max(minM, snapped));

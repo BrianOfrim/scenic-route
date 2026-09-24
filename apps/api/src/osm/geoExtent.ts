@@ -153,12 +153,129 @@ export function touchedAreaRings(
   return rings;
 }
 
+/** How far a soft cut may run past the inner scope before the hard cut. */
+export function outerExpandM(route: LatLng[]): number {
+  const raw = Math.min(2_000, Math.max(500, 0.125 * diagonalM(route)));
+  return Math.round(raw / 50) * 50;
+}
+
+/** Push a ring outward by `padM`. A self-crossing offset keeps the original ring. */
+export function expandRing(ring: LngLat[], padM: number): LngLat[] {
+  if (ring.length < 3 || padM <= 0) return ring.slice();
+  const lat0 = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
+  const local = openPts(ring.map(([lng, lat]) => project(lng, lat, lat0)));
+  if (local.length < 3) return ring.slice();
+  const grown = offsetRing(ensureCcw(local), padM);
+  const chosen = segmentsCross(grown) ? local : grown;
+  return chosen.map((point) => unproject(point, lat0));
+}
+
+/** Hard-cut every feature to `ring`, dropping anything that misses it. */
+export function clipWaysToRing<T extends { features?: unknown[] }>(
+  ways: Record<string, T>,
+  ring: LngLat[],
+): Record<string, T> {
+  if (ring.length < 3) return ways;
+  const lat0 = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
+  const localRing = ensureCcw(openPts(ring.map(([lng, lat]) => project(lng, lat, lat0))));
+  const clipped = {} as Record<string, T>;
+  for (const [key, bucket] of Object.entries(ways)) {
+    const features = ((bucket?.features ?? []) as ExtentFeature[]).flatMap((feature) =>
+      clipFeatureToRing(feature, localRing, lat0),
+    );
+    clipped[key] = { ...bucket, features: features as T["features"] };
+  }
+  return clipped;
+}
+
 export function clipWaysWiderAtEnds<T extends { features?: unknown[] }>(
   ways: Record<string, T>,
   route: LatLng[],
   midM: number,
 ): Record<string, T> {
   return clipWaysToVariableCorridor(ways, route, radiusAlongRoute(route, midM, endRadiusM(midM)));
+}
+
+/** Keep each feature whole when any part of it meets the ring. */
+export function keepWaysTouchingRing<T extends { features?: unknown[] }>(
+  ways: Record<string, T>,
+  ring: LngLat[],
+): Record<string, T> {
+  if (ring.length < 3) return ways;
+  const lat0 = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
+  const localRing = ring.map(([lng, lat]) => project(lng, lat, lat0));
+  const kept = {} as Record<string, T>;
+  for (const [key, bucket] of Object.entries(ways)) {
+    const features = ((bucket?.features ?? []) as ExtentFeature[]).filter((feature) =>
+      geometryTouchesRing(feature.geometry, localRing, lat0),
+    );
+    kept[key] = { ...bucket, features: features as T["features"] };
+  }
+  return kept;
+}
+
+function geometryTouchesRing(
+  geometry: ExtentFeature["geometry"],
+  ring: Pt[],
+  lat0: number,
+): boolean {
+  if (!geometry?.coordinates) return false;
+  if (geometry.type === "Point") {
+    const point = asPoint(geometry.coordinates);
+    return point ? pointInRing(project(point[0], point[1], lat0), ring) : false;
+  }
+  if (geometry.type === "LineString" || geometry.type === "MultiLineString") {
+    return linesOf(geometry).some((line) => polylineTouches(line.map(([lng, lat]) => project(lng, lat, lat0)), ring));
+  }
+  return outerRings(geometry).some((outer) => {
+    const local = openRing(outer).map(([lng, lat]) => project(lng, lat, lat0));
+    return local.length >= 3 && polygonTouches(local, ring);
+  });
+}
+
+function polylineTouches(line: Pt[], ring: Pt[]): boolean {
+  if (line.some((point) => pointInRing(point, ring))) return true;
+  return edgesCross(line, ring, false);
+}
+
+function polygonTouches(polygon: Pt[], ring: Pt[]): boolean {
+  if (polygon.some((point) => pointInRing(point, ring))) return true;
+  if (ring.some((point) => pointInRing(point, polygon))) return true;
+  return edgesCross(polygon, ring, true);
+}
+
+function edgesCross(a: Pt[], b: Pt[], closeA: boolean): boolean {
+  const aCount = closeA ? a.length : a.length - 1;
+  for (let i = 0; i < aCount; i += 1) {
+    const a0 = a[i];
+    const a1 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j += 1) {
+      if (properCross(a0, a1, b[j], b[(j + 1) % b.length])) return true;
+    }
+  }
+  return false;
+}
+
+function linesOf(geometry: ExtentFeature["geometry"]): number[][][] {
+  if (!geometry?.coordinates) return [];
+  if (geometry.type === "LineString") return [asLine(geometry.coordinates)];
+  if (geometry.type === "MultiLineString") return asLines(geometry.coordinates);
+  return [];
+}
+
+function asPoint(value: unknown): [number, number] | null {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const lng = value[0];
+  const lat = value[1];
+  return typeof lng === "number" && typeof lat === "number" ? [lng, lat] : null;
+}
+
+function asLine(value: unknown): number[][] {
+  return Array.isArray(value) ? (value as number[][]) : [];
+}
+
+function asLines(value: unknown): number[][][] {
+  return Array.isArray(value) ? (value as number[][][]) : [];
 }
 
 function areaTouchesRoute(feature: ExtentFeature, route: Pt[], lat0: number, radiusM: number): boolean {
@@ -220,6 +337,127 @@ function pointInRing(point: Pt, ring: Pt[]): boolean {
     if (intersect) inside = !inside;
   }
   return inside;
+}
+
+function openPts(points: Pt[]): Pt[] {
+  if (points.length > 1 && Math.hypot(points[0].x - points[points.length - 1].x, points[0].y - points[points.length - 1].y) < 1) {
+    return points.slice(0, -1);
+  }
+  return points;
+}
+
+function clipFeatureToRing(feature: ExtentFeature, ring: Pt[], lat0: number): ExtentFeature[] {
+  const geometry = feature.geometry;
+  if (!geometry) return [];
+  if (geometry.type === "LineString" || geometry.type === "MultiLineString") {
+    const lines = linesOf(geometry)
+      .flatMap((line) => clipLineToRing(line, ring, lat0))
+      .filter((line) => line.length >= 2);
+    if (!lines.length) return [];
+    return lines.map((line) => ({ ...feature, geometry: { type: "LineString", coordinates: line } }));
+  }
+  if (geometry.type === "Polygon" || geometry.type === "MultiPolygon") {
+    const rings = outerRings(geometry)
+      .map((shape) => clipPolygonToRing(shape, ring, lat0))
+      .filter((shape) => shape.length >= 3);
+    if (!rings.length) return [];
+    return rings.map((shape) => ({ ...feature, geometry: { type: "Polygon", coordinates: [shape] } }));
+  }
+  return [];
+}
+
+function clipLineToRing(line: number[][], ring: Pt[], lat0: number): number[][][] {
+  const local = line.map((point) => {
+    const [lng, lat] = asPoint(point);
+    return project(lng, lat, lat0);
+  });
+  const pieces: number[][][] = [];
+  let current: number[][] = [];
+  let previous: Pt | null = null;
+  let previousInside = false;
+  const push = (point: Pt) => {
+    const [lng, lat] = unproject(point, lat0);
+    current.push([lng, lat]);
+  };
+  const finish = () => {
+    if (current.length >= 2) pieces.push(current);
+    current = [];
+  };
+  for (const point of local) {
+    const inside = pointInRing(point, ring);
+    if (previous && inside !== previousInside) {
+      const hit = ringHit(previous, point, ring);
+      if (hit) push(hit);
+      if (!inside) finish();
+    }
+    if (inside) push(point);
+    previous = point;
+    previousInside = inside;
+  }
+  finish();
+  return pieces;
+}
+
+function clipPolygonToRing(shape: number[][], ring: Pt[], lat0: number): number[][] {
+  let output = openPts(
+    shape.map((point) => {
+      const [lng, lat] = asPoint(point);
+      return project(lng, lat, lat0);
+    }),
+  );
+  if (output.length < 3) return [];
+  for (let i = 0; i < ring.length; i += 1) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    const input = output;
+    output = [];
+    for (let j = 0; j < input.length; j += 1) {
+      const current = input[j];
+      const prior = input[(j + input.length - 1) % input.length];
+      const currentIn = leftOf(a, b, current);
+      const priorIn = leftOf(a, b, prior);
+      if (currentIn) {
+        if (!priorIn) {
+          const hit = edgeHit(prior, current, a, b);
+          if (hit) output.push(hit);
+        }
+        output.push(current);
+      } else if (priorIn) {
+        const hit = edgeHit(prior, current, a, b);
+        if (hit) output.push(hit);
+      }
+    }
+    if (output.length < 3) return [];
+  }
+  return output.map((point) => unproject(point, lat0));
+}
+
+function ringHit(a: Pt, b: Pt, ring: Pt[]): Pt | null {
+  let best: Pt | null = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < ring.length; i += 1) {
+    const hit = edgeHit(a, b, ring[i], ring[(i + 1) % ring.length]);
+    if (!hit) continue;
+    const dist = Math.hypot(hit.x - a.x, hit.y - a.y);
+    if (dist < bestDist) {
+      best = hit;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+function edgeHit(a: Pt, b: Pt, c: Pt, d: Pt): Pt | null {
+  const denom = (a.x - b.x) * (c.y - d.y) - (a.y - b.y) * (c.x - d.x);
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = ((a.x - c.x) * (c.y - d.y) - (a.y - c.y) * (c.x - d.x)) / denom;
+  const u = ((a.x - c.x) * (a.y - b.y) - (a.y - c.y) * (a.x - b.x)) / denom;
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+  return { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+}
+
+function leftOf(a: Pt, b: Pt, point: Pt): boolean {
+  return (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x) >= 0;
 }
 
 function boundsNear(ring: Pt[], route: Pt[], radiusM: number): boolean {

@@ -26,4 +26,7 @@ test("a mask is active only when it keeps some region", () => {
   assert.equal(maskIsActive({ rings: [[[0, 0], [1, 0], [1, 1]]] }), true);
   assert.equal(maskIsActive({ bandM: 800 }), true);
   assert.equal(maskIsActive({ bandM: [0, 400] }), true);
+  assert.equal(maskIsActive({ whole: true }), false);
+  assert.equal(maskIsActive({ lines: [[[0, 0], [1, 1]]], lineM: 80 }), true);
+  assert.equal(maskIsActive({ lines: [[[0, 0], [1, 1]]] }), false);
 });

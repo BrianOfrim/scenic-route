@@ -4,6 +4,7 @@ import {
   CORRIDOR_CAP_M,
   clipWaysToCorridor,
   corridorForRoute,
+  keepWaysTouchingCorridor,
   defaultCorridorM,
   formatCorridorM,
   type LatLng,
@@ -63,6 +64,19 @@ test("lines far from the route are dropped and crossings are cut", () => {
   const edge = -114 + 500 / (111_320 * cos);
   assert.ok(Math.abs(maxLng - edge) < 0.0008, `cut at ${maxLng}, expected near ${edge}`);
   assert.equal(near.geometry?.coordinates.length, 2);
+});
+
+test("a crossing line that meets the corridor is kept through to its far end", () => {
+  const route = [north(51), north(51.02)];
+  const crossing = line([[-114, 51.01], [-113.98, 51.01]], "cross");
+  const far = line([[-113.9, 51.005], [-113.9, 51.015]], "far");
+  const kept = keepWaysTouchingCorridor(
+    { roads: { type: "FeatureCollection", features: [crossing, far] } },
+    route,
+    500,
+  );
+  assert.deepEqual(kept.roads.features.map((feature) => feature.properties?.name), ["cross"]);
+  assert.deepEqual(kept.roads.features[0].geometry?.coordinates, crossing.geometry.coordinates);
 });
 
 test("a polygon is trimmed to the corridor", () => {

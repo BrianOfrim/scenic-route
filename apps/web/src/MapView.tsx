@@ -662,21 +662,22 @@ export function MapView({
     map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
     const apply = () => {
       map.resize();
+      const target = cropLatLng ?? selectedLatLng;
       if (basemapRef.current === "schematic") {
         clearMarkers(markersRef);
         map.triggerRepaint();
-        fit(map, cropLatLng ?? selectedLatLng, 600, bottom);
+        fit(map, target, 600, bottom);
         return;
       }
       if (!styleReadyRef.current) return;
       map.triggerRepaint();
-      fit(map, cropLatLng ?? selectedLatLng, 600, bottom);
+      fit(map, target, 600, bottom);
     };
     apply();
     return () => {
       map.off("style.load", apply);
     };
-  }, [selectedLatLng, cropLatLng, cropStops, viewNonce, fitPaddingBottom]);
+  }, [selectedLatLng, cropLatLng, cropStops, viewNonce, fitPaddingBottom, basemap]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1261,9 +1262,11 @@ function paintSchematicOverlay(
       namedAreas: data.namedAreas,
       layers: data.layers ?? undefined,
       clipPolygon:
-        (data.geoOutlineActive || data.geoOutlinePreview) && data.geoOutline && data.geoOutline.length >= 3
-          ? data.geoOutline
-          : undefined,
+        data.geoMask?.whole
+          ? undefined
+          : (data.geoOutlineActive || data.geoOutlinePreview) && data.geoOutline && data.geoOutline.length >= 3
+            ? data.geoOutline
+            : undefined,
     },
     project,
     {
