@@ -1,5 +1,5 @@
 import { useGenerationState } from "./generationState";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { deletePoster, fetchActivities, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
 import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
@@ -187,6 +187,8 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const generation = useGenerationState();
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const postersRef = useRef(posters);
+  postersRef.current = posters;
   const [error, setError] = useState<string | null>(null);
   const [studioFrom, setStudioFrom] = useState<PosterRecord | null>(null);
   const [active, setActive] = useState<PosterRecord | null>(null);
@@ -209,7 +211,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (postersRef.current.length === 0) setLoading(true);
     fetchPosters()
       .then((items) => {
         if (!cancelled) setPosters(items);

@@ -2666,6 +2666,20 @@ export function PosterPanel({
             className={workflowPane("geography")}
             hint={featuresRefreshing ? <FeatureQueryHint label="Querying OpenStreetMap…" /> : undefined}
           >
+            <div className="poster-geo-grid">
+              {catalog
+                .filter((item) => item.group === "geography")
+                .map((item) => (
+                  <label key={item.id} className="check">
+                    <input
+                      type="checkbox"
+                      checked={featureIds.includes(item.id)}
+                      onChange={() => toggleFeature(item.id)}
+                    />
+                    {item.label}
+                  </label>
+                ))}
+            </div>
             <div className="geo-scope" role="radiogroup" aria-label="Background geography">
               {GEO_SCOPES.map((item) => (
                 <button
@@ -2767,20 +2781,6 @@ export function PosterPanel({
                 </span>
               </div>
             )}
-            <div className="poster-geo-grid">
-              {catalog
-                .filter((item) => item.group === "geography")
-                .map((item) => (
-                  <label key={item.id} className="check">
-                    <input
-                      type="checkbox"
-                      checked={featureIds.includes(item.id)}
-                      onChange={() => toggleFeature(item.id)}
-                    />
-                    {item.label}
-                  </label>
-                ))}
-            </div>
           </PosterSection>
 
           {showOnMapStep && (

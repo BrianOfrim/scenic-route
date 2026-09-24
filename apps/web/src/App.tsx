@@ -610,7 +610,8 @@ export function App() {
           onSelect={selectTab}
         />
       </div>
-      {showGallery ? (
+      {/* Stay mounted so a generation in flight cannot blank the list behind a fresh load. */}
+      <div hidden={!showGallery}>
         <Gallery
           account={profileMenu}
           tabs={<AppTabs active="gallery" isMobile={isMobile} onSelect={selectTab} />}
@@ -624,7 +625,7 @@ export function App() {
             go("/");
           }}
         />
-      ) : null}
+      </div>
     </>
   );
 }
