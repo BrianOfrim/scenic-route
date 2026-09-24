@@ -1,6 +1,12 @@
 /** Extra geography extents: rotated box, convex hull, loop interior, and area-aware corridor. */
 
-import { clipWaysToCorridor, clipWaysToVariableCorridor, type LatLng } from "./corridor";
+import {
+  clipWaysToCorridor,
+  clipWaysToVariableCorridor,
+  keepWaysTouchingCorridor,
+  keepWaysTouchingVariableCorridor,
+  type LatLng,
+} from "./corridor";
 
 export type LngLat = [number, number];
 
@@ -168,6 +174,65 @@ export function expandRing(ring: LngLat[], padM: number): LngLat[] {
   const grown = offsetRing(ensureCcw(local), padM);
   const chosen = segmentsCross(grown) ? local : grown;
   return chosen.map((point) => unproject(point, lat0));
+}
+
+export type GeographyCutScope = "corridor" | "ends" | "ring";
+
+export type OuterHardCut =
+  | { kind: "ring"; ring: LngLat[] }
+  | { kind: "band"; bandM: number | number[] };
+
+/**
+ * Keep features that meet the inner scope, then hard-cut them at the further-out limit.
+ * Features that miss the inner scope are dropped, even if they sit inside the outer band.
+ */
+export function clipWaysSoftThenHard<T extends { features?: unknown[] }>(
+  ways: Record<string, T>,
+  route: LatLng[],
+  scope: GeographyCutScope,
+  options: { corridorM?: number | null; ring?: LngLat[] | null } = {},
+): Record<string, T> {
+  if (route.length < 2) return ways;
+  const expand = outerExpandM(route);
+  if (scope === "ends" && options.corridorM != null) {
+    const inner = radiusAlongRoute(route, options.corridorM, endRadiusM(options.corridorM));
+    return clipWaysToVariableCorridor(
+      keepWaysTouchingVariableCorridor(ways, route, inner),
+      route,
+      inner.map((radius) => radius + expand),
+    );
+  }
+  if (scope === "corridor" && options.corridorM != null) {
+    return clipWaysToCorridor(
+      keepWaysTouchingCorridor(ways, route, options.corridorM),
+      route,
+      options.corridorM + expand,
+    );
+  }
+  if (scope === "ring" && options.ring && options.ring.length >= 3) {
+    return clipWaysToRing(keepWaysTouchingRing(ways, options.ring), expandRing(options.ring, expand));
+  }
+  return ways;
+}
+
+/** Further-out hard cut. The satellite image is masked to this boundary. */
+export function outerHardCut(
+  route: LatLng[],
+  scope: GeographyCutScope,
+  options: { corridorM?: number | null; ring?: LngLat[] | null } = {},
+): OuterHardCut | null {
+  if (route.length < 2) return null;
+  const expand = outerExpandM(route);
+  if (scope === "ring") {
+    if (!options.ring || options.ring.length < 3) return null;
+    return { kind: "ring", ring: expandRing(options.ring, expand) };
+  }
+  if (options.corridorM == null) return null;
+  if (scope === "ends") {
+    const inner = radiusAlongRoute(route, options.corridorM, endRadiusM(options.corridorM));
+    return { kind: "band", bandM: inner.map((radius) => radius + expand) };
+  }
+  return { kind: "band", bandM: options.corridorM + expand };
 }
 
 /** Hard-cut every feature to `ring`, dropping anything that misses it. */
