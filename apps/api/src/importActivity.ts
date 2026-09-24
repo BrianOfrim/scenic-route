@@ -21,9 +21,10 @@ export type ImportResult = {
 
 export async function importTrackFiles(userId: string, files: ImportFile[]): Promise<ImportResult> {
   const activities: ActivitySummary[] = [];
-  const errors: Array<{ filename: string; error: string }> = [];
+  const expanded = expandUploads(files);
+  const errors = [...expanded.errors];
   let skipped = 0;
-  for (const file of expandUploads(files)) {
+  for (const file of expanded.tracks) {
     try {
       const imported = await insertImportedTrack(userId, file, file.filename);
       if (imported === "skipped") skipped += 1;
@@ -124,30 +125,42 @@ function detectFormat(bytes: Uint8Array, filename: string): ActivityFormat {
   throw new ImportError("Upload a GPX, FIT, TCX, or account export zip");
 }
 
-function expandUploads(files: ImportFile[]): ArchiveTrack[] {
+function expandUploads(files: ImportFile[]): {
+  tracks: ArchiveTrack[];
+  errors: Array<{ filename: string; error: string }>;
+} {
   const tracks: ArchiveTrack[] = [];
+  const errors: Array<{ filename: string; error: string }> = [];
   for (const file of files) {
-    if (isZipBytes(file.bytes) || file.filename.toLowerCase().endsWith(".zip")) {
-      tracks.push(...expandImportArchive(file.bytes, file.filename));
-      continue;
+    const filename = file.filename || "upload";
+    try {
+      if (isZipBytes(file.bytes) || filename.toLowerCase().endsWith(".zip")) {
+        tracks.push(...expandImportArchive(file.bytes, filename));
+        continue;
+      }
+      tracks.push({
+        origin: "upload",
+        filename,
+        bytes: maybeGunzip(file.bytes, filename),
+        externalId: null,
+        name: null,
+        type: null,
+        startDate: null,
+        distance: null,
+        movingTime: null,
+        elapsedTime: null,
+        elevationGain: null,
+        averageSpeed: null,
+        maxSpeed: null,
+      });
+    } catch (error) {
+      errors.push({
+        filename,
+        error: error instanceof Error ? error.message : "import failed",
+      });
     }
-    tracks.push({
-      origin: "upload",
-      filename: file.filename,
-      bytes: maybeGunzip(file.bytes, file.filename),
-      externalId: null,
-      name: null,
-      type: null,
-      startDate: null,
-      distance: null,
-      movingTime: null,
-      elapsedTime: null,
-      elevationGain: null,
-      averageSpeed: null,
-      maxSpeed: null,
-    });
   }
-  return tracks;
+  return { tracks, errors };
 }
 
 function looksLikeGpx(xml: string): boolean {
