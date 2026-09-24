@@ -49,6 +49,7 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.match(String(messages[0].content), /not title-block stats/);
   assert.match(String(messages[0].content), /never a prose string in place of an object/);
   assert.match(String(messages[0].content), /Do not request a scale bar/);
+  assert.match(String(messages[0].content), /Each stat is printed once/);
   assert.match(String(messages[0].content), /private index/);
   assert.match(String(messages[0].content), /never copy the numbers/);
   assert.match(String(messages[0].content), /small marker on the route/);

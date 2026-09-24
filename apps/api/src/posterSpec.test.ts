@@ -149,6 +149,8 @@ test("specToImagePrompt renders prose without JSON or empty fields", () => {
   assert.match(prompt, /replace every disc with a small on-route marker/);
   assert.match(prompt, /Title, exactly: "Bow Valley"\./);
   assert.match(prompt, /Stats to typeset: Distance 42\.0 km\./);
+  assert.match(prompt, /Typeset each stat once/);
+  assert.match(prompt, /must not appear as both a large display figure and a labeled line/);
 });
 
 test("specToImagePrompt appends explicit exclusions once", () => {

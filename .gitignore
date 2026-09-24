@@ -6,6 +6,7 @@ data/*.sqlite-*
 data/posters/
 data/osm-cache/
 data/llm-traces/
+examples/canadian-routes/
 *.log
 .vite
 .wrangler/
