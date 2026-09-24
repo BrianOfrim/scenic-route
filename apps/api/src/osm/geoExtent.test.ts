@@ -5,7 +5,6 @@ import {
   clipWaysKeepingTouchedAreas,
   touchedAreaRings,
   convexHullRing,
-  dropResidentialStreets,
   endRadiusM,
   loopBandRing,
   radiusAlongRoute,
@@ -131,16 +130,6 @@ test("parks and lakes the route meets stay whole while distant ones drop", () =>
   const rings = touchedAreaRings(ways, route, 400);
   assert.equal(rings.length, 1);
   assert.equal(rings[0].length, touched.length);
-});
-
-test("major features drop residential streets and keep the other buckets", () => {
-  const ways = {
-    streets: line([[0, 0], [1, 1]]),
-    roads: line([[0, 0], [1, 0]]),
-  };
-  const next = dropResidentialStreets(ways);
-  assert.equal(next.streets.features?.length, 0);
-  assert.equal(next.roads.features?.length, 1);
 });
 
 test("rectangleRing orders opposite corners", () => {
