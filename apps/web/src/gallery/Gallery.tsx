@@ -1,9 +1,10 @@
 import { useGenerationState } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { deletePoster, fetchActivities, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
+import { deletePoster, fetchActivities, fetchPoster, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
 import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, viewerThumbStacks, type GallerySort } from "./galleryRuns";
+import { mergePosterList, posterCardSrc } from "./galleryList";
 import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
 import { ShareButton } from "../share";
@@ -26,7 +27,7 @@ function posterLabel(
 ) {
   return (
     [
-      compareStyles ? styleLabel(item.styleId, item.spec?.style?.name) : null,
+      compareStyles ? styleLabel(item.styleId, item.styleName ?? item.spec?.style?.name) : null,
       compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
       compareQualities ? shortQualityLabel(item.quality) : null,
       posterVariantLabel(item, siblings),
@@ -98,13 +99,13 @@ function GalleryCard({
           <div className="gallery-stack">
             {versionCount > 2 ? <span className="gallery-stack-sheet a" aria-hidden="true" /> : null}
             <span className="gallery-stack-sheet b" aria-hidden="true" />
-            <img src={poster.url} alt="" />
+            <img src={posterCardSrc(poster)} alt="" />
             <span className="gallery-stack-count" title={`${versionCount} versions`}>
               {versionCount}
             </span>
           </div>
         ) : (
-          <img src={poster.url} alt={poster.title} />
+          <img src={posterCardSrc(poster)} alt={poster.title} />
         )}
         <span>
           {title ? <strong>{title}</strong> : null}
@@ -214,7 +215,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     if (postersRef.current.length === 0) setLoading(true);
     fetchPosters()
       .then((items) => {
-        if (!cancelled) setPosters(items);
+        if (!cancelled) setPosters((current) => mergePosterList(current, items));
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not load images");
@@ -272,6 +273,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         return {
           id: item.posterId,
           src: item.url,
+          thumbSrc: item.thumbUrl || item.url,
           label: note && stacked ? `${base} · ${note}` : base,
         };
       }),
@@ -317,14 +319,42 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     setActive((current) => (current?.posterId === next.posterId ? next : current));
   }
 
+  function patchPoster(posterId: string, patch: Partial<PosterRecord>) {
+    setPosters((current) =>
+      current.map((item) => (item.posterId === posterId ? { ...item, ...patch } : item)),
+    );
+    setActive((current) => (current?.posterId === posterId ? { ...current, ...patch } : current));
+  }
+
   async function handleFavorite(poster: PosterRecord) {
     const next = !poster.favorited;
-    updatePoster({ ...poster, favorited: next });
+    patchPoster(poster.posterId, { favorited: next });
     try {
-      updatePoster(await setPosterFavorite(poster.posterId, next));
+      const saved = await setPosterFavorite(poster.posterId, next);
+      patchPoster(poster.posterId, { favorited: saved.favorited });
     } catch (err: unknown) {
-      updatePoster(poster);
+      patchPoster(poster.posterId, { favorited: poster.favorited });
       setError(err instanceof Error ? err.message : "Could not update favourite");
+    }
+  }
+
+  async function handleEditSetup(poster: PosterRecord) {
+    try {
+      onEditSetup(await fetchPoster(poster.posterId));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not load image setup");
+    }
+  }
+
+  async function handleShowMeta() {
+    const next = !showMeta;
+    setShowMeta(next);
+    if (!next || !active) return;
+    if (active.spec) return;
+    try {
+      updatePoster(await fetchPoster(active.posterId));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not load image details");
     }
   }
 
@@ -415,7 +445,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                     versionCount={versions}
                     lines={[
                       [
-                        styleLabel(poster.styleId, poster.spec?.style?.name),
+                        styleLabel(poster.styleId, poster.styleName ?? poster.spec?.style?.name),
                         shortModelLabel(poster.model, poster.modelName),
                         shortQualityLabel(poster.quality),
                         poster.variant != null ? String(poster.variant) : null,
@@ -469,7 +499,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                 <strong>{active.title}</strong>
                 <span className="muted">{active.subtitle}</span>
                 <span className="gallery-model">
-                  {styleLabel(active.styleId, active.spec?.style?.name)}
+                  {styleLabel(active.styleId, active.styleName ?? active.spec?.style?.name)}
                   {` · ${shortModelLabel(active.model, active.modelName)}`}
                   {active.quality ? ` · ${active.quality}` : ""}
                 </span>
@@ -510,7 +540,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                 >
                   {active.favorited ? "Favourited" : "Favourite"}
                 </button>
-                <button type="button" className="text-btn" onClick={() => setShowMeta((value) => !value)}>
+                <button type="button" className="text-btn" onClick={() => void handleShowMeta()}>
                   {showMeta ? "Hide details" : "Details"}
                 </button>
                 {selectedImage && (
@@ -531,7 +561,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                 >
                   Refine image
                 </button>
-                <button type="button" className="text-btn" onClick={() => onEditSetup(active)}>
+                <button type="button" className="text-btn" onClick={() => void handleEditSetup(active)}>
                   Edit setup
                 </button>
                 <button type="button" className="text-btn" onClick={() => void handleDelete(active)}>

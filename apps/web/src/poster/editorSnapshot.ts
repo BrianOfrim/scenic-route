@@ -179,8 +179,8 @@ export type RestoredEditor = {
 function savedStartFinish(record: PosterRecord) {
   const specStart = record.spec?.route.startName?.trim() ?? "";
   const specFinish = record.spec?.route.finishName?.trim() ?? "";
-  const savedStart = specStart || record.stats.find((item) => /^start/i.test(item.label))?.value || "";
-  const savedFinish = specFinish || record.stats.find((item) => /^finish$/i.test(item.label))?.value || "";
+  const savedStart = specStart || record.stats?.find((item) => /^start/i.test(item.label))?.value || "";
+  const savedFinish = specFinish || record.stats?.find((item) => /^finish$/i.test(item.label))?.value || "";
   return {
     startPlace: savedStart || savedFinish,
     finishPlace: savedFinish || savedStart,
@@ -399,7 +399,7 @@ export function restoreEditor(
     editor && (editor.labels.length > 0 || editor.trailNames.length > 0 || editor.areaNames.length > 0);
   return {
     featureIds: featureIdsToResolveNames(
-      editor?.featureIds?.length ? editor.featureIds : record.featureIds,
+      editor?.featureIds?.length ? editor.featureIds : record.featureIds ?? [],
       saved,
     ),
     labels: fromEditor && editor ? editor.labels : saved.labels,
@@ -418,7 +418,7 @@ export function restoreEditor(
     placesEdited: editor?.placesEdited ?? Boolean(startPlace || finishPlace),
     statIds: editor?.statIds?.length
       ? editor.statIds
-      : record.stats.length
+      : record.stats?.length
         ? record.stats
             .map((item) => statIdFromLabel(item.label))
             .filter((id) => id !== "startPlace" && id !== "finishPlace")

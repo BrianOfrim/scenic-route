@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 export type GalleryImage = {
   id: string;
   src: string;
+  thumbSrc?: string;
   label: string;
 };
 
@@ -114,7 +115,7 @@ export function GalleryViewer({
                       onClick={() => onSelectPoster(image.id)}
                     >
                       {buried ? <span className="lightbox-thumb-older-tab">Older</span> : null}
-                      <img src={image.src} alt="" />
+                      <img src={image.thumbSrc || image.src} alt="" />
                     </button>
                   );
                 })}

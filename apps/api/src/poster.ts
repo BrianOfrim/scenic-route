@@ -1,11 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { getActivity } from "./activities";
 import { imageDataUrl, sniffImageMime } from "./imageMime";
+import { mapWithConcurrency } from "./mapPool";
 import { revisePosterPrompt } from "./modifyPrompt";
 import { createImage, listImageModels, maxImageOutputs, maxImageReferences, resolveImageModel } from "./openrouter";
 import { isSafePosterId } from "./paths";
 import { DEFAULT_ASPECT_RATIO, imageAspectRatio, specToImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
 import { posterStore } from "./storage";
+import { encodePosterThumb } from "./thumb";
 
 export class PosterError extends Error {
   readonly status: 400 | 401 | 404 | 502 | 504;
@@ -22,8 +24,8 @@ export type PosterRecord = {
   activityId: number;
   title: string;
   subtitle: string;
-  spec: PosterSpec;
-  prompt: string;
+  spec?: PosterSpec;
+  prompt?: string;
   model: string;
   modelName?: string;
   batchId?: string;
@@ -38,18 +40,22 @@ export type PosterRecord = {
   createdAt: string;
   previousPosterId?: string;
   refineNotes?: string;
-  featureIds: string[];
-  labels: string[];
-  stats: Array<{ label: string; value: string }>;
+  featureIds?: string[];
+  labels?: string[];
+  stats?: Array<{ label: string; value: string }>;
   styleId: string;
-  stylePrompt: string;
+  styleName?: string;
+  stylePrompt?: string;
   paletteId?: string;
   referenceCount: number;
   variant?: number;
   url: string;
+  thumbUrl?: string;
   favorited?: boolean;
   editor?: PosterEditorSnapshot;
 };
+
+export const LIST_POSTER_CONCURRENCY = 8;
 
 export type PosterEditorSnapshot = {
   featureIds: string[];
@@ -278,11 +284,13 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
         labels: body.labels ?? [],
         stats: body.stats ?? spec.text.stats,
         styleId: body.styleId ?? "",
+        styleName: spec.style.name || undefined,
         stylePrompt: body.stylePrompt ?? spec.style.medium,
         paletteId: body.paletteId?.trim() || undefined,
         referenceCount: decoded.length,
         variant: index + 1,
         url: `/api/posters/${posterId}/image.png`,
+        thumbUrl: `/api/posters/${posterId}/thumb.webp`,
         editor: sanitizePosterEditor(body.editor),
       };
       const posterBytes = Buffer.from(image.b64, "base64");
@@ -292,6 +300,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
           store.put(userId, `${posterId}.ref-${refIndex + 1}.png`, ref.bytes, sniffImageMime(ref.bytes) || ref.mime),
         ),
       );
+      await persistPosterThumb(userId, posterId, posterBytes);
       await store.put(userId, `${posterId}.json`, Buffer.from(JSON.stringify(record, null, 2)), "application/json");
       return record;
     }),
@@ -303,6 +312,7 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
   if (!request) throw new PosterError("a modification request is required");
   const source = await readPosterRecord(userId, body.posterId);
   if (!source) throw new PosterError("image not found", 404);
+  if (!source.spec || source.prompt == null) throw new PosterError("image is missing prompt data", 502);
   const previousUrl = pngDataUrl(await readPosterPng(userId, source.posterId));
   const grounding = await readPosterGroundingUrls(userId, source.posterId, source.referenceCount);
   if (!grounding.length) throw new PosterError("previous image is missing grounding images");
@@ -344,17 +354,50 @@ function newBatchId() {
   return randomBytes(8).toString("hex");
 }
 
+export function toPosterListItem(record: PosterRecord): PosterRecord {
+  const styleName = record.styleName?.trim() || record.spec?.style?.name?.trim() || undefined;
+  return {
+    posterId: record.posterId,
+    userId: record.userId,
+    activityId: record.activityId,
+    title: record.title,
+    subtitle: record.subtitle,
+    model: record.model,
+    modelName: record.modelName,
+    batchId: record.batchId,
+    aspectRatio: record.aspectRatio,
+    quality: record.quality,
+    cost: record.cost,
+    promptCost: record.promptCost,
+    promptModel: record.promptModel,
+    durationMs: record.durationMs,
+    createdAt: record.createdAt,
+    previousPosterId: record.previousPosterId,
+    refineNotes: record.refineNotes,
+    styleId: record.styleId,
+    styleName,
+    paletteId: record.paletteId,
+    referenceCount: record.referenceCount,
+    variant: record.variant,
+    url: posterImageUrl(record.posterId),
+    thumbUrl: posterThumbUrl(record.posterId),
+    favorited: record.favorited,
+  };
+}
+
 export async function listPosters(userId: string, activityId?: number): Promise<PosterRecord[]> {
   const names = await posterStore().listJsonNames(userId);
-  const rows: PosterRecord[] = [];
-  for (const name of names) {
-    const record = await readPosterRecord(userId, name.slice(0, -".json".length));
-    if (!record) continue;
-    if (activityId != null && record.activityId !== activityId) continue;
-    rows.push(record);
-  }
+  const ids = names.map((name) => name.slice(0, -".json".length));
+  const loaded = await mapWithConcurrency(ids, LIST_POSTER_CONCURRENCY, (posterId) =>
+    readPosterRecord(userId, posterId),
+  );
+  const rows = loaded.filter((record): record is PosterRecord => {
+    if (!record) return false;
+    if (activityId != null && record.activityId !== activityId) return false;
+    return true;
+  });
   rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  return rows;
+  return rows.map(toPosterListItem);
 }
 
 export async function readPosterRecord(userId: string, posterId: string): Promise<PosterRecord | null> {
@@ -366,7 +409,9 @@ export async function readPosterRecord(userId: string, posterId: string): Promis
     return {
       ...parsed,
       userId,
-      url: parsed.url || `/api/posters/${posterId}/image.png`,
+      styleName: parsed.styleName?.trim() || parsed.spec?.style?.name?.trim() || undefined,
+      url: posterImageUrl(posterId),
+      thumbUrl: posterThumbUrl(posterId),
     };
   } catch {
     return null;
@@ -385,6 +430,34 @@ export async function readPosterRef(userId: string, posterId: string, index: num
   const bytes = await posterStore().get(userId, `${posterId}.ref-${index}.png`);
   if (!bytes) throw new PosterError("reference not found", 404);
   return bytes;
+}
+
+export async function readPosterThumb(userId: string, posterId: string): Promise<Buffer> {
+  if (!isSafePosterId(posterId)) throw new PosterError("image not found", 404);
+  const store = posterStore();
+  const existing = await store.get(userId, `${posterId}.thumb.webp`);
+  if (existing) return existing;
+  const png = await readPosterPng(userId, posterId);
+  const thumb = await encodePosterThumb(png);
+  await store.put(userId, `${posterId}.thumb.webp`, thumb, "image/webp");
+  return thumb;
+}
+
+function posterImageUrl(posterId: string) {
+  return `/api/posters/${posterId}/image.png`;
+}
+
+function posterThumbUrl(posterId: string) {
+  return `/api/posters/${posterId}/thumb.webp`;
+}
+
+async function persistPosterThumb(userId: string, posterId: string, png: Buffer) {
+  try {
+    const thumb = await encodePosterThumb(png);
+    await posterStore().put(userId, `${posterId}.thumb.webp`, thumb, "image/webp");
+  } catch (error) {
+    console.warn(`poster thumb failed for ${posterId}`, error instanceof Error ? error.message : error);
+  }
 }
 
 function finiteCost(value: unknown): number | null {
@@ -503,7 +576,7 @@ export async function setPosterFavorite(userId: string, posterId: string, favori
   if (!record) throw new PosterError("image not found", 404);
   const next: PosterRecord = { ...record, userId, favorited };
   await posterStore().put(userId, `${posterId}.json`, Buffer.from(JSON.stringify(next, null, 2)), "application/json");
-  return next;
+  return toPosterListItem(next);
 }
 
 export async function deletePoster(userId: string, posterId: string) {
