@@ -352,10 +352,69 @@ export function promptExclusions(routeOnly: boolean) {
 
 /** Locked at the front of every image prompt. The route is the product. */
 export const ROUTE_TRACE_RULE =
-  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and landmarks. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Do not snap the path onto a nearby road unless the schematic already shows that. Colored stretches on the schematic are a private name index only: look up the trail name, then discard the color. Paint the whole path as one styled route of even thickness. Route visibility is non-negotiable: it is the primary visual mark and must maintain strong contrast with its immediate background along every segment. Choose its palette color, weight, and surrounding map detail so the complete route is instantly readable; never let water, terrain, roads, textures, or labels make it fade into the background. Title-block safety is non-negotiable: place the title only in unused negative space, never on, over, through, or beyond the route. Do not crop, hide, fade, cut off, or replace any route segment for title text or its panel; if space is tight, resize or reposition the title block instead. Do not copy the schematic's red or named-trail colors, and do not draw a colored stretch thinner or fainter than the rest. Never interrupt the line for a label, icon, or decoration: the route stays continuous and unoccluded; landmarks annotate it, they do not replace it. A prettier wrong path is a failed poster. North is up.";
+  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and landmarks. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Do not snap the path onto a nearby road unless the schematic already shows that. Colored stretches on the schematic are a private name index only: look up the trail name, then discard the color. Paint the whole path as one styled route of even thickness. Route visibility is non-negotiable: it is the primary visual mark and must maintain strong contrast with its immediate background along every segment. Choose its palette color, weight, and surrounding map detail so the complete route is instantly readable; never let water, terrain, roads, textures, or labels make it fade into the background. Title-block safety is non-negotiable: place the title only in unused negative space, never on, over, through, or beyond the route. Do not crop, hide, fade, cut off, or replace any route segment for title text or its panel; if space is tight, move the title block into unused space or its own band instead of shrinking a supplied title or covering the route. Do not copy the schematic's red or named-trail colors, and do not draw a colored stretch thinner or fainter than the rest. Never interrupt the line for a label, icon, or decoration: the route stays continuous and unoccluded; landmarks annotate it, they do not replace it. A prettier wrong path is a failed poster. North is up.";
 
 export const UNANNOTATED_MAP_TRACE_RULE =
-  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and land cover. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Paint the whole path as one styled route of even thickness. Route visibility is non-negotiable: it is the primary visual mark and must maintain strong contrast with its immediate background along every segment. Choose its palette color, weight, and surrounding map detail so the complete route is instantly readable; never let water, terrain, roads, textures, or labels make it fade into the background. Title-block safety is non-negotiable: place the title only in unused negative space, never on, over, through, or beyond the route. Do not crop, hide, fade, cut off, or replace any route segment for title text or its panel; if space is tight, resize or reposition the title block instead. Never interrupt the line for a label, icon, or decoration. Render the visible roads, water, parks, and land-cover shapes from the schematic as a rich unlabeled background map. A prettier wrong path is a failed poster. North is up.";
+  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and land cover. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Paint the whole path as one styled route of even thickness. Route visibility is non-negotiable: it is the primary visual mark and must maintain strong contrast with its immediate background along every segment. Choose its palette color, weight, and surrounding map detail so the complete route is instantly readable; never let water, terrain, roads, textures, or labels make it fade into the background. Title-block safety is non-negotiable: place the title only in unused negative space, never on, over, through, or beyond the route. Do not crop, hide, fade, cut off, or replace any route segment for title text or its panel; if space is tight, move the title block into unused space or its own band instead of shrinking a supplied title or covering the route. Never interrupt the line for a label, icon, or decoration. Render the visible roads, water, parks, and land-cover shapes from the schematic as a rich unlabeled background map. A prettier wrong path is a failed poster. North is up.";
+
+/**
+ * Floor for a title that is still readable when the whole poster image is
+ * shown on a phone (about 390px wide), not a zoomed crop. 8% of poster width
+ * is about 31px of type at that size.
+ */
+export const TITLE_CAP_WIDTH_RATIO = 0.08;
+
+export function titleFontSizePx(posterWidthPx: number) {
+  return posterWidthPx * TITLE_CAP_WIDTH_RATIO;
+}
+
+export const TITLE_PHONE_CLAUSE =
+  "Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.";
+
+export const TITLE_PHONE_RULE =
+  "Set the title as a large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width. It is the largest text on the sheet. Wrap a long title instead of shrinking it below that size. Stats and map labels stay smaller. Do not add a title when the design has none.";
+
+const TITLE_PHONE_MARK = /clearly readable when the whole poster is viewed on a phone/i;
+
+export function posterHasTitle(title?: string | null) {
+  return Boolean(title?.trim());
+}
+
+function joinTitleInstruction(base: string, addition: string) {
+  const text = base.trim();
+  if (!text) return addition;
+  if (TITLE_PHONE_MARK.test(text)) return text;
+  return `${text}${/[.!?]$/.test(text) ? " " : ". "}${addition}`;
+}
+
+/** Drop title-size language so an untitled design is not prompted to grow a title. */
+export function stripTitlePhoneLanguage(value: string) {
+  return value
+    .replace(TITLE_PHONE_RULE, "")
+    .replace(TITLE_PHONE_CLAUSE, "")
+    .replace(/^[\s.;,]+|[\s.;,]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+export function withTitlePhoneClause(value: string, hasTitle: boolean) {
+  if (!hasTitle) return stripTitlePhoneLanguage(value);
+  return joinTitleInstruction(value, TITLE_PHONE_CLAUSE);
+}
+
+export function withTitlePhoneRule(value: string, hasTitle: boolean) {
+  if (!hasTitle) return stripTitlePhoneLanguage(value);
+  if (TITLE_PHONE_MARK.test(value) && /Do not add a title when the design has none/i.test(value)) {
+    return value.trim();
+  }
+  return joinTitleInstruction(stripTitlePhoneLanguage(value), TITLE_PHONE_RULE);
+}
+
+export function titlePromptLine(title: string) {
+  const text = title.trim();
+  if (!text) return "This design has no title. Do not add one.";
+  return `Title, exactly: "${text}". ${TITLE_PHONE_RULE}`;
+}
 
 const t = (value?: string) => (value ?? "").trim();
 
@@ -370,7 +429,11 @@ const sentence = (value: string) => {
   if (!text) return "";
   return /[.!?]$/.test(text) ? text : `${text}.`;
 };
-const labeled = (label: string, value: string) => (t(value) ? `${label}: ${t(value)}.` : "");
+const labeled = (label: string, value: string) => {
+  const text = t(value);
+  if (!text) return "";
+  return `${label}: ${/[.!?]$/.test(text) ? text : `${text}.`}`;
+};
 const list = (values: string[]) => values.map(t).filter(Boolean);
 const paragraph = (parts: string[]) => parts.filter(Boolean).join(" ");
 
@@ -420,7 +483,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
       labeled("Style", spec.style.name),
       labeled("Medium", spec.style.medium),
       palette.length ? `Palette: ${palette.join(", ")}.` : "",
-      labeled("Typography", spec.style.typography),
+      labeled("Typography", withTitlePhoneClause(spec.style.typography, posterHasTitle(spec.text.title))),
       labeled("Texture", spec.style.texture),
       labeled("References", spec.style.references),
     ]),
@@ -431,7 +494,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
     paragraph([
       labeled("Aspect ratio", spec.composition.aspectRatio),
       labeled("Route placement", spec.composition.routePlacement),
-      labeled("Title block", spec.composition.titleBlock),
+      labeled("Title block", withTitlePhoneClause(spec.composition.titleBlock, posterHasTitle(spec.text.title))),
       labeled("Border", spec.composition.border),
       decorations.length ? `Decorations: ${decorations.join(", ")}.` : "",
       "Do not draw a scale bar, graphic scale, or distance ruler — they will not be accurate. Distance belongs only in the title-block stats.",
@@ -477,15 +540,16 @@ export function specToImagePrompt(spec: PosterSpec): string {
     );
   }
 
+  const titled = posterHasTitle(spec.text.title);
   const stats = spec.text.stats
     .filter((item) => t(item.value))
     .map((item) => (t(item.label) ? `${t(item.label)} ${t(item.value)}` : t(item.value)));
   sections.push(
     paragraph([
-      `Title, exactly: "${t(spec.text.title)}".`,
+      titlePromptLine(spec.text.title),
       t(spec.text.subtitle) ? `Subtitle, exactly: "${t(spec.text.subtitle)}".` : "",
       stats.length ? `Stats to typeset: ${stats.join(" · ")}.` : "",
-      labeled("Text rules", spec.text.rules),
+      labeled("Text rules", withTitlePhoneRule(spec.text.rules, titled)),
     ]),
   );
 
@@ -518,7 +582,16 @@ export function specToImagePrompt(spec: PosterSpec): string {
   );
 
   const avoid = Array.from(
-    new Set([...list(spec.negative).filter(keepAsPosterInstruction), ...promptExclusions(routeOnly)]),
+    new Set([
+      ...list(spec.negative).filter(keepAsPosterInstruction),
+      ...promptExclusions(routeOnly),
+      ...(posterHasTitle(spec.text.title)
+        ? [
+            "no caption-sized title",
+            "no title too small to read when the whole poster is viewed on a phone",
+          ]
+        : ["no invented title"]),
+    ]),
   );
   sections.push(`Avoid: ${avoid.join("; ")}.`);
 
@@ -657,7 +730,9 @@ function fallbackPrompt(spec: PosterSpec): string {
       : isRouteOnlyPoster(spec)
         ? "Render the schematic's roads, water, parks, and land cover as an unlabeled background map."
         : "",
-    `Title exactly "${t(spec.text.title)}".`,
+    posterHasTitle(spec.text.title)
+      ? `Title exactly "${t(spec.text.title)}". ${TITLE_PHONE_RULE}`
+      : "This design has no title. Do not add one.",
     t(spec.text.subtitle) ? `Subtitle exactly "${t(spec.text.subtitle)}".` : "",
     "North is up. Trace the schematic route exactly. Do not invent, omit, or simplify any part of the path.",
   ]
