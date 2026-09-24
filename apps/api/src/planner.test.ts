@@ -49,7 +49,7 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.match(String(messages[0].content), /not title-block stats/);
   assert.match(String(messages[0].content), /never a prose string in place of an object/);
   assert.match(String(messages[0].content), /Do not request a scale bar/);
-  assert.match(String(messages[0].content), /8% of the poster width/);
+  assert.match(String(messages[0].content), /16% of the poster width/);
   assert.match(String(messages[0].content), /clearly readable when the whole poster is viewed on a phone/);
   assert.match(String(messages[0].content), /Do not add a title when the design has none/);
   assert.match(String(messages[0].content), /do not invent one/);
@@ -174,7 +174,7 @@ test("repairPlannerOutput coerces prose fields into the nested shape", () => {
   assert.equal(spec.style.name, "Swiss minimal");
   assert.deepEqual(spec.style.palette, ["off-white", "red"]);
   assert.match(spec.style.typography, /^Helvetica\. Large display title/);
-  assert.match(spec.style.typography, /8% of the poster width/);
+  assert.match(spec.style.typography, /16% of the poster width/);
   assert.match(spec.composition.titleBlock, /Large display title, clearly readable when the whole poster is viewed on a phone/);
   assert.equal(spec.composition.routePlacement, "route centered, title at the bottom");
   assert.equal(spec.composition.aspectRatio, "2:3");
@@ -475,7 +475,7 @@ test("repairPlannerOutput does not invent a title when the design has none", () 
         medium: "print",
         palette: ["red"],
         typography:
-          "Helvetica. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.",
+          "Helvetica. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 16% of the poster width.",
         texture: "",
         references: "",
       },
@@ -483,14 +483,14 @@ test("repairPlannerOutput does not invent a title when the design has none", () 
         aspectRatio: "2:3",
         routePlacement: "center",
         titleBlock:
-          "top. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.",
+          "top. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 16% of the poster width.",
         border: "",
         decorations: [],
       },
       route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
       geography: [],
       landmarks: [],
-      text: { title: "Invented headline", subtitle: "", stats: [], rules: "Set the title as a large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width. It is the largest text on the sheet. Wrap a long title instead of shrinking it below that size. Stats and map labels stay smaller. Do not add a title when the design has none." },
+      text: { title: "Invented headline", subtitle: "", stats: [], rules: "Set the title as a large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 16% of the poster width. It is the largest text on the sheet. Wrap a long title instead of shrinking it below that size. Stats and map labels stay smaller. Do not add a title when the design has none." },
       grounding: { images: [], rules: [] },
       negative: [],
       finalPrompt: "x",

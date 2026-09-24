@@ -39,7 +39,7 @@ const COSTUME_CLICHE: Record<string, RegExp> = {
 };
 
 test("preset typography requires a phone-readable title and custom adds none", () => {
-  assert.match(TITLE_PHONE_CLAUSE, /8% of the poster width/);
+  assert.match(TITLE_PHONE_CLAUSE, /16% of the poster width/);
   assert.match(TITLE_PHONE_CLAUSE, /not a zoomed crop/);
   for (const style of POSTER_STYLES) {
     if (style.id === "custom") {
@@ -47,7 +47,7 @@ test("preset typography requires a phone-readable title and custom adds none", (
       continue;
     }
     assert.match(style.typography, /clearly readable when the whole poster is viewed on a phone/, style.id);
-    assert.match(style.typography, /8% of the poster width/, style.id);
+    assert.match(style.typography, /16% of the poster width/, style.id);
   }
 });
 

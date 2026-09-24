@@ -29,7 +29,7 @@ export function buildModifyMessages(input: ModifyPromptInput) {
         'Reply with a single JSON object: {"prompt": "..."}.',
         "You are shown the current poster and the prompt that produced it.",
         "Apply the user's requested change. Keep the route shape, geography, landmarks, title, and style unless the user asks to change them.",
-        "If the poster has a title, keep it a large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width, unless the user asks to change the title size or remove the title. Do not add a title when the design has none.",
+        "If the poster has a title, keep it a large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 16% of the poster width, unless the user asks to change the title size or remove the title. Do not add a title when the design has none.",
         "Write a complete replacement prompt, not a list of deltas.",
         "The image model will receive the current poster as image 1, then the same geographic grounding images as before (schematic, then satellite if present). Rewrite any reference-image numbering to match that order.",
         "Tell the image model to start from image 1 (the current poster) and apply only the requested changes.",
