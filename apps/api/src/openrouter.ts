@@ -1,3 +1,4 @@
+import { alignDataUrlMime } from "./imageMime";
 import { withLlmTrace } from "./llmTrace";
 
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -215,7 +216,7 @@ export async function createImage(options: {
     ...(quality ? { quality } : {}),
     input_references: options.references.map((url) => ({
       type: "image_url",
-      image_url: { url },
+      image_url: { url: alignDataUrlMime(url) },
     })),
     ...(user ? { user } : {}),
   };

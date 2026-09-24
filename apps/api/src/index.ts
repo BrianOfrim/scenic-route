@@ -23,6 +23,7 @@ import {
 import { databaseUrlSource, initDb } from "./db";
 import { purgeLegacyApiData } from "./fileFirstMigration";
 import { ImportError } from "./gpx";
+import { sniffImageMime } from "./imageMime";
 import { importTrackFiles } from "./importActivity";
 import { filesFromRequest } from "./importRequest";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
@@ -310,7 +311,7 @@ if (fs.existsSync(path.join(WEB_DIST, "index.html"))) {
 function png(bytes: Buffer) {
   return new Response(new Uint8Array(bytes), {
     headers: {
-      "content-type": "image/png",
+      "content-type": sniffImageMime(bytes) || "image/png",
       "cache-control": "public, max-age=31536000",
     },
   });
