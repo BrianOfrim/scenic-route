@@ -549,6 +549,9 @@ export function specToImagePrompt(spec: PosterSpec): string {
       titlePromptLine(spec.text.title),
       t(spec.text.subtitle) ? `Subtitle, exactly: "${t(spec.text.subtitle)}".` : "",
       stats.length ? `Stats to typeset: ${stats.join(" · ")}.` : "",
+      stats.length
+        ? "Typeset each stat once. Do not repeat a value in the title block: the distance must not appear as both a large display figure and a labeled line."
+        : "",
       labeled("Text rules", withTitlePhoneRule(spec.text.rules, titled)),
     ]),
   );

@@ -158,6 +158,8 @@ test("specToImagePrompt renders prose without JSON or empty fields", () => {
   assert.match(prompt, /Title block: top\. Large display title/);
   assert.match(prompt, /no title too small to read when the whole poster is viewed on a phone/);
   assert.match(prompt, /Stats to typeset: Distance 42\.0 km\./);
+  assert.match(prompt, /Typeset each stat once/);
+  assert.match(prompt, /must not appear as both a large display figure and a labeled line/);
 });
 
 test("specToImagePrompt does not add a title when the design has none", () => {

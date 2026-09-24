@@ -168,6 +168,7 @@ export function buildPlannerMessages(input: PlannerInput) {
         TITLE_PHONE_RULE,
         "Copy the supplied title into text.title verbatim. If that title is empty, leave text.title empty and do not invent one. When a title is supplied, write that phone-size requirement into style.typography, composition.titleBlock, and text.rules.",
         "Do not request a scale bar, graphic scale, or distance ruler in decorations or elsewhere. Those will not be accurate; distance belongs only in the title-block stats.",
+        "Each stat is printed once. Do not plan the distance, or any other stat, as both a large display figure and a labeled line.",
         "Honor routeMarkers. If enabled is false, startMarker and finishMarker must be none — do not draw start or finish symbols.",
         "If routeMarkers.mode is loop, start and finish are the same place: use one combined start/finish marker, not two.",
         "If routeMarkers.mode is start-finish, use distinct start and finish markers.",

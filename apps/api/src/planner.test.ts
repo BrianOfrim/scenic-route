@@ -49,6 +49,7 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.match(String(messages[0].content), /not title-block stats/);
   assert.match(String(messages[0].content), /never a prose string in place of an object/);
   assert.match(String(messages[0].content), /Do not request a scale bar/);
+  assert.match(String(messages[0].content), /Each stat is printed once/);
   assert.match(String(messages[0].content), /8% of the poster width/);
   assert.match(String(messages[0].content), /clearly readable when the whole poster is viewed on a phone/);
   assert.match(String(messages[0].content), /Do not add a title when the design has none/);
