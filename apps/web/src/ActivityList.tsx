@@ -4,11 +4,14 @@ import {
   formatKm,
   type ActivitySummary,
 } from "./api";
+import type { ImportNotice } from "./importNotice";
 
 type Props = {
   activities: ActivitySummary[];
   selectedId: number | null;
   importing: boolean;
+  importNotice: ImportNotice | null;
+  onDismissImportNotice: () => void;
   onSelect: (id: number) => void;
   onImport: (files: File[]) => void;
   onRemove: (ids: number[]) => Promise<void>;
@@ -18,6 +21,8 @@ export function ActivityList({
   activities,
   selectedId,
   importing,
+  importNotice,
+  onDismissImportNotice,
   onSelect,
   onImport,
   onRemove,
@@ -135,7 +140,7 @@ export function ActivityList({
         <div className="panel-block">
           <div className="eyebrow">Activities</div>
           <p className="muted">
-            Import GPX, FIT, TCX, or a complete account export ZIP. Original archives are not retained.
+            Import one or more GPX, FIT, or TCX files, or a complete account export ZIP. Original archives are not retained.
           </p>
           <div className="row activity-toolbar">
             <button
@@ -143,6 +148,7 @@ export function ActivityList({
               className="text-btn activity-upload"
               onClick={() => fileInput.current?.click()}
               disabled={locked}
+              title="Choose one or more GPX, FIT, or TCX files"
             >
               {importing ? "Importing…" : "Import activities"}
             </button>
@@ -217,6 +223,29 @@ export function ActivityList({
           </div>
         )}
       </div>
+      {importNotice && (
+        <div className="import-result" data-tone={importNotice.tone} role="status">
+          <div className="import-result-head">
+            <p>{importNotice.summary}</p>
+            <button type="button" className="text-btn" onClick={onDismissImportNotice}>
+              dismiss
+            </button>
+          </div>
+          {importNotice.failures.length > 0 && (
+            <ul>
+              {importNotice.failures.slice(0, 6).map((item, index) => (
+                <li key={`${item.filename}-${index}`}>
+                  <span className="import-file">{item.filename}</span>
+                  <span className="import-reason">{item.error}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {importNotice.failures.length > 6 && (
+            <p className="muted import-more">and {importNotice.failures.length - 6} more</p>
+          )}
+        </div>
+      )}
       <div className="activity-list">
         {filtered.map((item) => (
           <div key={item.id} className={`activity-row${item.id === selectedId ? " on" : ""}`}>
@@ -246,7 +275,7 @@ export function ActivityList({
           <p className="muted activity-empty">
             {activities.length
               ? "No matching activities."
-              : "No activities yet. Import GPX, FIT, TCX, or a complete account export ZIP."}
+              : "No activities yet. Select one or more GPX, FIT, or TCX files, or a complete account export ZIP."}
           </p>
         )}
       </div>

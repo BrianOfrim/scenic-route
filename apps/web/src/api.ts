@@ -286,22 +286,53 @@ export async function fetchActivities(): Promise<ActivitySummary[]> {
   return body.activities;
 }
 
+export type ImportFailure = { filename: string; error: string };
+
+export class ImportRequestError extends Error {
+  readonly failures: ImportFailure[];
+  readonly skipped: number;
+
+  constructor(message: string, failures: ImportFailure[] = [], skipped = 0) {
+    super(message);
+    this.name = "ImportRequestError";
+    this.failures = failures;
+    this.skipped = skipped;
+  }
+}
+
 export async function importActivityFiles(files: File[] | FileList): Promise<{
   activities: ActivitySummary[];
-  errors: Array<{ filename: string; error: string }>;
+  errors: ImportFailure[];
   skipped: number;
 }> {
   const form = new FormData();
   for (const file of Array.from(files)) form.append("file", file);
-  const body = await readJson<{
-    activities: ActivitySummary[];
-    errors?: Array<{ filename: string; error: string }>;
+  const response = await apiFetch("/api/activities/import", { method: "POST", body: form });
+  if (response.status === 401) throw new AuthRequiredError();
+  const text = await response.text();
+  let body: {
+    activities?: ActivitySummary[];
+    errors?: ImportFailure[];
     skipped?: number;
-  }>(await apiFetch("/api/activities/import", { method: "POST", body: form }));
+    error?: string;
+    message?: string;
+  };
+  try {
+    body = JSON.parse(text) as typeof body;
+  } catch {
+    throw new Error(
+      response.ok ? "Server returned an invalid response" : `Request failed (${response.status})`,
+    );
+  }
+  const errors = body.errors ?? [];
+  const skipped = body.skipped ?? 0;
+  if (!response.ok) {
+    throw new ImportRequestError(body.error ?? body.message ?? `Request failed (${response.status})`, errors, skipped);
+  }
   return {
-    activities: body.activities,
-    errors: body.errors ?? [],
-    skipped: body.skipped ?? 0,
+    activities: body.activities ?? [],
+    errors,
+    skipped,
   };
 }
 

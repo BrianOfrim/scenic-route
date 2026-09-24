@@ -367,10 +367,13 @@ function clipFeatureToRing(feature: ExtentFeature, ring: Pt[], lat0: number): Ex
 }
 
 function clipLineToRing(line: number[][], ring: Pt[], lat0: number): number[][][] {
-  const local = line.map((point) => {
-    const [lng, lat] = asPoint(point);
-    return project(lng, lat, lat0);
-  });
+  const local: Pt[] = [];
+  for (const point of line) {
+    const coords = asPoint(point);
+    if (!coords) continue;
+    const [lng, lat] = coords;
+    local.push(project(lng, lat, lat0));
+  }
   const pieces: number[][][] = [];
   let current: number[][] = [];
   let previous: Pt | null = null;
@@ -399,12 +402,14 @@ function clipLineToRing(line: number[][], ring: Pt[], lat0: number): number[][][
 }
 
 function clipPolygonToRing(shape: number[][], ring: Pt[], lat0: number): number[][] {
-  let output = openPts(
-    shape.map((point) => {
-      const [lng, lat] = asPoint(point);
-      return project(lng, lat, lat0);
-    }),
-  );
+  const projected: Pt[] = [];
+  for (const point of shape) {
+    const coords = asPoint(point);
+    if (!coords) continue;
+    const [lng, lat] = coords;
+    projected.push(project(lng, lat, lat0));
+  }
+  let output = openPts(projected);
   if (output.length < 3) return [];
   for (let i = 0; i < ring.length; i += 1) {
     const a = ring[i];

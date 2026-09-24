@@ -7,6 +7,7 @@ import {
   fetchPoster,
   fetchSession,
   importActivityFiles,
+  ImportRequestError,
   removeActivities,
   signOut,
   type ActivitySummary,
@@ -19,6 +20,7 @@ import {
   type SessionUser,
 } from "./api";
 import { ActivityList } from "./ActivityList";
+import { formatImportNotice, type ImportNotice } from "./importNotice";
 import { BasemapControl } from "./BasemapControl";
 import { Gallery } from "./gallery/Gallery";
 import { ProfileMenu } from "./ProfileMenu";
@@ -164,6 +166,7 @@ export function App() {
   } | null>(null);
   const [session, setSession] = useState<SessionUser | null | undefined>(undefined);
   const [importing, setImporting] = useState(false);
+  const [importNotice, setImportNotice] = useState<ImportNotice | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [posterOpen, setPosterOpen] = useState(false);
   const [routeOnly, setRouteOnly] = useState(true);
@@ -389,28 +392,35 @@ export function App() {
   async function handleImport(files: File[]) {
     setImporting(true);
     setError(null);
+    setImportNotice(null);
     try {
       const result = await importActivityFiles(files);
       await refresh();
+      const notice = formatImportNotice({
+        imported: result.activities.length,
+        skipped: result.skipped,
+        errors: result.errors,
+      });
+      setImportNotice(notice);
       const first = result.activities[0];
-      if (first) selectActivity(first.id, first);
-      const parts: string[] = [];
-      if (result.activities.length > 1) parts.push(`Imported ${result.activities.length} activities`);
-      if (result.skipped) {
-        parts.push(
-          `${result.skipped} already in your library`,
-        );
+      const cleanSingle = Boolean(first && result.activities.length === 1 && !result.skipped && !result.errors.length);
+      if (cleanSingle && first) {
+        selectActivity(first.id, first);
+      } else if (first) {
+        setSelectedLatLng(null);
+        setTrackLoading(true);
+        clearPosterMapState();
+        setSelectedId(first.id);
+        setRefineFrom(null);
       }
-      if (result.errors.length) {
-        parts.push(
-          result.errors.length <= 3
-            ? result.errors.map((item) => `${item.filename}: ${item.error}`).join(" · ")
-            : `${result.errors.length} files could not be imported`,
-        );
-      }
-      if (parts.length) setError(parts.join(". "));
+      if (notice && isMobile) openMobilePane("activities");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed");
+      if (err instanceof ImportRequestError && (err.failures.length || err.skipped)) {
+        setImportNotice(formatImportNotice({ imported: 0, skipped: err.skipped, errors: err.failures }));
+        if (isMobile) openMobilePane("activities");
+      } else {
+        setError(err instanceof Error ? err.message : "Import failed");
+      }
     } finally {
       setImporting(false);
     }
@@ -515,6 +525,8 @@ export function App() {
             activities={activities}
             selectedId={selectedId}
             importing={importing}
+            importNotice={importNotice}
+            onDismissImportNotice={() => setImportNotice(null)}
             onSelect={selectActivity}
             onImport={(files) => {
               void handleImport(files);

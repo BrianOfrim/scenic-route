@@ -24,6 +24,7 @@ import { databaseUrlSource, initDb } from "./db";
 import { purgeLegacyApiData } from "./fileFirstMigration";
 import { ImportError } from "./gpx";
 import { importTrackFiles } from "./importActivity";
+import { filesFromRequest } from "./importRequest";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
 import { loadRouteFeatures } from "./osm/features";
 import { lookupLandmark } from "./osm/landmark";
@@ -105,12 +106,23 @@ app.post("/api/activities/remove", async (c) => {
 
 app.post("/api/activities/import", async (c) => {
   try {
-    const files = await readImportFiles(c);
-    if (!files.length) return c.json({ error: "Choose a GPX, FIT, TCX, or account export zip" }, 400);
-    const result = await importTrackFiles(currentUserId(c), files);
+    const parsed = await filesFromRequest(c.req.raw);
+    if (!parsed.files.length && !parsed.errors.length) {
+      return c.json({ error: "Choose a GPX, FIT, TCX, or account export zip" }, 400);
+    }
+    const imported = parsed.files.length
+      ? await importTrackFiles(currentUserId(c), parsed.files)
+      : { activities: [], errors: [], skipped: 0 };
+    const errors = [...parsed.errors, ...imported.errors];
+    const result = { activities: imported.activities, errors, skipped: imported.skipped };
     if (!result.activities.length && !result.skipped) {
+      const first = errors[0];
       return c.json(
-        { error: result.errors[0]?.error ?? "Could not import file", errors: result.errors, skipped: result.skipped },
+        {
+          error: first ? `${first.filename}: ${first.error}` : "Could not import file",
+          errors,
+          skipped: result.skipped,
+        },
         400,
       );
     }
@@ -293,69 +305,6 @@ const WEB_DIST = path.join(REPO_ROOT, "apps/web/dist");
 if (fs.existsSync(path.join(WEB_DIST, "index.html"))) {
   app.use("/*", serveStatic({ root: WEB_DIST }));
   app.get("*", (c) => c.html(fs.readFileSync(path.join(WEB_DIST, "index.html"), "utf8")));
-}
-
-const MAX_IMPORT_FILES = 25;
-const MAX_TRACK_BYTES = 15 * 1024 * 1024;
-const MAX_ZIP_BYTES = 250 * 1024 * 1024;
-
-async function readImportFiles(c: Context): Promise<Array<{ filename: string; bytes: Uint8Array }>> {
-  const contentType = c.req.header("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    const body = await c.req.json();
-    const items = Array.isArray(body) ? body : [body];
-    return items.slice(0, MAX_IMPORT_FILES).map((item, index) => bytesFromJson(item, index));
-  }
-
-  const body = await c.req.parseBody({ all: true });
-  const raw = body.file ?? body.files ?? body.gpx ?? body.fit ?? body.zip;
-  const list = (Array.isArray(raw) ? raw : raw != null ? [raw] : []).slice(0, MAX_IMPORT_FILES);
-  const files: Array<{ filename: string; bytes: Uint8Array }> = [];
-  for (const item of list) {
-    if (typeof item === "string") {
-      const bytes = new TextEncoder().encode(item);
-      if (bytes.byteLength > MAX_TRACK_BYTES) throw new ImportError("File is too large");
-      files.push({ filename: "upload.gpx", bytes });
-      continue;
-    }
-    if (item && typeof item === "object" && typeof (item as File).arrayBuffer === "function") {
-      const file = item as File;
-      const limit = maxBytesForName(file.name);
-      if (file.size > limit) throw new ImportError(`${file.name || "File"} is too large`);
-      files.push({
-        filename: file.name || "upload",
-        bytes: new Uint8Array(await file.arrayBuffer()),
-      });
-    }
-  }
-  return files;
-}
-
-function bytesFromJson(item: unknown, index: number): { filename: string; bytes: Uint8Array } {
-  const row = (item ?? {}) as {
-    filename?: string;
-    gpx?: string;
-    xml?: string;
-    content?: string;
-    fit?: string;
-    zip?: string;
-    base64?: string;
-  };
-  const filename = String(row.filename ?? `upload-${index + 1}`);
-  const binary = row.fit ?? row.zip ?? row.base64;
-  if (typeof binary === "string" && binary.length && !binary.includes("<")) {
-    const bytes = Uint8Array.from(Buffer.from(binary, "base64"));
-    if (bytes.byteLength > maxBytesForName(filename)) throw new ImportError("File is too large");
-    return { filename, bytes };
-  }
-  const text = String(row.gpx ?? row.xml ?? row.content ?? "");
-  const bytes = new TextEncoder().encode(text);
-  if (bytes.byteLength > MAX_TRACK_BYTES) throw new ImportError("File is too large");
-  return { filename, bytes };
-}
-
-function maxBytesForName(filename: string): number {
-  return filename.toLowerCase().endsWith(".zip") ? MAX_ZIP_BYTES : MAX_TRACK_BYTES;
 }
 
 function png(bytes: Buffer) {
