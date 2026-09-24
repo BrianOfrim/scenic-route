@@ -9,6 +9,7 @@ import {
   runHeadline,
   sortGalleryRuns,
   viewerSiblings,
+  viewerThumbStacks,
 } from "./galleryRuns";
 
 function item(
@@ -179,6 +180,31 @@ test("viewerSiblings keeps activity order regardless of which poster is active",
   assert.deepEqual(
     viewerSiblings(posters[2], posters).map((poster) => poster.posterId),
     order,
+  );
+});
+
+test("viewerThumbStacks piles refinements with the newest version last", () => {
+  const posters = [
+    item("transit", { activityId: 7, createdAt: "2026-09-08T12:00:00Z" }),
+    item("wpa", { activityId: 7, createdAt: "2026-09-08T12:01:00Z" }),
+    item("wpa-2", {
+      activityId: 7,
+      createdAt: "2026-09-08T12:03:00Z",
+      previousPosterId: "wpa",
+      refineNotes: "bigger title",
+    }),
+    item("swiss", { activityId: 7, createdAt: "2026-09-08T12:02:00Z" }),
+    item("wpa-3", {
+      activityId: 7,
+      createdAt: "2026-09-08T12:04:00Z",
+      previousPosterId: "wpa-2",
+      refineNotes: "drop the distance line",
+    }),
+  ];
+  const siblings = viewerSiblings(posters[1], posters);
+  assert.deepEqual(
+    viewerThumbStacks(siblings, posters).map((stack) => stack.map((poster) => poster.posterId)),
+    [["transit"], ["wpa", "wpa-2", "wpa-3"], ["swiss"]],
   );
 });
 

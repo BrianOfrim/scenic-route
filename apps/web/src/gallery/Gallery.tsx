@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { deletePoster, fetchActivities, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
 import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
-import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, type GallerySort } from "./galleryRuns";
+import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, viewerThumbStacks, type GallerySort } from "./galleryRuns";
 import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
 import { ShareButton } from "../share";
@@ -261,21 +261,22 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const compareStyles = mixedStyles(activitySiblings);
   const compareModels = mixedModels(activitySiblings);
   const compareQualities = mixedQualities(activitySiblings);
-  const viewerImages = useMemo<GalleryImage[]>(() => {
+  const viewerStacks = useMemo<GalleryImage[][]>(() => {
     if (!active) return [];
     const originalId = original?.posterId;
-    return [
-      ...activitySiblings.map((item) => {
+    return viewerThumbStacks(activitySiblings, posters).map((stack) =>
+      stack.map((item) => {
         const base = posterLabel(item, activitySiblings, compareStyles, compareModels, compareQualities);
         const note = lineageNote(item, originalId);
+        const stacked = stack.length > 1;
         return {
           id: item.posterId,
           src: item.url,
-          label: note && family.length > 1 ? `${base} · ${note}` : base,
+          label: note && stacked ? `${base} · ${note}` : base,
         };
       }),
-    ];
-  }, [active, activitySiblings, compareModels, compareQualities, compareStyles, family.length, original?.posterId]);
+    );
+  }, [active, activitySiblings, compareModels, compareQualities, compareStyles, original?.posterId, posters]);
 
   useEffect(() => {
     if (!active) return;
@@ -334,7 +335,9 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     setActive((current) => (current?.posterId === poster.posterId ? null : current));
   }
 
-  const selectedImage = active ? viewerImages.find((item) => item.id === active.posterId) : undefined;
+  const selectedImage = active
+    ? viewerStacks.flat().find((item) => item.id === active.posterId)
+    : undefined;
 
   if (studioFrom) {
     return (
@@ -457,7 +460,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             onClick={(event) => event.stopPropagation()}
           >
             <GalleryViewer
-              images={viewerImages}
+              stacks={viewerStacks}
               selectedId={active.posterId}
               onSelectPoster={selectPoster}
             />

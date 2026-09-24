@@ -1971,6 +1971,80 @@ button.map-schematic-tip-name:focus-visible {
   min-width: 0;
 }
 
+.lightbox-thumb-stack {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--stack-rest);
+  height: 148px;
+  transition: width 160ms ease;
+}
+
+.lightbox-thumb-stack:hover,
+.lightbox-thumb-stack:focus-within {
+  width: var(--stack-open);
+}
+
+.lightbox-thumb-stack button {
+  position: absolute;
+  top: 0;
+  left: var(--thumb-left);
+  cursor: pointer;
+  transition: left 160ms ease;
+}
+
+.lightbox-thumb-stack:hover button,
+.lightbox-thumb-stack:focus-within button {
+  left: var(--thumb-left-open);
+}
+
+.lightbox-thumb-stack button.is-older {
+  border-color: var(--line);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.lightbox-thumb-stack button.is-older:hover,
+.lightbox-thumb-stack button.is-older:focus-visible {
+  border-color: var(--accent-2);
+  outline: none;
+}
+
+.lightbox-thumb-stack .lightbox-thumb-older-tab {
+  position: absolute;
+  top: 6px;
+  left: 4px;
+  z-index: 2;
+  margin: 0;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: #0e120c;
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px var(--accent-2);
+}
+
+.lightbox-thumb-caption {
+  position: absolute;
+  top: 116px;
+  left: var(--thumb-left, 0);
+  width: 88px;
+  margin-top: 0;
+  display: block;
+  font-size: 11px;
+  color: var(--accent-2);
+  transition: left 160ms ease;
+}
+
+.lightbox-thumb-stack:hover .lightbox-thumb-caption,
+.lightbox-thumb-stack:focus-within .lightbox-thumb-caption {
+  left: var(--thumb-left-open, 0);
+}
+
 .lightbox-thumbs button {
   display: flex;
   flex-direction: column;

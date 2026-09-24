@@ -62,6 +62,27 @@ export function latestInLineage<T extends GalleryRunItem>(posters: T[]): T[] {
   });
 }
 
+/**
+ * Lightbox thumbs: one pile per refine lineage, in the order each lineage
+ * first appears. Each pile is oldest first so the newest version is last.
+ */
+export function viewerThumbStacks<T extends LineageItem>(siblings: T[], posters: T[] = siblings): T[][] {
+  const groups = new Map<string, T[]>();
+  const order: string[] = [];
+  for (const item of siblings) {
+    const root = lineageRoot(posters, item.posterId) ?? item;
+    const key = root.posterId;
+    const group = groups.get(key);
+    if (!group) {
+      groups.set(key, [item]);
+      order.push(key);
+      continue;
+    }
+    if (!group.some((member) => member.posterId === item.posterId)) group.push(item);
+  }
+  return order.map((key) => [...(groups.get(key) ?? [])].sort(byCreatedThenId));
+}
+
 /** Original first, then descendants in generation order. */
 export function lineageFamily<T extends LineageItem>(posters: T[], startId: string): T[] {
   const root = lineageRoot(posters, startId);

@@ -7,16 +7,20 @@ export type GalleryImage = {
 };
 
 type Props = {
-  images: GalleryImage[];
+  stacks: GalleryImage[][];
   selectedId: string;
   onSelectPoster: (id: string) => void;
 };
 
+const STACK_PEEK_PX = 52;
+const STACK_OPEN_PX = 96;
+
 export function GalleryViewer({
-  images,
+  stacks,
   selectedId,
   onSelectPoster,
 }: Props) {
+  const images = stacks.flat();
   const [expanded, setExpanded] = useState<GalleryImage | null>(null);
   const canCloseRef = useRef(false);
   const selected = images.find((item) => item.id === selectedId) ?? images[0];
@@ -77,18 +81,55 @@ export function GalleryViewer({
       </div>
       <div className="lightbox-thumbs">
         <div className="lightbox-thumbs-posters">
-          {images.map((image) => (
-            <button
-              key={image.id}
-              type="button"
-              className={image.id === selected.id ? "on" : ""}
-              aria-pressed={image.id === selected.id}
-              onClick={() => onSelectPoster(image.id)}
-            >
-              <img src={image.src} alt={image.label} />
-              <span>{image.label}</span>
-            </button>
-          ))}
+          {stacks.map((stack) => {
+            const newest = stack[stack.length - 1];
+            const selectedInStack = stack.find((image) => image.id === selected.id);
+            const caption = selectedInStack ?? newest;
+            if (!newest || !caption) return null;
+            const depth = Math.max(0, stack.length - 1);
+            return (
+              <div
+                key={newest.id}
+                className="lightbox-thumb-stack"
+                style={{
+                  ["--stack-rest" as string]: `${88 + depth * STACK_PEEK_PX}px`,
+                  ["--stack-open" as string]: `${88 + depth * STACK_OPEN_PX}px`,
+                }}
+              >
+                {stack.map((image, index) => {
+                  const buried = index < stack.length - 1;
+                  return (
+                    <button
+                      key={image.id}
+                      type="button"
+                      className={`${image.id === selected.id ? "on" : ""}${buried ? " is-older" : ""}`.trim()}
+                      aria-pressed={image.id === selected.id}
+                      aria-label={buried ? `Older version: ${image.label}` : image.label}
+                      title={buried ? `Older version: ${image.label}` : image.label}
+                      style={{
+                        ["--thumb-left" as string]: `${index * STACK_PEEK_PX}px`,
+                        ["--thumb-left-open" as string]: `${index * STACK_OPEN_PX}px`,
+                        zIndex: index + 1,
+                      }}
+                      onClick={() => onSelectPoster(image.id)}
+                    >
+                      {buried ? <span className="lightbox-thumb-older-tab">Older</span> : null}
+                      <img src={image.src} alt="" />
+                    </button>
+                  );
+                })}
+                <span
+                  className="lightbox-thumb-caption"
+                  style={{
+                    ["--thumb-left" as string]: `${depth * STACK_PEEK_PX}px`,
+                    ["--thumb-left-open" as string]: `${depth * STACK_OPEN_PX}px`,
+                  }}
+                >
+                  {caption.label}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
       {images.length > 1 && (
