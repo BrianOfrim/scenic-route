@@ -40,6 +40,7 @@ import {
   readPosterPng,
   readPosterRecord,
   readPosterRef,
+  readPosterThumb,
   setPosterFavorite,
 } from "./poster";
 import { fetchTile, isTileSource } from "./tiles";
@@ -252,6 +253,14 @@ app.get("/api/posters/:id/image.png", async (c) => {
   }
 });
 
+app.get("/api/posters/:id/thumb.webp", async (c) => {
+  try {
+    return webp(await readPosterThumb(currentUserId(c), c.req.param("id")));
+  } catch (error) {
+    return fail(c, error);
+  }
+});
+
 app.get("/api/posters/:id/ref-:n", async (c) => {
   try {
     const index = Number(String(c.req.param("n")).replace(/\.png$/i, ""));
@@ -312,6 +321,15 @@ function png(bytes: Buffer) {
   return new Response(new Uint8Array(bytes), {
     headers: {
       "content-type": sniffImageMime(bytes) || "image/png",
+      "cache-control": "public, max-age=31536000",
+    },
+  });
+}
+
+function webp(bytes: Buffer) {
+  return new Response(new Uint8Array(bytes), {
+    headers: {
+      "content-type": "image/webp",
       "cache-control": "public, max-age=31536000",
     },
   });

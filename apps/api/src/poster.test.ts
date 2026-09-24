@@ -7,7 +7,9 @@ import {
   modifyImageReferences,
   resolveImagePrompt,
   sanitizePosterEditor,
+  toPosterListItem,
   variantCount,
+  type PosterRecord,
 } from "./poster";
 import { specToImagePrompt, validatePosterSpec } from "./posterSpec";
 
@@ -145,4 +147,69 @@ test("resolveImagePrompt prefers a non-empty override", () => {
   });
   assert.equal(resolveImagePrompt(spec, "  warmer paper  "), "warmer paper");
   assert.equal(resolveImagePrompt(spec, "   "), specToImagePrompt(spec));
+});
+
+test("toPosterListItem drops prompt, spec, and editor and points cards at the thumb", () => {
+  const spec = validatePosterSpec({
+    style: {
+      name: "Custom wash",
+      medium: "print",
+      palette: ["off-white"],
+      typography: "Helvetica",
+      texture: "",
+      references: "",
+    },
+    composition: {
+      aspectRatio: "2:3",
+      routePlacement: "center",
+      titleBlock: "top",
+      border: "",
+      decorations: [],
+    },
+    route: {
+      treatment: "line",
+      color: "red",
+      startMarker: "dot",
+      finishMarker: "dot",
+      shapeNotes: "",
+    },
+    geography: [],
+    landmarks: [],
+    text: { title: "Ride", subtitle: "", stats: [], rules: "" },
+    grounding: { images: [{ index: 1, role: "schematic", legend: "" }], rules: [] },
+    negative: [],
+    finalPrompt: "a very long assembled prompt",
+  });
+  const record: PosterRecord = {
+    posterId: "20260101T000000Z-abc123",
+    activityId: 7,
+    title: "Ride",
+    subtitle: "",
+    spec,
+    prompt: "a very long assembled prompt plus editor geometry",
+    model: "google/gemini-test",
+    aspectRatio: "2:3",
+    cost: 0.1,
+    createdAt: "2026-09-24T00:00:00Z",
+    featureIds: ["lakes"],
+    labels: ["Peak"],
+    stats: [{ label: "Distance", value: "10 km" }],
+    styleId: "custom",
+    stylePrompt: "ink",
+    referenceCount: 1,
+    url: "/api/posters/20260101T000000Z-abc123/image.png",
+    editor: sanitizePosterEditor({ cropStart: 0, cropEnd: 1, title: "Ride" }),
+  };
+  const listed = toPosterListItem(record);
+  assert.equal(listed.spec, undefined);
+  assert.equal(listed.prompt, undefined);
+  assert.equal(listed.editor, undefined);
+  assert.equal(listed.featureIds, undefined);
+  assert.equal(listed.labels, undefined);
+  assert.equal(listed.stats, undefined);
+  assert.equal(listed.stylePrompt, undefined);
+  assert.equal(listed.styleName, "Custom wash");
+  assert.equal(listed.thumbUrl, "/api/posters/20260101T000000Z-abc123/thumb.webp");
+  assert.equal(listed.url, "/api/posters/20260101T000000Z-abc123/image.png");
+  assert.equal(listed.title, "Ride");
 });

@@ -622,8 +622,8 @@ export function App() {
           onSelect={selectTab}
         />
       </div>
-      {/* Stay mounted so a generation in flight cannot blank the list behind a fresh load. */}
-      <div hidden={!showGallery}>
+      {/* Stay mounted so tab switches and in-flight generate do not refetch or blank the list. */}
+      <div className="gallery-host" hidden={!showGallery} aria-hidden={!showGallery}>
         <Gallery
           account={profileMenu}
           tabs={<AppTabs active="gallery" isMobile={isMobile} onSelect={selectTab} />}
