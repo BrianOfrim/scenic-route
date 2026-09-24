@@ -3,9 +3,12 @@ import test from "node:test";
 import { clipWaysToVariableCorridor } from "./corridor";
 import {
   clipWaysKeepingTouchedAreas,
+  clipWaysToRing,
   touchedAreaRings,
   convexHullRing,
   endRadiusM,
+  keepWaysTouchingRing,
+  outerExpandM,
   loopBandRing,
   radiusAlongRoute,
   rectangleRing,
@@ -130,6 +133,53 @@ test("parks and lakes the route meets stay whole while distant ones drop", () =>
   const rings = touchedAreaRings(ways, route, 400);
   assert.equal(rings.length, 1);
   assert.equal(rings[0].length, touched.length);
+});
+
+test("a line that enters a ring is kept through to its far end", () => {
+  const ring: [number, number][] = [
+    [-0.002, 0],
+    [0.002, 0],
+    [0.002, 0.01],
+    [-0.002, 0.01],
+  ];
+  const crossing = [[0, 0.005], [0.05, 0.005]];
+  const outside = [[0.04, 0.004], [0.05, 0.006]];
+  const kept = keepWaysTouchingRing(
+    {
+      roads: {
+        features: [
+          { geometry: { type: "LineString", coordinates: crossing } },
+          { geometry: { type: "LineString", coordinates: outside } },
+        ],
+      },
+    },
+    ring,
+  );
+  assert.equal(kept.roads.features?.length, 1);
+  const feature = kept.roads.features?.[0] as { geometry: { coordinates: number[][] } };
+  assert.deepEqual(feature.geometry.coordinates, crossing);
+});
+
+test("a kept line is hard-cut at the outer ring", () => {
+  const ring: [number, number][] = [
+    [-0.01, -0.01],
+    [0.01, -0.01],
+    [0.01, 0.01],
+    [-0.01, 0.01],
+  ];
+  const crossing = [[0, 0], [0.05, 0]];
+  const clipped = clipWaysToRing({ roads: line(crossing) }, ring);
+  const feature = clipped.roads.features?.[0] as { geometry: { coordinates: number[][] } };
+  const end = feature.geometry.coordinates.at(-1) ?? [];
+  assert.ok(end[0] < 0.02, `expected the line to stop near the ring, got ${end[0]}`);
+  assert.ok(end[0] > 0.005);
+});
+
+test("outer expand stays inside 0.5–2 km", () => {
+  const tiny: [number, number][] = [[0, 0], [0, 0.01]];
+  const huge: [number, number][] = [[0, 0], [2, 2]];
+  assert.ok(outerExpandM(tiny) >= 500);
+  assert.ok(outerExpandM(huge) <= 2000);
 });
 
 test("rectangleRing orders opposite corners", () => {

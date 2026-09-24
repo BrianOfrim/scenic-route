@@ -17,19 +17,28 @@ import {
   type PosterSpec,
   type PosterWays,
 } from "../api";
-import { clipWaysToCorridor, defaultCorridorM, formatCorridorM } from "../../../api/src/osm/corridor";
 import {
-  clipWaysKeepingTouchedAreas,
+  clipWaysToCorridor,
+  clipWaysToVariableCorridor,
+  defaultCorridorM,
+  formatCorridorM,
+  keepWaysTouchingCorridor,
+  keepWaysTouchingVariableCorridor,
+} from "../../../api/src/osm/corridor";
+import {
   clipWaysWiderAtEnds,
+  clipWaysToRing,
   convexHullRing,
   endRadiusM,
+  expandRing,
+  keepWaysTouchingRing,
+  outerExpandM,
   loopBandRing,
   rectangleRing,
   rectangleTooSmall,
   radiusAlongRoute,
   rotatedBoxRing,
   shapePadM,
-  touchedAreaRings,
   type LngLat,
 } from "../../../api/src/osm/geoExtent";
 import {
@@ -45,13 +54,12 @@ import {
   type OutlineHistory,
 } from "./polygonEdit";
 
-type GeoScope = "all" | "corridor" | "ends" | "areas" | "box" | "hull" | "loop" | "rectangle" | "polygon";
+type GeoScope = "all" | "corridor" | "ends" | "box" | "hull" | "loop" | "rectangle" | "polygon";
 
 const GEO_SCOPES: { id: GeoScope; label: string; hint: string }[] = [
   { id: "all", label: "All", hint: "Everything in the route's map box." },
   { id: "corridor", label: "Corridor", hint: "Roads, water, and landcover within this distance of the route." },
   { id: "ends", label: "Wider ends", hint: "A tighter band along the route, with more context around the start and finish." },
-  { id: "areas", label: "Along areas", hint: "The corridor, plus any park, lake, or land area the route touches, kept whole." },
   { id: "box", label: "Rotated box", hint: "A rectangle turned to match the route, so the empty corners of a diagonal ride drop out." },
   { id: "hull", label: "Convex hull", hint: "The smallest convex outline around the route, with a little padding." },
   { id: "loop", label: "Inside loop", hint: "Geography inside a closed route, plus a thin band outside it." },
@@ -783,6 +791,8 @@ export function PosterPanel({
   const [context, setContext] = useState<PosterContext | null>(null);
   const [corridorOverride, setCorridorOverride] = useState<number | null>(null);
   const [geoScope, setGeoScope] = useState<GeoScope>("all");
+  const [softCut, setSoftCut] = useState(false);
+  const [maskSatellite, setMaskSatellite] = useState(false);
   const [polygon, setPolygon] = useState<OutlineHistory>(emptyOutline);
   const [rectangle, setRectangle] = useState<OutlineHistory>(emptyOutline);
   const [rectAnchor, setRectAnchor] = useState<LngLat | null>(null);
@@ -1029,17 +1039,6 @@ export function PosterPanel({
     return clamp(defaultCorridorM(croppedLatLng, isClosedLoop(croppedLatLng)));
   }, [context, corridorOverride, croppedLatLng]);
 
-  const visibleWays = useMemo(() => {
-    if (!context?.ways) return null;
-    let ways = context.ways;
-    if (croppedLatLng.length >= 2 && corridorMeters != null) {
-      if (geoScope === "corridor") ways = clipWaysToCorridor(ways, croppedLatLng, corridorMeters);
-      else if (geoScope === "ends") ways = clipWaysWiderAtEnds(ways, croppedLatLng, corridorMeters);
-      else if (geoScope === "areas") ways = clipWaysKeepingTouchedAreas(ways, croppedLatLng, corridorMeters);
-    }
-    return ways;
-  }, [context, croppedLatLng, corridorMeters, geoScope]);
-
   const shapeRing = useMemo(() => {
     if (croppedLatLng.length < 2) return null;
     if (geoScope === "box") return rotatedBoxRing(croppedLatLng, shapePadM(croppedLatLng));
@@ -1050,19 +1049,47 @@ export function PosterPanel({
     return null;
   }, [croppedLatLng, geoScope, polygon.points, rectangle.points]);
 
+  const visibleWays = useMemo(() => {
+    if (!context?.ways) return null;
+    let ways = context.ways;
+    const expand = outerExpandM(croppedLatLng);
+    if (croppedLatLng.length >= 2 && corridorMeters != null && (geoScope === "corridor" || geoScope === "ends")) {
+      if (softCut && geoScope === "ends") {
+        const inner = radiusAlongRoute(croppedLatLng, corridorMeters, endRadiusM(corridorMeters));
+        ways = clipWaysToVariableCorridor(
+          keepWaysTouchingVariableCorridor(ways, croppedLatLng, inner),
+          croppedLatLng,
+          inner.map((radius) => radius + expand),
+        );
+      } else if (softCut) {
+        ways = clipWaysToCorridor(
+          keepWaysTouchingCorridor(ways, croppedLatLng, corridorMeters),
+          croppedLatLng,
+          corridorMeters + expand,
+        );
+      } else if (geoScope === "corridor") ways = clipWaysToCorridor(ways, croppedLatLng, corridorMeters);
+      else ways = clipWaysWiderAtEnds(ways, croppedLatLng, corridorMeters);
+    }
+    if (softCut && shapeRing && shapeRing.length >= 3) {
+      ways = clipWaysToRing(keepWaysTouchingRing(ways, shapeRing), expandRing(shapeRing, expand));
+    }
+    return ways;
+  }, [context, croppedLatLng, corridorMeters, geoScope, softCut, shapeRing]);
+
   const clipPolygon = SHAPE_SCOPES.has(geoScope) ? shapeRing ?? undefined : undefined;
   const satelliteMask = useMemo((): GeoMask | null => {
-    if (croppedLatLng.length < 2) return null;
+    if (croppedLatLng.length < 2 || geoScope === "all") return null;
+    const whole = softCut || undefined;
+    if (!maskSatellite) return whole ? { whole } : null;
     if (SHAPE_SCOPES.has(geoScope)) {
-      return shapeRing && shapeRing.length >= 3 ? { rings: [shapeRing] } : null;
+      if (!shapeRing || shapeRing.length < 3) return whole ? { whole } : null;
+      return { rings: [shapeRing], whole };
     }
-    if (geoScope === "all" || corridorMeters == null) return null;
+    if (corridorMeters == null) return whole ? { whole } : null;
     const bandM =
       geoScope === "ends" ? radiusAlongRoute(croppedLatLng, corridorMeters, endRadiusM(corridorMeters)) : corridorMeters;
-    const rings =
-      geoScope === "areas" && context?.ways ? touchedAreaRings(context.ways, croppedLatLng, corridorMeters) : [];
-    return { rings, bandM };
-  }, [croppedLatLng, geoScope, shapeRing, corridorMeters, context?.ways]);
+    return { rings: [], bandM, whole };
+  }, [croppedLatLng, geoScope, shapeRing, corridorMeters, softCut, maskSatellite]);
   const editingOutline = geoScope === "polygon" || geoScope === "rectangle";
   const activeOutline = geoScope === "rectangle" ? rectangle : polygon;
 
@@ -1259,6 +1286,7 @@ export function PosterPanel({
     if (croppedLatLng.length < 2) return displayBbox;
     return schematicBbox(croppedLatLng, [...posterPois, ...posterWays, ...posterAreas], landmarkNearM);
   }, [croppedLatLng, posterPois, posterWays, posterAreas, displayBbox, landmarkNearM]);
+  const satelliteBbox = groundingBbox;
 
   const loopRide = useMemo(() => isClosedLoop(croppedLatLng), [croppedLatLng]);
 
@@ -1520,7 +1548,7 @@ export function PosterPanel({
           latlng: croppedLatLng,
           bbox: groundingBbox,
           ways: visibleWays ?? undefined,
-          clipPolygon,
+          clipPolygon: softCut ? undefined : clipPolygon,
           pois: posterPois,
           namedWays: posterWays,
           namedAreas: posterAreas,
@@ -1534,10 +1562,10 @@ export function PosterPanel({
       performance.clearMeasures("schematic.render-and-png");
       performance.measure("schematic.render-and-png", { start: renderStart, end: performance.now() });
     }
-  }, [visibleWays, clipPolygon, croppedLatLng, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
+  }, [visibleWays, clipPolygon, softCut, satelliteMask, croppedLatLng, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
 
   useEffect(() => {
-    if (croppedLatLng.length < 2 || !groundingBbox || maxRefs < 2) {
+    if (croppedLatLng.length < 2 || !satelliteBbox || maxRefs < 2) {
       satelliteShotRef.current = null;
       setSatelliteShot(null);
       setSatelliteUrl(null);
@@ -1546,7 +1574,7 @@ export function PosterPanel({
     let cancelled = false;
     void snapshotTiles({
       source: "satellite",
-      bbox: groundingBbox,
+      bbox: satelliteBbox,
       aspectRatio,
     })
       .then((shot) => {
@@ -1563,7 +1591,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [croppedLatLng, groundingBbox, aspectRatio, maxRefs]);
+  }, [croppedLatLng, satelliteBbox, aspectRatio, maxRefs]);
 
   useEffect(() => {
     const shot = satelliteShot;
@@ -1634,13 +1662,13 @@ export function PosterPanel({
   }, [generating, planning]);
 
   async function ensureSatellite(): Promise<string | null> {
-    if (maxRefs < 2 || croppedLatLng.length < 2 || !groundingBbox) return null;
+    if (maxRefs < 2 || croppedLatLng.length < 2 || !satelliteBbox) return null;
     try {
       let shot = satelliteShotRef.current;
       if (!shot) {
         shot = await snapshotTiles({
           source: "satellite",
-          bbox: groundingBbox,
+          bbox: satelliteBbox,
           aspectRatio,
         });
         satelliteShotRef.current = shot;
@@ -2691,7 +2719,61 @@ export function PosterPanel({
                 ? "This route doesn't close, so there is no interior to keep."
                 : GEO_SCOPES.find((item) => item.id === geoScope)?.hint}
             </p>
-            {(geoScope === "corridor" || geoScope === "ends" || geoScope === "areas") && context?.corridor && corridorMeters != null && (
+            {geoScope !== "all" && (
+              <div className="geo-scope" role="radiogroup" aria-label="Edge">
+                <button
+                  type="button"
+                  className={`text-btn${softCut ? "" : " on"}`}
+                  role="radio"
+                  aria-checked={!softCut}
+                  onClick={() => setSoftCut(false)}
+                >
+                  Hard cut
+                </button>
+                <button
+                  type="button"
+                  className={`text-btn${softCut ? " on" : ""}`}
+                  role="radio"
+                  aria-checked={softCut}
+                  onClick={() => setSoftCut(true)}
+                >
+                  Soft cut
+                </button>
+              </div>
+            )}
+            {softCut && geoScope !== "all" && croppedLatLng.length >= 2 && (
+              <p className="muted">Features that meet this scope continue until {formatCorridorM(outerExpandM(croppedLatLng))} past it, then stop.</p>
+            )}
+            {geoScope !== "all" && (
+              <>
+                <div className="geo-scope" role="radiogroup" aria-label="Satellite photo">
+                  <button
+                    type="button"
+                    className={`text-btn${maskSatellite ? "" : " on"}`}
+                    role="radio"
+                    aria-checked={!maskSatellite}
+                    onClick={() => setMaskSatellite(false)}
+                  >
+                    No mask
+                  </button>
+                  <button
+                    type="button"
+                    className={`text-btn${maskSatellite ? " on" : ""}`}
+                    role="radio"
+                    aria-checked={maskSatellite}
+                    onClick={() => setMaskSatellite(true)}
+                  >
+                    Region
+                  </button>
+                </div>
+                <p className="muted">
+                  {maskSatellite
+                    ? "The photograph is cut to this scope."
+                    : "The photograph is left uncut."}
+                </p>
+              </>
+            )}
+            {(geoScope === "corridor" || geoScope === "ends") && context?.corridor && corridorMeters != null && (
               <label className="corridor-range">
                 <span className="corridor-range-label">
                   <span>{geoScope === "ends" ? "Middle of the route" : "Around the route"}</span>

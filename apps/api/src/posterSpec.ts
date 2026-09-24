@@ -1,6 +1,12 @@
 import { TRAIL_COLOR_NAMES } from "./trailColors";
 
-export const DEFAULT_ASPECT_RATIO = "4:5";
+export const DEFAULT_ASPECT_RATIO = "3:4";
+
+/** gpt-image rejects 4:5. 3:4 is the nearest portrait it accepts. */
+export function imageAspectRatio(value?: string | null): string {
+  const ratio = value?.trim() || DEFAULT_ASPECT_RATIO;
+  return ratio === "4:5" ? DEFAULT_ASPECT_RATIO : ratio;
+}
 
 export type PosterSpecStyle = {
   name: string;

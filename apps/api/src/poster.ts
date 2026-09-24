@@ -3,7 +3,7 @@ import { getActivity } from "./activities";
 import { revisePosterPrompt } from "./modifyPrompt";
 import { createImage, listImageModels, maxImageOutputs, maxImageReferences, resolveImageModel } from "./openrouter";
 import { isSafePosterId } from "./paths";
-import { DEFAULT_ASPECT_RATIO, specToImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
+import { DEFAULT_ASPECT_RATIO, imageAspectRatio, specToImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
 import { posterStore } from "./storage";
 
 export class PosterError extends Error {
@@ -219,7 +219,8 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
   const modelName = listed.find((item) => item.id === model)?.name || model;
   const count = variantCount(body.variants, await maxImageOutputs(model));
   const batchId = sanitizeBatchId(body.batchId) ?? (count > 1 ? newBatchId() : undefined);
-  const aspectRatio = (body.aspectRatio || spec.composition.aspectRatio || DEFAULT_ASPECT_RATIO).trim();
+  const aspectRatio = imageAspectRatio(body.aspectRatio || spec.composition.aspectRatio || DEFAULT_ASPECT_RATIO);
+  spec.composition.aspectRatio = aspectRatio;
   const incoming = dataUrls(body.references);
   if (!incoming.length) throw new PosterError("at least one grounding image is required");
 
@@ -465,7 +466,7 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     finishPlace: typeof raw.finishPlace === "string" ? raw.finishPlace : "",
     placesEdited: raw.placesEdited === true,
     statIds: stringList(raw.statIds),
-    aspectRatio: typeof raw.aspectRatio === "string" && raw.aspectRatio.trim() ? raw.aspectRatio.trim() : DEFAULT_ASPECT_RATIO,
+    aspectRatio: imageAspectRatio(typeof raw.aspectRatio === "string" ? raw.aspectRatio : DEFAULT_ASPECT_RATIO),
     styleIds: stringList(raw.styleIds),
     stylePrompt: typeof raw.stylePrompt === "string" ? raw.stylePrompt : "",
     paletteId: typeof raw.paletteId === "string" && raw.paletteId.trim() ? raw.paletteId.trim() : "auto",

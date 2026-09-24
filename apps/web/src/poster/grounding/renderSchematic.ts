@@ -1,9 +1,9 @@
 import type { Geometry } from "geojson";
 import { routeVertexColors } from "../trailColors";
 
-export type AspectRatio = "4:5" | "2:3" | "3:4" | "1:1" | "4:3" | "16:9";
+export type AspectRatio = "3:4" | "2:3" | "1:1" | "4:3" | "16:9";
 
-export const DEFAULT_ASPECT_RATIO: AspectRatio = "4:5";
+export const DEFAULT_ASPECT_RATIO: AspectRatio = "3:4";
 
 type WayFeature = {
   properties?: { class?: string } | null;

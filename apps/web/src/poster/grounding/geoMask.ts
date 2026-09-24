@@ -3,8 +3,14 @@
 export type GeoMask = {
   /** [lng, lat] polygons kept in full. */
   rings?: [number, number][][];
+  /** [lng, lat] lines stroked into the photo at `lineM` of padding on each side. */
+  lines?: [number, number][][];
+  /** Padding around `lines`, in meters. */
+  lineM?: number;
   /** Corridor width in meters. One width, or one per route vertex. */
   bandM?: number | number[];
+  /** Schematic features that meet the region are kept whole, so the canvas is not clipped. */
+  whole?: boolean;
 };
 
 export type MapFrame = {
@@ -21,6 +27,7 @@ const M_PER_DEG = 111_320;
 export function maskIsActive(mask: GeoMask | null | undefined): boolean {
   if (!mask) return false;
   if (mask.rings?.some((ring) => ring.length >= 3)) return true;
+  if ((mask.lineM ?? 0) > 0 && mask.lines?.some((line) => line.length >= 2)) return true;
   if (typeof mask.bandM === "number") return mask.bandM > 0;
   return Boolean(mask.bandM?.some((meters) => meters > 0));
 }
@@ -57,6 +64,23 @@ export function paintKeepRegion(
     });
     ctx.closePath();
     ctx.fill();
+  }
+  const lineM = mask.lineM ?? 0;
+  if (lineM > 0 && mask.lines?.length) {
+    const anchor = route[Math.floor(route.length / 2)];
+    const lng = anchor?.[1] ?? mask.lines[0]?.[0]?.[0] ?? 0;
+    const lat = anchor?.[0] ?? mask.lines[0]?.[0]?.[1] ?? 0;
+    ctx.lineWidth = Math.max(1, radiusPx(project, lng, lat, lineM) * 2);
+    for (const line of mask.lines) {
+      if (line.length < 2) continue;
+      ctx.beginPath();
+      line.forEach(([lngPoint, latPoint], index) => {
+        const [x, y] = project(lngPoint, latPoint);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
   }
   if (!mask.bandM || route.length < 2) return;
   for (let i = 1; i < route.length; i += 1) {
