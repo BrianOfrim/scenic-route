@@ -19,6 +19,9 @@ test("buildModifyMessages sends the poster, previous prompt, and request", () =>
   assert.match(String(messages[0].content), /current poster as image 1/);
   assert.match(String(messages[0].content), /complete replacement prompt/);
   assert.match(String(messages[0].content), /do not invent place names/i);
+  assert.match(String(messages[0].content), /8% of the poster width/);
+  assert.match(String(messages[0].content), /clearly readable when the whole poster is viewed on a phone/);
+  assert.match(String(messages[0].content), /Do not add a title when the design has none/);
 
   const user = messages[1].content;
   assert.ok(Array.isArray(user));
