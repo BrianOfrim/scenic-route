@@ -161,12 +161,6 @@ export function clipWaysWiderAtEnds<T extends { features?: unknown[] }>(
   return clipWaysToVariableCorridor(ways, route, radiusAlongRoute(route, midM, endRadiusM(midM)));
 }
 
-/** Drop the residential-street bucket. Major roads, paths, water, and landcover stay. */
-export function dropResidentialStreets<T extends { features?: unknown[] }>(ways: Record<string, T>): Record<string, T> {
-  if (!ways.streets) return ways;
-  return { ...ways, streets: { ...ways.streets, features: [] as T["features"] } };
-}
-
 function areaTouchesRoute(feature: ExtentFeature, route: Pt[], lat0: number, radiusM: number): boolean {
   for (const ring of outerRings(feature.geometry)) {
     const local = openRing(ring).map(([lng, lat]) => project(lng, lat, lat0));

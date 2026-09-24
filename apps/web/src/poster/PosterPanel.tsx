@@ -22,7 +22,6 @@ import {
   clipWaysKeepingTouchedAreas,
   clipWaysWiderAtEnds,
   convexHullRing,
-  dropResidentialStreets,
   endRadiusM,
   loopBandRing,
   rectangleRing,
@@ -783,8 +782,7 @@ export function PosterPanel({
   const [selectedChip, setSelectedChip] = useState<{ kind: "area" | "trail" | "poi"; name: string } | null>(null);
   const [context, setContext] = useState<PosterContext | null>(null);
   const [corridorOverride, setCorridorOverride] = useState<number | null>(null);
-  const [geoScope, setGeoScope] = useState<GeoScope>("corridor");
-  const [majorOnly, setMajorOnly] = useState(false);
+  const [geoScope, setGeoScope] = useState<GeoScope>("all");
   const [polygon, setPolygon] = useState<OutlineHistory>(emptyOutline);
   const [rectangle, setRectangle] = useState<OutlineHistory>(emptyOutline);
   const [rectAnchor, setRectAnchor] = useState<LngLat | null>(null);
@@ -1039,9 +1037,8 @@ export function PosterPanel({
       else if (geoScope === "ends") ways = clipWaysWiderAtEnds(ways, croppedLatLng, corridorMeters);
       else if (geoScope === "areas") ways = clipWaysKeepingTouchedAreas(ways, croppedLatLng, corridorMeters);
     }
-    if (majorOnly) ways = dropResidentialStreets(ways);
     return ways;
-  }, [context, croppedLatLng, corridorMeters, geoScope, majorOnly]);
+  }, [context, croppedLatLng, corridorMeters, geoScope]);
 
   const shapeRing = useMemo(() => {
     if (croppedLatLng.length < 2) return null;
@@ -2770,10 +2767,6 @@ export function PosterPanel({
                 </span>
               </div>
             )}
-            <label className="check">
-              <input type="checkbox" checked={majorOnly} onChange={() => setMajorOnly((value) => !value)} />
-              Major features only
-            </label>
             <div className="poster-geo-grid">
               {catalog
                 .filter((item) => item.group === "geography")
