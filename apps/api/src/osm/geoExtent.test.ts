@@ -3,12 +3,14 @@ import test from "node:test";
 import { clipWaysToVariableCorridor } from "./corridor";
 import {
   clipWaysKeepingTouchedAreas,
+  clipWaysSoftThenHard,
   clipWaysToRing,
   touchedAreaRings,
   convexHullRing,
   endRadiusM,
   keepWaysTouchingRing,
   outerExpandM,
+  outerHardCut,
   loopBandRing,
   radiusAlongRoute,
   rectangleRing,
@@ -173,6 +175,88 @@ test("a kept line is hard-cut at the outer ring", () => {
   const end = feature.geometry.coordinates.at(-1) ?? [];
   assert.ok(end[0] < 0.02, `expected the line to stop near the ring, got ${end[0]}`);
   assert.ok(end[0] > 0.005);
+});
+
+test("a touching line is kept out to the further corridor and a line in the gap is dropped", () => {
+  const route: [number, number][] = [[51, -114], [51.02, -114]];
+  const expand = outerExpandM(route);
+  const corridorM = 400;
+  const cos = Math.cos((51.01 * Math.PI) / 180);
+  const metersToLng = (meters: number) => meters / (111_320 * cos);
+  const touching = [[-114, 51.01], [-113.98, 51.01]];
+  const gapStart = -114 + metersToLng(corridorM + expand / 2);
+  const gap = [[gapStart, 51.01], [-113.98, 51.01]];
+  const clipped = clipWaysSoftThenHard(
+    {
+      roads: {
+        features: [
+          { geometry: { type: "LineString", coordinates: touching } },
+          { geometry: { type: "LineString", coordinates: gap } },
+        ],
+      },
+    },
+    route,
+    "corridor",
+    { corridorM },
+  );
+  assert.equal(clipped.roads.features?.length, 1);
+  const coords = (clipped.roads.features?.[0] as { geometry: { coordinates: number[][] } }).geometry.coordinates;
+  const maxLng = Math.max(...coords.map((point) => point[0]));
+  const inner = -114 + metersToLng(corridorM);
+  const outer = -114 + metersToLng(corridorM + expand);
+  assert.ok(maxLng > inner + 0.0004, `expected the line past the inner scope, got ${maxLng}`);
+  assert.ok(Math.abs(maxLng - outer) < 0.001, `cut at ${maxLng}, expected near ${outer}`);
+});
+
+test("the satellite hard cut sits further out than the inner scope", () => {
+  const route: [number, number][] = [];
+  for (let i = 0; i <= 20; i += 1) route.push([51 + i * 0.001, -114]);
+  const expand = outerExpandM(route);
+  const corridorM = 400;
+  const corridor = outerHardCut(route, "corridor", { corridorM });
+  assert.deepEqual(corridor, { kind: "band", bandM: corridorM + expand });
+
+  const ends = outerHardCut(route, "ends", { corridorM });
+  assert.equal(ends?.kind, "band");
+  assert.ok(ends?.kind === "band" && Array.isArray(ends.bandM));
+  if (ends?.kind !== "band" || !Array.isArray(ends.bandM)) return;
+  assert.equal(ends.bandM[0], endRadiusM(corridorM) + expand);
+  assert.equal(ends.bandM[Math.floor(ends.bandM.length / 2)], corridorM + expand);
+  assert.ok(ends.bandM[0] > ends.bandM[Math.floor(ends.bandM.length / 2)]);
+
+  const ring: [number, number][] = [
+    [-0.004, -0.004],
+    [0.004, -0.004],
+    [0.004, 0.004],
+    [-0.004, 0.004],
+  ];
+  const cut = outerHardCut(route, "ring", { ring });
+  assert.equal(cut?.kind, "ring");
+  if (cut?.kind !== "ring") return;
+  const innerEast = Math.max(...ring.map((point) => point[0]));
+  const outerEast = Math.max(...cut.ring.map((point) => point[0]));
+  assert.ok(outerEast > innerEast + 0.003, `outer edge ${outerEast} should sit past ${innerEast}`);
+
+  const inside = [[0, 0], [0.05, 0]];
+  const onlyOuter = [[innerEast + 0.001, 0], [0.05, 0]];
+  const clipped = clipWaysSoftThenHard(
+    {
+      roads: {
+        features: [
+          { geometry: { type: "LineString", coordinates: inside } },
+          { geometry: { type: "LineString", coordinates: onlyOuter } },
+        ],
+      },
+    },
+    route,
+    "ring",
+    { ring },
+  );
+  assert.equal(clipped.roads.features?.length, 1);
+  const coords = (clipped.roads.features?.[0] as { geometry: { coordinates: number[][] } }).geometry.coordinates;
+  const maxLng = Math.max(...coords.map((point) => point[0]));
+  assert.ok(maxLng > innerEast + 0.002, `line should pass the inner ring, got ${maxLng}`);
+  assert.ok(maxLng < outerEast + 0.001, `line should stop at the outer ring, got ${maxLng} vs ${outerEast}`);
 });
 
 test("outer expand stays inside 0.5–2 km", () => {
