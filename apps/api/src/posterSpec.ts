@@ -353,20 +353,20 @@ export const UNANNOTATED_MAP_TRACE_RULE =
 
 /**
  * Floor for a title that is still readable when the whole poster image is
- * shown on a phone (about 390px wide), not a zoomed crop. 16% of poster width
- * is about 62px of type at that size, so a short title spans the sheet.
+ * shown on a phone (about 390px wide), not a zoomed crop. 8% of poster width
+ * is about 31px of type at that size.
  */
-export const TITLE_CAP_WIDTH_RATIO = 0.16;
+export const TITLE_CAP_WIDTH_RATIO = 0.08;
 
 export function titleFontSizePx(posterWidthPx: number) {
   return posterWidthPx * TITLE_CAP_WIDTH_RATIO;
 }
 
 export const TITLE_PHONE_CLAUSE =
-  "Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 16% of the poster width.";
+  "Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.";
 
 export const TITLE_PHONE_RULE =
-  "Set the title as a large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 16% of the poster width. It is the largest text on the sheet. Wrap a long title instead of shrinking it below that size. Stats and map labels stay smaller. Do not add a title when the design has none.";
+  "Set the title as a large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width. It is the largest text on the sheet. Wrap a long title instead of shrinking it below that size. Stats and map labels stay smaller. Do not add a title when the design has none.";
 
 const TITLE_PHONE_MARK = /clearly readable when the whole poster is viewed on a phone/i;
 

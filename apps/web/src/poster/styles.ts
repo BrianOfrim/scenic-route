@@ -5,7 +5,7 @@ export const AUTO_PALETTE_ID = "auto";
  * Preset typography carries it so the planner copies a phone-readable title.
  */
 export const TITLE_PHONE_CLAUSE =
-  "Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 16% of the poster width.";
+  "Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.";
 
 function titleFace(face: string) {
   return `${face}. ${TITLE_PHONE_CLAUSE}`;

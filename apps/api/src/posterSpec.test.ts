@@ -53,7 +53,7 @@ test("validatePosterSpec fills a missing finalPrompt", () => {
   assert.match(spec.finalPrompt, /1 "Castle Mountain"/);
   assert.match(spec.finalPrompt, /write each name and any icon beside the path/);
   assert.match(spec.finalPrompt, /Bow Valley/);
-  assert.match(spec.finalPrompt, /16% of the poster width/);
+  assert.match(spec.finalPrompt, /8% of the poster width/);
   assert.match(spec.finalPrompt, /Do not add a title when the design has none/);
   assert.match(spec.finalPrompt, /Start marker: green dot/);
   assert.match(spec.finalPrompt, /Finish marker: black dot/);
@@ -150,7 +150,7 @@ test("specToImagePrompt renders prose without JSON or empty fields", () => {
   assert.match(prompt, /Do not add a legend, key, or numbered callouts/);
   assert.match(prompt, /replace every disc with a small on-route marker/);
   assert.match(prompt, /Title, exactly: "Bow Valley"\./);
-  assert.match(prompt, /16% of the poster width/);
+  assert.match(prompt, /8% of the poster width/);
   assert.match(prompt, /clearly readable when the whole poster is viewed on a phone/);
   assert.match(prompt, /not a zoomed crop/);
   assert.match(prompt, /Do not add a title when the design has none/);
@@ -168,27 +168,27 @@ test("specToImagePrompt does not add a title when the design has none", () => {
     style: {
       ...titled.style,
       typography:
-        "Helvetica. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 16% of the poster width.",
+        "Helvetica. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.",
     },
     composition: {
       ...titled.composition,
       titleBlock:
-        "top. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 16% of the poster width.",
+        "top. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.",
     },
   });
   assert.match(prompt, /This design has no title\. Do not add one\./);
   assert.doesNotMatch(prompt, /Title, exactly/);
-  assert.doesNotMatch(prompt, /16% of the poster width/);
+  assert.doesNotMatch(prompt, /8% of the poster width/);
   assert.match(prompt, /Typography: Helvetica\./);
   assert.match(prompt, /Title block: top\./);
   assert.match(prompt, /no invented title/);
 });
 
 test("title type is large enough to read on a phone-width poster", () => {
-  assert.equal(TITLE_CAP_WIDTH_RATIO, 0.16);
+  assert.equal(TITLE_CAP_WIDTH_RATIO, 0.08);
   const phoneWidth = 390;
-  assert.ok(titleFontSizePx(phoneWidth) >= 62);
-  assert.equal(titleFontSizePx(phoneWidth), 62.4);
+  assert.ok(titleFontSizePx(phoneWidth) >= 31);
+  assert.equal(titleFontSizePx(phoneWidth), 31.2);
 });
 
 test("specToImagePrompt appends explicit exclusions once", () => {
