@@ -1,7 +1,16 @@
 import { areaLetter } from "./areaLetters";
 import type { NamedArea, NamedWay, PosterPoi } from "./osm/features";
 import { chatJson } from "./openrouter";
-import { DEFAULT_ASPECT_RATIO, POSTER_SPEC_SCHEMA, validatePosterSpec, type PosterSpec } from "./posterSpec";
+import {
+  DEFAULT_ASPECT_RATIO,
+  POSTER_SPEC_SCHEMA,
+  TITLE_PHONE_RULE,
+  posterHasTitle,
+  validatePosterSpec,
+  withTitlePhoneClause,
+  withTitlePhoneRule,
+  type PosterSpec,
+} from "./posterSpec";
 import { TRAIL_TREATMENT, trailColorName } from "./trailColors";
 
 export type PlannerInput = {
@@ -155,7 +164,9 @@ export function buildPlannerMessages(input: PlannerInput) {
         input.routeOnly
           ? "Do not invent place names. Use exact spelling from the supplied stats and routeMarkers names only."
           : "Do not invent place names. Use exact spelling from the supplied landmarks, stats, and routeMarkers names.",
-        "North is up. The route is the hero: plan it as the highest-contrast primary mark, clearly visible against every adjacent background and never lost in water, terrain, roads, textures, or labels. Put the title block only in unused negative space; it must never cover, crop, hide, or cut off any route segment. If space is tight, make the title block smaller or move it rather than sacrificing any part of the route.",
+        "North is up. The route is the hero: plan it as the highest-contrast primary mark, clearly visible against every adjacent background and never lost in water, terrain, roads, textures, or labels. Put the title block only in unused negative space; it must never cover, crop, hide, or cut off any route segment. If space is tight, move the title block into unused space or its own band rather than shrinking a supplied title or sacrificing any part of the route.",
+        TITLE_PHONE_RULE,
+        "Copy the supplied title into text.title verbatim. If that title is empty, leave text.title empty and do not invent one. When a title is supplied, write that phone-size requirement into style.typography, composition.titleBlock, and text.rules.",
         "Do not request a scale bar, graphic scale, or distance ruler in decorations or elsewhere. Those will not be accurate; distance belongs only in the title-block stats.",
         "Each stat is printed once. Do not plan the distance, or any other stat, as both a large display figure and a labeled line.",
         "Honor routeMarkers. If enabled is false, startMarker and finishMarker must be none — do not draw start or finish symbols.",
@@ -399,9 +410,16 @@ export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<s
   }
 
   const text: Record<string, unknown> = isRecord(record.text) ? { ...record.text } : { rules: str(record.text) };
-  if (!str(text.title)) text.title = input.title;
+  if (!posterHasTitle(input.title)) text.title = "";
+  else if (!str(text.title)) text.title = input.title;
   if (!str(text.subtitle)) text.subtitle = input.subtitle;
   if (!Array.isArray(text.stats) || !text.stats.length) text.stats = input.stats;
+  const hasTitle = posterHasTitle(str(text.title));
+  style.typography = withTitlePhoneClause(str(style.typography), hasTitle);
+  composition.titleBlock = withTitlePhoneClause(str(composition.titleBlock), hasTitle);
+  text.rules = withTitlePhoneRule(str(text.rules), hasTitle);
+  record.style = style;
+  record.composition = composition;
   record.text = text;
 
   const grounding: Record<string, unknown> = isRecord(record.grounding)

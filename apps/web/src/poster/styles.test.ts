@@ -4,6 +4,7 @@ import {
   AUTO_PALETTE_ID,
   DEFAULT_POSTER_STYLE,
   POSTER_STYLES,
+  TITLE_PHONE_CLAUSE,
   isCostumeStyle,
   normalizePaletteId,
   paletteIdsForStyle,
@@ -36,6 +37,19 @@ const COSTUME_CLICHE: Record<string, RegExp> = {
   "linen-postcard": /chrome-teal|bumper-red|chrome bumper/i,
   "art-nouveau": /gold-green|muted-rose/i,
 };
+
+test("preset typography requires a phone-readable title and custom adds none", () => {
+  assert.match(TITLE_PHONE_CLAUSE, /8% of the poster width/);
+  assert.match(TITLE_PHONE_CLAUSE, /not a zoomed crop/);
+  for (const style of POSTER_STYLES) {
+    if (style.id === "custom") {
+      assert.equal(style.typography, "");
+      continue;
+    }
+    assert.match(style.typography, /clearly readable when the whole poster is viewed on a phone/, style.id);
+    assert.match(style.typography, /8% of the poster width/, style.id);
+  }
+});
 
 test("default poster style is Risograph", () => {
   assert.equal(DEFAULT_POSTER_STYLE.id, "risograph");

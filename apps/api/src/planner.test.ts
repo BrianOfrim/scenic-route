@@ -50,6 +50,10 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.match(String(messages[0].content), /never a prose string in place of an object/);
   assert.match(String(messages[0].content), /Do not request a scale bar/);
   assert.match(String(messages[0].content), /Each stat is printed once/);
+  assert.match(String(messages[0].content), /8% of the poster width/);
+  assert.match(String(messages[0].content), /clearly readable when the whole poster is viewed on a phone/);
+  assert.match(String(messages[0].content), /Do not add a title when the design has none/);
+  assert.match(String(messages[0].content), /do not invent one/);
   assert.match(String(messages[0].content), /private index/);
   assert.match(String(messages[0].content), /never copy the numbers/);
   assert.match(String(messages[0].content), /small marker on the route/);
@@ -170,7 +174,9 @@ test("repairPlannerOutput coerces prose fields into the nested shape", () => {
   assert.equal(spec.style.medium, "Swiss modernist print on off-white paper");
   assert.equal(spec.style.name, "Swiss minimal");
   assert.deepEqual(spec.style.palette, ["off-white", "red"]);
-  assert.equal(spec.style.typography, "Helvetica");
+  assert.match(spec.style.typography, /^Helvetica\. Large display title/);
+  assert.match(spec.style.typography, /8% of the poster width/);
+  assert.match(spec.composition.titleBlock, /Large display title, clearly readable when the whole poster is viewed on a phone/);
   assert.equal(spec.composition.routePlacement, "route centered, title at the bottom");
   assert.equal(spec.composition.aspectRatio, "2:3");
   assert.equal(spec.route.treatment, "thick red line with a gold loop marker");
@@ -188,7 +194,8 @@ test("repairPlannerOutput coerces prose fields into the nested shape", () => {
   assert.equal(spec.text.title, "Lunch ride");
   assert.equal(spec.text.subtitle, "12.4 km · 41 min");
   assert.deepEqual(spec.text.stats, [{ label: "Distance", value: "12.4 km" }]);
-  assert.equal(spec.text.rules, "exact spelling only");
+  assert.match(spec.text.rules, /^exact spelling only\. Set the title as a large display title/);
+  assert.match(spec.text.rules, /Do not add a title when the design has none/);
   assert.deepEqual(spec.grounding.images, [{ index: 1, role: "schematic", legend: "red = route" }]);
   assert.deepEqual(spec.grounding.rules, ["follow image 1"]);
   assert.deepEqual(spec.negative, ["photorealism", "clutter"]);
@@ -459,6 +466,42 @@ test("planner asks for an open palette instead of refilling a cliché pair", () 
   );
   const spec = validatePosterSpec(repaired);
   assert.deepEqual(spec.style.palette, []);
+});
+
+test("repairPlannerOutput does not invent a title when the design has none", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: {
+        name: "Swiss",
+        medium: "print",
+        palette: ["red"],
+        typography:
+          "Helvetica. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.",
+        texture: "",
+        references: "",
+      },
+      composition: {
+        aspectRatio: "2:3",
+        routePlacement: "center",
+        titleBlock:
+          "top. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.",
+        border: "",
+        decorations: [],
+      },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: { title: "Invented headline", subtitle: "", stats: [], rules: "Set the title as a large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width. It is the largest text on the sheet. Wrap a long title instead of shrinking it below that size. Stats and map labels stay smaller. Do not add a title when the design has none." },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "x",
+    },
+    { ...input, title: "", subtitle: "" },
+  );
+  assert.equal((repaired.text as { title: string }).title, "");
+  assert.equal((repaired.style as { typography: string }).typography, "Helvetica");
+  assert.equal((repaired.composition as { titleBlock: string }).titleBlock, "top");
+  assert.equal((repaired.text as { rules: string }).rules, "");
 });
 
 test("planner honors a supplied costume palette", () => {

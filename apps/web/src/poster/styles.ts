@@ -1,5 +1,16 @@
 export const AUTO_PALETTE_ID = "auto";
 
+/**
+ * Kept in lockstep with TITLE_PHONE_CLAUSE in apps/api/src/posterSpec.ts.
+ * Preset typography carries it so the planner copies a phone-readable title.
+ */
+export const TITLE_PHONE_CLAUSE =
+  "Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.";
+
+function titleFace(face: string) {
+  return `${face}. ${TITLE_PHONE_CLAUSE}`;
+}
+
 export type ColorMode = "identity" | "canonical" | "open";
 
 export type StylePalette = {
@@ -26,7 +37,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "Hand-inked map on aged parchment in the style of a Tolkien journey map. Tree-cluster forests, calligraphic labels, an ornate compass rose, and a decorative cartouche for the title. The route is a red dotted journey line. Warm tea-stain paper, sepia ink, no modern cartography.",
     palette: ["tea-stain", "sepia", "oxblood"],
-    typography: "calligraphic uncials",
+    typography: titleFace("calligraphic uncials"),
     colorMode: "identity",
   },
   {
@@ -35,7 +46,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "Vintage USGS topographic map: dense brown contour lines, tan and sage hypsometric tints, serif labels, neatline and grid ticks, a bold red route overprinted on the sheet. Slightly yellowed paper, lithographic print texture.",
     palette: ["tan", "sage", "sienna", "red"],
-    typography: "engraved serif",
+    typography: titleFace("engraved serif"),
     colorMode: "identity",
   },
   {
@@ -44,7 +55,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "Swiss modernist map poster: hairline roads, a single accent route, generous negative space, no ornament, no texture beyond a faint paper tooth. Make the title the dominant graphic element: huge ultra-bold geometric grotesk sans serif, with tight but readable tracking, a single clean baseline, and a wide, confident wordmark. When the title block does not fill the available width, left-justify the title and its date, distance, and duration line; otherwise use the composition's natural balance. Set the date, distance, and duration in the same sans serif at a smaller regular weight with middle-dot separators. Preserve ample blank space around the type; crisp lettering only, with no decorative forms, serifs, outlines, shadows, or small timid title.",
     palette: ["off-white", "grey", "red"],
-    typography: "huge ultra-bold geometric grotesk title with smaller regular sans metadata",
+    typography: titleFace("huge ultra-bold geometric grotesk title with smaller regular sans metadata"),
     colorMode: "canonical",
     palettes: [
       { id: "red", label: "Red", colors: ["off-white", "grey", "red"] },
@@ -59,7 +70,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "Cyanotype architectural blueprint: deep cyan paper, white technical linework, dimension ticks and a stamped title block. The route is a heavier white line. Drafting-room precision, no color besides cyan and white.",
     palette: ["cyan", "white"],
-    typography: "stamped technical sans",
+    typography: titleFace("stamped technical sans"),
     colorMode: "identity",
   },
   {
@@ -68,7 +79,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "1930s WPA National Park poster: flat bold poster colors, screen-print grain, big stacked title, simplified landforms, a heroic composition. The route is a strong graphic path through the landscape.",
     palette: ["poster-orange", "forest-green", "cream"],
-    typography: "stacked gothic",
+    typography: titleFace("stacked gothic"),
     colorMode: "canonical",
     palettes: [
       { id: "park", label: "Park", colors: ["poster-orange", "forest-green", "cream"] },
@@ -83,7 +94,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "Travel journal watercolour: loose wet-on-wet washes, fine ink outlines, handwritten labels, visible paper texture and paint blooms. Soft, personal, not a printed atlas.",
     palette: [],
-    typography: "handwritten ink",
+    typography: titleFace("handwritten ink"),
     colorMode: "open",
     openHint: "Choose washes from the land and water in the frame; do not lock a preset trio.",
   },
@@ -93,7 +104,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "Celestial chart: deep navy field, the route as a constellation of linked gold stars, gold serif labels, decorative celestial border and corner flourishes. No daylight landscape.",
     palette: ["navy", "gold"],
-    typography: "gold serif",
+    typography: titleFace("gold serif"),
     colorMode: "identity",
   },
   {
@@ -102,7 +113,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "Beck-style transit diagram: 45-degree and horizontal lines only, landmarks as named station dots, a bold route, and small sans-serif tags. Schematic, not geographic texture. Use a clean Swiss/neo-grotesk sans-serif system: set the title in a very large, ultra-bold, tightly tracked sans serif. Set the date, distance, and duration in the same typeface at a smaller semibold weight with middle-dot separators. Keep the title on one line; crisp, flat vector lettering only, with no hand lettering, serifs, outlines, shadows, or decorative effects.",
     palette: ["cream", "route-red", "navy"],
-    typography: "ultra-bold neo-grotesk header title with semibold sans metadata",
+    typography: titleFace("ultra-bold neo-grotesk header title with semibold sans metadata"),
     colorMode: "canonical",
     palettes: [
       { id: "central-red", label: "Central red", colors: ["cream", "route-red", "navy"] },
@@ -117,7 +128,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "Art deco travel poster: geometric forms, sunburst behind the title, stylized typography, stepped frames, simplified landforms. Elegant 1920s luxury-line advertisement.",
     palette: ["gold", "teal", "cream"],
-    typography: "geometric deco",
+    typography: titleFace("geometric deco"),
     colorMode: "canonical",
     palettes: [
       { id: "luxury-line", label: "Luxury line", colors: ["gold", "teal", "cream"] },
@@ -132,7 +143,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "16-bit RPG overworld map: chunky pixel tiles, sprite-like landmarks, dotted path for the route, limited NES-era palette, no anti-aliasing. Looks like a pause-screen map from a 1990s SNES game.",
     palette: ["nes-green", "nes-blue", "nes-tan"],
-    typography: "pixel caps",
+    typography: titleFace("pixel caps"),
     colorMode: "canonical",
     palettes: [
       { id: "overworld", label: "Overworld", colors: ["nes-green", "nes-blue", "nes-tan"] },
@@ -147,7 +158,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "Two-ink risograph print: slight misregistration, coarse halftone dots, cheap paper grain. The route is the louder ink. Handmade zine energy.",
     palette: [],
-    typography: "zine sans",
+    typography: titleFace("zine sans"),
     colorMode: "open",
     openHint: "Pick any two Riso inks.",
     palettes: [
@@ -164,7 +175,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "1950s American linen postcard: faded canvas weave, stacked Greetings-from lettering for the title, a highway-shield cartouche. The route is a bold road-trip line. Mid-century roadside Americana, no parchment and no neon.",
     palette: ["linen-cream", "chrome-teal", "bumper-red"],
-    typography: "stacked greetings-from",
+    typography: titleFace("stacked greetings-from"),
     colorMode: "canonical",
     palettes: [
       { id: "chrome", label: "Chrome", colors: ["linen-cream", "chrome-teal", "bumper-red"] },
@@ -179,7 +190,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     prompt:
       "Art nouveau travel poster in the manner of Mucha: organic vine frames, flowing hairline borders, a decorative title cartouche. The route is a single elegant path. Belle-époque luxury, floral and curved, not geometric deco.",
     palette: ["cream", "gold-green", "muted-rose"],
-    typography: "flowing nouveau",
+    typography: titleFace("flowing nouveau"),
     colorMode: "canonical",
     palettes: [
       { id: "mucha-spring", label: "Mucha spring", colors: ["cream", "gold-green", "muted-rose"] },
