@@ -1,3 +1,4 @@
+import { alignDataUrlMime } from "./imageMime";
 import { OpenRouterError, chatJson } from "./openrouter";
 
 export const MODIFY_PROMPT_SCHEMA = {
@@ -75,7 +76,7 @@ export async function revisePosterPrompt(
   if (!request) throw new OpenRouterError("a modification request is required", 400);
   if (!previousPrompt) throw new OpenRouterError("previous prompt is required", 400);
   const { value, cost, model } = await chatJson<{ prompt?: unknown }>({
-    messages: buildModifyMessages({ ...input, request, previousPrompt }),
+    messages: buildModifyMessages({ ...input, imageUrl: alignDataUrlMime(input.imageUrl), request, previousPrompt }),
     schemaName: "poster_prompt_revision",
     schema: MODIFY_PROMPT_SCHEMA,
     label: "revise-prompt",

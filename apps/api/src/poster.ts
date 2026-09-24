@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { getActivity } from "./activities";
+import { imageDataUrl, sniffImageMime } from "./imageMime";
 import { revisePosterPrompt } from "./modifyPrompt";
 import { createImage, listImageModels, maxImageOutputs, maxImageReferences, resolveImageModel } from "./openrouter";
 import { isSafePosterId } from "./paths";
@@ -163,7 +164,7 @@ export function resolveImagePrompt(spec: PosterSpec, override?: string) {
 }
 
 export function pngDataUrl(bytes: Buffer, mime = "image/png") {
-  return `data:${mime};base64,${bytes.toString("base64")}`;
+  return imageDataUrl(bytes, mime);
 }
 
 export function dataUrls(urls: unknown): string[] {
@@ -284,10 +285,11 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
         url: `/api/posters/${posterId}/image.png`,
         editor: sanitizePosterEditor(body.editor),
       };
-      await store.put(userId, `${posterId}.png`, Buffer.from(image.b64, "base64"), "image/png");
+      const posterBytes = Buffer.from(image.b64, "base64");
+      await store.put(userId, `${posterId}.png`, posterBytes, sniffImageMime(posterBytes) || image.mediaType || "image/png");
       await Promise.all(
         decoded.map((ref, refIndex) =>
-          store.put(userId, `${posterId}.ref-${refIndex + 1}.png`, ref.bytes, ref.mime),
+          store.put(userId, `${posterId}.ref-${refIndex + 1}.png`, ref.bytes, sniffImageMime(ref.bytes) || ref.mime),
         ),
       );
       await store.put(userId, `${posterId}.json`, Buffer.from(JSON.stringify(record, null, 2)), "application/json");
