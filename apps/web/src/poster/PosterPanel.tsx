@@ -2677,26 +2677,27 @@ export function PosterPanel({
                   </label>
                 ))}
             </div>
-            <div className="geo-scope" role="radiogroup" aria-label="Background geography">
-              {GEO_SCOPES.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`text-btn${geoScope === item.id ? " on" : ""}`}
-                  role="radio"
-                  aria-checked={geoScope === item.id}
-                  onClick={() => {
-                    setGeoScope(item.id);
-                    if (item.id === "rectangle") setRectAnchor(null);
-                    if (item.id === "polygon" || item.id === "rectangle" || item.id === "box" || item.id === "hull" || item.id === "loop") {
-                      onNeedSchematic?.();
-                    }
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+            <label className="poster-field">
+              Extent
+              <select
+                aria-label="Background geography"
+                value={geoScope}
+                onChange={(event) => {
+                  const id = event.target.value as GeoScope;
+                  setGeoScope(id);
+                  if (id === "rectangle") setRectAnchor(null);
+                  if (id === "polygon" || id === "rectangle" || id === "box" || id === "hull" || id === "loop") {
+                    onNeedSchematic?.();
+                  }
+                }}
+              >
+                {GEO_SCOPES.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <p className="muted">
               {geoScope === "loop" && croppedLatLng.length >= 2 && !shapeRing
                 ? "This route doesn't close, so there is no interior to keep."
