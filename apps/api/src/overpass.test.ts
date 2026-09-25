@@ -19,7 +19,7 @@ import { buildQuery, elementsToFeatures, queryOverpass, unionQuery } from "./osm
 
 test("buildQuery injects bbox and header", () => {
   const q = buildQuery("(way[highway=primary]({{bbox}}););out geom;", [-113.2, 53.0, -113.0, 53.1]);
-  assert.match(q, /\[out:json\]\[timeout:25\]\[bbox:/);
+  assert.match(q, /\[out:json\]\[timeout:180\]\[bbox:/);
   assert.match(q, /53\.0000000,-113\.2000000,53\.1000000,-113\.0000000/);
 });
 
@@ -35,81 +35,65 @@ function residentialWay(id: number) {
   };
 }
 
-const oversized = () => {
-  throw new Error("Overpass response exceeded 8388608 bytes");
-};
-
-function isParentTile(query: string) {
-  return query.includes("53.5000000,-113.5000000,53.6000000,-113.4000000");
-}
-
-test("an oversized tile reports each quarter as it loads", async () => {
+test("an oversized response fails that tile and does not split it", async () => {
   const events: string[] = [];
+  let calls = 0;
   const warnings: string[] = [];
-  await queryOverpass(
+  const result = await queryOverpass(
     "(way[highway=residential]({{bbox}}););out geom;",
     [-113.5, 53.5, -113.4, 53.6],
     warnings,
     "ways",
-    async (query) => {
-      if (isParentTile(query)) oversized();
-      return { elements: [residentialWay(1)] };
+    async () => {
+      calls += 1;
+      throw new Error("Overpass response exceeded 268435456 bytes");
     },
     (event) => {
-      events.push(`${event.phase}:${event.depth}:${event.bbox.map((value) => value.toFixed(4)).join(",")}`);
+      events.push(event.phase);
     },
   );
-  assert.deepEqual(events, [
-    "loading:0:-113.5000,53.5000,-113.4000,53.6000",
-    "split:0:-113.5000,53.5000,-113.4000,53.6000",
-    "loading:1:-113.5000,53.5000,-113.4500,53.5500",
-    "loaded:1:-113.5000,53.5000,-113.4500,53.5500",
-    "loading:1:-113.4500,53.5000,-113.4000,53.5500",
-    "loaded:1:-113.4500,53.5000,-113.4000,53.5500",
-    "loading:1:-113.5000,53.5500,-113.4500,53.6000",
-    "loaded:1:-113.5000,53.5500,-113.4500,53.6000",
-    "loading:1:-113.4500,53.5500,-113.4000,53.6000",
-    "loaded:1:-113.4500,53.5500,-113.4000,53.6000",
-  ]);
+  assert.equal(calls, 1);
+  assert.equal(result.features.length, 0);
+  assert.deepEqual(events, ["loading", "failed"]);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /exceeded 268435456 bytes/);
 });
 
-test("an oversized tile is quartered and the pieces are merged", async () => {
-  const queries: string[] = [];
-  let nextId = 1;
+test("ways returned by more than one geographic tile are kept once", async () => {
   const warnings: string[] = [];
   const result = await queryOverpass(
     "(way[highway=residential]({{bbox}}););out geom;",
-    [-113.5, 53.5, -113.4, 53.6],
+    [-113.5, 53.0, -113.0, 53.4],
     warnings,
     "ways",
-    async (query) => {
-      queries.push(query);
-      if (isParentTile(query)) oversized();
-      return { elements: [residentialWay(nextId++)] };
-    },
-  );
-  assert.equal(queries.length, 5);
-  assert.equal(result.features.length, 4);
-  assert.deepEqual(warnings, []);
-});
-
-test("ways that cross a split are kept once", async () => {
-  const warnings: string[] = [];
-  const result = await queryOverpass(
-    "(way[highway=residential]({{bbox}}););out geom;",
-    [-113.5, 53.5, -113.4, 53.6],
-    warnings,
-    "ways",
-    async (query) => {
-      if (isParentTile(query)) oversized();
-      return { elements: [residentialWay(7)] };
-    },
+    async () => ({ elements: [residentialWay(7)] }),
   );
   assert.equal(result.features.length, 1);
   assert.equal(result.features[0].properties?.id, "way/7");
+  assert.deepEqual(warnings, []);
 });
 
-test("a non-size failure is not split", async () => {
+test("geographic tiles are fetched with a small concurrency limit", async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const warnings: string[] = [];
+  await queryOverpass(
+    "(way[highway=residential]({{bbox}}););out geom;",
+    [-113.5, 53.0, -113.0, 53.4],
+    warnings,
+    "ways",
+    async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inFlight -= 1;
+      return { elements: [] };
+    },
+  );
+  assert.equal(maxInFlight, 3);
+});
+
+test("a tile failure is reported and not retried as smaller tiles", async () => {
   let calls = 0;
   const warnings: string[] = [];
   const result = await queryOverpass(
@@ -126,25 +110,6 @@ test("a non-size failure is not split", async () => {
   assert.equal(result.features.length, 0);
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /HTTP 504/);
-});
-
-test("splitting stops after three quarters and reports the pieces still too big", async () => {
-  let calls = 0;
-  const warnings: string[] = [];
-  const result = await queryOverpass(
-    "(way[highway=residential]({{bbox}}););out geom;",
-    [-113.5, 53.5, -113.4, 53.6],
-    warnings,
-    "ways",
-    async () => {
-      calls += 1;
-      oversized();
-      return { elements: [] };
-    },
-  );
-  assert.equal(calls, 1 + 4 + 16 + 64);
-  assert.equal(result.features.length, 0);
-  assert.deepEqual(warnings, ["Overpass ways: 64 areas still exceeded 8388608 bytes after splitting"]);
 });
 
 test("unionQuery wraps selectors", () => {

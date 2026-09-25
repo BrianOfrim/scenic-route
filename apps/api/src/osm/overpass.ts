@@ -20,9 +20,14 @@ const USER_AGENT = "scenic-route/overpass (https://github.com/scenic-route)";
 const RETRYABLE = new Set([429, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
-/** How many times an oversized tile is quartered before that piece is dropped. */
-const MAX_OVERSIZE_SPLITS = 3;
+/** Safety stop for one response. A tile past this is failed, not split. */
+const MAX_RESPONSE_BYTES = 256 * 1024 * 1024;
+/** Public Overpass servers typically allow up to 180s of query runtime. */
+const QUERY_TIMEOUT_S = 180;
+/** Slightly above QUERY_TIMEOUT_S so the server can return its own timeout. */
+const REQUEST_TIMEOUT_MS = 190_000;
+/** Independent geographic tiles fetched at once. */
+const TILE_CONCURRENCY = 3;
 const TAG_KEYS = [
   "highway",
   "natural",
@@ -77,10 +82,6 @@ export function overpassTileId(label: string, bbox: BBox, depth: number): string
   return `${label}:${depth}:${bbox.map((value) => value.toFixed(5)).join(",")}`;
 }
 
-export function isOversizedOverpassError(error: unknown): boolean {
-  return error instanceof Error && /response exceeded \d+ bytes/.test(error.message);
-}
-
 export async function queryOverpass(
   queryBody: string,
   bbox: BBox,
@@ -100,12 +101,11 @@ export async function queryOverpass(
   let fetchMs = 0;
   let convertMs = 0;
   let fetchedTiles = 0;
-  let oversizedLeft = 0;
 
-  async function loadTile(tile: BBox, splits: number): Promise<void> {
+  async function loadTile(tile: BBox): Promise<void> {
     const started = performance.now();
     const tileEvent = (phase: OverpassTilePhase) =>
-      onTile?.({ id: overpassTileId(label, tile, splits), label, bbox: tile, depth: splits, phase });
+      onTile?.({ id: overpassTileId(label, tile, 0), label, bbox: tile, depth: 0, phase });
     await tileEvent("loading");
     try {
       const payload = await post(buildQuery(queryBody, tile));
@@ -123,36 +123,34 @@ export async function queryOverpass(
     } catch (error) {
       fetchMs += performance.now() - started;
       fetchedTiles += 1;
-      if (isOversizedOverpassError(error) && splits < MAX_OVERSIZE_SPLITS) {
-        await tileEvent("split");
-        for (const child of tileBboxes(tile)) await loadTile(child, splits + 1);
-        return;
-      }
-      if (isOversizedOverpassError(error)) {
-        oversizedLeft += 1;
-        await tileEvent("dropped");
-        return;
-      }
       warnings.push(`Overpass ${label} failed: ${error instanceof Error ? error.message : error}`);
       await tileEvent("failed");
     }
   }
 
-  for (const tile of tiles) await loadTile(tile, 0);
-  if (oversizedLeft) {
-    warnings.push(
-      `Overpass ${label}: ${oversizedLeft} ${oversizedLeft === 1 ? "area" : "areas"} still exceeded ${MAX_RESPONSE_BYTES} bytes after splitting`,
-    );
-  }
+  await runWithConcurrency(tiles, TILE_CONCURRENCY, loadTile);
   timing("query", { label, tiles: fetchedTiles, features: merged.length, fetchMs, convertMs });
   return collection(merged);
+}
+
+async function runWithConcurrency<T>(items: T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
+  if (items.length === 0) return;
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      await run(items[index]);
+    }
+  });
+  await Promise.all(workers);
 }
 
 export function buildQuery(body: string, bbox: BBox): string {
   const [minLng, minLat, maxLng, maxLat] = bbox;
   const bboxQl = `${minLat.toFixed(7)},${minLng.toFixed(7)},${maxLat.toFixed(7)},${maxLng.toFixed(7)}`;
   const filled = body.replaceAll("{{bbox}}", bboxQl);
-  return `[out:json][timeout:25][bbox:${bboxQl}];\n${filled.trim()}\n`;
+  return `[out:json][timeout:${QUERY_TIMEOUT_S}][bbox:${bboxQl}];\n${filled.trim()}\n`;
 }
 
 export function unionQuery(selectors: string[], output: "geom" | "center" = "geom"): string {
@@ -295,7 +293,7 @@ export function createOverpassClient(options: { cacheDir?: string; fetch?: typeo
         Accept: "application/json",
       },
       body: new URLSearchParams({ data: query }),
-      signal: AbortSignal.timeout(40_000),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 180);
