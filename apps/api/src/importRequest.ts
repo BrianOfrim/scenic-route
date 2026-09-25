@@ -1,7 +1,7 @@
 import { ImportError } from "./gpx";
 import type { ImportFile } from "./importActivity";
 
-export const MAX_IMPORT_FILES = 25;
+export const MAX_IMPORT_FILES = 256;
 export const MAX_TRACK_BYTES = 15 * 1024 * 1024;
 export const MAX_ZIP_BYTES = 250 * 1024 * 1024;
 
