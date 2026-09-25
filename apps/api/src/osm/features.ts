@@ -20,6 +20,7 @@ import {
 import { formatDate, formatDuration, formatElevation, formatKm, formatSpeed } from "../format";
 import { KIND_WEIGHTS, nearRouteMForKind, resolveFeatures, type FeatureDef } from "./catalog";
 import { corridorForRoute } from "./corridor";
+import { clipGeometryToFrame, clipWaysToQueryFrame, outerExpandM } from "./geoExtent";
 import { collection, emptyCollection, queryOverpass, unionQuery, type OverpassTileListener } from "./overpass";
 
 const MAX_POIS = 25;
@@ -200,14 +201,16 @@ export async function loadRouteFeatures(
 
   const fetched = performance.now();
 
-  const ways = splitWays(waysFc, geoFeatures);
+  const frameM = outerExpandM(latlng);
+  const ways = clipWaysToQueryFrame(splitWays(waysFc, geoFeatures), padded, frameM);
   const cemetery = features.find((item) => item.id === "cemeteries");
-  const { areas: namedAreas, fallbacks: areaFallbacks } = collectNamedAreas(
+  const { areas: namedAreasRaw, fallbacks: areaFallbacks } = collectNamedAreas(
     namedAreaFc,
     latlng,
     padded,
     namedAreaFeatures,
   );
+  const namedAreas = frameNamedAreas(namedAreasRaw, padded, frameM);
   const namedWater = features.some((item) => item.id === "named-water") ? namedWaterFeatures(ways) : [];
   const pois = dropPoiNames(
     annotatePoisInsideAreas(
@@ -249,10 +252,14 @@ export async function loadRouteFeatures(
     latlng: simplified.points,
     stops: simplified.kept,
     ways,
-    namedWays: collectNamedWays(namedWaysFc, latlng, padded, "osm", namedWayFeatures).map((way) => ({
-      ...way,
-      routeSpans: remapRouteSpans(way.routeSpans, simplified.indexes),
-    })),
+    namedWays: frameNamedWays(
+      collectNamedWays(namedWaysFc, latlng, padded, "osm", namedWayFeatures).map((way) => ({
+        ...way,
+        routeSpans: remapRouteSpans(way.routeSpans, simplified.indexes),
+      })),
+      padded,
+      frameM,
+    ),
     namedAreas,
     pois,
     stats: buildStats(row),
@@ -512,6 +519,26 @@ export function mergeNamedWays(...lists: NamedWay[][]): NamedWay[] {
 
 function sourceRank(way: NamedWay): number {
   return way.source === "user" ? 1 : 0;
+}
+
+function frameNamedAreas(areas: NamedArea[], bbox: BBox, expandM: number): NamedArea[] {
+  return areas.flatMap((area) => {
+    const geometry = clipGeometryToFrame(area.geometry, bbox, expandM);
+    if (!geometry || (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon")) return [];
+    return [{ ...area, geometry }];
+  });
+}
+
+function frameNamedWays(ways: NamedWay[], bbox: BBox, expandM: number): NamedWay[] {
+  return ways.flatMap((way) => {
+    const geometry = clipGeometryToFrame(way.geometry, bbox, expandM);
+    if (!geometry) return [];
+    if (geometry.type === "LineString") {
+      return [{ ...way, geometry: { type: "MultiLineString", coordinates: [geometry.coordinates] } }];
+    }
+    if (geometry.type === "MultiLineString") return [{ ...way, geometry }];
+    return [];
+  });
 }
 
 export function collectNamedAreas(

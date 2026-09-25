@@ -200,7 +200,15 @@ export function elementsToFeatures(elements: unknown[]): OverpassFeature[] {
       }
       continue;
     }
-    const memberLines = relationMemberLines(element.members);
+    const members = relationMembers(element.members);
+    if (members.length && isAreaRelation(tags, members)) {
+      const geometry = assembleMultipolygon(members);
+      if (geometry) {
+        features.push({ type: "Feature", properties: props, geometry });
+        continue;
+      }
+    }
+    const memberLines = members.map((member) => member.coords);
     if (memberLines.length === 1) {
       features.push({
         type: "Feature",
@@ -382,15 +390,123 @@ function pickTags(tags: Record<string, string>) {
   return slim;
 }
 
-function relationMemberLines(members: unknown): number[][][] {
+type RelationMember = { role: "outer" | "inner"; coords: number[][] };
+
+/** Area relations become polygons. Route relations stay lines. */
+function isAreaRelation(tags: Record<string, string>, members: RelationMember[]): boolean {
+  if (tags.type === "route" || tags.route) return false;
+  if (tags.natural === "coastline" || tags.natural === "cliff") return false;
+  if (tags.type === "multipolygon") return true;
+  return members.some((member) => member.role === "inner");
+}
+
+function relationMembers(members: unknown): RelationMember[] {
   if (!Array.isArray(members)) return [];
-  const lines: number[][][] = [];
+  const lines: RelationMember[] = [];
   for (const member of members) {
     if (!isRecord(member)) continue;
     const coords = geomCoords(member.geometry);
-    if (coords.length >= 2) lines.push(coords);
+    if (coords.length < 2) continue;
+    lines.push({ role: member.role === "inner" ? "inner" : "outer", coords });
   }
   return lines;
+}
+
+/**
+ * Stitch outer and inner member ways into polygon rings.
+ * Member ways are not ordered or oriented; shared endpoints are.
+ * Returns null when an outer shore does not close, so the caller can keep the lines.
+ */
+function assembleMultipolygon(members: RelationMember[]): { type: "Polygon"; coordinates: number[][][] } | { type: "MultiPolygon"; coordinates: number[][][][] } | null {
+  const outers = stitchRings(members.filter((member) => member.role === "outer").map((member) => member.coords));
+  if (!outers.closed.length) return null;
+  const inners = stitchRings(members.filter((member) => member.role === "inner").map((member) => member.coords));
+  const holes = outers.closed.map(() => [] as number[][][]);
+  for (const inner of inners.closed) {
+    const sample = ringCentroid(inner);
+    const host = outers.closed.findIndex((outer) => pointInLngLatRing(sample, outer));
+    if (host >= 0) holes[host].push(inner);
+  }
+  const polygons = outers.closed.map((outer, index) => [outer, ...holes[index]]);
+  if (polygons.length === 1) return { type: "Polygon", coordinates: polygons[0] };
+  return { type: "MultiPolygon", coordinates: polygons };
+}
+
+function stitchRings(lines: number[][][]): { closed: number[][][]; open: number[][][] } {
+  const closed: number[][][] = [];
+  const openLines: number[][][] = [];
+  for (const line of lines) {
+    if (line.length < 2) continue;
+    if (ringClosed(line)) closed.push(line);
+    else openLines.push(line);
+  }
+  const used = new Array<boolean>(openLines.length).fill(false);
+  const open: number[][][] = [];
+  for (let i = 0; i < openLines.length; i += 1) {
+    if (used[i]) continue;
+    used[i] = true;
+    let ring = openLines[i].slice();
+    let grew = true;
+    while (grew && !ringClosed(ring)) {
+      grew = false;
+      const endKey = coordKey(ring[ring.length - 1]);
+      const startKey = coordKey(ring[0]);
+      for (let j = 0; j < openLines.length; j += 1) {
+        if (used[j]) continue;
+        const line = openLines[j];
+        const head = coordKey(line[0]);
+        const tail = coordKey(line[line.length - 1]);
+        if (head === endKey) {
+          ring = ring.concat(line.slice(1));
+        } else if (tail === endKey) {
+          ring = ring.concat(line.slice().reverse().slice(1));
+        } else if (tail === startKey) {
+          ring = line.concat(ring.slice(1));
+        } else if (head === startKey) {
+          ring = line.slice().reverse().concat(ring.slice(1));
+        } else {
+          continue;
+        }
+        used[j] = true;
+        grew = true;
+        break;
+      }
+    }
+    if (ringClosed(ring)) closed.push(ring);
+    else open.push(ring);
+  }
+  return { closed, open };
+}
+
+function ringClosed(line: number[][]): boolean {
+  if (line.length < 4) return false;
+  return coordKey(line[0]) === coordKey(line[line.length - 1]);
+}
+
+function coordKey(coord: number[]): string {
+  return `${coord[0].toFixed(7)},${coord[1].toFixed(7)}`;
+}
+
+function ringCentroid(ring: number[][]): [number, number] {
+  const limit = ringClosed(ring) ? ring.length - 1 : ring.length;
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i < limit; i += 1) {
+    x += ring[i][0];
+    y += ring[i][1];
+  }
+  return [x / limit, y / limit];
+}
+
+function pointInLngLatRing(point: [number, number], ring: number[][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const a = ring[i];
+    const b = ring[j];
+    const intersect = a[1] > point[1] !== b[1] > point[1] && point[0] < ((b[0] - a[0]) * (point[1] - a[1])) / (b[1] - a[1] + 0) + a[0];
+    if (intersect) inside = !inside;
+  }
+  return inside;
 }
 
 function geomCoords(geometry: unknown): number[][] {

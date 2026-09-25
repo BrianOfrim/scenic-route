@@ -4,6 +4,7 @@ import { clipWaysToVariableCorridor } from "./corridor";
 import {
   clipWaysKeepingTouchedAreas,
   clipWaysSoftThenHard,
+  clipWaysToQueryFrame,
   clipWaysToRing,
   touchedAreaRings,
   convexHullRing,
@@ -281,6 +282,109 @@ test("shape padding stays inside 150–800 m", () => {
   assert.ok(shapePadM(tiny) >= 150);
   assert.ok(shapePadM(huge) <= 800);
 });
+
+const FRAME: [number, number, number, number] = [-79.4, 43.6, -79.3, 43.7];
+
+test("the query frame cuts lines and drops ones that miss it", () => {
+  const crossing = [[-79.55, 43.65], [-79.25, 43.65]];
+  const outside = [[-79.1, 44.1], [-79.0, 44.1]];
+  const clipped = clipWaysToQueryFrame(
+    {
+      rail: {
+        features: [
+          { geometry: { type: "LineString", coordinates: crossing } },
+          { geometry: { type: "LineString", coordinates: outside } },
+        ],
+      },
+    },
+    FRAME,
+    0,
+  );
+  assert.equal(clipped.rail.features?.length, 1);
+  const coords = (clipped.rail.features?.[0] as { geometry: { coordinates: number[][] } }).geometry.coordinates;
+  const lngs = coords.map((point) => point[0]);
+  assert.ok(Math.min(...lngs) > -79.401);
+  assert.ok(Math.max(...lngs) < -79.299);
+});
+
+test("the query frame keeps a margin past the box, then cuts", () => {
+  const line = [[-79.35, 43.65], [-79.2, 43.65]];
+  const endLng = (expand: number) => {
+    const clipped = clipWaysToQueryFrame(
+      { rail: { features: [{ geometry: { type: "LineString", coordinates: line } }] } },
+      FRAME,
+      expand,
+    );
+    const coords = (clipped.rail.features?.[0] as { geometry: { coordinates: number[][] } }).geometry.coordinates;
+    return Math.max(...coords.map((point) => point[0]));
+  };
+  const tight = endLng(0);
+  const loose = endLng(2_000);
+  assert.ok(tight < -79.299, `tight cut ${tight}`);
+  assert.ok(loose > -79.29, `margin should pass the query box, got ${loose}`);
+  assert.ok(loose < -79.22, `margin should still cut the line, got ${loose}`);
+});
+
+test("a lake larger than the frame keeps only the overlap, including holes", () => {
+  const lake = [
+    [-79.8, 43.4],
+    [-79.1, 43.4],
+    [-79.1, 43.65],
+    [-79.8, 43.65],
+    [-79.8, 43.4],
+  ];
+  const island = [
+    [-79.36, 43.61],
+    [-79.34, 43.61],
+    [-79.34, 43.63],
+    [-79.36, 43.63],
+    [-79.36, 43.61],
+  ];
+  const clipped = clipWaysToQueryFrame(
+    { water: { features: [{ geometry: { type: "Polygon", coordinates: [lake, island] } }] } },
+    FRAME,
+    0,
+  );
+  const geometry = (clipped.water.features?.[0] as { geometry: { type: string; coordinates: number[][][] } }).geometry;
+  assert.equal(geometry.type, "Polygon");
+  assert.equal(geometry.coordinates.length, 2);
+  assert.equal(covers(geometry.coordinates, -79.35, 43.62), false);
+  assert.equal(covers(geometry.coordinates, -79.35, 43.605), true);
+  assert.equal(covers(geometry.coordinates, -79.35, 43.68), false);
+  const lngs = geometry.coordinates.flat(2).filter((_, index) => index % 2 === 0);
+  assert.ok(Math.min(...lngs) > -79.401);
+  assert.ok(Math.max(...lngs) < -79.299);
+});
+
+test("coastline closes into water on the right side of the line", () => {
+  const shore = [[-79.55, 43.65], [-79.25, 43.65]];
+  const clipped = clipWaysToQueryFrame(
+    { coastline: { features: [{ geometry: { type: "LineString", coordinates: shore } }] }, water: { features: [] } },
+    FRAME,
+    0,
+  );
+  const geometry = (clipped.water.features?.[0] as unknown as { geometry: { type: string; coordinates: number[][][] } }).geometry;
+  assert.equal(geometry.type, "Polygon");
+  assert.equal(covers(geometry.coordinates, -79.35, 43.62), true);
+  assert.equal(covers(geometry.coordinates, -79.35, 43.68), false);
+});
+
+function covers(rings: number[][][], lng: number, lat: number): boolean {
+  const [outer, ...holes] = rings;
+  if (!ringHas(outer, lng, lat)) return false;
+  return !holes.some((hole) => ringHas(hole, lng, lat));
+}
+
+function ringHas(ring: number[][], lng: number, lat: number): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const a = ring[i];
+    const b = ring[j];
+    const intersect = a[1] > lat !== b[1] > lat && lng < ((b[0] - a[0]) * (lat - a[1])) / (b[1] - a[1]) + a[0];
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
 
 function ringArea(ring: [number, number][]): number {
   let sum = 0;
