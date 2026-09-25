@@ -43,6 +43,36 @@ function isParentTile(query: string) {
   return query.includes("53.5000000,-113.5000000,53.6000000,-113.4000000");
 }
 
+test("an oversized tile reports each quarter as it loads", async () => {
+  const events: string[] = [];
+  const warnings: string[] = [];
+  await queryOverpass(
+    "(way[highway=residential]({{bbox}}););out geom;",
+    [-113.5, 53.5, -113.4, 53.6],
+    warnings,
+    "ways",
+    async (query) => {
+      if (isParentTile(query)) oversized();
+      return { elements: [residentialWay(1)] };
+    },
+    (event) => {
+      events.push(`${event.phase}:${event.depth}:${event.bbox.map((value) => value.toFixed(4)).join(",")}`);
+    },
+  );
+  assert.deepEqual(events, [
+    "loading:0:-113.5000,53.5000,-113.4000,53.6000",
+    "split:0:-113.5000,53.5000,-113.4000,53.6000",
+    "loading:1:-113.5000,53.5000,-113.4500,53.5500",
+    "loaded:1:-113.5000,53.5000,-113.4500,53.5500",
+    "loading:1:-113.4500,53.5000,-113.4000,53.5500",
+    "loaded:1:-113.4500,53.5000,-113.4000,53.5500",
+    "loading:1:-113.5000,53.5500,-113.4500,53.6000",
+    "loaded:1:-113.5000,53.5500,-113.4500,53.6000",
+    "loading:1:-113.4500,53.5500,-113.4000,53.6000",
+    "loaded:1:-113.4500,53.5500,-113.4000,53.6000",
+  ]);
+});
+
 test("an oversized tile is quartered and the pieces are merged", async () => {
   const queries: string[] = [];
   let nextId = 1;

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { StyleSpecification } from "maplibre-gl";
 import { Map, Marker, NavigationControl } from "./maplibre";
-import type { NamedArea, NamedWay, PosterPoi, PosterWays } from "./api";
+import type { LoadArea, NamedArea, NamedWay, PosterPoi, PosterWays } from "./api";
 import { nearestTrailName } from "./poster/trailColors";
 import { maskIsActive, veilOutsideMask, type GeoMask } from "./poster/grounding/geoMask";
 import type { GeoEdit } from "./poster/polygonEdit";
@@ -101,9 +101,12 @@ type Props = {
   geoOutlineSelected?: number | null;
   geoRectPending?: boolean;
   geoMask?: GeoMask | null;
+  /** Shaded OpenStreetMap tiles while background geography is loading. */
+  loadAreas?: LoadArea[];
   onGeoEdit?: (edit: GeoEdit) => void;
 };
 
+const EMPTY_LOAD_AREAS: LoadArea[] = [];
 const DEFAULT_CENTER: [number, number] = [-112.83, 53.02];
 const STREET_TILES = "/api/tiles/osm/{z}/{x}/{y}.png";
 const SATELLITE_TILES = "/api/tiles/satellite/{z}/{x}/{y}.png";
@@ -141,6 +144,7 @@ export function MapView({
   geoOutlineSelected = null,
   geoRectPending = false,
   geoMask = null,
+  loadAreas = EMPTY_LOAD_AREAS,
   onGeoEdit,
 }: Props) {
   const [mode, setMode] = useState<AnnotateMode>("browse");
@@ -183,6 +187,7 @@ export function MapView({
   const geoRectPendingRef = useRef(geoRectPending);
   const onGeoEditRef = useRef(onGeoEdit);
   const geoMaskRef = useRef(geoMask);
+  const loadAreasRef = useRef(loadAreas);
   const geoDragRef = useRef<{ index: number } | null>(null);
   const onRenameLandmarkStartRef = useRef<(name: string, point: { x: number; y: number }) => void>(() => {});
   const onRenameTrailStartRef = useRef<(name: string, point: { x: number; y: number }) => void>(() => {});
@@ -234,6 +239,7 @@ export function MapView({
   geoRectPendingRef.current = geoRectPending;
   onGeoEditRef.current = onGeoEdit;
   geoMaskRef.current = geoMask;
+  loadAreasRef.current = loadAreas;
   onRenameTrailStartRef.current = (name, point) => {
     setMode("browse");
     setSectionStart(null);
@@ -303,6 +309,7 @@ export function MapView({
         labeling: labelingRef,
         onMovedLandmark: (name) => setHint(`Moved ${name}`),
         geoMask: geoMaskRef.current,
+        loadAreas: loadAreasRef.current,
       });
       fit(map, cropRef.current ?? trackRef.current, 0, bottom);
     };
@@ -323,6 +330,7 @@ export function MapView({
         geoOutlinePreview: geoOutlinePreviewRef.current,
         geoOutlineSelected: geoSelectedRef.current,
         geoMask: geoMaskRef.current,
+        loadAreas: loadAreasRef.current,
       });
     };
     const onAnnotateClick = (event: {
@@ -727,13 +735,14 @@ export function MapView({
       geoOutlinePreview: geoOutlinePreviewRef.current,
       geoOutlineSelected: geoSelectedRef.current,
       geoMask: geoMaskRef.current,
+      loadAreas: loadAreasRef.current,
     });
   }, [highlight]);
 
   useEffect(() => {
     mapRef.current?.triggerRepaint();
     hoverRef.current?.hide();
-  }, [ways, schematicLayers, pois, namedWays, namedAreas, geoOutline, geoOutlineActive, geoOutlinePreview, geoOutlineSelected, geoRectPending, geoMask]);
+  }, [ways, schematicLayers, pois, namedWays, namedAreas, geoOutline, geoOutlineActive, geoOutlinePreview, geoOutlineSelected, geoRectPending, geoMask, loadAreas]);
 
   useEffect(() => {
     setMode("browse");
@@ -1159,6 +1168,7 @@ function syncMapChrome(
     labeling?: { current: boolean };
     onMovedLandmark?: (name: string) => void;
     geoMask?: GeoMask | null;
+    loadAreas?: LoadArea[];
   },
 ) {
   if (basemap === "schematic") {
@@ -1174,6 +1184,7 @@ function syncMapChrome(
       basemap,
       highlight: data.highlight,
       geoMask: data.geoMask,
+      loadAreas: data.loadAreas,
     });
     return;
   }
@@ -1188,6 +1199,7 @@ function syncMapChrome(
     basemap,
     highlight: data.highlight,
     geoMask: data.geoMask,
+    loadAreas: data.loadAreas,
   });
   syncPoiMarkers(map, markersRef, data.pois, data.onRemovePoi, {
     draggable: Boolean(data.labeling?.current),
@@ -1216,6 +1228,7 @@ function paintSchematicOverlay(
     geoOutlinePreview?: boolean;
     geoOutlineSelected?: number | null;
     geoMask?: GeoMask | null;
+    loadAreas?: LoadArea[];
   },
 ) {
   if (!canvas) return;
@@ -1244,6 +1257,7 @@ function paintSchematicOverlay(
     const scale = (sx + sy) / 2;
     paintStreetAnnotations(ctx, project, data.namedAreas, data.namedWays, scale);
     paintStreetTrack(ctx, data.latlng ?? [], data.stops, project, scale);
+    paintLoadAreas(ctx, data.loadAreas, project, scale);
     const outline = data.geoOutlineActive || data.geoOutlinePreview ? data.geoOutline : undefined;
     paintGeoOutline(ctx, outline, project, scale, {
       handles: Boolean(data.geoOutlineActive),
@@ -1284,6 +1298,86 @@ function paintSchematicOverlay(
   });
   paintAnnotatePreview(ctx, project, data.preview, lineScale);
   paintChipHighlight(ctx, project, data, lineScale);
+  paintLoadAreas(ctx, data.loadAreas, project, lineScale);
+}
+
+const LOAD_AREA_COLOR: Record<string, string> = {
+  ways: "#2563eb",
+  landmarks: "#d97706",
+  "named areas": "#059669",
+  "named trails": "#7c3aed",
+};
+
+const LOAD_AREA_INSET: Record<string, number> = {
+  ways: 0,
+  landmarks: 1,
+  "named areas": 2,
+  "named trails": 3,
+};
+
+function paintLoadAreas(
+  ctx: CanvasRenderingContext2D,
+  areas: LoadArea[] | undefined,
+  project: (lng: number, lat: number) => [number, number],
+  scale: number,
+) {
+  if (!areas?.length) return;
+  const ranked = [...areas].sort((a, b) => a.depth - b.depth || loadPhaseRank(a.phase) - loadPhaseRank(b.phase));
+  for (const area of ranked) {
+    const [minLng, minLat, maxLng, maxLat] = area.bbox;
+    const ring = shrinkRing(
+      [
+        project(minLng, maxLat),
+        project(maxLng, maxLat),
+        project(maxLng, minLat),
+        project(minLng, minLat),
+      ],
+      (LOAD_AREA_INSET[area.label] ?? 0) * 7 * scale,
+    );
+    const color = LOAD_AREA_COLOR[area.label] ?? "#2563eb";
+    ctx.save();
+    ctx.beginPath();
+    ring.forEach((point, index) => (index === 0 ? ctx.moveTo(point[0], point[1]) : ctx.lineTo(point[0], point[1])));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = area.phase === "loading" ? 0.34 : area.phase === "loaded" ? 0.16 : area.phase === "split" ? 0.18 : 0.28;
+    ctx.fill();
+    ctx.globalAlpha = area.phase === "loaded" ? 0.7 : 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = (area.phase === "loading" ? 2.5 : 1.75) * scale;
+    ctx.setLineDash(area.phase === "split" || area.phase === "failed" ? [7 * scale, 5 * scale] : []);
+    ctx.stroke();
+    if (area.phase === "split") {
+      ctx.beginPath();
+      ctx.moveTo((ring[0][0] + ring[1][0]) / 2, (ring[0][1] + ring[1][1]) / 2);
+      ctx.lineTo((ring[3][0] + ring[2][0]) / 2, (ring[3][1] + ring[2][1]) / 2);
+      ctx.moveTo((ring[0][0] + ring[3][0]) / 2, (ring[0][1] + ring[3][1]) / 2);
+      ctx.lineTo((ring[1][0] + ring[2][0]) / 2, (ring[1][1] + ring[2][1]) / 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function loadPhaseRank(phase: LoadArea["phase"]) {
+  if (phase === "loaded") return 0;
+  if (phase === "split") return 1;
+  if (phase === "failed") return 2;
+  if (phase === "dropped") return 3;
+  return 4;
+}
+
+function shrinkRing(points: [number, number][], inset: number): [number, number][] {
+  if (inset <= 0) return points;
+  const cx = points.reduce((sum, point) => sum + point[0], 0) / points.length;
+  const cy = points.reduce((sum, point) => sum + point[1], 0) / points.length;
+  return points.map(([x, y]) => {
+    const dx = cx - x;
+    const dy = cy - y;
+    const len = Math.hypot(dx, dy) || 1;
+    const step = Math.min(inset, len * 0.45);
+    return [x + (dx / len) * step, y + (dy / len) * step];
+  });
 }
 
 function paintGeoOutline(

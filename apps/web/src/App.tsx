@@ -12,6 +12,7 @@ import {
   signOut,
   type ActivitySummary,
   type FeatureOption,
+  type LoadArea,
   type NamedArea,
   type NamedWay,
   type PosterPoi,
@@ -108,6 +109,7 @@ export function App() {
   const [namedAreas, setNamedAreas] = useState<NamedArea[]>([]);
   const [mapHighlight, setMapHighlight] = useState<LandmarkHighlight | null>(null);
   const [ways, setWays] = useState<PosterWays | null>(null);
+  const [loadAreas, setLoadAreas] = useState<LoadArea[]>([]);
   const [geoOverlay, setGeoOverlay] = useState<{
     active: boolean;
     preview: boolean;
@@ -572,6 +574,7 @@ export function App() {
               geoOutlineSelected={geoOverlay.selected}
               geoRectPending={geoOverlay.rectPending}
               geoMask={posterOpen ? geoMask : null}
+              loadAreas={posterOpen ? loadAreas : []}
               onGeoEdit={(edit) => geoEditRef.current(edit)}
             />
           </main>
@@ -586,6 +589,7 @@ export function App() {
               sheetSnap={isMobile ? posterSheet : null}
               onSheetSnapChange={isMobile ? setPosterSheetSnap : undefined}
               onSheetHeightChange={isMobile ? onPosterSheetHeight : undefined}
+              onLoadAreasChange={setLoadAreas}
               onClose={closePoster}
               onCropChange={setCropLatLng}
               onStopsChange={setCropStops}

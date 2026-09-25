@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import {
   fetchPosterCapabilities,
   fetchPosterContext,
+  type LoadArea,
   formatKm,
   generatePoster,
   lookupPosterLandmark,
@@ -734,6 +735,8 @@ type Props = {
   sheetSnap?: PosterSheetSnap | null;
   onSheetSnapChange?: (snap: PosterSheetSnap) => void;
   onSheetHeightChange?: (heightPx: number) => void;
+  /** Live OpenStreetMap tiles while background geography is loading. */
+  onLoadAreasChange?: (areas: LoadArea[]) => void;
 };
 
 export function PosterPanel({
@@ -769,6 +772,7 @@ export function PosterPanel({
   sheetSnap = null,
   onSheetSnapChange,
   onSheetHeightChange,
+  onLoadAreasChange,
 }: Props) {
   const catalog = FEATURE_CATALOG.map((item) => {
     const remote = features.find((feature) => feature.id === item.id);
@@ -894,9 +898,22 @@ export function PosterPanel({
       setContext(null);
       setError(null);
     }
-    fetchPosterContext(activityId, featureIds, featureQuery)
+    let settled = false;
+    const areas = new Map<string, LoadArea>();
+    const publishAreas = () => {
+      if (cancelled || settled) return;
+      onLoadAreasChange?.([...areas.values()]);
+    };
+    onLoadAreasChange?.([]);
+    fetchPosterContext(activityId, featureIds, featureQuery, (area) => {
+      if (cancelled || settled) return;
+      areas.set(area.id, area);
+      publishAreas();
+    })
       .then((next) => {
         if (cancelled) return;
+        settled = true;
+        onLoadAreasChange?.([]);
         setContext(next);
         const incomingPois = next.pois.map((poi) => poi.name);
         const incomingTrails = (next.namedWays ?? []).map((trail) => trail.name);
@@ -1008,8 +1025,10 @@ export function PosterPanel({
       });
     return () => {
       cancelled = true;
+      settled = true;
+      onLoadAreasChange?.([]);
     };
-  }, [activityId, featureQuery]);
+  }, [activityId, featureQuery, onLoadAreasChange]);
 
   const croppedLatLng = useMemo(() => {
     if (!context?.latlng?.length) return [];

@@ -20,7 +20,7 @@ import {
 import { formatDate, formatDuration, formatElevation, formatKm, formatSpeed } from "../format";
 import { KIND_WEIGHTS, nearRouteMForKind, resolveFeatures, type FeatureDef } from "./catalog";
 import { corridorForRoute } from "./corridor";
-import { collection, emptyCollection, queryOverpass, unionQuery } from "./overpass";
+import { collection, emptyCollection, queryOverpass, unionQuery, type OverpassTileListener } from "./overpass";
 
 const MAX_POIS = 25;
 const MAX_NAMED_WAYS = 16;
@@ -155,6 +155,7 @@ export async function loadRouteFeatures(
   featureIds?: string[],
   nearRouteM?: Record<string, number>,
   timings?: Record<string, number>,
+  onTile?: OverpassTileListener,
 ): Promise<PosterContext> {
   const started = performance.now();
   if (!Number.isFinite(activityId) || activityId <= 0) {
@@ -184,16 +185,16 @@ export async function loadRouteFeatures(
 
   const [waysFc, poisFc, namedAreaFc, namedWaysFc] = await Promise.all([
     geoFeatures.length
-      ? queryOverpass(unionQuery(geoFeatures.flatMap((item) => item.selectors)), padded, warnings, "ways")
+      ? queryOverpass(unionQuery(geoFeatures.flatMap((item) => item.selectors)), padded, warnings, "ways", undefined, onTile)
       : Promise.resolve(emptyCollection()),
     poiFeatures.length
-      ? queryOverpass(unionQuery(poiFeatures.flatMap((item) => item.selectors), "center"), padded, warnings, "landmarks")
+      ? queryOverpass(unionQuery(poiFeatures.flatMap((item) => item.selectors), "center"), padded, warnings, "landmarks", undefined, onTile)
       : Promise.resolve(emptyCollection()),
     namedAreaFeatures.length
-      ? queryOverpass(unionQuery(namedAreaFeatures.flatMap((item) => item.selectors)), padded, warnings, "named areas")
+      ? queryOverpass(unionQuery(namedAreaFeatures.flatMap((item) => item.selectors)), padded, warnings, "named areas", undefined, onTile)
       : Promise.resolve(emptyCollection()),
     namedWayFeatures.length
-      ? queryOverpass(unionQuery(namedWayFeatures.flatMap((item) => item.selectors)), padded, warnings, "named trails")
+      ? queryOverpass(unionQuery(namedWayFeatures.flatMap((item) => item.selectors)), padded, warnings, "named trails", undefined, onTile)
       : Promise.resolve(emptyCollection()),
   ]);
 
