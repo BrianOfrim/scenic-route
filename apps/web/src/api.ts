@@ -364,11 +364,110 @@ export async function fetchFeatures(): Promise<FeatureOption[]> {
   return body.features;
 }
 
+export type LoadAreaPhase = "loading" | "loaded" | "split" | "dropped" | "failed";
+
+export type LoadArea = {
+  id: string;
+  label: string;
+  bbox: [number, number, number, number];
+  depth: number;
+  phase: LoadAreaPhase;
+};
+
+type ContextStreamLine =
+  | { type: "tile"; id: string; label: string; bbox: [number, number, number, number]; depth: number; phase: LoadAreaPhase }
+  | { type: "context"; context: PosterContext }
+  | { type: "error"; error?: string };
+
+/** Apply one NDJSON line from a context stream. Returns a terminal result when the line finishes the request. */
+export function applyContextStreamLine(
+  line: string,
+  onTile?: (area: LoadArea) => void,
+): { context?: PosterContext; error?: string } | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  const message = JSON.parse(trimmed) as ContextStreamLine;
+  if (message.type === "tile") {
+    onTile?.({
+      id: message.id,
+      label: message.label,
+      bbox: message.bbox,
+      depth: message.depth,
+      phase: message.phase,
+    });
+    return null;
+  }
+  if (message.type === "error") return { error: message.error || "Could not load image setup" };
+  if (message.type === "context") return { context: message.context };
+  return null;
+}
+
+const contextTileListeners = new Map<string, Set<(area: LoadArea) => void>>();
+
+function emitContextTile(url: string, area: LoadArea) {
+  for (const listener of contextTileListeners.get(url) ?? []) listener(area);
+}
+
+function subscribeContextTiles(url: string, listener: (area: LoadArea) => void) {
+  let listeners = contextTileListeners.get(url);
+  if (!listeners) {
+    listeners = new Set();
+    contextTileListeners.set(url, listeners);
+  }
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) contextTileListeners.delete(url);
+  };
+}
+
+async function readContextNdjson(response: Response, onTile: (area: LoadArea) => void): Promise<PosterContext> {
+  if (response.status === 401) throw new AuthRequiredError();
+  if (!response.body) {
+    throw new Error(response.ok ? "Server returned an invalid response" : `Request failed (${response.status})`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let context: PosterContext | undefined;
+  let error: string | undefined;
+  const consume = (text: string, flush: boolean) => {
+    buffer += text;
+    let newline = buffer.indexOf("\n");
+    while (newline >= 0) {
+      const result = applyContextStreamLine(buffer.slice(0, newline), onTile);
+      buffer = buffer.slice(newline + 1);
+      if (result?.context) context = result.context;
+      if (result?.error) error = result.error;
+      newline = buffer.indexOf("\n");
+    }
+    if (flush && buffer.trim()) {
+      const result = applyContextStreamLine(buffer, onTile);
+      buffer = "";
+      if (result?.context) context = result.context;
+      if (result?.error) error = result.error;
+    }
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    consume(decoder.decode(value, { stream: !done }), done);
+    if (done) break;
+  }
+  if (error) throw new Error(error);
+  if (!context) {
+    throw new Error(response.ok ? "Server returned an invalid response" : `Request failed (${response.status})`);
+  }
+  return context;
+}
+
 const loadPosterContext = coalesceRequests(async (url: string): Promise<PosterContext> => {
   const start = performance.now();
-  const response = await apiFetch(url);
+  const response = await apiFetch(url, { headers: { Accept: "application/x-ndjson" } });
   const received = performance.now();
-  const context = await readJson<PosterContext>(response);
+  const contentType = response.headers.get("content-type") ?? "";
+  const context = contentType.includes("application/x-ndjson")
+    ? await readContextNdjson(response, (area) => emitContextTile(url, area))
+    : await readJson<PosterContext>(response);
   performance.clearMeasures("schematic.context.fetch");
   performance.clearMeasures("schematic.context.body-and-parse");
   performance.measure("schematic.context.fetch", { start, end: received });
@@ -380,10 +479,17 @@ export async function fetchPosterContext(
   activityId: number,
   featureIds: string[],
   featureQuery?: string,
+  onTile?: (area: LoadArea) => void,
 ): Promise<PosterContext> {
   const encoded = featureQuery ?? featureIds.join(",");
   const qs = encoded ? `?features=${encodeURIComponent(encoded)}` : "";
-  return loadPosterContext(`/api/poster/context/${activityId}${qs}`);
+  const url = `/api/poster/context/${activityId}${qs}`;
+  const unsubscribe = onTile ? subscribeContextTiles(url, onTile) : () => {};
+  try {
+    return await loadPosterContext(url);
+  } finally {
+    unsubscribe();
+  }
 }
 
 export async function lookupPosterLandmark(body: {

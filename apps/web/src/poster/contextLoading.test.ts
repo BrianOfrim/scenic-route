@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { applyContextStreamLine } from "../api";
 import { coalesceRequests } from "../inFlight";
 import { contextFeatureQuery, DEFAULT_FEATURE_IDS } from "./featureCatalog";
 
@@ -39,4 +40,27 @@ test("failed requests do not prevent later attempts", async () => {
   await assert.rejects(first, /offline/);
   fail = false;
   assert.equal(await load("activity"), "ok");
+});
+
+test("context stream lines report tiles and then the finished context", () => {
+  const tiles: string[] = [];
+  assert.equal(applyContextStreamLine("  "), null);
+  assert.equal(
+    applyContextStreamLine(
+      JSON.stringify({
+        type: "tile",
+        id: "ways:0",
+        label: "ways",
+        bbox: [-113.5, 53.5, -113.4, 53.6],
+        depth: 0,
+        phase: "split",
+      }),
+      (area) => tiles.push(`${area.phase}:${area.label}`),
+    ),
+    null,
+  );
+  assert.deepEqual(tiles, ["split:ways"]);
+  const done = applyContextStreamLine(JSON.stringify({ type: "context", context: { activity: { id: 1 } } }));
+  assert.equal(done?.context?.activity.id, 1);
+  assert.equal(applyContextStreamLine(JSON.stringify({ type: "error", error: "offline" }))?.error, "offline");
 });
