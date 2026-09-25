@@ -297,6 +297,40 @@ test("elementsToFeatures converts nodes, ways, and areas", () => {
   assert.equal(features[0].properties?.name, "Cafe");
 });
 
+test("elementsToFeatures assembles a water multipolygon and keeps its islands as holes", () => {
+  const features = elementsToFeatures([
+    {
+      type: "relation",
+      id: 7,
+      tags: { type: "multipolygon", natural: "water", water: "lake", name: "Lake" },
+      members: [
+        { type: "way", ref: 1, role: "outer", geometry: [{ lon: 0, lat: 0 }, { lon: 0, lat: 1 }] },
+        { type: "way", ref: 2, role: "outer", geometry: [{ lon: 0, lat: 1 }, { lon: 1, lat: 1 }] },
+        { type: "way", ref: 3, role: "outer", geometry: [{ lon: 1, lat: 0 }, { lon: 1, lat: 1 }] },
+        { type: "way", ref: 4, role: "outer", geometry: [{ lon: 1, lat: 0 }, { lon: 0, lat: 0 }] },
+        {
+          type: "way",
+          ref: 5,
+          role: "inner",
+          geometry: [
+            { lon: 0.4, lat: 0.4 },
+            { lon: 0.6, lat: 0.4 },
+            { lon: 0.6, lat: 0.6 },
+            { lon: 0.4, lat: 0.6 },
+            { lon: 0.4, lat: 0.4 },
+          ],
+        },
+      ],
+    },
+  ]);
+  assert.equal(features.length, 1);
+  assert.equal(features[0].geometry.type, "Polygon");
+  assert.equal(features[0].properties?.name, "Lake");
+  if (features[0].geometry.type !== "Polygon") return;
+  assert.equal(features[0].geometry.coordinates.length, 2);
+  assert.ok(features[0].geometry.coordinates[0].length >= 5);
+});
+
 test("elementsToFeatures flattens route relation members", () => {
   const features = elementsToFeatures([
     {

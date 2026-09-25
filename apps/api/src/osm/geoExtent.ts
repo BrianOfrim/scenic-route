@@ -1,5 +1,6 @@
 /** Extra geography extents: rotated box, convex hull, loop interior, and area-aware corridor. */
 
+import { padBbox, type BBox } from "../geo";
 import {
   clipWaysToCorridor,
   clipWaysToVariableCorridor,
@@ -235,6 +236,300 @@ export function outerHardCut(
   return { kind: "band", bandM: options.corridorM + expand };
 }
 
+export type FrameGeometry =
+  | { type: "LineString"; coordinates: number[][] }
+  | { type: "MultiLineString"; coordinates: number[][][] }
+  | { type: "Polygon"; coordinates: number[][][] }
+  | { type: "MultiPolygon"; coordinates: number[][][][] };
+
+/**
+ * Cut every geography feature to a rectangle `expandM` outside the query box.
+ * Lines stop on that edge. Polygons keep only the overlap, so a lake that
+ * continues past the frame becomes the piece inside it.
+ * Open coastline is closed along the cut on the water side.
+ */
+export function clipWaysToQueryFrame<T extends { features?: unknown[] }>(
+  ways: Record<string, T>,
+  bbox: BBox,
+  expandM: number,
+): Record<string, T> {
+  const ring = queryFrameRing(bbox, expandM);
+  const clipped = {} as Record<string, T>;
+  for (const [key, bucket] of Object.entries(ways)) {
+    const features = ((bucket?.features ?? []) as ExtentFeature[]).flatMap((feature) => clipFeatureToFrame(feature, ring));
+    clipped[key] = { ...bucket, features: features as T["features"] };
+  }
+  const coastal = coastlineWaterFeatures((ways.coastline?.features ?? []) as ExtentFeature[], ring);
+  if (coastal.length) {
+    const water = clipped.water ?? ({ features: [] } as unknown as T);
+    const features = [...((water.features ?? []) as ExtentFeature[]), ...coastal];
+    clipped.water = { ...water, features: features as T["features"] };
+  }
+  return clipped;
+}
+
+/** Cut one geometry to the same frame. Null when nothing remains inside it. */
+export function clipGeometryToFrame(geometry: FrameGeometry, bbox: BBox, expandM: number): FrameGeometry | null {
+  const ring = queryFrameRing(bbox, expandM);
+  const features = clipFeatureToFrame({ geometry }, ring);
+  if (!features.length) return null;
+  if (features.length === 1) {
+    const next = features[0].geometry;
+    if (isFrameGeometry(next)) return next;
+  }
+  const lines = features.flatMap((feature) => linesOf(feature.geometry));
+  if (lines.length === 1) return { type: "LineString", coordinates: lines[0] };
+  if (lines.length > 1) return { type: "MultiLineString", coordinates: lines };
+  return null;
+}
+
+function queryFrameRing(bbox: BBox, expandM: number): LngLat[] {
+  const frame = padBbox(bbox, Math.max(0, expandM));
+  return rectangleRing([frame[0], frame[1]], [frame[2], frame[3]]);
+}
+
+function isFrameGeometry(geometry: ExtentFeature["geometry"]): geometry is FrameGeometry {
+  const type = geometry?.type;
+  return type === "LineString" || type === "MultiLineString" || type === "Polygon" || type === "MultiPolygon";
+}
+
+function clipFeatureToFrame(feature: ExtentFeature, ring: LngLat[]): ExtentFeature[] {
+  const geometry = feature.geometry;
+  if (!geometry?.coordinates) return [];
+  const { local, lat0 } = frameLocals(ring);
+  if (geometry.type === "LineString" || geometry.type === "MultiLineString") {
+    const lines = linesOf(geometry)
+      .flatMap((line) => clipLineToRing(line, local, lat0))
+      .filter((line) => line.length >= 2);
+    if (!lines.length) return [];
+    if (lines.length === 1) return [{ ...feature, geometry: { type: "LineString", coordinates: lines[0] } }];
+    return [{ ...feature, geometry: { type: "MultiLineString", coordinates: lines } }];
+  }
+  if (geometry.type === "Polygon" || geometry.type === "MultiPolygon") {
+    const polygons = geometry.type === "Polygon" ? [asPolygonRings(geometry.coordinates)] : asPolygons(geometry.coordinates);
+    const kept = polygons
+      .map((rings) => clipPolygonWithHoles(rings, local, lat0))
+      .filter((rings) => rings.length > 0);
+    if (!kept.length) return [];
+    if (kept.length === 1) return [{ ...feature, geometry: { type: "Polygon", coordinates: kept[0] } }];
+    return [{ ...feature, geometry: { type: "MultiPolygon", coordinates: kept } }];
+  }
+  return [];
+}
+
+function clipPolygonWithHoles(rings: number[][][], rect: Pt[], lat0: number): number[][][] {
+  const outer = rings[0];
+  if (!outer || outer.length < 3) return [];
+  const clippedOuter = closeLngRing(clipPolygonToRing(outer, rect, lat0));
+  if (clippedOuter.length < 4) return [];
+  const holes = rings.slice(1)
+    .map((hole) => closeLngRing(clipPolygonToRing(hole, rect, lat0)))
+    .filter((hole) => hole.length >= 4);
+  return normalizeWinding([clippedOuter, ...holes], lat0);
+}
+
+function closeLngRing(ring: number[][]): number[][] {
+  if (ring.length < 3) return [];
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (first[0] === last[0] && first[1] === last[1]) return ring;
+  return [...ring, [first[0], first[1]]];
+}
+
+function normalizeWinding(rings: number[][][], lat0: number): number[][][] {
+  return rings.map((ring, index) => {
+    const local = ring.map(([lng, lat]) => project(lng, lat, lat0));
+    const ccw = signedArea(local) >= 0;
+    const wantCcw = index === 0;
+    const oriented = ccw === wantCcw ? ring : ring.slice().reverse();
+    return closeLngRing(oriented);
+  });
+}
+
+function asPolygonRings(value: unknown): number[][][] {
+  return Array.isArray(value) ? (value as number[][][]) : [];
+}
+
+type BoundaryHit = { edge: number; t: number; pos: number };
+type ShoreChain = { pts: Pt[]; start: BoundaryHit; end: BoundaryHit };
+
+/** Coastline is directed with water on the right. Close it along the frame. */
+function coastlineWaterFeatures(features: ExtentFeature[], ring: LngLat[]): ExtentFeature[] {
+  const { local, lat0 } = frameLocals(ring);
+  const perim = perimeter(local);
+  if (perim <= 0) return [];
+  const chains: ShoreChain[] = [];
+  const landHoles: Pt[][] = [];
+  const enclosedWater: Pt[][] = [];
+  for (const feature of features) {
+    for (const line of linesOf(feature.geometry)) {
+      for (const piece of clipLineToRing(line, local, lat0)) {
+        const pts = piece.map(([lng, lat]) => project(lng, lat, lat0));
+        if (pts.length < 2) continue;
+        if (localClosed(pts)) {
+          if (signedArea(pts) >= 0) landHoles.push(pts);
+          else enclosedWater.push(pts);
+          continue;
+        }
+        const start = locateOnRect(pts[0], local);
+        const end = locateOnRect(pts[pts.length - 1], local);
+        if (!start || !end) continue;
+        chains.push({ pts, start, end });
+      }
+    }
+  }
+  const polygons: Pt[][][] = [];
+  for (const water of enclosedWater) polygons.push([water]);
+  const unused = new Set(chains);
+  while (unused.size) {
+    const first = unused.values().next().value as ShoreChain;
+    unused.delete(first);
+    const ccw = shoreWalksCcw(first, local, "right");
+    const ringPts = first.pts.slice();
+    let cursor = first;
+    for (let guard = 0; guard <= chains.length; guard += 1) {
+      const back = forwardDistance(cursor.end.pos, first.start.pos, perim, ccw);
+      let next: ShoreChain | null = null;
+      let nextDist = back;
+      for (const chain of unused) {
+        const dist = forwardDistance(cursor.end.pos, chain.start.pos, perim, ccw);
+        if (dist > 0.5 && dist < nextDist - 0.5) {
+          next = chain;
+          nextDist = dist;
+        }
+      }
+      const target = next ? next.start : first.start;
+      ringPts.push(...boundaryPoints(cursor.end, target, ccw, local, perim));
+      if (!next) break;
+      unused.delete(next);
+      ringPts.push(...next.pts.slice(1));
+      cursor = next;
+    }
+    if (ringPts.length >= 3) polygons.push([ringPts]);
+  }
+  if (!polygons.length && landHoles.length) {
+    const ocean = local.some((corner) => landHoles.every((hole) => !pointInRing(corner, hole)));
+    if (ocean) polygons.push([local.slice(), ...landHoles]);
+  } else {
+    for (const hole of landHoles) {
+      const host = polygons.find((polygon) => pointInRing(ringCentroidPt(hole), polygon[0]));
+      if (host) host.push(hole);
+    }
+  }
+  return polygons.flatMap((polygon) => {
+    const coordinates = normalizeWinding(polygon.map((pts) => pts.map((point) => unproject(point, lat0))), lat0);
+    if (coordinates[0].length < 4) return [];
+    return [{ type: "Feature", geometry: { type: "Polygon", coordinates }, properties: { tags: { natural: "water" } } }];
+  });
+}
+
+function shoreWalksCcw(chain: ShoreChain, rect: Pt[], side: "left" | "right"): boolean {
+  const prev = chain.pts[chain.pts.length - 2] ?? chain.pts[0];
+  const end = chain.pts[chain.pts.length - 1];
+  const dx = end.x - prev.x;
+  const dy = end.y - prev.y;
+  const wx = side === "right" ? dy : -dy;
+  const wy = side === "right" ? -dx : dx;
+  const ccw = edgeTangent(rect, chain.end.edge, true);
+  const cw = edgeTangent(rect, chain.end.edge, false);
+  return ccw.x * wx + ccw.y * wy >= cw.x * wx + cw.y * wy;
+}
+
+function edgeTangent(rect: Pt[], edge: number, ccw: boolean): Pt {
+  const a = rect[edge];
+  const b = rect[(edge + 1) % rect.length];
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const x = (b.x - a.x) / len;
+  const y = (b.y - a.y) / len;
+  return ccw ? { x, y } : { x: -x, y: -y };
+}
+
+function locateOnRect(point: Pt, rect: Pt[]): BoundaryHit | null {
+  const lens = edgeLengths(rect);
+  let offset = 0;
+  let best: BoundaryHit | null = null;
+  let bestDist = 3;
+  for (let i = 0; i < rect.length; i += 1) {
+    const a = rect[i];
+    const b = rect[(i + 1) % rect.length];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2));
+    const dist = Math.hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = { edge: i, t, pos: offset + t * lens[i] };
+    }
+    offset += lens[i];
+  }
+  return best;
+}
+
+function edgeLengths(rect: Pt[]): number[] {
+  return rect.map((point, index) => {
+    const next = rect[(index + 1) % rect.length];
+    return Math.hypot(next.x - point.x, next.y - point.y);
+  });
+}
+
+function perimeter(rect: Pt[]): number {
+  return edgeLengths(rect).reduce((sum, length) => sum + length, 0);
+}
+
+function cornerPositions(rect: Pt[]): number[] {
+  const lens = edgeLengths(rect);
+  const positions: number[] = [];
+  let offset = 0;
+  for (const length of lens) {
+    offset += length;
+    positions.push(offset);
+  }
+  return positions;
+}
+
+function forwardDistance(from: number, to: number, perim: number, ccw: boolean): number {
+  if (perim <= 0) return 0;
+  return ccw ? (to - from + perim) % perim : (from - to + perim) % perim;
+}
+
+function boundaryPoints(from: BoundaryHit, to: BoundaryHit, ccw: boolean, rect: Pt[], perim: number): Pt[] {
+  const dist = forwardDistance(from.pos, to.pos, perim, ccw);
+  if (dist < 0.5) return [];
+  const corners = cornerPositions(rect);
+  const hits: Array<{ pos: number; point: Pt }> = [];
+  for (let i = 0; i < rect.length; i += 1) {
+    const along = forwardDistance(from.pos, corners[i] % perim, perim, ccw);
+    if (along > 0.5 && along < dist - 0.5) hits.push({ pos: along, point: rect[(i + 1) % rect.length] });
+  }
+  hits.sort((a, b) => a.pos - b.pos);
+  return hits.map((hit) => hit.point);
+}
+
+function localClosed(points: Pt[]): boolean {
+  if (points.length < 4) return false;
+  const a = points[0];
+  const b = points[points.length - 1];
+  return Math.hypot(a.x - b.x, a.y - b.y) < 1;
+}
+
+function ringCentroidPt(ring: Pt[]): Pt {
+  const limit = localClosed(ring) ? ring.length - 1 : ring.length;
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i < limit; i += 1) {
+    x += ring[i].x;
+    y += ring[i].y;
+  }
+  return { x: x / limit, y: y / limit };
+}
+
+function frameLocals(ring: LngLat[]): { local: Pt[]; lat0: number } {
+  const lat0 = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
+  const local = ensureCcw(openPts(ring.map(([lng, lat]) => project(lng, lat, lat0))));
+  return { local, lat0 };
+}
+
 /** Hard-cut every feature to `ring`, dropping anything that misses it. */
 export function clipWaysToRing<T extends { features?: unknown[] }>(
   ways: Record<string, T>,
@@ -453,7 +748,14 @@ function clipLineToRing(line: number[][], ring: Pt[], lat0: number): number[][][
   };
   for (const point of local) {
     const inside = pointInRing(point, ring);
-    if (previous && inside !== previousInside) {
+    if (previous && !previousInside && !inside) {
+      const hits = segmentHits(previous, point, ring);
+      for (let i = 0; i + 1 < hits.length; i += 2) {
+        push(hits[i]);
+        push(hits[i + 1]);
+        finish();
+      }
+    } else if (previous && inside !== previousInside) {
       const hit = ringHit(previous, point, ring);
       if (hit) push(hit);
       if (!inside) finish();
@@ -488,18 +790,44 @@ function clipPolygonToRing(shape: number[][], ring: Pt[], lat0: number): number[
       const priorIn = leftOf(a, b, prior);
       if (currentIn) {
         if (!priorIn) {
-          const hit = edgeHit(prior, current, a, b);
+          const hit = lineCross(prior, current, a, b);
           if (hit) output.push(hit);
         }
         output.push(current);
       } else if (priorIn) {
-        const hit = edgeHit(prior, current, a, b);
+        const hit = lineCross(prior, current, a, b);
         if (hit) output.push(hit);
       }
     }
     if (output.length < 3) return [];
   }
   return output.map((point) => unproject(point, lat0));
+}
+
+/** Where segment ab crosses the infinite line through cd. */
+function lineCross(a: Pt, b: Pt, c: Pt, d: Pt): Pt | null {
+  const denom = (a.x - b.x) * (c.y - d.y) - (a.y - b.y) * (c.x - d.x);
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = ((a.x - c.x) * (c.y - d.y) - (a.y - c.y) * (c.x - d.x)) / denom;
+  if (t < -1e-9 || t > 1 + 1e-9) return null;
+  return { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+}
+
+function segmentHits(a: Pt, b: Pt, ring: Pt[]): Pt[] {
+  const hits: Array<{ point: Pt; dist: number }> = [];
+  for (let i = 0; i < ring.length; i += 1) {
+    const hit = edgeHit(a, b, ring[i], ring[(i + 1) % ring.length]);
+    if (!hit) continue;
+    hits.push({ point: hit, dist: Math.hypot(hit.x - a.x, hit.y - a.y) });
+  }
+  hits.sort((left, right) => left.dist - right.dist);
+  const unique: Pt[] = [];
+  for (const hit of hits) {
+    const prev = unique[unique.length - 1];
+    if (prev && Math.hypot(prev.x - hit.point.x, prev.y - hit.point.y) < 0.5) continue;
+    unique.push(hit.point);
+  }
+  return unique;
 }
 
 function ringHit(a: Pt, b: Pt, ring: Pt[]): Pt | null {
