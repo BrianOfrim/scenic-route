@@ -36,7 +36,6 @@ function residentialWay(id: number) {
 }
 
 test("an oversized response fails that tile and does not split it", async () => {
-  const events: string[] = [];
   let calls = 0;
   const warnings: string[] = [];
   const result = await queryOverpass(
@@ -48,13 +47,9 @@ test("an oversized response fails that tile and does not split it", async () => 
       calls += 1;
       throw new Error("Overpass response exceeded 268435456 bytes");
     },
-    (event) => {
-      events.push(event.phase);
-    },
   );
   assert.equal(calls, 1);
   assert.equal(result.features.length, 0);
-  assert.deepEqual(events, ["loading", "failed"]);
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /exceeded 268435456 bytes/);
 });

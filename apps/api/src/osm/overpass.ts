@@ -66,34 +66,16 @@ export function collection(features: Feature[]): FeatureCollection {
 
 type OverpassPoster = (query: string) => Promise<{ elements?: unknown[] }>;
 
-export type OverpassTilePhase = "loading" | "loaded" | "split" | "dropped" | "failed";
-
-export type OverpassTileEvent = {
-  id: string;
-  label: string;
-  bbox: BBox;
-  depth: number;
-  phase: OverpassTilePhase;
-};
-
-export type OverpassTileListener = (event: OverpassTileEvent) => void | Promise<void>;
-
-export function overpassTileId(label: string, bbox: BBox, depth: number): string {
-  return `${label}:${depth}:${bbox.map((value) => value.toFixed(5)).join(",")}`;
-}
-
 export async function queryOverpass(
   queryBody: string,
   bbox: BBox,
   warnings: string[],
   label: string,
   post: OverpassPoster = postOverpass,
-  onTile?: OverpassTileListener,
 ): Promise<FeatureCollection> {
   const tiles = shouldTile(bbox) ? tileBboxes(bbox) : [bbox];
   if (tiles.some((tile) => bboxDiagonal(tile) > MAX_OVERPASS_DIAGONAL_M)) {
     warnings.push(`padded bbox is too large for Overpass; skipped ${label}`);
-    await onTile?.({ id: overpassTileId(label, bbox, 0), label, bbox, depth: 0, phase: "failed" });
     return emptyCollection();
   }
   const merged: Feature[] = [];
@@ -104,9 +86,6 @@ export async function queryOverpass(
 
   async function loadTile(tile: BBox): Promise<void> {
     const started = performance.now();
-    const tileEvent = (phase: OverpassTilePhase) =>
-      onTile?.({ id: overpassTileId(label, tile, 0), label, bbox: tile, depth: 0, phase });
-    await tileEvent("loading");
     try {
       const payload = await post(buildQuery(queryBody, tile));
       const fetched = performance.now();
@@ -119,12 +98,10 @@ export async function queryOverpass(
         merged.push(feature);
       }
       convertMs += performance.now() - fetched;
-      await tileEvent("loaded");
     } catch (error) {
       fetchMs += performance.now() - started;
       fetchedTiles += 1;
       warnings.push(`Overpass ${label} failed: ${error instanceof Error ? error.message : error}`);
-      await tileEvent("failed");
     }
   }
 
