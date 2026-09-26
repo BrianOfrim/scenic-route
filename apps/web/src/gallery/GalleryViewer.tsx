@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 export type GalleryImage = {
   id: string;
   src: string;
   thumbSrc?: string;
+  /** Inline preview that can paint before `src` is fetched. */
+  previewSrc?: string;
   label: string;
 };
 
@@ -169,7 +171,12 @@ export function GalleryViewer({
             aria-modal="true"
             aria-label={expanded.label}
           >
-            <img src={expanded.src} alt={expanded.label} onClick={(event) => event.stopPropagation()} />
+            <ReadyImage
+              src={expanded.src}
+              previewSrc={expanded.previewSrc}
+              alt={expanded.label}
+              onClick={(event) => event.stopPropagation()}
+            />
             <div className="compare-fullscreen-bar" onClick={(event) => event.stopPropagation()}>
               <strong>{expanded.label}</strong>
               <div className="compare-nav">
@@ -209,11 +216,42 @@ export function GalleryViewer({
   );
 }
 
+export function ReadyImage({
+  src,
+  previewSrc,
+  alt,
+  onClick,
+}: {
+  src: string;
+  previewSrc?: string;
+  alt: string;
+  onClick?: (event: MouseEvent<HTMLImageElement>) => void;
+}) {
+  const [showFull, setShowFull] = useState(!previewSrc || previewSrc === src);
+  useEffect(() => {
+    if (!previewSrc || previewSrc === src) {
+      setShowFull(true);
+      return;
+    }
+    setShowFull(false);
+    const loader = new Image();
+    let active = true;
+    loader.onload = () => {
+      if (active) setShowFull(true);
+    };
+    loader.src = src;
+    return () => {
+      active = false;
+    };
+  }, [src, previewSrc]);
+  return <img src={showFull ? src : previewSrc} alt={alt} onClick={onClick} />;
+}
+
 function ViewerPane({ image, onExpand }: { image: GalleryImage; onExpand: () => void }) {
   return (
     <div className="compare-pane">
       <div className="compare-pane-hit">
-        <img src={image.src} alt={image.label} />
+        <ReadyImage src={image.src} previewSrc={image.previewSrc} alt={image.label} />
         <span className="compare-caption">{image.label}</span>
       </div>
       <button

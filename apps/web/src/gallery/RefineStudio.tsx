@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { modifyPoster, type PosterRecord } from "../api";
+import { posterCardSrc } from "./galleryList";
+import { ReadyImage } from "./GalleryViewer";
 import { lineageFamily } from "./galleryRuns";
 import { ShareButton } from "../share";
 
@@ -98,7 +100,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange }: Props
         </p>
         <div className="refine-studio-stage single">
           <figure>
-            <img src={selected.url} alt={selected.title} />
+            <ReadyImage src={selected.url} previewSrc={selected.thumbDataUrl} alt={selected.title} />
             <figcaption>{versionLabel(selected, original?.posterId)}</figcaption>
           </figure>
         </div>
@@ -146,7 +148,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange }: Props
               onClick={() => setSelectedId(poster.posterId)}
               disabled={busy}
             >
-              <img src={poster.url} alt={poster.title} />
+              <img src={posterCardSrc(poster)} alt={poster.title} />
               <span>{versionLabel(poster, original?.posterId)}</span>
             </button>
           ))}

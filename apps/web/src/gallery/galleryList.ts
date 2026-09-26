@@ -1,7 +1,7 @@
 import type { PosterRecord } from "../api";
 
-export function posterCardSrc(poster: Pick<PosterRecord, "url" | "thumbUrl">) {
-  return poster.thumbUrl || poster.url;
+export function posterCardSrc(poster: Pick<PosterRecord, "url" | "thumbUrl" | "thumbDataUrl">) {
+  return poster.thumbDataUrl || poster.thumbUrl || poster.url;
 }
 
 /** Add posters that finished generating before the full list refresh includes them. */
@@ -32,7 +32,7 @@ export function mergePosterList(current: PosterRecord[], incoming: PosterRecord[
   const byId = new Map(current.map((item) => [item.posterId, item]));
   return incoming.map((item) => {
     const prev = byId.get(item.posterId);
-    if (!prev?.spec && !prev?.editor && !prev?.prompt) return item;
+    if (!prev || (!prev.spec && !prev.editor && !prev.prompt && !prev.thumbDataUrl)) return item;
     return {
       ...item,
       spec: prev.spec,
@@ -42,6 +42,7 @@ export function mergePosterList(current: PosterRecord[], incoming: PosterRecord[
       labels: prev.labels,
       stats: prev.stats,
       stylePrompt: prev.stylePrompt,
+      thumbDataUrl: prev.thumbDataUrl,
     };
   });
 }

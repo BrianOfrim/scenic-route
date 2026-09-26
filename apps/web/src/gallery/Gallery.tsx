@@ -282,7 +282,8 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         return {
           id: item.posterId,
           src: item.url,
-          thumbSrc: item.thumbUrl || item.url,
+          thumbSrc: posterCardSrc(item),
+          previewSrc: item.thumbDataUrl,
           label: note && stacked ? `${base} · ${note}` : base,
         };
       }),
