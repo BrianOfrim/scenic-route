@@ -200,6 +200,96 @@ export const POSTER_STYLES: PosterStyle[] = [
     ],
   },
   {
+    id: "bauhaus",
+    label: "Bauhaus",
+    prompt:
+      "Bauhaus constructivist map poster in the manner of the Weimar and Dessau workshops: surrounding land and water reduced to flat circles, squares, and triangles on an asymmetric grid. Heavy rules and bars in the darkest ink structure the sheet. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a geometric sans built from circles and straight strokes, like Herbert Bayer's universal alphabet: large, single weight, tight tracking, lowercase, with the date, distance, and duration in the same face at a smaller size and middle-dot separators. Flat unmodulated ink only; no serifs, outlines, shadows, or hand lettering.",
+    palette: ["red", "yellow", "blue", "black", "white"],
+    typography: titleFace("lowercase geometric universal sans with smaller same-face metadata"),
+    colorMode: "canonical",
+    palettes: [
+      { id: "primary", label: "Primary", colors: ["red", "yellow", "blue", "black", "white"] },
+      { id: "exhibition", label: "Exhibition", colors: ["yellow", "red", "black"] },
+      { id: "red-circle", label: "Red circle", colors: ["red", "black", "off-white"] },
+      { id: "dessau", label: "Dessau", colors: ["blue", "black", "off-white"] },
+    ],
+  },
+  {
+    id: "modernist",
+    label: "Modernist",
+    prompt:
+      "Mid-century modern graphic poster, 1950s–60s, in the manner of Paul Rand and Saul Bass: surrounding land and water as flat overlapping silhouettes and cropped color shapes, asymmetric and playful, on an open paper ground. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a bold geometric sans at display size, mixed case, with open tracking, and the date, distance, and duration in the same face at a smaller weight with middle-dot separators. Flat ink only; no serifs, outlines, shadows, or hand lettering.",
+    palette: ["mustard", "charcoal", "cream", "terracotta"],
+    typography: titleFace("bold mixed-case geometric sans display title with smaller same-face metadata"),
+    colorMode: "canonical",
+    palettes: [
+      { id: "studio", label: "Studio", colors: ["mustard", "charcoal", "cream", "terracotta"] },
+      { id: "pool", label: "Pool", colors: ["turquoise", "sand", "charcoal"] },
+      { id: "gallery", label: "Gallery", colors: ["black", "off-white", "orange"] },
+      { id: "olive", label: "Olive", colors: ["olive", "cream", "rust"] },
+    ],
+  },
+  {
+    id: "flat",
+    label: "Flat",
+    prompt:
+      "Flat vector map illustration: surrounding land and water as simple solid-filled shapes with no outlines. Uniform color regions, no gradients, no shadows, no texture. The route is one even stroke of uniform weight tracing the given path. Set the title in a clean geometric sans at a medium-bold weight, mixed case, with the date, distance, and duration in the same face at a smaller regular weight and middle-dot separators. Solid ink only.",
+    palette: ["sky-blue", "leaf-green", "sand", "off-white"],
+    typography: titleFace("medium-bold geometric sans with smaller regular same-face metadata"),
+    colorMode: "canonical",
+    palettes: [
+      { id: "daylight", label: "Daylight", colors: ["sky-blue", "leaf-green", "sand", "off-white"] },
+      { id: "dusk", label: "Dusk", colors: ["indigo", "coral", "cream"] },
+      { id: "candy", label: "Candy", colors: ["pink", "mint", "charcoal"] },
+      { id: "paper", label: "Paper", colors: ["off-white", "slate", "signal-yellow"] },
+    ],
+  },
+  {
+    id: "psychedelic",
+    label: "Psychedelic",
+    prompt:
+      "1960s psychedelic concert poster in the manner of Wes Wilson and Victor Moscoso: land and water as liquid swirling contours and concentric waves, neighboring colors vibrating against each other, the map field packed with pattern. The route is one heavy undulating band of uniform weight tracing the given path, and it stays the strongest mark. Set the title in swollen, warped display lettering that still reads as words, with the date, distance, and duration in the same swelling face at a smaller size and middle-dot separators. Flat ink; no photographic texture and no quiet empty margin inside the map field.",
+    palette: ["hot-pink", "orange", "yellow", "purple"],
+    typography: titleFace("swollen warped display lettering with smaller same-face metadata"),
+    colorMode: "canonical",
+    palettes: [
+      { id: "fillmore", label: "Fillmore", colors: ["hot-pink", "orange", "yellow", "purple"] },
+      { id: "blacklight", label: "Blacklight", colors: ["ultraviolet", "acid-green", "magenta"] },
+      { id: "swirl", label: "Swirl", colors: ["crimson", "gold", "teal"] },
+      { id: "op-art", label: "Op art", colors: ["black", "white", "red"] },
+    ],
+  },
+  {
+    id: "neobrutalism",
+    label: "Neobrutalism",
+    prompt:
+      "Neobrutalist graphic poster: every land shape, water shape, and label sits in a hard-edged block with a thick outline and a hard offset shadow in the darkest ink, shifted down and to the right, with no blur. Raw flat fills, clashing and unshaded. The route is one heavy outlined stroke of uniform weight tracing the given path. Set the title in a chunky grotesque, ultra-bold, tight tracking, with the date, distance, and duration in the same face at a smaller bold weight and middle-dot separators. No gradients, texture, soft shadows, or delicate linework.",
+    palette: ["hot-pink", "yellow", "black", "off-white"],
+    typography: titleFace("ultra-bold chunky grotesque with smaller bold same-face metadata"),
+    colorMode: "canonical",
+    palettes: [
+      { id: "sticker", label: "Sticker", colors: ["hot-pink", "yellow", "black", "off-white"] },
+      { id: "hazard", label: "Hazard", colors: ["lime", "black", "off-white"] },
+      { id: "electric", label: "Electric", colors: ["electric-blue", "orange", "black"] },
+      { id: "newsprint", label: "Newsprint", colors: ["off-white", "black", "red"] },
+    ],
+  },
+  {
+    id: "minimalist",
+    label: "Minimalist",
+    prompt:
+      "Minimalist poster: an unprinted ground with nothing on it except the route and the title block. No roads, water, land cover, frames, compass, texture, or ornament. The route is one thin even line of uniform weight tracing the given path. Set the title in a light geometric grotesque, large, with open tracking and ample space around every letter, and the date, distance, and duration in the same face at a smaller regular weight with middle-dot separators.",
+    palette: ["off-white", "black"],
+    typography: titleFace("light geometric grotesque with smaller regular same-face metadata"),
+    colorMode: "canonical",
+    palettes: [
+      { id: "ink", label: "Ink", colors: ["off-white", "black"] },
+      { id: "stone", label: "Stone", colors: ["warm-grey", "charcoal"] },
+      { id: "fog", label: "Fog", colors: ["pale-blue", "ink"] },
+      { id: "bone", label: "Bone", colors: ["bone", "espresso"] },
+    ],
+  },
+  {
     id: "custom",
     label: "Custom",
     prompt: "",

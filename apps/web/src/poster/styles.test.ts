@@ -36,6 +36,12 @@ const COSTUME_CLICHE: Record<string, RegExp> = {
   risograph: /fluorescent pink|\bteal\b/i,
   "linen-postcard": /chrome-teal|bumper-red|chrome bumper/i,
   "art-nouveau": /gold-green|muted-rose/i,
+  bauhaus: /\bred\b|\byellow\b|\bblue\b/i,
+  modernist: /\bmustard\b|\bterracotta\b|\bturquoise\b|\bolive\b/i,
+  flat: /\bsky-blue\b|\bleaf-green\b|\bmint\b|\bindigo\b/i,
+  psychedelic: /\bhot-pink\b|\bacid-green\b|\bultraviolet\b|\bcrimson\b/i,
+  neobrutalism: /\bhot-pink\b|\blime\b|\belectric-blue\b/i,
+  minimalist: /\bblack\b|\bespresso\b|\bpale-blue\b/i,
 };
 
 test("preset typography requires a phone-readable title and custom adds none", () => {
@@ -64,6 +70,12 @@ test("styleById returns the matching preset", () => {
   assert.equal(styleById("blueprint").label, "Blueprint");
   assert.equal(styleById("linen-postcard").label, "Linen postcard");
   assert.equal(styleById("art-nouveau").label, "Art nouveau");
+  assert.equal(styleById("bauhaus").label, "Bauhaus");
+  assert.equal(styleById("modernist").label, "Modernist");
+  assert.equal(styleById("flat").label, "Flat");
+  assert.equal(styleById("psychedelic").label, "Psychedelic");
+  assert.equal(styleById("neobrutalism").label, "Neobrutalism");
+  assert.equal(styleById("minimalist").label, "Minimalist");
   assert.equal(styleById("missing").id, DEFAULT_POSTER_STYLE.id);
 });
 
@@ -108,6 +120,66 @@ test("Swiss and transit prompts lock the GPT-inspired type hierarchy without loc
   assert.match(transit.prompt, /very large, ultra-bold, tightly tracked sans serif/i);
   assert.doesNotMatch(transit.prompt, /centered|header band|above the map|directly beneath/i);
   assert.doesNotMatch(transit.prompt, /colored route|cream field/i);
+});
+
+test("Bauhaus locks elementary forms and Bayer type without locking hues", () => {
+  const bauhaus = styleById("bauhaus");
+  assert.match(bauhaus.prompt, /circles, squares, and triangles/i);
+  assert.match(bauhaus.prompt, /Herbert Bayer/i);
+  assert.match(bauhaus.prompt, /lowercase/i);
+  assert.doesNotMatch(bauhaus.prompt, /mountain|peak/i);
+  const auto = resolveStyleColor(bauhaus, AUTO_PALETTE_ID);
+  assert.equal(auto.openPalette, false);
+  assert.deepEqual(auto.palette, ["red", "yellow", "blue", "black", "white"]);
+  assert.doesNotMatch(auto.prompt, /\bred\b|\byellow\b|\bblue\b/i);
+  assert.deepEqual(resolveStyleColor(bauhaus, "exhibition").palette, ["yellow", "red", "black"]);
+});
+
+test("Modernist locks mid-century silhouettes and mixed-case sans without locking hues", () => {
+  const modernist = styleById("modernist");
+  assert.match(modernist.prompt, /overlapping silhouettes and cropped color shapes/i);
+  assert.match(modernist.prompt, /Paul Rand and Saul Bass/i);
+  assert.match(modernist.prompt, /mixed case/i);
+  assert.doesNotMatch(modernist.prompt, /mountain|peak|circle|square|triangle/i);
+  const auto = resolveStyleColor(modernist, AUTO_PALETTE_ID);
+  assert.equal(auto.openPalette, false);
+  assert.deepEqual(auto.palette, ["mustard", "charcoal", "cream", "terracotta"]);
+  assert.doesNotMatch(auto.prompt, /\bmustard\b|\bterracotta\b|\bturquoise\b|\bolive\b/i);
+  assert.deepEqual(resolveStyleColor(modernist, "pool").palette, ["turquoise", "sand", "charcoal"]);
+});
+
+test("Flat, Psychedelic, Neobrutalism, and Minimalist lock their systems without locking hues", () => {
+  const flat = styleById("flat");
+  assert.match(flat.prompt, /solid-filled shapes with no outlines/i);
+  assert.match(flat.prompt, /no shadows/i);
+  assert.doesNotMatch(flat.prompt, /mountain|peak/i);
+  const flatAuto = resolveStyleColor(flat, AUTO_PALETTE_ID);
+  assert.deepEqual(flatAuto.palette, ["sky-blue", "leaf-green", "sand", "off-white"]);
+  assert.deepEqual(resolveStyleColor(flat, "candy").palette, ["pink", "mint", "charcoal"]);
+
+  const psychedelic = styleById("psychedelic");
+  assert.match(psychedelic.prompt, /liquid swirling contours/i);
+  assert.match(psychedelic.prompt, /Wes Wilson and Victor Moscoso/i);
+  assert.match(psychedelic.prompt, /swollen, warped display lettering/i);
+  const psychedelicAuto = resolveStyleColor(psychedelic, AUTO_PALETTE_ID);
+  assert.deepEqual(psychedelicAuto.palette, ["hot-pink", "orange", "yellow", "purple"]);
+  assert.deepEqual(resolveStyleColor(psychedelic, "blacklight").palette, ["ultraviolet", "acid-green", "magenta"]);
+
+  const neo = styleById("neobrutalism");
+  assert.match(neo.prompt, /thick outline and a hard offset shadow/i);
+  assert.match(neo.prompt, /no blur/i);
+  assert.match(neo.prompt, /soft shadows/i);
+  const neoAuto = resolveStyleColor(neo, AUTO_PALETTE_ID);
+  assert.deepEqual(neoAuto.palette, ["hot-pink", "yellow", "black", "off-white"]);
+  assert.deepEqual(resolveStyleColor(neo, "hazard").palette, ["lime", "black", "off-white"]);
+
+  const minimalist = styleById("minimalist");
+  assert.match(minimalist.prompt, /nothing on it except the route and the title block/i);
+  assert.match(minimalist.prompt, /No roads, water, land cover/i);
+  assert.match(minimalist.prompt, /light geometric grotesque/i);
+  const minimalAuto = resolveStyleColor(minimalist, AUTO_PALETTE_ID);
+  assert.deepEqual(minimalAuto.palette, ["off-white", "black"]);
+  assert.deepEqual(resolveStyleColor(minimalist, "bone").palette, ["bone", "espresso"]);
 });
 
 test("canonical Auto uses the first named palette", () => {
