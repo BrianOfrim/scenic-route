@@ -1,3 +1,4 @@
+import { noteArrivedPosters } from "./gallery/arrivedPosters";
 import { trackGeneration, type GenerationTask } from "./gallery/generationState";
 import type { FeatureCollection, LineString } from "geojson";
 import { coalesceRequests } from "./inFlight";
@@ -435,9 +436,14 @@ export async function generatePoster(
         body: JSON.stringify(requestBody),
       }),
     );
-    if (Array.isArray(payload.posters) && payload.posters.length) return payload.posters;
-    if (payload.posterId) return [payload as PosterRecord];
-    throw new Error("Image generation returned no images");
+    const records = Array.isArray(payload.posters) && payload.posters.length
+      ? payload.posters
+      : payload.posterId
+        ? [payload as PosterRecord]
+        : [];
+    if (!records.length) throw new Error("Image generation returned no images");
+    noteArrivedPosters(records);
+    return records;
   }, task);
 }
 
@@ -455,7 +461,9 @@ export async function modifyPoster(body: {
         body: JSON.stringify(body),
       }),
     );
-    return payload.posters ?? [];
+    const records = payload.posters ?? [];
+    noteArrivedPosters(records);
+    return records;
   });
 }
 

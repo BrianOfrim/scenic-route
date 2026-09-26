@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { PosterRecord } from "../api";
-import { mergePosterList, posterCardSrc } from "./galleryList";
+import { mergePosterList, posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
 
 function item(overrides: Partial<PosterRecord> = {}): PosterRecord {
   return {
@@ -24,6 +24,21 @@ function item(overrides: Partial<PosterRecord> = {}): PosterRecord {
 test("posterCardSrc prefers the WebP thumb", () => {
   assert.equal(posterCardSrc(item()), "/api/posters/p1/thumb.webp");
   assert.equal(posterCardSrc(item({ thumbUrl: undefined })), "/api/posters/p1/image.png");
+});
+
+test("unionPosters keeps finished images that the list request has not returned yet", () => {
+  const existing = item({ posterId: "old" });
+  const finished = item({ posterId: "new", title: "Just finished" });
+  const merged = unionPosters([existing], [finished, existing]);
+  assert.deepEqual(merged.map((poster) => poster.posterId), ["new", "old"]);
+  assert.equal(unionPosters(merged, [finished]), merged);
+});
+
+test("refreshPosterList ignores a list snapshot from before a later image finished", () => {
+  const finished = item({ posterId: "new", title: "Just finished" });
+  const stale = [item({ posterId: "old" })];
+  assert.deepEqual(refreshPosterList([finished], stale, 1, 2).map((poster) => poster.posterId), ["new"]);
+  assert.deepEqual(refreshPosterList([finished], stale, 2, 2).map((poster) => poster.posterId), ["old"]);
 });
 
 test("mergePosterList keeps a hydrated record across a slim refresh", () => {
