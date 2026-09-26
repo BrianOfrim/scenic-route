@@ -20,7 +20,7 @@ import {
 import { formatDate, formatDuration, formatElevation, formatKm, formatSpeed } from "../format";
 import { KIND_WEIGHTS, nearRouteMForKind, resolveFeatures, type FeatureDef } from "./catalog";
 import { corridorForRoute } from "./corridor";
-import { clipGeometryToFrame, clipWaysToQueryFrame, outerExpandM } from "./geoExtent";
+import { clipGeometryToFrame, clipWaysToQueryFrame, queryFrameExpandM } from "./geoExtent";
 import { collection, emptyCollection, queryOverpass, unionQuery } from "./overpass";
 
 const MAX_POIS = 25;
@@ -200,7 +200,7 @@ export async function loadRouteFeatures(
 
   const fetched = performance.now();
 
-  const frameM = outerExpandM(latlng);
+  const frameM = queryFrameExpandM(latlng);
   const ways = clipWaysToQueryFrame(splitWays(waysFc, geoFeatures), padded, frameM);
   const cemetery = features.find((item) => item.id === "cemeteries");
   const { areas: namedAreasRaw, fallbacks: areaFallbacks } = collectNamedAreas(
