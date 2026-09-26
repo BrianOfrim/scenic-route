@@ -79,6 +79,8 @@ export type PosterEditorSnapshot = {
   aspectRatio: string;
   styleIds: string[];
   stylePrompt: string;
+  /** Optional day note that flavoured the planned prompt. */
+  vibes?: string;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
@@ -498,6 +500,11 @@ function objectList(value: unknown) {
   return value.filter((item) => item && typeof item === "object" && !Array.isArray(item));
 }
 
+function normalizeStoredVibes(value: unknown) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
 function finiteInt(value: unknown, fallback: number) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.round(n) : fallback;
@@ -548,6 +555,7 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     aspectRatio: imageAspectRatio(typeof raw.aspectRatio === "string" ? raw.aspectRatio : DEFAULT_ASPECT_RATIO),
     styleIds: stringList(raw.styleIds),
     stylePrompt: typeof raw.stylePrompt === "string" ? raw.stylePrompt : "",
+    vibes: normalizeStoredVibes(raw.vibes),
     paletteId: typeof raw.paletteId === "string" && raw.paletteId.trim() ? raw.paletteId.trim() : "auto",
     paletteIdsByStyle: stringListMap(raw.paletteIdsByStyle),
     imageModelIds: stringList(raw.imageModelIds),

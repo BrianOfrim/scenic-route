@@ -229,6 +229,7 @@ export type PosterEditorSnapshot = {
   aspectRatio: string;
   styleIds: string[];
   stylePrompt: string;
+  vibes?: string;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];

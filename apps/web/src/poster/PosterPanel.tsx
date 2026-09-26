@@ -800,6 +800,7 @@ export function PosterPanel({
     return [DEFAULT_POSTER_STYLE.id];
   });
   const [stylePrompt, setStylePrompt] = useState(seeded?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
+  const [vibes, setVibes] = useState(seeded?.vibes ?? "");
   const [paletteIdsByStyle, setPaletteIdsByStyle] = useState<Record<string, string[]>>(
     () => seeded?.paletteIdsByStyle ?? {},
   );
@@ -967,6 +968,7 @@ export function PosterPanel({
               );
             }
             setStylePrompt(restored.stylePrompt);
+            setVibes(restored.vibes);
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
             setPromptModel(refineFrom.promptModel ?? null);
@@ -1721,6 +1723,7 @@ export function PosterPanel({
               ...base,
               style: styleForPlan(style, slot.paletteId),
               customStylePrompt: style.id === "custom" ? stylePrompt : undefined,
+              vibes: vibes.trim() || undefined,
               previousSpec:
                 specForSlot(specs, slot.styleId, slot.paletteId) ??
                 (refineFrom && refineFrom.styleId === slot.styleId ? refineFrom.spec : undefined),
@@ -1889,6 +1892,7 @@ export function PosterPanel({
               aspectRatio,
               styleIds,
               stylePrompt,
+              vibes,
               paletteIdsByStyle,
               imageModelIds: activeImageModelIds,
               variants,
@@ -3219,6 +3223,18 @@ export function PosterPanel({
             {!sheetMode && styleIds.length > 1 && editingCustom && (
               <p className="muted">Custom uses this prompt; other themes use their presets.</p>
             )}
+            <label className="poster-field">
+              Vibes
+              <textarea
+                rows={3}
+                value={vibes}
+                maxLength={500}
+                disabled={busy}
+                placeholder="A nice, crisp fall day. Leaves were beautiful colours!"
+                onChange={(event) => setVibes(event.target.value)}
+              />
+            </label>
+            <p className="muted">Optional. Flavors the image prompt with how the day felt.</p>
             {sheetMode && !styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
             {sheetMode && (
               <div className="poster-actions poster-plan-row">

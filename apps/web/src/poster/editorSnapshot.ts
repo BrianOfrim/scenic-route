@@ -43,6 +43,7 @@ export type PosterEditorSnapshot = {
   aspectRatio: AspectRatio;
   styleIds: string[];
   stylePrompt: string;
+  vibes?: string;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
@@ -73,6 +74,7 @@ export type EditorCapture = {
   aspectRatio: AspectRatio;
   styleIds: string[];
   stylePrompt: string;
+  vibes?: string;
   paletteId?: string;
   paletteIdsByStyle?: Record<string, string[]>;
   imageModelIds: string[];
@@ -135,6 +137,7 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
     aspectRatio: input.aspectRatio,
     styleIds: [...input.styleIds],
     stylePrompt: input.stylePrompt,
+    vibes: input.vibes?.trim() ?? "",
     paletteIdsByStyle,
     paletteId: firstPaletteId(input.styleIds, paletteIdsByStyle),
     imageModelIds: [...input.imageModelIds],
@@ -166,6 +169,7 @@ export type RestoredEditor = {
   aspectRatio: AspectRatio;
   styleIds: string[];
   stylePrompt: string;
+  vibes: string;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[] | null;
@@ -364,6 +368,7 @@ export function editorSeed(record?: PosterRecord | null) {
     areaNames: restored.areaNames,
     styleIds: restored.styleIds,
     stylePrompt: restored.stylePrompt,
+    vibes: restored.vibes,
     paletteId: restored.paletteId,
     paletteIdsByStyle: restored.paletteIdsByStyle,
     aspectRatio: restored.aspectRatio,
@@ -426,6 +431,7 @@ export function restoreEditor(
     aspectRatio: asAspectRatio(editor?.aspectRatio || record.aspectRatio),
     styleIds: editor?.styleIds?.length ? editor.styleIds : [styleId],
     stylePrompt: editor?.stylePrompt || record.stylePrompt || DEFAULT_POSTER_STYLE.prompt,
+    vibes: editor?.vibes?.trim() ?? "",
     paletteIdsByStyle: snapshotPalettes(
       editor?.styleIds?.length ? editor.styleIds : [styleId],
       editor?.paletteIdsByStyle,

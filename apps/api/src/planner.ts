@@ -37,6 +37,8 @@ export type PlannerInput = {
     openPalette?: boolean;
   };
   customStylePrompt?: string;
+  /** Rider's note about the day — season, weather, light, foliage. Flavours the image prompt. */
+  vibes?: string;
   aspectRatio: string;
   geography: Array<{ id: string; label: string }>;
   pois: PosterPoi[];
@@ -125,6 +127,7 @@ export function buildPlannerMessages(input: PlannerInput) {
     stylePreset: input.style,
     paletteInstruction: paletteInstruction(input.style),
     customStylePrompt: input.customStylePrompt?.trim() || null,
+    vibes: normalizeVibes(input.vibes) || null,
     aspectRatio: input.aspectRatio,
     geographyLayers: input.geography,
     landmarks,
@@ -143,6 +146,7 @@ export function buildPlannerMessages(input: PlannerInput) {
         `Every value must follow this exact shape (nested objects and arrays, never a prose string in place of an object): ${JSON.stringify(POSTER_SPEC_SHAPE)}`,
         "Fill style.name, style.medium, style.palette, style.typography, composition.routePlacement, composition.titleBlock, route.treatment, and route.color with concrete choices; do not leave them blank.",
         paletteInstruction(input.style) ?? "",
+        "If vibes is supplied, it is the rider's note about how the day felt. Flavor season, weather, light, and the color of vegetation in style.texture and geography treatments. Stay inside a supplied palette. Do not print the note as poster text, and do not add places or features that are absent from the schematic.",
         "Copy title, subtitle, stats, and groundingImages from the input into text and grounding verbatim.",
         ...(input.routeOnly
           ? [
@@ -183,6 +187,23 @@ export function buildPlannerMessages(input: PlannerInput) {
       content: JSON.stringify(user, null, 2),
     },
   ];
+}
+
+const VIBES_MAX_CHARS = 500;
+
+/** Collapse a rider's day note into a single prompt-sized line. */
+export function normalizeVibes(value?: string | null): string {
+  return (value ?? "").replace(/\s+/g, " ").trim().slice(0, VIBES_MAX_CHARS);
+}
+
+function applyVibes(style: Record<string, unknown>, raw?: string | null) {
+  const vibes = normalizeVibes(raw);
+  if (!vibes) return;
+  const texture = str(style.texture);
+  const references = str(style.references);
+  if (`${texture} ${references}`.toLowerCase().includes(vibes.toLowerCase())) return;
+  const note = `Scene: ${vibes}`;
+  style.references = references ? `${references.replace(/[. ]+$/, "")}. ${note}` : note;
 }
 
 function paletteInstruction(style: PlannerInput["style"]): string | null {
@@ -418,6 +439,7 @@ export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<s
   style.typography = withTitlePhoneClause(str(style.typography), hasTitle);
   composition.titleBlock = withTitlePhoneClause(str(composition.titleBlock), hasTitle);
   text.rules = withTitlePhoneRule(str(text.rules), hasTitle);
+  applyVibes(style, input.vibes);
   record.style = style;
   record.composition = composition;
   record.text = text;
