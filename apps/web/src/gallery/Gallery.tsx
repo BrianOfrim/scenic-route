@@ -265,8 +265,8 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   );
   const original = family[0];
   const activitySiblings = useMemo(
-    () => (active ? viewerSiblings(active, posters) : []),
-    [active, posters],
+    () => (active ? viewerSiblings(active, visible) : []),
+    [active, visible],
   );
   const compareStyles = mixedStyles(activitySiblings);
   const compareModels = mixedModels(activitySiblings);
@@ -318,7 +318,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   }
 
   function selectPoster(id: string) {
-    const poster = activitySiblings.find((item) => item.posterId === id) ?? posters.find((item) => item.posterId === id);
+    const poster = activitySiblings.find((item) => item.posterId === id) ?? visible.find((item) => item.posterId === id);
     if (!poster) return;
     setActive(poster);
 

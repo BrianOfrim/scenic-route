@@ -166,6 +166,29 @@ test("lineageFamily walks refinements back to the original", () => {
   );
 });
 
+test("viewerSiblings stays inside a favourites-only pool", () => {
+  const posters = [
+    item("a", { activityId: 7, createdAt: "2026-09-08T12:00:00Z" }),
+    item("b", { activityId: 7, createdAt: "2026-09-08T12:01:00Z" }),
+    item("c", { activityId: 7, createdAt: "2026-09-08T12:02:00Z" }),
+    item("refine", {
+      activityId: 7,
+      createdAt: "2026-09-08T12:03:00Z",
+      previousPosterId: "b",
+      refineNotes: "warmer sky",
+    }),
+  ];
+  const favorites = posters.filter((poster) => poster.posterId === "a" || poster.posterId === "refine");
+  assert.deepEqual(
+    viewerSiblings(favorites[0], favorites).map((poster) => poster.posterId),
+    ["a", "refine"],
+  );
+  assert.deepEqual(
+    viewerSiblings(favorites[1], favorites).map((poster) => poster.posterId),
+    ["a", "refine"],
+  );
+});
+
 test("viewerSiblings keeps activity order regardless of which poster is active", () => {
   const posters = [
     item("b", { activityId: 7, batchId: "late", createdAt: "2026-09-08T12:01:00Z" }),
