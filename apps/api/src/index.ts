@@ -4,7 +4,6 @@ import { config } from "dotenv";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
-import { stream } from "hono/streaming";
 import { cors } from "hono/cors";
 import { getAuth, requireUser, type AuthUser } from "./auth";
 import { LLM_TRACES_DIR, REPO_ROOT, isSafePosterId } from "./paths";
@@ -29,7 +28,6 @@ import { importTrackFiles } from "./importActivity";
 import { filesFromRequest } from "./importRequest";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
 import { loadRouteFeatures } from "./osm/features";
-import type { OverpassTileEvent } from "./osm/overpass";
 import { lookupLandmark } from "./osm/landmark";
 import { OpenRouterError, imageModel, listImageModels, maxImageReferences } from "./openrouter";
 import { planPoster } from "./planner";
@@ -156,36 +154,6 @@ app.get("/api/poster/context/:activityId", async (c) => {
     const activityId = Number(c.req.param("activityId"));
     const parsed = parseFeatureSelection(c.req.query("features"));
     const timings: Record<string, number> = {};
-    const streamTiles = (c.req.header("accept") ?? "").includes("application/x-ndjson");
-    if (streamTiles) {
-      c.header("Content-Type", "application/x-ndjson; charset=utf-8");
-      c.header("Cache-Control", "no-cache");
-      return stream(c, async (out) => {
-        let writeChain: Promise<void> = Promise.resolve();
-        const onTile = (event: OverpassTileEvent) => {
-          writeChain = writeChain.then(async () => {
-            await out.write(`${JSON.stringify({ type: "tile", ...event })}\n`);
-          });
-          return writeChain;
-        };
-        try {
-          const context = await loadRouteFeatures(
-            currentUserId(c),
-            activityId,
-            parsed.ids,
-            parsed.nearRouteM,
-            timings,
-            onTile,
-          );
-          await writeChain;
-          await out.write(`${JSON.stringify({ type: "context", context })}\n`);
-        } catch (error) {
-          await writeChain.catch(() => undefined);
-          const message = error instanceof Error ? error.message : "Could not load image setup";
-          await out.write(`${JSON.stringify({ type: "error", error: message })}\n`);
-        }
-      });
-    }
     const context = await loadRouteFeatures(currentUserId(c), activityId, parsed.ids, parsed.nearRouteM, timings);
     const serializeStart = performance.now();
     const response = c.json(context);
