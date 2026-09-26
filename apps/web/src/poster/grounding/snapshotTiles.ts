@@ -1,5 +1,6 @@
 import { Map } from "../../maplibre";
 import { maskImageToRegion, maskIsActive, projectorForFrame, type GeoMask, type MapFrame } from "./geoMask";
+import { cameraForFrame, fittedFrame } from "./mapFrame";
 import { canvasSize, drawRouteEndMarkers } from "./renderSchematic";
 
 export type TileSource = "osm" | "topo" | "satellite";
@@ -51,12 +52,17 @@ export async function snapshotTiles(options: {
 
   try {
     await waitFor(map, "load");
-    const bounds: [[number, number], [number, number]] = [
-      [Math.min(options.bbox[0][0], options.bbox[1][0]), Math.min(options.bbox[0][1], options.bbox[1][1])],
-      [Math.max(options.bbox[0][0], options.bbox[1][0]), Math.max(options.bbox[0][1], options.bbox[1][1])],
-    ];
     map.resize();
-    map.fitBounds(bounds, { padding: 24, animate: false });
+    const frame = fittedFrame(options.bbox, width, height);
+    const camera = cameraForFrame({ width, height, nw: frame.nw, se: frame.se });
+    if (camera.zoom > map.getMaxZoom()) map.setMaxZoom(camera.zoom);
+    map.jumpTo({
+      center: camera.center,
+      zoom: camera.zoom,
+      bearing: 0,
+      pitch: 0,
+      padding: { top: 0, bottom: 0, left: 0, right: 0 },
+    });
     await waitFor(map, "idle");
     return captureFrame(map, options.source);
   } finally {

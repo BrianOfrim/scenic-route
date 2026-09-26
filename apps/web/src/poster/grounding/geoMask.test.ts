@@ -29,4 +29,6 @@ test("a mask is active only when it keeps some region", () => {
   assert.equal(maskIsActive({ whole: true }), false);
   assert.equal(maskIsActive({ lines: [[[0, 0], [1, 1]]], lineM: 80 }), true);
   assert.equal(maskIsActive({ lines: [[[0, 0], [1, 1]]] }), false);
+  assert.equal(maskIsActive({ clip: [[0, 0], [1, 0], [1, 1]] }), true);
+  assert.equal(maskIsActive({ clip: [[0, 0], [1, 0]] }), false);
 });

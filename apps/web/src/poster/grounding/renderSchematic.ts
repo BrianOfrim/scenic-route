@@ -1,5 +1,6 @@
 import type { Geometry } from "geojson";
 import { routeVertexColors } from "../trailColors";
+import { projectorForBbox } from "./mapFrame";
 
 export type AspectRatio = "3:4" | "2:3" | "1:1" | "4:3" | "16:9";
 
@@ -99,7 +100,6 @@ export function schematicLineScale(zoom: number) {
 }
 
 const SHORT_SIDE = 1024;
-const MARGIN = 0.03;
 const ROUTE_COLOR = "#ff0000";
 
 const ROAD_WIDTH: Record<string, number> = {
@@ -468,50 +468,8 @@ function parseAspect(aspectRatio: string): [number, number] {
   return [parts[0] > 0 ? parts[0] : 2, parts[1] > 0 ? parts[1] : 3];
 }
 
-function mercX(lng: number) {
-  return (lng + 180) / 360;
-}
-
-function mercY(lat: number) {
-  const clamped = Math.max(-85.05112878, Math.min(85.05112878, lat));
-  const s = Math.sin((clamped * Math.PI) / 180);
-  return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
-}
-
 function projector(bbox: [[number, number], [number, number]], width: number, height: number) {
-  const minLng = Math.min(bbox[0][0], bbox[1][0]);
-  const minLat = Math.min(bbox[0][1], bbox[1][1]);
-  const maxLng = Math.max(bbox[0][0], bbox[1][0]);
-  const maxLat = Math.max(bbox[0][1], bbox[1][1]);
-  let x0 = mercX(minLng);
-  let x1 = mercX(maxLng);
-  let y0 = mercY(maxLat);
-  let y1 = mercY(minLat);
-  if (x1 <= x0) x1 = x0 + 1e-6;
-  if (y1 <= y0) y1 = y0 + 1e-6;
-  const viewW = x1 - x0;
-  const viewH = y1 - y0;
-  const canvasAspect = width / height;
-  const viewAspect = viewW / viewH;
-  if (viewAspect < canvasAspect) {
-    const extra = viewH * canvasAspect - viewW;
-    x0 -= extra / 2;
-    x1 += extra / 2;
-  } else {
-    const extra = viewW / canvasAspect - viewH;
-    y0 -= extra / 2;
-    y1 += extra / 2;
-  }
-  const padX = (x1 - x0) * MARGIN;
-  const padY = (y1 - y0) * MARGIN;
-  x0 -= padX;
-  x1 += padX;
-  y0 -= padY;
-  y1 += padY;
-  return (lng: number, lat: number): [number, number] => [
-    ((mercX(lng) - x0) / (x1 - x0)) * width,
-    ((mercY(lat) - y0) / (y1 - y0)) * height,
-  ];
+  return projectorForBbox(bbox, width, height);
 }
 
 function fillGeometry(

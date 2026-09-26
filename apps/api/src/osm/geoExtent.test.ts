@@ -13,6 +13,7 @@ import {
   outerExpandM,
   queryFrameExpandM,
   outerHardCut,
+  queryFrameRing,
   loopBandRing,
   radiusAlongRoute,
   rectangleRing,
@@ -296,6 +297,13 @@ test("shape padding stays inside 150–800 m", () => {
 });
 
 const FRAME: [number, number, number, number] = [-79.4, 43.6, -79.3, 43.7];
+
+test("queryFrameRing is the padded box plus the outer margin", () => {
+  assert.deepEqual(queryFrameRing(FRAME, 0), rectangleRing([FRAME[0], FRAME[1]], [FRAME[2], FRAME[3]]));
+  const loose = queryFrameRing(FRAME, 2_000);
+  assert.ok(Math.max(...loose.map((point) => point[0])) > FRAME[2]);
+  assert.ok(Math.max(...loose.map((point) => point[1])) > FRAME[3]);
+});
 
 test("the query frame cuts lines and drops ones that miss it", () => {
   const crossing = [[-79.55, 43.65], [-79.25, 43.65]];

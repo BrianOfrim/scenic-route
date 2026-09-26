@@ -800,6 +800,7 @@ export function PosterPanel({
     return [DEFAULT_POSTER_STYLE.id];
   });
   const [stylePrompt, setStylePrompt] = useState(seeded?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
+  const [vibes, setVibes] = useState(seeded?.vibes ?? "");
   const [paletteIdsByStyle, setPaletteIdsByStyle] = useState<Record<string, string[]>>(
     () => seeded?.paletteIdsByStyle ?? {},
   );
@@ -967,6 +968,7 @@ export function PosterPanel({
               );
             }
             setStylePrompt(restored.stylePrompt);
+            setVibes(restored.vibes);
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
             setPromptModel(refineFrom.promptModel ?? null);
