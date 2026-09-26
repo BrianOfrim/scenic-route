@@ -1,10 +1,11 @@
+import { forgetArrivedPoster, getArrivedEpoch, getArrivedPosters, useArrivedEpoch } from "./arrivedPosters";
 import { useGenerationState } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { deletePoster, fetchActivities, fetchPoster, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
 import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, viewerThumbStacks, type GallerySort } from "./galleryRuns";
-import { mergePosterList, posterCardSrc } from "./galleryList";
+import { posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
 import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
 import { ShareButton } from "../share";
@@ -186,6 +187,7 @@ function GalleryRun({
 
 export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpenPosterHandled }: Props) {
   const generation = useGenerationState();
+  const arrivedEpoch = useArrivedEpoch();
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const postersRef = useRef(posters);
@@ -211,11 +213,18 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   }, []);
 
   useEffect(() => {
+    const records = getArrivedPosters<PosterRecord>();
+    if (!records.length) return;
+    setPosters((current) => unionPosters(current, records));
+  }, [arrivedEpoch]);
+
+  useEffect(() => {
+    const startedEpoch = getArrivedEpoch();
     let cancelled = false;
-    if (postersRef.current.length === 0) setLoading(true);
+    if (postersRef.current.length === 0 && startedEpoch === 0) setLoading(true);
     fetchPosters()
       .then((items) => {
-        if (!cancelled) setPosters((current) => mergePosterList(current, items));
+        if (!cancelled) setPosters((current) => refreshPosterList(current, items, startedEpoch, getArrivedEpoch()));
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not load images");
@@ -361,6 +370,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   async function handleDelete(poster: PosterRecord) {
     if (!window.confirm(`Delete “${poster.title}”?`)) return;
     await deletePoster(poster.posterId);
+    forgetArrivedPoster(poster.posterId);
     setPosters((current) => current.filter((item) => item.posterId !== poster.posterId));
     setActive((current) => (current?.posterId === poster.posterId ? null : current));
   }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { generatePoster } from "../api";
+import { getArrivedPosters } from "./arrivedPosters";
 import { beginGeneration, getGenerationState } from "./generationState";
 
 function deferred<T>() {
@@ -43,6 +44,24 @@ test("background requests keep independent placeholders through preparation, com
   assert.equal(getGenerationState().revision, revision + 3);
 });
 
+
+test("a finished image is published while another request in the batch is still running", async (t) => {
+  const gate = deferred<void>();
+  t.mock.method(globalThis, "fetch", async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(init.body as string);
+    if (body.spec.text.title === "Second") await gate.promise;
+    return new Response(JSON.stringify({ posters: [{ posterId: body.spec.text.title }] }));
+  });
+  const first = generatePoster({ spec: { text: { title: "First" } } }, 1);
+  const second = generatePoster({ spec: { text: { title: "Second" } } }, 1);
+  await first;
+  assert.ok(getArrivedPosters().some((poster) => poster.posterId === "First"));
+  assert.deepEqual(getGenerationState().pending.map((image) => image.title), ["Second"]);
+  gate.resolve();
+  await second;
+  assert.ok(getArrivedPosters().some((poster) => poster.posterId === "Second"));
+  assert.equal(getGenerationState().pending.length, 0);
+});
 
 test("prompt and image generation share placeholders without duplicating or clearing other tasks", async (t) => {
   const task = beginGeneration({ title: "Full poster", variants: 2 });
