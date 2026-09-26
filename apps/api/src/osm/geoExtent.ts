@@ -166,6 +166,15 @@ export function outerExpandM(route: LatLng[]): number {
   return Math.round(raw / 50) * 50;
 }
 
+/**
+ * How far the All hard cut sits outside the query box.
+ * The box is already padded around the route, so this is only a thin rim.
+ */
+export function queryFrameExpandM(route: LatLng[]): number {
+  const raw = Math.min(300, Math.max(100, 0.02 * diagonalM(route)));
+  return Math.round(raw / 10) * 10;
+}
+
 /** Push a ring outward by `padM`. A self-crossing offset keeps the original ring. */
 export function expandRing(ring: LngLat[], padM: number): LngLat[] {
   if (ring.length < 3 || padM <= 0) return ring.slice();

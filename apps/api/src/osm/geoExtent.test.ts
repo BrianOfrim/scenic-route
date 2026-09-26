@@ -11,6 +11,7 @@ import {
   endRadiusM,
   keepWaysTouchingRing,
   outerExpandM,
+  queryFrameExpandM,
   outerHardCut,
   loopBandRing,
   radiusAlongRoute,
@@ -265,6 +266,17 @@ test("outer expand stays inside 0.5–2 km", () => {
   const huge: [number, number][] = [[0, 0], [2, 2]];
   assert.ok(outerExpandM(tiny) >= 500);
   assert.ok(outerExpandM(huge) <= 2000);
+});
+
+test("the All hard cut stays inside a thin rim outside the query box", () => {
+  const tiny: [number, number][] = [[0, 0], [0, 0.01]];
+  const mid: [number, number][] = [[0, 0], [0.1, 0.1]];
+  const huge: [number, number][] = [[0, 0], [2, 2]];
+  assert.ok(queryFrameExpandM(tiny) >= 100);
+  assert.ok(queryFrameExpandM(tiny) < outerExpandM(tiny));
+  assert.ok(queryFrameExpandM(mid) > queryFrameExpandM(tiny));
+  assert.ok(queryFrameExpandM(huge) <= 300);
+  assert.ok(queryFrameExpandM(huge) < outerExpandM(huge));
 });
 
 test("rectangleRing orders opposite corners", () => {
