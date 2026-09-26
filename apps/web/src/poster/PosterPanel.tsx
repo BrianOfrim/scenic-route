@@ -24,7 +24,6 @@ import {
   endRadiusM,
   loopBandRing,
   outerExpandM,
-  outerHardCut,
   rectangleRing,
   rectangleTooSmall,
   rotatedBoxRing,
@@ -47,7 +46,7 @@ import {
 type GeoScope = "all" | "corridor" | "ends" | "box" | "hull" | "loop" | "rectangle" | "polygon";
 
 const GEO_SCOPES: { id: GeoScope; label: string; hint: string }[] = [
-  { id: "all", label: "All", hint: "Everything in the route's map box." },
+  { id: "all", label: "All", hint: "Everything in the route's map box. The satellite photograph is cut to that same box." },
   { id: "corridor", label: "Corridor", hint: "Roads, water, and landcover within this distance of the route." },
   { id: "ends", label: "Wider ends", hint: "A tighter band along the route, with more context around the start and finish." },
   { id: "box", label: "Rotated box", hint: "A rectangle turned to match the route, so the empty corners of a diagonal ride drop out." },
@@ -75,6 +74,7 @@ import {
   schematicLayersFromFeatureIds,
 } from "./grounding/renderSchematic";
 import { maskIsActive, type GeoMask } from "./grounding/geoMask";
+import { satelliteReferenceMask } from "./grounding/satelliteMask";
 import { renderMaskedSatellite, snapshotTiles, type SatelliteFrame } from "./grounding/snapshotTiles";
 import {
   applyTrailAlias,
@@ -1051,17 +1051,15 @@ export function PosterPanel({
   }, [context, croppedLatLng, corridorMeters, geoScope, shapeRing]);
 
   const satelliteMask = useMemo((): GeoMask | null => {
-    if (croppedLatLng.length < 2 || geoScope === "all") return null;
-    const cut = outerHardCut(
-      croppedLatLng,
-      geoScope === "corridor" || geoScope === "ends" ? geoScope : "ring",
-      { corridorM: corridorMeters, ring: shapeRing },
-    );
-    // Features continue past the inner scope, so the schematic canvas stays unclipped.
-    if (!cut) return { whole: true };
-    if (cut.kind === "ring") return { rings: [cut.ring], whole: true };
-    return { bandM: cut.bandM, whole: true };
-  }, [croppedLatLng, geoScope, shapeRing, corridorMeters]);
+    return satelliteReferenceMask({
+      queryBbox: context?.bbox,
+      track: context?.latlng,
+      route: croppedLatLng,
+      scope: geoScope === "corridor" || geoScope === "ends" ? geoScope : geoScope === "all" ? "all" : "ring",
+      corridorM: corridorMeters,
+      ring: shapeRing,
+    });
+  }, [context, croppedLatLng, geoScope, shapeRing, corridorMeters]);
   const editingOutline = geoScope === "polygon" || geoScope === "rectangle";
   const activeOutline = geoScope === "rectangle" ? rectangle : polygon;
 
