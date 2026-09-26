@@ -26,6 +26,13 @@ test("posterCardSrc prefers the WebP thumb", () => {
   assert.equal(posterCardSrc(item({ thumbUrl: undefined })), "/api/posters/p1/image.png");
 });
 
+test("posterCardSrc uses the inline generate thumb ahead of a network thumb", () => {
+  assert.equal(
+    posterCardSrc(item({ thumbDataUrl: "data:image/webp;base64,abc" })),
+    "data:image/webp;base64,abc",
+  );
+});
+
 test("unionPosters keeps finished images that the list request has not returned yet", () => {
   const existing = item({ posterId: "old" });
   const finished = item({ posterId: "new", title: "Just finished" });
@@ -54,4 +61,11 @@ test("mergePosterList keeps a hydrated record across a slim refresh", () => {
   assert.equal(merged[0].prompt, "long prompt");
   assert.equal(merged[0].spec?.style.name, "Swiss minimal");
   assert.equal(merged[0].editor?.title, "Ride");
+});
+
+test("mergePosterList keeps an inline thumb across a list refresh", () => {
+  const arrived = item({ thumbDataUrl: "data:image/webp;base64,abc" });
+  const listed = item();
+  assert.equal(mergePosterList([arrived], [listed])[0].thumbDataUrl, "data:image/webp;base64,abc");
+  assert.equal(mergePosterList([arrived], [listed])[0].url, listed.url);
 });

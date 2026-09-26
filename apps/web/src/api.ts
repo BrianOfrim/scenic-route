@@ -203,6 +203,8 @@ export type PosterRecord = {
   variant?: number;
   url: string;
   thumbUrl?: string;
+  /** Inline WebP from the generate response. Session-only; the list endpoint does not send it. */
+  thumbDataUrl?: string;
   favorited?: boolean;
   editor?: PosterEditorSnapshot;
 };

@@ -51,6 +51,8 @@ export type PosterRecord = {
   variant?: number;
   url: string;
   thumbUrl?: string;
+  /** Inline WebP returned only on generate/modify so the gallery can paint before a separate thumb fetch. Not stored. */
+  thumbDataUrl?: string;
   favorited?: boolean;
   editor?: PosterEditorSnapshot;
 };
@@ -300,9 +302,9 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
           store.put(userId, `${posterId}.ref-${refIndex + 1}.png`, ref.bytes, sniffImageMime(ref.bytes) || ref.mime),
         ),
       );
-      await persistPosterThumb(userId, posterId, posterBytes);
+      const thumb = await persistPosterThumb(userId, posterId, posterBytes);
       await store.put(userId, `${posterId}.json`, Buffer.from(JSON.stringify(record, null, 2)), "application/json");
-      return record;
+      return thumb ? { ...record, thumbDataUrl: imageDataUrl(thumb, "image/webp") } : record;
     }),
   );
 }
@@ -451,12 +453,14 @@ function posterThumbUrl(posterId: string) {
   return `/api/posters/${posterId}/thumb.webp`;
 }
 
-async function persistPosterThumb(userId: string, posterId: string, png: Buffer) {
+async function persistPosterThumb(userId: string, posterId: string, png: Buffer): Promise<Buffer | null> {
   try {
     const thumb = await encodePosterThumb(png);
     await posterStore().put(userId, `${posterId}.thumb.webp`, thumb, "image/webp");
+    return thumb;
   } catch (error) {
     console.warn(`poster thumb failed for ${posterId}`, error instanceof Error ? error.message : error);
+    return null;
   }
 }
 
