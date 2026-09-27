@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-type PendingImage = { id: string; title: string; model: string; styleId?: string };
+type PendingImage = { id: string; title: string; model: string; styleId?: string; paletteId?: string };
 let snapshot: { pending: PendingImage[]; revision: number; error: string | null } = {
   pending: [], revision: 0, error: null,
 };
@@ -10,7 +10,7 @@ function publish(next: typeof snapshot) {
   listeners.forEach((listener) => listener());
 }
 
-export type GenerationDetails = { title: string; model?: string; styleId?: string; variants?: number };
+export type GenerationDetails = { title: string; model?: string; styleId?: string; paletteId?: string; variants?: number };
 export type GenerationTask = { finish: (error?: unknown) => void };
 
 /** Reserve placeholders synchronously, before any prompt or image work starts. */
@@ -18,7 +18,7 @@ export function beginGeneration(details: GenerationDetails): GenerationTask {
   const requestId = crypto.randomUUID();
   const count = Math.max(1, Math.min(8, Math.floor(details.variants || 1)));
   const images = Array.from({ length: count }, (_, index) => ({
-    id: `${requestId}:${index}`, title: details.title, model: details.model ?? "", styleId: details.styleId,
+    id: `${requestId}:${index}`, title: details.title, model: details.model ?? "", styleId: details.styleId, paletteId: details.paletteId,
   }));
   publish({ ...snapshot, pending: [...snapshot.pending, ...images], error: null });
   let finished = false;

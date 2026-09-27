@@ -3,7 +3,7 @@ import { useGenerationState } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { deletePoster, fetchActivities, fetchPoster, fetchPosters, setPosterFavorite, variantPoster, type PosterRecord } from "../api";
 import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
-import { styleLabel } from "../poster/styles";
+import { AUTO_PALETTE_ID, paletteChoiceLabel, showsPalettePicker, styleById, styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, viewerThumbStacks, type GallerySort } from "./galleryRuns";
 import { posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
 import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
@@ -19,6 +19,12 @@ type Props = {
   onOpenPosterHandled?: () => void;
 };
 
+function posterPaletteLabel(item: { styleId: string; paletteId?: string }) {
+  const style = styleById(item.styleId);
+  if (!showsPalettePicker(style)) return null;
+  return paletteChoiceLabel(style, item.paletteId ?? AUTO_PALETTE_ID);
+}
+
 function posterLabel(
   item: PosterRecord,
   siblings: PosterRecord[],
@@ -29,6 +35,7 @@ function posterLabel(
   return (
     [
       compareStyles ? styleLabel(item.styleId, item.styleName ?? item.spec?.style?.name) : null,
+      posterPaletteLabel(item),
       compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
       compareQualities ? shortQualityLabel(item.quality) : null,
       posterVariantLabel(item, siblings),
@@ -384,6 +391,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
       model: poster.model,
       title: poster.title,
       styleId: poster.styleId,
+      paletteId: poster.paletteId,
     }).catch(() => {
       /* trackGeneration publishes the error on the gallery */
     });
@@ -458,7 +466,11 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                   </div>
                   <div className="gallery-pending-caption">
                     <strong>{image.title}</strong>
-                    <p className="muted">{[image.styleId ? styleLabel(image.styleId) : null, image.model ? shortModelLabel(image.model) : null].filter(Boolean).join(" · ")}</p>
+                    <p className="muted">{[
+                      image.styleId ? styleLabel(image.styleId) : null,
+                      image.styleId ? posterPaletteLabel({ styleId: image.styleId, paletteId: image.paletteId }) : null,
+                      image.model ? shortModelLabel(image.model) : null,
+                    ].filter(Boolean).join(" · ")}</p>
                   </div>
                 </div>
               ))}
@@ -479,6 +491,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                     lines={[
                       [
                         styleLabel(poster.styleId, poster.styleName ?? poster.spec?.style?.name),
+                        posterPaletteLabel(poster),
                         shortModelLabel(poster.model, poster.modelName),
                         shortQualityLabel(poster.quality),
                         poster.variant != null ? String(poster.variant) : null,
@@ -532,9 +545,14 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                 <strong>{active.title}</strong>
                 <span className="muted">{active.subtitle}</span>
                 <span className="gallery-model">
-                  {styleLabel(active.styleId, active.styleName ?? active.spec?.style?.name)}
-                  {` · ${shortModelLabel(active.model, active.modelName)}`}
-                  {active.quality ? ` · ${active.quality}` : ""}
+                  {[
+                    styleLabel(active.styleId, active.styleName ?? active.spec?.style?.name),
+                    posterPaletteLabel(active),
+                    shortModelLabel(active.model, active.modelName),
+                    active.quality || null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
               </div>
               <div className="poster-actions">
