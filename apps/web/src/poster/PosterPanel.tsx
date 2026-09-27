@@ -155,6 +155,9 @@ const SATELLITE_LEGEND =
 
 const SATELLITE_MASK_LEGEND = `${SATELLITE_LEGEND}; black margin is empty, not land, water, or sky`;
 
+/** Wait until the crop sliders settle before opening another WebGL map. */
+const SATELLITE_SNAPSHOT_DELAY_MS = 300;
+
 
 function chipHighlight(
   kind: "area" | "trail" | "poi",
@@ -1557,25 +1560,31 @@ export function PosterPanel({
       setSatelliteUrl(null);
       return;
     }
-    let cancelled = false;
-    void snapshotTiles({
-      source: "satellite",
-      bbox: satelliteBbox,
-      aspectRatio,
-    })
-      .then((shot) => {
-        if (cancelled) return;
-        satelliteShotRef.current = shot;
-        setSatelliteShot(shot);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        satelliteShotRef.current = null;
-        setSatelliteShot(null);
-        setSatelliteUrl(null);
-      });
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void snapshotTiles(
+        {
+          source: "satellite",
+          bbox: satelliteBbox,
+          aspectRatio,
+        },
+        controller.signal,
+      )
+        .then((shot) => {
+          if (controller.signal.aborted) return;
+          satelliteShotRef.current = shot;
+          setSatelliteShot(shot);
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
+          satelliteShotRef.current = null;
+          setSatelliteShot(null);
+          setSatelliteUrl(null);
+        });
+    }, SATELLITE_SNAPSHOT_DELAY_MS);
     return () => {
-      cancelled = true;
+      window.clearTimeout(timer);
+      controller.abort();
     };
   }, [croppedLatLng, satelliteBbox, aspectRatio, maxRefs]);
 
