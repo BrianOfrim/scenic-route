@@ -37,6 +37,7 @@ import {
   generatePoster,
   listPosters,
   modifyPoster,
+  variantPoster,
   readPosterPng,
   readPosterRecord,
   readPosterRef,
@@ -193,6 +194,14 @@ app.post("/api/poster/generate", async (c) => {
 app.post("/api/poster/modify", async (c) => {
   try {
     return c.json({ posters: await modifyPoster(currentUserId(c), await c.req.json()) });
+  } catch (error) {
+    return fail(c, error);
+  }
+});
+
+app.post("/api/poster/variant", async (c) => {
+  try {
+    return c.json({ posters: await variantPoster(currentUserId(c), await c.req.json()) });
   } catch (error) {
     return fail(c, error);
   }

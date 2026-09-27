@@ -5,6 +5,7 @@ import {
   MAX_VARIANTS,
   clampVariants,
   modifyImageReferences,
+  variantImageReferences,
   resolveImagePrompt,
   sanitizePosterEditor,
   toPosterListItem,
@@ -114,6 +115,12 @@ test("modifyImageReferences puts the previous poster first and respects the cap"
   assert.deepEqual(modifyImageReferences("poster", ["schematic", "satellite"], 2), ["poster", "schematic"]);
   assert.deepEqual(modifyImageReferences("poster", ["schematic"], 1), ["poster"]);
   assert.deepEqual(modifyImageReferences("poster", ["", "schematic"], 3), ["poster", "schematic"]);
+});
+
+test("variantImageReferences keeps grounding and drops any previous poster", () => {
+  assert.deepEqual(variantImageReferences(["schematic", "satellite"], 3), ["schematic", "satellite"]);
+  assert.deepEqual(variantImageReferences(["schematic", "satellite"], 1), ["schematic"]);
+  assert.deepEqual(variantImageReferences(["", "schematic"], 3), ["schematic"]);
 });
 
 test("resolveImagePrompt prefers a non-empty override", () => {
