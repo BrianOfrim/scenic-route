@@ -16,42 +16,55 @@ export type SatelliteFrame = MapFrame & {
   scale: number;
 };
 
-export async function snapshotTiles(options: {
-  source: TileSource;
-  bbox: [[number, number], [number, number]];
-  aspectRatio: string;
-}): Promise<SatelliteFrame> {
+export async function snapshotTiles(
+  options: {
+    source: TileSource;
+    bbox: [[number, number], [number, number]];
+    aspectRatio: string;
+  },
+  signal?: AbortSignal,
+): Promise<SatelliteFrame> {
+  if (signal?.aborted) throw abortError();
   const { width, height } = canvasSize(options.aspectRatio);
   const container = document.createElement("div");
   container.style.cssText = `position:fixed;left:-10000px;top:0;width:${width}px;height:${height}px;`;
   document.body.appendChild(container);
 
-  const map = new Map({
-    container,
-    style: {
-      version: 8,
-      sources: {
-        basemap: {
-          type: "raster",
-          tiles: [TILE_URLS[options.source]],
-          tileSize: 256,
-          attribution: options.source,
-        },
-      },
-      layers: [
-        { id: "background", type: "background", paint: { "background-color": "#111318" } },
-        { id: "basemap", type: "raster", source: "basemap" },
-      ],
-    },
-    interactive: false,
-    attributionControl: false,
-    pixelRatio: 1,
-    canvasContextAttributes: { preserveDrawingBuffer: true },
-    fadeDuration: 0,
-  });
+  let map: Map | null = null;
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    map?.remove();
+    container.remove();
+  };
 
   try {
-    await waitFor(map, "load");
+    map = new Map({
+      container,
+      style: {
+        version: 8,
+        sources: {
+          basemap: {
+            type: "raster",
+            tiles: [TILE_URLS[options.source]],
+            tileSize: 256,
+            attribution: options.source,
+          },
+        },
+        layers: [
+          { id: "background", type: "background", paint: { "background-color": "#111318" } },
+          { id: "basemap", type: "raster", source: "basemap" },
+        ],
+      },
+      interactive: false,
+      attributionControl: false,
+      pixelRatio: 1,
+      canvasContextAttributes: { preserveDrawingBuffer: true },
+      fadeDuration: 0,
+    });
+    if (signal?.aborted) throw abortError();
+    await waitFor(map, "load", 12_000, signal);
     map.resize();
     const frame = fittedFrame(options.bbox, width, height);
     const camera = cameraForFrame({ width, height, nw: frame.nw, se: frame.se });
@@ -63,11 +76,11 @@ export async function snapshotTiles(options: {
       pitch: 0,
       padding: { top: 0, bottom: 0, left: 0, right: 0 },
     });
-    await waitFor(map, "idle");
+    await waitFor(map, "idle", 12_000, signal);
+    if (signal?.aborted) throw abortError();
     return captureFrame(map, options.source);
   } finally {
-    map.remove();
-    container.remove();
+    dispose();
   }
 }
 
@@ -155,16 +168,38 @@ function stroke(ctx: CanvasRenderingContext2D, points: [number, number][]) {
   ctx.stroke();
 }
 
-function waitFor(map: Map, event: "load" | "idle", timeoutMs = 12_000) {
-  return new Promise<void>((resolve) => {
+function abortError() {
+  return new DOMException("Satellite snapshot aborted", "AbortError");
+}
+
+function waitFor(map: Map, event: "load" | "idle", timeoutMs = 12_000, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
     if (event === "load" && map.loaded()) {
       resolve();
       return;
     }
-    const timer = window.setTimeout(() => resolve(), timeoutMs);
-    map.once(event, () => {
-      window.clearTimeout(timer);
+    const timer = window.setTimeout(() => {
+      cleanup();
       resolve();
-    });
+    }, timeoutMs);
+    const onEvent = () => {
+      cleanup();
+      resolve();
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(abortError());
+    };
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      map.off(event, onEvent);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    signal?.addEventListener("abort", onAbort);
+    map.once(event, onEvent);
   });
 }
