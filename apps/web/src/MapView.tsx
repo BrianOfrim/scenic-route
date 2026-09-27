@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { StyleSpecification } from "maplibre-gl";
 import { Map, Marker, NavigationControl } from "./maplibre";
+import { canvasBitmapCollapsed, DEFAULT_MAX_CANVAS } from "./mapCanvas";
 import type { NamedArea, NamedWay, PosterPoi, PosterWays } from "./api";
 import { nearestTrailName } from "./poster/trailColors";
 import { maskIsActive, veilOutsideMask, type GeoMask } from "./poster/grounding/geoMask";
@@ -278,7 +279,7 @@ export function MapView({
     hoverRef.current = hover;
     mapRef.current = map;
     const paint = () => {
-      map.resize();
+      resizeMap(map);
       const height = map.getContainer().clientHeight || 1;
       const bottom =
         fitPaddingBottomRef.current > 0
@@ -589,8 +590,13 @@ export function MapView({
       const hit = hitOutlineVertex(map, event.point, geoOutlineRef.current ?? [], touchUiRef.current);
       if (hit != null) onGeoEditRef.current?.({ type: "remove", index: hit });
     };
+    const onContextRestored = () => {
+      resetCanvasLimit(map);
+      paint();
+    };
     map.on("load", markStyleReady);
     map.on("style.load", markStyleReady);
+    map.on("webglcontextrestored", onContextRestored);
     map.on("render", redrawSchematic);
     map.on("click", onAnnotateClick);
     map.on("contextmenu", onGeoContext);
@@ -606,6 +612,7 @@ export function MapView({
     return () => {
       map.off("load", markStyleReady);
       map.off("style.load", markStyleReady);
+      map.off("webglcontextrestored", onContextRestored);
       map.off("render", redrawSchematic);
       map.off("click", onAnnotateClick);
       map.off("contextmenu", onGeoContext);
@@ -661,7 +668,7 @@ export function MapView({
         : 0;
     map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
     const apply = () => {
-      map.resize();
+      resizeMap(map);
       const target = cropLatLng ?? selectedLatLng;
       if (basemapRef.current === "schematic") {
         clearMarkers(markersRef);
@@ -2001,6 +2008,26 @@ function bindMarkerDrag(
   for (const handle of root.querySelectorAll(".map-poi-dot, .map-poi-name")) {
     handle.addEventListener("pointerdown", onDown as EventListener);
   }
+}
+
+type CanvasLimitedMap = Map & { _maxCanvasSize: [number, number] };
+
+function resetCanvasLimit(map: Map) {
+  (map as CanvasLimitedMap)._maxCanvasSize = DEFAULT_MAX_CANVAS;
+}
+
+/** Resize, and undo a MapLibre canvas cap left behind by a lost WebGL context. */
+function resizeMap(map: Map) {
+  const collapsed = () => {
+    const canvas = map.getCanvas();
+    const box = map.getContainer();
+    return canvasBitmapCollapsed(box.clientWidth, box.clientHeight, canvas.width, canvas.height);
+  };
+  if (collapsed()) resetCanvasLimit(map);
+  map.resize();
+  if (!collapsed()) return;
+  resetCanvasLimit(map);
+  map.resize();
 }
 
 const FIT_EDGE_PX = 72;
