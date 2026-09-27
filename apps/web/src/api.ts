@@ -426,7 +426,7 @@ export async function generatePoster(
   prepareReferences?: () => Promise<string[]>,
   task?: GenerationTask,
 ): Promise<PosterRecord[]> {
-  const details = body as { spec?: PosterSpec; model?: string; styleId?: string; variants?: number };
+  const details = body as { spec?: PosterSpec; model?: string; styleId?: string; paletteId?: string; variants?: number };
   return trackGeneration({ ...details, variants: pendingCount ?? details.variants, title: details.spec?.text.title || "New image" }, async () => {
     // Register placeholders before preparing references; preparation also runs in the background.
     const requestBody = prepareReferences
@@ -455,9 +455,10 @@ export async function variantPoster(body: {
   model?: string;
   title?: string;
   styleId?: string;
+  paletteId?: string;
 }): Promise<PosterRecord[]> {
   return trackGeneration(
-    { title: body.title || "New variant", model: body.model, styleId: body.styleId, variants: 1 },
+    { title: body.title || "New variant", model: body.model, styleId: body.styleId, paletteId: body.paletteId, variants: 1 },
     async () => {
       const payload = await readJson<{ posters?: PosterRecord[] }>(
         await apiFetch("/api/poster/variant", {
