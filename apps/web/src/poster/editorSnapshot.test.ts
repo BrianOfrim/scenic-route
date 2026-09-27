@@ -132,6 +132,7 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
     aspectRatio: "16:9",
     styleIds: ["middle-earth", "blueprint"],
     stylePrompt: "custom ink",
+    vibes: "A nice, crisp fall day. Leaves were beautiful colours!",
     paletteId: "red",
     imageModelIds: ["google/gemini-test"],
     variants: 2,
@@ -158,6 +159,7 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
   assert.deepEqual(restored.statIds, ["title", "distance"]);
   assert.equal(restored.aspectRatio, "16:9");
   assert.deepEqual(restored.styleIds, ["middle-earth", "blueprint"]);
+  assert.equal(restored.vibes, "A nice, crisp fall day. Leaves were beautiful colours!");
   assert.equal(restored.paletteId, "auto");
   assert.deepEqual(restored.paletteIdsByStyle, { "middle-earth": ["auto"], blueprint: ["auto"] });
   assert.deepEqual(restored.imageModelIds, ["google/gemini-test"]);

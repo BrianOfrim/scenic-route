@@ -51,6 +51,7 @@ test("sanitizePosterEditor keeps crop, labels, and custom annotations", () => {
     aspectRatio: "16:9",
     styleIds: ["middle-earth"],
     stylePrompt: "ink",
+    vibes: "  crisp   fall day  ",
     paletteId: "process-blue",
     imageModelIds: ["google/gemini-test"],
     variants: 2,
@@ -68,6 +69,7 @@ test("sanitizePosterEditor keeps crop, labels, and custom annotations", () => {
   assert.equal(editor.trailAliases["Bow Valley Parkway"], "Parkway");
   assert.equal(editor.variants, 2);
   assert.equal(editor.paletteId, "process-blue");
+  assert.equal(editor.vibes, "crisp fall day");
   assert.deepEqual(editor.paletteIdsByStyle, {});
   assert.deepEqual(editor.qualities, ["auto"]);
 });

@@ -24,7 +24,6 @@ import {
   endRadiusM,
   loopBandRing,
   outerExpandM,
-  outerHardCut,
   rectangleRing,
   rectangleTooSmall,
   rotatedBoxRing,
@@ -47,7 +46,7 @@ import {
 type GeoScope = "all" | "corridor" | "ends" | "box" | "hull" | "loop" | "rectangle" | "polygon";
 
 const GEO_SCOPES: { id: GeoScope; label: string; hint: string }[] = [
-  { id: "all", label: "All", hint: "Everything in the route's map box." },
+  { id: "all", label: "All", hint: "Everything in the route's map box. The satellite photograph is cut to that same box." },
   { id: "corridor", label: "Corridor", hint: "Roads, water, and landcover within this distance of the route." },
   { id: "ends", label: "Wider ends", hint: "A tighter band along the route, with more context around the start and finish." },
   { id: "box", label: "Rotated box", hint: "A rectangle turned to match the route, so the empty corners of a diagonal ride drop out." },
@@ -75,6 +74,7 @@ import {
   schematicLayersFromFeatureIds,
 } from "./grounding/renderSchematic";
 import { maskIsActive, type GeoMask } from "./grounding/geoMask";
+import { satelliteReferenceMask } from "./grounding/satelliteMask";
 import { renderMaskedSatellite, snapshotTiles, type SatelliteFrame } from "./grounding/snapshotTiles";
 import {
   applyTrailAlias,
@@ -800,6 +800,7 @@ export function PosterPanel({
     return [DEFAULT_POSTER_STYLE.id];
   });
   const [stylePrompt, setStylePrompt] = useState(seeded?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
+  const [vibes, setVibes] = useState(seeded?.vibes ?? "");
   const [paletteIdsByStyle, setPaletteIdsByStyle] = useState<Record<string, string[]>>(
     () => seeded?.paletteIdsByStyle ?? {},
   );
@@ -967,6 +968,7 @@ export function PosterPanel({
               );
             }
             setStylePrompt(restored.stylePrompt);
+            setVibes(restored.vibes);
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
             setPromptModel(refineFrom.promptModel ?? null);
@@ -1049,17 +1051,15 @@ export function PosterPanel({
   }, [context, croppedLatLng, corridorMeters, geoScope, shapeRing]);
 
   const satelliteMask = useMemo((): GeoMask | null => {
-    if (croppedLatLng.length < 2 || geoScope === "all") return null;
-    const cut = outerHardCut(
-      croppedLatLng,
-      geoScope === "corridor" || geoScope === "ends" ? geoScope : "ring",
-      { corridorM: corridorMeters, ring: shapeRing },
-    );
-    // Features continue past the inner scope, so the schematic canvas stays unclipped.
-    if (!cut) return { whole: true };
-    if (cut.kind === "ring") return { rings: [cut.ring], whole: true };
-    return { bandM: cut.bandM, whole: true };
-  }, [croppedLatLng, geoScope, shapeRing, corridorMeters]);
+    return satelliteReferenceMask({
+      queryBbox: context?.bbox,
+      track: context?.latlng,
+      route: croppedLatLng,
+      scope: geoScope === "corridor" || geoScope === "ends" ? geoScope : geoScope === "all" ? "all" : "ring",
+      corridorM: corridorMeters,
+      ring: shapeRing,
+    });
+  }, [context, croppedLatLng, geoScope, shapeRing, corridorMeters]);
   const editingOutline = geoScope === "polygon" || geoScope === "rectangle";
   const activeOutline = geoScope === "rectangle" ? rectangle : polygon;
 
@@ -1721,6 +1721,7 @@ export function PosterPanel({
               ...base,
               style: styleForPlan(style, slot.paletteId),
               customStylePrompt: style.id === "custom" ? stylePrompt : undefined,
+              vibes: vibes.trim() || undefined,
               previousSpec:
                 specForSlot(specs, slot.styleId, slot.paletteId) ??
                 (refineFrom && refineFrom.styleId === slot.styleId ? refineFrom.spec : undefined),
@@ -1889,6 +1890,7 @@ export function PosterPanel({
               aspectRatio,
               styleIds,
               stylePrompt,
+              vibes,
               paletteIdsByStyle,
               imageModelIds: activeImageModelIds,
               variants,
@@ -3219,6 +3221,18 @@ export function PosterPanel({
             {!sheetMode && styleIds.length > 1 && editingCustom && (
               <p className="muted">Custom uses this prompt; other themes use their presets.</p>
             )}
+            <label className="poster-field">
+              Vibes
+              <textarea
+                rows={3}
+                value={vibes}
+                maxLength={500}
+                disabled={busy}
+                placeholder="A nice, crisp fall day. Leaves were beautiful colours!"
+                onChange={(event) => setVibes(event.target.value)}
+              />
+            </label>
+            <p className="muted">Optional. Flavors the image prompt with how the day felt.</p>
             {sheetMode && !styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
             {sheetMode && (
               <div className="poster-actions poster-plan-row">

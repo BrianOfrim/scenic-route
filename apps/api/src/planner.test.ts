@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assertUsableSpec, buildPlannerMessages, repairPlannerOutput, type PlannerInput } from "./planner";
+import {
+  assertUsableSpec,
+  buildPlannerMessages,
+  normalizeVibes,
+  repairPlannerOutput,
+  type PlannerInput,
+} from "./planner";
 import { specToImagePrompt, validatePosterSpec } from "./posterSpec";
 
 const input: PlannerInput = {
@@ -68,6 +74,7 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
     namedTrails: Array<Record<string, unknown>>;
     namedRegions: Array<Record<string, unknown>>;
     customStylePrompt: string;
+    vibes: string | null;
     groundingImages: Array<{ role: string }>;
     routeMarkers: { enabled: boolean; mode: string };
     routeOnly: boolean;
@@ -89,9 +96,81 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.match(String(messages[0].content), /parks and green space as green/);
   assert.match(String(messages[0].content), /never copy the letters/);
   assert.equal(user.customStylePrompt, "more negative space");
+  assert.equal(user.vibes, null);
+  assert.match(String(messages[0].content), /If vibes is supplied/);
+  assert.match(String(messages[0].content), /color of vegetation/);
   assert.equal(user.groundingImages[0].role, "schematic");
   assert.deepEqual(user.routeMarkers, { enabled: true, mode: "loop" });
   assert.equal(user.routeOnly, false);
+});
+
+test("buildPlannerMessages passes a rider's vibes note to the planner", () => {
+  const messages = buildPlannerMessages({
+    ...input,
+    vibes: "  A nice, crisp fall day.\nLeaves were beautiful colours!  ",
+  });
+  const user = JSON.parse(String(messages[1].content)) as { vibes: string };
+  assert.equal(user.vibes, "A nice, crisp fall day. Leaves were beautiful colours!");
+});
+
+test("normalizeVibes drops blank notes and caps length", () => {
+  assert.equal(normalizeVibes("   "), "");
+  assert.equal(normalizeVibes(undefined), "");
+  assert.equal(normalizeVibes("x".repeat(600)).length, 500);
+});
+
+test("repairPlannerOutput weaves vibes into references when the planner omits them", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: {
+        name: "Swiss",
+        medium: "print",
+        palette: ["off-white"],
+        typography: "",
+        texture: "paper grain",
+        references: "",
+      },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    { ...input, vibes: "A nice, crisp fall day. Leaves were beautiful colours!" },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.style.texture, "paper grain");
+  assert.match(spec.style.references, /Scene: A nice, crisp fall day/);
+});
+
+test("repairPlannerOutput does not duplicate vibes the planner already wrote", () => {
+  const note = "A nice, crisp fall day.";
+  const repaired = repairPlannerOutput(
+    {
+      style: {
+        name: "Swiss",
+        medium: "print",
+        palette: ["off-white"],
+        typography: "",
+        texture: note,
+        references: "",
+      },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    { ...input, vibes: note },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.style.texture, note);
 });
 
 test("buildPlannerMessages in route-only mode drops named features", () => {

@@ -225,7 +225,7 @@ export function clipWaysSoftThenHard<T extends { features?: unknown[] }>(
   return ways;
 }
 
-/** Further-out hard cut. The satellite image is masked to this boundary. */
+/** Further-out hard cut of a geography scope. Intersect this with the query frame before masking the satellite. */
 export function outerHardCut(
   route: LatLng[],
   scope: GeographyCutScope,
@@ -292,7 +292,8 @@ export function clipGeometryToFrame(geometry: FrameGeometry, bbox: BBox, expandM
   return null;
 }
 
-function queryFrameRing(bbox: BBox, expandM: number): LngLat[] {
+/** Axis-aligned box geography is clipped to. The satellite photograph is masked to this ring. */
+export function queryFrameRing(bbox: BBox, expandM: number): LngLat[] {
   const frame = padBbox(bbox, Math.max(0, expandM));
   return rectangleRing([frame[0], frame[1]], [frame[2], frame[3]]);
 }

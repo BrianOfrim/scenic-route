@@ -9,6 +9,11 @@ export type GeoMask = {
   lineM?: number;
   /** Corridor width in meters. One width, or one per route vertex. */
   bandM?: number | number[];
+  /**
+   * [lng, lat] ring intersected with the keep region.
+   * The query frame, so satellite terrain cannot appear where the schematic was left blank.
+   */
+  clip?: [number, number][];
   /** Schematic features that meet the region are kept whole, so the canvas is not clipped. */
   whole?: boolean;
 };
@@ -26,10 +31,8 @@ const M_PER_DEG = 111_320;
 
 export function maskIsActive(mask: GeoMask | null | undefined): boolean {
   if (!mask) return false;
-  if (mask.rings?.some((ring) => ring.length >= 3)) return true;
-  if ((mask.lineM ?? 0) > 0 && mask.lines?.some((line) => line.length >= 2)) return true;
-  if (typeof mask.bandM === "number") return mask.bandM > 0;
-  return Boolean(mask.bandM?.some((meters) => meters > 0));
+  if (hasInnerKeep(mask)) return true;
+  return ringKeeps(mask.clip);
 }
 
 /** North-up Web Mercator mapping that matches a fitted, unrotated map canvas. */
@@ -110,7 +113,7 @@ export function maskImageToRegion(
   layer.height = ctx.canvas.height;
   const maskCtx = layer.getContext("2d");
   if (!maskCtx) return;
-  paintKeepRegion(maskCtx, project, mask, route);
+  paintVisibleRegion(maskCtx, project, mask, route);
   ctx.save();
   ctx.globalCompositeOperation = "destination-in";
   ctx.drawImage(layer, 0, 0);
@@ -133,8 +136,65 @@ export function veilOutsideMask(
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, width, height);
   ctx.globalCompositeOperation = "destination-out";
-  paintKeepRegion(ctx, project, mask, route);
+  paintVisibleRegion(ctx, project, mask, route);
   ctx.restore();
+}
+
+/** White where the photograph is kept: the scope region, cut by `clip` when set. */
+function paintVisibleRegion(
+  ctx: CanvasRenderingContext2D,
+  project: (lng: number, lat: number) => [number, number],
+  mask: GeoMask,
+  route: [number, number][],
+) {
+  const clip = ringKeeps(mask.clip) ? mask.clip : undefined;
+  if (clip && hasInnerKeep(mask)) {
+    const layer = document.createElement("canvas");
+    layer.width = ctx.canvas.width;
+    layer.height = ctx.canvas.height;
+    const inner = layer.getContext("2d");
+    if (!inner) {
+      paintKeepRegion(ctx, project, mask, route);
+      return;
+    }
+    paintKeepRegion(inner, project, mask, route);
+    inner.globalCompositeOperation = "destination-in";
+    fillRing(inner, project, clip);
+    ctx.drawImage(layer, 0, 0);
+    return;
+  }
+  if (clip) {
+    fillRing(ctx, project, clip);
+    return;
+  }
+  paintKeepRegion(ctx, project, mask, route);
+}
+
+function fillRing(
+  ctx: CanvasRenderingContext2D,
+  project: (lng: number, lat: number) => [number, number],
+  ring: [number, number][],
+) {
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ring.forEach(([lng, lat], index) => {
+    const [x, y] = project(lng, lat);
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.fill();
+}
+
+function ringKeeps(ring: [number, number][] | undefined): ring is [number, number][] {
+  return Boolean(ring && ring.length >= 3);
+}
+
+function hasInnerKeep(mask: GeoMask): boolean {
+  if (mask.rings?.some((ring) => ring.length >= 3)) return true;
+  if ((mask.lineM ?? 0) > 0 && mask.lines?.some((line) => line.length >= 2)) return true;
+  if (typeof mask.bandM === "number") return mask.bandM > 0;
+  return Boolean(mask.bandM?.some((meters) => meters > 0));
 }
 
 function bandMeters(band: number | number[], index: number, count: number): number {
@@ -154,12 +214,20 @@ function radiusPx(
   return Math.hypot(x2 - x, y2 - y);
 }
 
-function mercatorX(lng: number): number {
-  return (lng + 180) / 360;
+/** Web Mercator used by MapLibre's camera. Longitude maps linearly. */
+export function mercatorX(lng: number): number {
+  return (180 + lng) / 360;
 }
 
-function mercatorY(lat: number): number {
-  const clamped = Math.max(-85, Math.min(85, lat));
-  const sine = Math.sin((clamped * Math.PI) / 180);
-  return 0.5 - Math.log((1 + sine) / (1 - sine)) / (4 * Math.PI);
+/** Web Mercator used by MapLibre's camera. Latitude is clamped short of the poles. */
+export function mercatorY(lat: number): number {
+  const clamped = Math.max(-85.05112878, Math.min(85.05112878, lat));
+  return (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + (clamped * Math.PI) / 360))) / 360;
+}
+
+/** Inverse of {@link mercatorX} and {@link mercatorY}. Returns [lng, lat]. */
+export function lngLatFromMercator(x: number, y: number): [number, number] {
+  const lng = 360 * x - 180;
+  const lat = (360 / Math.PI) * Math.atan(Math.exp(((180 - 360 * y) * Math.PI) / 180)) - 90;
+  return [lng, lat];
 }
