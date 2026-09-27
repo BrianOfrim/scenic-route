@@ -51,6 +51,11 @@ function mixedQualities(posters: PosterRecord[]) {
   return new Set(posters.map((item) => item.quality ?? "")).size > 1;
 }
 
+function galleryLoadError(err: unknown) {
+  if (err instanceof TypeError || !(err instanceof Error) || !err.message) return "Could not load images";
+  return err.message;
+}
+
 function lineageNote(item: PosterRecord, originalId?: string) {
   if (item.refineNotes?.trim()) return item.refineNotes.trim();
   if (originalId && item.posterId === originalId) return "original";
@@ -224,10 +229,14 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     if (postersRef.current.length === 0 && startedEpoch === 0) setLoading(true);
     fetchPosters()
       .then((items) => {
-        if (!cancelled) setPosters((current) => refreshPosterList(current, items, startedEpoch, getArrivedEpoch()));
+        if (cancelled) return;
+        setPosters((current) => refreshPosterList(current, items, startedEpoch, getArrivedEpoch()));
+        setError((current) =>
+          current === "Failed to fetch" || current === "Could not load images" ? null : current,
+        );
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load images");
+        if (!cancelled) setError(galleryLoadError(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -387,6 +396,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         posters={posters}
         onBack={() => setStudioFrom(null)}
         onPostersChange={setPosters}
+        tabs={tabs}
       />
     );
   }

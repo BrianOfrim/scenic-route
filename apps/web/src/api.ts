@@ -1,7 +1,7 @@
 import { noteArrivedPosters } from "./gallery/arrivedPosters";
 import { trackGeneration, type GenerationTask } from "./gallery/generationState";
 import type { FeatureCollection, LineString } from "geojson";
-import { coalesceRequests } from "./inFlight";
+import { coalesceRequests, shareRecentRequests } from "./inFlight";
 
 export type ActivityOrigin = "upload" | "archive";
 export type ActivityFormat = "gpx" | "fit" | "tcx";
@@ -470,10 +470,28 @@ export async function modifyPoster(body: {
   });
 }
 
-export async function fetchPosters(activityId?: number): Promise<PosterRecord[]> {
-  const qs = activityId != null ? `?activityId=${activityId}` : "";
+async function fetchPosterList(qs: string): Promise<PosterRecord[]> {
   const body = await readJson<{ posters: PosterRecord[] }>(await apiFetch(`/api/posters${qs}`));
   return body.posters ?? [];
+}
+
+function isTransientFetchError(err: unknown) {
+  return err instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(err.message);
+}
+
+/** Dev StrictMode mounts the gallery twice a few milliseconds apart and would otherwise list twice. */
+const loadRecentPosterList = shareRecentRequests(100, async (qs: string) => {
+  try {
+    return await fetchPosterList(qs);
+  } catch (err) {
+    if (!isTransientFetchError(err)) throw err;
+    return fetchPosterList(qs);
+  }
+});
+
+export function fetchPosters(activityId?: number): Promise<PosterRecord[]> {
+  const qs = activityId != null ? `?activityId=${activityId}` : "";
+  return loadRecentPosterList(qs);
 }
 
 export async function fetchPoster(id: string): Promise<PosterRecord> {
