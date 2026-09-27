@@ -450,6 +450,29 @@ export async function generatePoster(
   }, task);
 }
 
+export async function variantPoster(body: {
+  posterId: string;
+  model?: string;
+  title?: string;
+  styleId?: string;
+}): Promise<PosterRecord[]> {
+  return trackGeneration(
+    { title: body.title || "New variant", model: body.model, styleId: body.styleId, variants: 1 },
+    async () => {
+      const payload = await readJson<{ posters?: PosterRecord[] }>(
+        await apiFetch("/api/poster/variant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ posterId: body.posterId, model: body.model }),
+        }),
+      );
+      const records = payload.posters ?? [];
+      noteArrivedPosters(records);
+      return records;
+    },
+  );
+}
+
 export async function modifyPoster(body: {
   posterId: string;
   request: string;

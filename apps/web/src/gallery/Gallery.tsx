@@ -1,7 +1,7 @@
 import { forgetArrivedPoster, getArrivedEpoch, getArrivedPosters, useArrivedEpoch } from "./arrivedPosters";
 import { useGenerationState } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { deletePoster, fetchActivities, fetchPoster, fetchPosters, setPosterFavorite, type PosterRecord } from "../api";
+import { deletePoster, fetchActivities, fetchPoster, fetchPosters, setPosterFavorite, variantPoster, type PosterRecord } from "../api";
 import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, viewerThumbStacks, type GallerySort } from "./galleryRuns";
@@ -377,6 +377,18 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     }
   }
 
+  function handleNewVariant(poster: PosterRecord) {
+    setActive(null);
+    void variantPoster({
+      posterId: poster.posterId,
+      model: poster.model,
+      title: poster.title,
+      styleId: poster.styleId,
+    }).catch(() => {
+      /* trackGeneration publishes the error on the gallery */
+    });
+  }
+
   async function handleDelete(poster: PosterRecord) {
     if (!window.confirm(`Delete “${poster.title}”?`)) return;
     await deletePoster(poster.posterId);
@@ -572,6 +584,9 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                     <ShareButton url={selectedImage.src} filename={`${active.posterId}.png`} />
                   </>
                 )}
+                <button type="button" className="button" onClick={() => handleNewVariant(active)}>
+                  Make new variant
+                </button>
                 <button
                   type="button"
                   className="button"

@@ -168,6 +168,11 @@ export type ModifyPosterBody = {
   model?: string;
 };
 
+export type VariantPosterBody = {
+  posterId: string;
+  model?: string;
+};
+
 export function resolveImagePrompt(spec: PosterSpec, override?: string) {
   const trimmed = override?.trim() ?? "";
   return trimmed || specToImagePrompt(spec);
@@ -186,6 +191,12 @@ export function dataUrls(urls: unknown): string[] {
 export function modifyImageReferences(previousPosterUrl: string, groundingUrls: string[], maxRefs: number) {
   const limit = Number.isFinite(maxRefs) ? Math.max(1, Math.round(maxRefs)) : 1;
   return [previousPosterUrl, ...groundingUrls].filter((item) => item.trim()).slice(0, limit);
+}
+
+/** Saved grounding only. A new variant does not send the previous poster. */
+export function variantImageReferences(groundingUrls: string[], maxRefs: number) {
+  const limit = Number.isFinite(maxRefs) ? Math.max(1, Math.round(maxRefs)) : 1;
+  return groundingUrls.filter((item) => item.trim()).slice(0, limit);
 }
 
 export async function readPosterGroundingUrls(
@@ -351,6 +362,38 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
     promptModel: revised.model,
     editor: source.editor,
     label: "modify",
+  });
+}
+
+/** Another image from the saved prompt and grounding. The previous poster is not a reference. */
+export async function variantPoster(userId: string, body: VariantPosterBody): Promise<PosterRecord[]> {
+  const source = await readPosterRecord(userId, body.posterId);
+  if (!source) throw new PosterError("image not found", 404);
+  if (!source.spec || !source.prompt?.trim()) throw new PosterError("image is missing prompt data", 502);
+  const grounding = await readPosterGroundingUrls(userId, source.posterId, source.referenceCount);
+  if (!grounding.length) throw new PosterError("image is missing grounding images");
+
+  const model = resolveImageModel(body.model ?? source.model);
+  return generatePoster(userId, {
+    activityId: source.activityId,
+    spec: source.spec,
+    prompt: source.prompt,
+    references: variantImageReferences(grounding, await maxImageReferences(model)),
+    persistReferences: grounding,
+    featureIds: source.featureIds,
+    labels: source.labels,
+    stats: source.stats,
+    styleId: source.styleId,
+    stylePrompt: source.stylePrompt,
+    paletteId: source.paletteId,
+    aspectRatio: source.aspectRatio,
+    model,
+    quality: source.quality,
+    batchId: source.batchId,
+    variants: 1,
+    promptModel: source.promptModel,
+    editor: source.editor,
+    label: "variant",
   });
 }
 
