@@ -396,6 +396,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         posters={posters}
         onBack={() => setStudioFrom(null)}
         onPostersChange={setPosters}
+        tabs={tabs}
       />
     );
   }

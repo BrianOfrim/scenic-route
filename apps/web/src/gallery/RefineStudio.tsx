@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { modifyPoster, type PosterRecord } from "../api";
 import { posterCardSrc } from "./galleryList";
 import { ReadyImage } from "./GalleryViewer";
@@ -10,6 +10,7 @@ type Props = {
   posters: PosterRecord[];
   onBack: () => void;
   onPostersChange: (next: PosterRecord[] | ((current: PosterRecord[]) => PosterRecord[])) => void;
+  tabs?: ReactNode;
 };
 
 function versionLabel(item: PosterRecord, originalId?: string) {
@@ -18,7 +19,7 @@ function versionLabel(item: PosterRecord, originalId?: string) {
   return item.title;
 }
 
-export function RefineStudio({ source, posters, onBack, onPostersChange }: Props) {
+export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }: Props) {
   const family = useMemo(() => {
     const found = lineageFamily(posters, source.posterId);
     return found.length ? found : [source];
@@ -88,7 +89,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange }: Props
               </button>
             </p>
           )}
-          <button type="button" className="text-btn" onClick={onBack} disabled={busy}>
+          <button type="button" className="text-btn" onClick={onBack}>
             Back to gallery
           </button>
         </div>
@@ -154,6 +155,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange }: Props
           ))}
         </div>
       </div>
+      {tabs}
     </div>
   );
 }
