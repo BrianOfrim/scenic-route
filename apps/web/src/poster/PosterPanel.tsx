@@ -607,6 +607,15 @@ function CropRangeSlider({
   );
 }
 
+function SectionTitle({ title, beta }: { title: string; beta?: boolean }) {
+  return (
+    <>
+      {title}
+      {beta ? <span className="beta-mark">Beta</span> : null}
+    </>
+  );
+}
+
 function PosterSection({
   title,
   accordion,
@@ -616,6 +625,7 @@ function PosterSection({
   open,
   busy,
   showTitle = true,
+  beta = false,
 }: {
   title: string;
   accordion: boolean;
@@ -625,6 +635,7 @@ function PosterSection({
   open?: boolean;
   busy?: boolean;
   showTitle?: boolean;
+  beta?: boolean;
 }) {
   const [expanded, setExpanded] = useState(Boolean(open));
   if (accordion) {
@@ -636,7 +647,9 @@ function PosterSection({
           onToggle={(event) => setExpanded(event.currentTarget.open)}
         >
           <summary>
-            <span className="eyebrow">{title}</span>
+            <span className="eyebrow">
+              <SectionTitle title={title} beta={beta} />
+            </span>
             {hint}
           </summary>
           {children}
@@ -649,11 +662,15 @@ function PosterSection({
       {showTitle ? (
         hint ? (
           <div className="eyebrow-row">
-            <div className="eyebrow">{title}</div>
+            <div className="eyebrow">
+              <SectionTitle title={title} beta={beta} />
+            </div>
             {hint}
           </div>
         ) : (
-          <div className="eyebrow">{title}</div>
+          <div className="eyebrow">
+            <SectionTitle title={title} beta={beta} />
+          </div>
         )
       ) : (
         hint
@@ -2291,13 +2308,13 @@ export function PosterPanel({
     !routeOnly &&
     (selectedNamedAreas.length > 0 || selectedNamedWays.length > 0 || selectedPois.length > 0);
   const workflowSteps = useMemo(() => {
-    const steps: { id: PosterWorkflowStep; label: string }[] = [
+    const steps: { id: PosterWorkflowStep; label: string; beta?: boolean }[] = [
       { id: "crop", label: "Crop" },
       { id: "geography", label: "Geography" },
     ];
     if (showOnMapStep) steps.push({ id: "on-map", label: "On map" });
     steps.push(
-      { id: "annotations", label: "Annotations" },
+      { id: "annotations", label: "Annotations", beta: true },
       { id: "stats", label: "Stats" },
       { id: "themes", label: "Themes" },
     );
@@ -2448,6 +2465,7 @@ export function PosterPanel({
                   onClick={() => selectWorkflowStep(step.id)}
                 >
                   {step.label}
+                  {step.beta ? <span className="beta-mark">Beta</span> : null}
                 </button>
               ))}
             </nav>
@@ -2891,6 +2909,7 @@ export function PosterPanel({
 
           <PosterSection
             title="Annotations"
+            beta
             accordion={!sheetMode}
             showTitle={!sheetMode}
             className={workflowPane("annotations")}

@@ -379,6 +379,19 @@ h1 {
   margin-bottom: 6px;
 }
 
+.beta-mark {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 55%, transparent);
+  border-radius: 999px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  line-height: 1.45;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
 .eyebrow-row {
   display: flex;
   align-items: center;
