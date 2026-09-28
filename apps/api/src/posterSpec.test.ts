@@ -157,9 +157,52 @@ test("specToImagePrompt renders prose without JSON or empty fields", () => {
   assert.match(prompt, /Typography: Helvetica\. Large display title/);
   assert.match(prompt, /Title block: top\. Large display title/);
   assert.match(prompt, /no title too small to read when the whole poster is viewed on a phone/);
-  assert.match(prompt, /Stats to typeset: Distance 42\.0 km\./);
-  assert.match(prompt, /Typeset each stat once/);
+  assert.match(prompt, /Stats to typeset, exactly: 42\.0 km\./);
+  assert.match(prompt, /with no category word added in front/);
+  assert.doesNotMatch(prompt, /Distance 42\.0 km/);
+  assert.match(prompt, /Typeset each item once/);
   assert.match(prompt, /must not appear as both a large display figure and a labeled line/);
+});
+
+test("specToImagePrompt drops labels only when the value already says what it is", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      text: {
+        ...sample.text,
+        subtitle: "",
+        stats: [
+          { label: "Date", value: "Sep 27, 2026" },
+          { label: "Distance", value: "10.0 km" },
+          { label: "Moving time", value: "1h 5m" },
+          { label: "Average speed", value: "14.2 km/h" },
+          { label: "Elevation gain", value: "420 m" },
+          { label: "Sport", value: "Ride" },
+        ],
+      },
+    }),
+  );
+  assert.match(
+    prompt,
+    /Stats to typeset, exactly: Sep 27, 2026 · 10\.0 km · 1h 5m · 14\.2 km\/h · Elevation gain 420 m · Ride\./,
+  );
+});
+
+test("specToImagePrompt keeps time labels when moving and elapsed are both shown", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      text: {
+        ...sample.text,
+        subtitle: "",
+        stats: [
+          { label: "Moving time", value: "1h 5m" },
+          { label: "Elapsed time", value: "1h 20m" },
+        ],
+      },
+    }),
+  );
+  assert.match(prompt, /Stats to typeset, exactly: Moving time 1h 5m · Elapsed time 1h 20m\./);
 });
 
 test("specToImagePrompt does not add a title when the design has none", () => {
