@@ -6,7 +6,9 @@ import type { NamedArea, NamedWay, PosterPoi, PosterWays } from "./api";
 import { nearestTrailName } from "./poster/trailColors";
 import { maskIsActive, veilOutsideMask, type GeoMask } from "./poster/grounding/geoMask";
 import type { GeoEdit } from "./poster/polygonEdit";
+import { isClosedLoop } from "./poster/crop";
 import {
+  drawRouteEndMarkers,
   drawSchematicScene,
   schematicLineScale,
   type SchematicLayers,
@@ -1250,7 +1252,14 @@ function paintSchematicOverlay(
     }
     const scale = (sx + sy) / 2;
     paintStreetAnnotations(ctx, project, data.namedAreas, data.namedWays, scale);
-    paintStreetTrack(ctx, data.latlng ?? [], data.stops, project, scale);
+    paintStreetTrack(
+      ctx,
+      data.latlng ?? [],
+      data.stops,
+      project,
+      scale,
+      streetRouteMarkers(data.layers, data.latlng ?? []),
+    );
     const outline = data.geoOutlineActive || data.geoOutlinePreview ? data.geoOutline : undefined;
     paintGeoOutline(ctx, outline, project, scale, {
       handles: Boolean(data.geoOutlineActive),
@@ -1351,12 +1360,24 @@ function hitOutlineVertex(
   return index >= 0 ? index : null;
 }
 
+function streetRouteMarkers(
+  layers: SchematicLayers | null | undefined,
+  latlng: [number, number][],
+): false | "ends" | "loop" {
+  if (latlng.length < 2) return false;
+  const setting = layers?.routeMarkers;
+  if (setting === false) return false;
+  if (setting) return setting;
+  return isClosedLoop(latlng) ? "loop" : "ends";
+}
+
 function paintStreetTrack(
   ctx: CanvasRenderingContext2D,
   latlng: [number, number][],
   stops: [number, number][] | undefined,
   project: (lng: number, lat: number) => [number, number],
   scale: number,
+  markers: false | "ends" | "loop" = "ends",
 ) {
   if (latlng.length < 2) return;
   const points = latlng.map(([lat, lng]) => project(lng, lat));
@@ -1384,7 +1405,28 @@ function paintStreetTrack(
     ctx.strokeStyle = "#111111";
     ctx.stroke();
   }
+  if (markers) paintRouteEndMarkers(ctx, points[0], points[points.length - 1], markers, scale);
   ctx.restore();
+}
+
+/** White disc behind the schematic start/finish dots so they read on imagery and the route casing. */
+function paintRouteEndMarkers(
+  ctx: CanvasRenderingContext2D,
+  start: [number, number],
+  end: [number, number],
+  mode: "ends" | "loop",
+  scale: number,
+) {
+  const halo = (mode === "loop" ? 14 : 11) * scale;
+  ctx.beginPath();
+  ctx.arc(start[0], start[1], halo, 0, Math.PI * 2);
+  if (mode === "ends") {
+    ctx.moveTo(end[0] + halo, end[1]);
+    ctx.arc(end[0], end[1], halo, 0, Math.PI * 2);
+  }
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  drawRouteEndMarkers(ctx, start, end, mode, scale);
 }
 
 function paintStreetAnnotations(
