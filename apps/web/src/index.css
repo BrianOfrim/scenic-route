@@ -64,9 +64,9 @@ a {
 
 .top:has(> .app-tabs) {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
-  justify-content: stretch;
+  justify-content: start;
 }
 
 .top:has(> .app-tabs) > :first-child {
@@ -75,7 +75,8 @@ a {
 }
 
 .top:has(> .app-tabs) > .app-tabs {
-  justify-self: center;
+  justify-self: start;
+  margin-left: 12px;
 }
 
 .top:has(> .app-tabs) > .top-actions {
