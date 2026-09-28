@@ -76,6 +76,7 @@ export type PosterEditorSnapshot = {
   finishPlace: string;
   placesEdited: boolean;
   statIds: string[];
+  statUnits: "metric" | "imperial";
   aspectRatio: string;
   styleIds: string[];
   stylePrompt: string;
@@ -595,6 +596,7 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     finishPlace: typeof raw.finishPlace === "string" ? raw.finishPlace : "",
     placesEdited: raw.placesEdited === true,
     statIds: stringList(raw.statIds),
+    statUnits: raw.statUnits === "imperial" ? "imperial" : "metric",
     aspectRatio: imageAspectRatio(typeof raw.aspectRatio === "string" ? raw.aspectRatio : DEFAULT_ASPECT_RATIO),
     styleIds: stringList(raw.styleIds),
     stylePrompt: typeof raw.stylePrompt === "string" ? raw.stylePrompt : "",
