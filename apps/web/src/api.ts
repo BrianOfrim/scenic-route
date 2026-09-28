@@ -226,6 +226,7 @@ export type PosterEditorSnapshot = {
   finishPlace: string;
   placesEdited: boolean;
   statIds: string[];
+  statUnits?: "metric" | "imperial";
   aspectRatio: string;
   styleIds: string[];
   stylePrompt: string;

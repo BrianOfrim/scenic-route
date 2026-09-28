@@ -81,6 +81,7 @@ test("sanitizePosterEditor defaults paletteId to auto", () => {
     stylePrompt: "",
   });
   assert.equal(editor?.paletteId, "auto");
+  assert.equal(editor?.statUnits, "metric");
   assert.equal(editor?.routeOnly, false);
   assert.deepEqual(editor?.paletteIdsByStyle, {});
 });

@@ -92,6 +92,7 @@ import {
   restoreEditor,
   styleIdFromRecord,
 } from "./editorSnapshot";
+import { applyStatUnits, DEFAULT_STAT_IDS, type StatUnits } from "./statUnits";
 import { addedFeatureIds, forgetDismissedForLayers, takeFreshNames } from "./autoNames";
 import { MAX_LABELS, prioritizeLabels } from "./labels";
 import { nearestPlaceName } from "./places";
@@ -837,7 +838,8 @@ export function PosterPanel({
   const [startPlace, setStartPlace] = useState("");
   const [finishPlace, setFinishPlace] = useState("");
   const [placesEdited, setPlacesEdited] = useState(false);
-  const [statIds, setStatIds] = useState<string[]>(["title", "date", "distance", "movingTime"]);
+  const [statIds, setStatIds] = useState<string[]>(DEFAULT_STAT_IDS);
+  const [statUnits, setStatUnits] = useState<StatUnits>("metric");
   const [labels, setLabels] = useState<string[]>(() => seeded?.labels ?? []);
   const [trailNames, setTrailNames] = useState<string[]>(() => seeded?.trailNames ?? []);
   const [trailAliases, setTrailAliases] = useState<Record<string, string>>({});
@@ -966,6 +968,7 @@ export function PosterPanel({
             setFinishPlace(restored.finishPlace);
             setPlacesEdited(restored.placesEdited);
             setStatIds(restored.statIds);
+            setStatUnits(restored.statUnits);
             if (sheetSnap != null) {
               const keepStyleId = restored.styleIds.find((id) => id !== "custom") ?? "";
               const keepPalette = keepStyleId
@@ -1004,6 +1007,8 @@ export function PosterPanel({
             setCropStart(0);
             setCropEnd(Math.max(1, next.latlng.length - 1));
             setPlacesEdited(false);
+            setStatIds(DEFAULT_STAT_IDS);
+            setStatUnits("metric");
             setStartPlace("");
             setFinishPlace("");
             setCustomPois([]);
@@ -1299,9 +1304,13 @@ export function PosterPanel({
     (Boolean(startPlace.trim()) && startPlace.trim().toLowerCase() === finishPlace.trim().toLowerCase());
 
   const listedStats = useMemo((): FormattedStat[] => {
-    const available = (context?.stats ?? []).filter((item) => item.id !== "title");
+    const available = applyStatUnits(
+      (context?.stats ?? []).filter((item) => item.id !== "title"),
+      context?.activity,
+      statUnits,
+    );
     return [{ id: "title", label: "Title", value: title }, ...available];
-  }, [context, title]);
+  }, [context, title, statUnits]);
 
   const selectedStats = useMemo(() => {
     return listedStats.filter((item) => statIds.includes(item.id) && (item.id === "title" || item.value));
@@ -1913,6 +1922,7 @@ export function PosterPanel({
               finishPlace,
               placesEdited,
               statIds,
+              statUnits,
               aspectRatio,
               styleIds,
               stylePrompt,
@@ -3120,6 +3130,17 @@ export function PosterPanel({
             showTitle={!sheetMode}
             className={workflowPane("stats")}
           >
+            <label className="poster-field">
+              Units
+              <select
+                aria-label="Stat units"
+                value={statUnits}
+                onChange={(event) => setStatUnits(event.target.value === "imperial" ? "imperial" : "metric")}
+              >
+                <option value="metric">Metric</option>
+                <option value="imperial">Imperial</option>
+              </select>
+            </label>
             {listedStats.map((stat) => (
               <label key={stat.id} className="check">
                 <input

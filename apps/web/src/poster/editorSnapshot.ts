@@ -2,6 +2,7 @@ import type { NamedWay, PosterPoi, PosterRecord, PosterSpec } from "../api";
 import { clampCrop } from "./crop";
 import { DEFAULT_FEATURE_IDS, FEATURE_CATALOG } from "./featureCatalog";
 import { DEFAULT_ASPECT_RATIO, type AspectRatio } from "./grounding/renderSchematic";
+import { DEFAULT_STAT_IDS, statUnitsFrom, type StatUnits } from "./statUnits";
 import { AUTO_PALETTE_ID, DEFAULT_POSTER_STYLE, POSTER_STYLES, planSlotKey, snapshotPaletteIds } from "./styles";
 
 const NAMED_REGION_KINDS = new Set([
@@ -40,6 +41,7 @@ export type PosterEditorSnapshot = {
   finishPlace: string;
   placesEdited: boolean;
   statIds: string[];
+  statUnits?: StatUnits;
   aspectRatio: AspectRatio;
   styleIds: string[];
   stylePrompt: string;
@@ -71,6 +73,7 @@ export type EditorCapture = {
   finishPlace: string;
   placesEdited: boolean;
   statIds: string[];
+  statUnits?: StatUnits;
   aspectRatio: AspectRatio;
   styleIds: string[];
   stylePrompt: string;
@@ -134,6 +137,7 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
     finishPlace: input.finishPlace,
     placesEdited: input.placesEdited,
     statIds: [...input.statIds],
+    statUnits: statUnitsFrom(input.statUnits),
     aspectRatio: input.aspectRatio,
     styleIds: [...input.styleIds],
     stylePrompt: input.stylePrompt,
@@ -166,6 +170,7 @@ export type RestoredEditor = {
   finishPlace: string;
   placesEdited: boolean;
   statIds: string[];
+  statUnits: StatUnits;
   aspectRatio: AspectRatio;
   styleIds: string[];
   stylePrompt: string;
@@ -427,7 +432,8 @@ export function restoreEditor(
         ? record.stats
             .map((item) => statIdFromLabel(item.label))
             .filter((id) => id !== "startPlace" && id !== "finishPlace")
-        : ["title", "date", "distance", "movingTime"],
+        : [...DEFAULT_STAT_IDS],
+    statUnits: statUnitsFrom(editor?.statUnits),
     aspectRatio: asAspectRatio(editor?.aspectRatio || record.aspectRatio),
     styleIds: editor?.styleIds?.length ? editor.styleIds : [styleId],
     stylePrompt: editor?.stylePrompt || record.stylePrompt || DEFAULT_POSTER_STYLE.prompt,
