@@ -439,8 +439,8 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
           <label className="gallery-sort">
             Sort by
             <select value={sort} onChange={(event) => setSort(event.target.value as GallerySort)}>
-              <option value="generated">Most recently generated image</option>
-              <option value="activity" disabled={!activityDates}>Most recent activity</option>
+              <option value="generated">Recent Image</option>
+              <option value="activity" disabled={!activityDates}>Recent Activity</option>
             </select>
           </label>
           <button

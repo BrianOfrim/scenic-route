@@ -1696,13 +1696,14 @@ button.map-schematic-tip-name:focus-visible {
 .gallery-sort {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .gallery-sort select {
-  max-width: 100%;
+  width: auto;
 }
 
 .gallery-runs {
