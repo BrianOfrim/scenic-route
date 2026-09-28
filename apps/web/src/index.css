@@ -62,6 +62,27 @@ a {
   background: #0e120c;
 }
 
+.top:has(> .app-tabs) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  justify-content: stretch;
+}
+
+.top:has(> .app-tabs) > :first-child {
+  justify-self: start;
+  min-width: 0;
+}
+
+.top:has(> .app-tabs) > .app-tabs {
+  justify-self: center;
+}
+
+.top:has(> .app-tabs) > .top-actions {
+  justify-self: end;
+  justify-content: flex-end;
+}
+
 .brand {
   margin: 0;
   letter-spacing: 0.16em;
@@ -940,23 +961,29 @@ button.map-schematic-tip-name:focus-visible {
 
 .app-tabs {
   flex: 0 0 auto;
-  justify-content: stretch;
-  gap: 0;
-  border-top: 1px solid var(--line);
-  background: #0e120c;
-  padding: 6px 8px calc(8px + env(safe-area-inset-bottom));
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
 }
 
 .app-tabs button {
-  flex: 1;
-  min-height: 44px;
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 16px;
   border: 0;
   border-radius: 10px;
   background: transparent;
   color: var(--muted);
   font: inherit;
   font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.app-tabs button:hover,
+.app-tabs button:focus-visible {
+  color: var(--ink);
+  outline: none;
 }
 
 .app-tabs button.on {
