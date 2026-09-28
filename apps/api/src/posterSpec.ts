@@ -418,6 +418,39 @@ export function titlePromptLine(title: string) {
 
 const t = (value?: string) => (value ?? "").trim();
 
+const DURATION_LABEL = /\b(time|duration)\b/i;
+
+/**
+ * A reader can tell what these are from the value alone: 10.0 km, a date,
+ * 1h 5m, 14.2 km/h. Two durations need their labels so moving time and
+ * elapsed time stay distinct. Elevation and place names stay labeled.
+ */
+function readsWithoutLabel(
+  label: string,
+  value: string,
+  stats: Array<{ label: string; value: string }>,
+): boolean {
+  const name = label.toLowerCase();
+  if (name === "distance") return /\d(?:\.\d+)?\s*(?:km|mi)\b/i.test(value);
+  if (name === "date" || name === "sport" || name === "activity") return true;
+  if (/\b(speed|pace)\b/.test(name)) return /\b(?:km\/h|mph|m\/s|min\/km|min\/mi)\b/i.test(value);
+  if (DURATION_LABEL.test(label) && /(?:\d\s*h|\d\s*m\b|\d+:\d{2})/i.test(value)) {
+    const durations = stats.filter((stat) => DURATION_LABEL.test(stat.label) && t(stat.value));
+    return durations.length < 2;
+  }
+  return false;
+}
+
+function typesetStat(
+  item: { label: string; value: string },
+  stats: Array<{ label: string; value: string }>,
+): string {
+  const label = t(item.label);
+  const value = t(item.value);
+  if (!label || readsWithoutLabel(label, value, stats)) return value;
+  return `${label} ${value}`;
+}
+
 export function isRouteOnlyPoster(spec: PosterSpec) {
   const namedLandmarks = spec.landmarks.some((item) => t(item.name));
   const namedGeography = spec.geography.some((item) => t(item.name));
@@ -541,16 +574,18 @@ export function specToImagePrompt(spec: PosterSpec): string {
   }
 
   const titled = posterHasTitle(spec.text.title);
-  const stats = spec.text.stats
-    .filter((item) => t(item.value))
-    .map((item) => (t(item.label) ? `${t(item.label)} ${t(item.value)}` : t(item.value)));
+  const statItems = spec.text.stats.filter((item) => t(item.value));
+  const stats = statItems.map((item) => typesetStat(item, statItems));
   sections.push(
     paragraph([
       titlePromptLine(spec.text.title),
       t(spec.text.subtitle) ? `Subtitle, exactly: "${t(spec.text.subtitle)}".` : "",
-      stats.length ? `Stats to typeset: ${stats.join(" · ")}.` : "",
+      stats.length ? `Stats to typeset, exactly: ${stats.join(" · ")}.` : "",
       stats.length
-        ? "Typeset each stat once. Do not repeat a value in the title block: the distance must not appear as both a large display figure and a labeled line."
+        ? "Typeset each item once, exactly as written, with no category word added in front. A distance, date, duration, or speed already says what it is."
+        : "",
+      stats.length
+        ? "Do not repeat a value in the title block: the distance must not appear as both a large display figure and a labeled line."
         : "",
       labeled("Text rules", withTitlePhoneRule(spec.text.rules, titled)),
     ]),
