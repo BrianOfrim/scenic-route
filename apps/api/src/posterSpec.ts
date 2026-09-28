@@ -418,6 +418,17 @@ export function titlePromptLine(title: string) {
 
 const t = (value?: string) => (value ?? "").trim();
 
+function isPeopleStat(item: { label?: string }) {
+  return /^with$/i.test(t(item.label));
+}
+
+/** Title-block credit for the people who did the activity. Not a map label. */
+function peopleCredit(stats: Array<{ label: string; value: string }>) {
+  const item = stats.find((stat) => isPeopleStat(stat) && t(stat.value));
+  if (!item) return "";
+  return `People who did this activity, typeset once in the title block, exactly: "With ${t(item.value)}". These are people, not places. Do not add them to the map.`;
+}
+
 export function isRouteOnlyPoster(spec: PosterSpec) {
   const namedLandmarks = spec.landmarks.some((item) => t(item.name));
   const namedGeography = spec.geography.some((item) => t(item.name));
@@ -541,8 +552,9 @@ export function specToImagePrompt(spec: PosterSpec): string {
   }
 
   const titled = posterHasTitle(spec.text.title);
+  const people = peopleCredit(spec.text.stats);
   const stats = spec.text.stats
-    .filter((item) => t(item.value))
+    .filter((item) => t(item.value) && !isPeopleStat(item))
     .map((item) => (t(item.label) ? `${t(item.label)} ${t(item.value)}` : t(item.value)));
   sections.push(
     paragraph([
@@ -552,6 +564,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
       stats.length
         ? "Typeset each stat once. Do not repeat a value in the title block: the distance must not appear as both a large display figure and a labeled line."
         : "",
+      people,
       labeled("Text rules", withTitlePhoneRule(spec.text.rules, titled)),
     ]),
   );

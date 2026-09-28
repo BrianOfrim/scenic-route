@@ -133,6 +133,7 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
     styleIds: ["middle-earth", "blueprint"],
     stylePrompt: "custom ink",
     vibes: "A nice, crisp fall day. Leaves were beautiful colours!",
+    people: "Alex, Jordan, Sam",
     paletteId: "red",
     imageModelIds: ["google/gemini-test"],
     variants: 2,
@@ -160,10 +161,26 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
   assert.equal(restored.aspectRatio, "16:9");
   assert.deepEqual(restored.styleIds, ["middle-earth", "blueprint"]);
   assert.equal(restored.vibes, "A nice, crisp fall day. Leaves were beautiful colours!");
+  assert.equal(restored.people, "Alex, Jordan, Sam");
   assert.equal(restored.paletteId, "auto");
   assert.deepEqual(restored.paletteIdsByStyle, { "middle-earth": ["auto"], blueprint: ["auto"] });
   assert.deepEqual(restored.imageModelIds, ["google/gemini-test"]);
   assert.equal(restored.variants, 2);
+});
+
+test("restoreEditor reads a people credit from saved stats when the snapshot has none", () => {
+  const restored = restoreEditor(
+    record({
+      stats: [
+        { label: "Distance", value: "42.0 km" },
+        { label: "With", value: "Alex and Jordan" },
+      ],
+    }),
+    100,
+    defaults,
+  );
+  assert.equal(restored.people, "Alex and Jordan");
+  assert.deepEqual(restored.statIds, ["distance"]);
 });
 
 test("restoreEditor clamps crop to the current track", () => {

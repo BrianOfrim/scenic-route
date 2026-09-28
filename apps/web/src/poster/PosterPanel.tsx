@@ -92,6 +92,7 @@ import {
   restoreEditor,
   styleIdFromRecord,
 } from "./editorSnapshot";
+import { formatPeople, parsePeople, PEOPLE_INPUT_MAX } from "./people";
 import { applyStatUnits, DEFAULT_STAT_IDS, type StatUnits } from "./statUnits";
 import { addedFeatureIds, forgetDismissedForLayers, takeFreshNames } from "./autoNames";
 import { MAX_LABELS, prioritizeLabels } from "./labels";
@@ -822,6 +823,7 @@ export function PosterPanel({
   });
   const [stylePrompt, setStylePrompt] = useState(seeded?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
   const [vibes, setVibes] = useState(seeded?.vibes ?? "");
+  const [people, setPeople] = useState(seeded?.people ?? "");
   const [paletteIdsByStyle, setPaletteIdsByStyle] = useState<Record<string, string[]>>(
     () => seeded?.paletteIdsByStyle ?? {},
   );
@@ -992,6 +994,7 @@ export function PosterPanel({
             }
             setStylePrompt(restored.stylePrompt);
             setVibes(restored.vibes);
+            setPeople(restored.people);
             setSpecs(restored.specs);
             setPlanCosts(restored.planCosts);
             setPromptModel(refineFrom.promptModel ?? null);
@@ -1009,6 +1012,7 @@ export function PosterPanel({
             setPlacesEdited(false);
             setStatIds(DEFAULT_STAT_IDS);
             setStatUnits("metric");
+            setPeople("");
             setStartPlace("");
             setFinishPlace("");
             setCustomPois([]);
@@ -1322,6 +1326,14 @@ export function PosterPanel({
       .map((item) => item.value)
       .join(" · ");
   }, [selectedStats]);
+
+  const peopleNames = useMemo(() => parsePeople(people), [people]);
+  const peopleCredit = peopleNames.length ? `With ${formatPeople(peopleNames)}` : "";
+  const posterStats = useMemo(() => {
+    const stats = selectedStats.map((item) => ({ label: item.label, value: item.value }));
+    if (peopleNames.length) stats.push({ label: "With", value: formatPeople(peopleNames) });
+    return stats;
+  }, [selectedStats, peopleNames]);
 
   useEffect(() => {
     onCropChange?.(croppedLatLng.length >= 2 ? croppedLatLng : null);
@@ -1730,7 +1742,8 @@ export function PosterPanel({
         },
         title,
         subtitle,
-        stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
+        stats: posterStats,
+        people: peopleNames,
         aspectRatio,
         geography: catalog
           .filter(
@@ -1891,7 +1904,7 @@ export function PosterPanel({
             spec: job.spec,
             featureIds,
             labels: posterPois.map((poi) => poi.name),
-            stats: selectedStats.map((item) => ({ label: item.label, value: item.value })),
+            stats: posterStats,
             styleId: job.styleId,
             paletteId: job.paletteId,
             stylePrompt:
@@ -1923,6 +1936,7 @@ export function PosterPanel({
               placesEdited,
               statIds,
               statUnits,
+              people,
               aspectRatio,
               styleIds,
               stylePrompt,
@@ -3159,7 +3173,20 @@ export function PosterPanel({
               </label>
             ))}
             <input className="search" value={title} onChange={(event) => setTitle(event.target.value)} />
-            <p className="muted">{subtitle || "No stats selected"}</p>
+            <label className="poster-field">
+              People
+              <textarea
+                rows={2}
+                value={people}
+                maxLength={PEOPLE_INPUT_MAX}
+                disabled={busy}
+                placeholder="Alex, Jordan, Sam"
+                aria-label="People who did this activity"
+                onChange={(event) => setPeople(event.target.value)}
+              />
+            </label>
+            <p className="muted">Optional. Names of the people who did this activity, printed on the image.</p>
+            <p className="muted">{[subtitle, peopleCredit].filter(Boolean).join(" · ") || "No stats selected"}</p>
           </PosterSection>
 
           <PosterSection

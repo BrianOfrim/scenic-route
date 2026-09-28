@@ -231,6 +231,8 @@ export type PosterEditorSnapshot = {
   styleIds: string[];
   stylePrompt: string;
   vibes?: string;
+  /** Optional names of the people who did the activity, printed on the image. */
+  people?: string;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];

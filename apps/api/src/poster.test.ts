@@ -53,6 +53,7 @@ test("sanitizePosterEditor keeps crop, labels, and custom annotations", () => {
     styleIds: ["middle-earth"],
     stylePrompt: "ink",
     vibes: "  crisp   fall day  ",
+    people: "  Alex,   Jordan  ",
     paletteId: "process-blue",
     imageModelIds: ["google/gemini-test"],
     variants: 2,
@@ -71,6 +72,7 @@ test("sanitizePosterEditor keeps crop, labels, and custom annotations", () => {
   assert.equal(editor.variants, 2);
   assert.equal(editor.paletteId, "process-blue");
   assert.equal(editor.vibes, "crisp fall day");
+  assert.equal(editor.people, "Alex, Jordan");
   assert.deepEqual(editor.paletteIdsByStyle, {});
   assert.deepEqual(editor.qualities, ["auto"]);
 });
@@ -82,6 +84,7 @@ test("sanitizePosterEditor defaults paletteId to auto", () => {
   });
   assert.equal(editor?.paletteId, "auto");
   assert.equal(editor?.statUnits, "metric");
+  assert.equal(editor?.people, "");
   assert.equal(editor?.routeOnly, false);
   assert.deepEqual(editor?.paletteIdsByStyle, {});
 });

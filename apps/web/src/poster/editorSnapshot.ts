@@ -46,6 +46,7 @@ export type PosterEditorSnapshot = {
   styleIds: string[];
   stylePrompt: string;
   vibes?: string;
+  people?: string;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
@@ -78,6 +79,7 @@ export type EditorCapture = {
   styleIds: string[];
   stylePrompt: string;
   vibes?: string;
+  people?: string;
   paletteId?: string;
   paletteIdsByStyle?: Record<string, string[]>;
   imageModelIds: string[];
@@ -142,6 +144,7 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
     styleIds: [...input.styleIds],
     stylePrompt: input.stylePrompt,
     vibes: input.vibes?.trim() ?? "",
+    people: input.people?.replace(/\s+/g, " ").trim().slice(0, 300) ?? "",
     paletteIdsByStyle,
     paletteId: firstPaletteId(input.styleIds, paletteIdsByStyle),
     imageModelIds: [...input.imageModelIds],
@@ -175,6 +178,7 @@ export type RestoredEditor = {
   styleIds: string[];
   stylePrompt: string;
   vibes: string;
+  people: string;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[] | null;
@@ -374,6 +378,7 @@ export function editorSeed(record?: PosterRecord | null) {
     styleIds: restored.styleIds,
     stylePrompt: restored.stylePrompt,
     vibes: restored.vibes,
+    people: restored.people,
     paletteId: restored.paletteId,
     paletteIdsByStyle: restored.paletteIdsByStyle,
     aspectRatio: restored.aspectRatio,
@@ -431,13 +436,16 @@ export function restoreEditor(
       : record.stats?.length
         ? record.stats
             .map((item) => statIdFromLabel(item.label))
-            .filter((id) => id !== "startPlace" && id !== "finishPlace")
+            .filter((id) => id !== "startPlace" && id !== "finishPlace" && id !== "with")
         : [...DEFAULT_STAT_IDS],
     statUnits: statUnitsFrom(editor?.statUnits),
     aspectRatio: asAspectRatio(editor?.aspectRatio || record.aspectRatio),
     styleIds: editor?.styleIds?.length ? editor.styleIds : [styleId],
     stylePrompt: editor?.stylePrompt || record.stylePrompt || DEFAULT_POSTER_STYLE.prompt,
     vibes: editor?.vibes?.trim() ?? "",
+    people: editor?.people?.replace(/\s+/g, " ").trim().slice(0, 300)
+      || record.stats?.find((item) => /^with$/i.test(item.label))?.value?.trim()
+      || "",
     paletteIdsByStyle: snapshotPalettes(
       editor?.styleIds?.length ? editor.styleIds : [styleId],
       editor?.paletteIdsByStyle,
