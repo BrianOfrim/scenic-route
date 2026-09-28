@@ -684,10 +684,16 @@ function PosterSection({
   );
 }
 
-function sentRefsHint(maxRefs: number, hasSatellite: boolean, satellitePending: boolean) {
+function sentRefsHint(
+  maxRefs: number,
+  hasSatellite: boolean,
+  satellitePending: boolean,
+  satelliteFailed = false,
+) {
   const parts = ["schematic"];
   if (maxRefs >= 2) {
     if (hasSatellite) parts.push("satellite");
+    else if (satelliteFailed) parts.push("satellite (unavailable)");
     else if (satellitePending) parts.push("satellite (loading)");
   }
   if (parts.length === 1) return "1 schematic reference will be sent. Click the preview to enlarge.";
@@ -863,6 +869,7 @@ export function PosterPanel({
   const variants = DEFAULT_VARIANTS;
   const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
   const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
+  const [satelliteFailed, setSatelliteFailed] = useState(false);
   const [satelliteShot, setSatelliteShot] = useState<SatelliteFrame | null>(null);
   const satelliteShotRef = useRef<SatelliteFrame | null>(null);
   const [, setModelRefs] = useState<ModelRef[]>([]);
@@ -1567,10 +1574,12 @@ export function PosterPanel({
       satelliteShotRef.current = null;
       setSatelliteShot(null);
       setSatelliteUrl(null);
+      setSatelliteFailed(false);
       return;
     }
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
+      setSatelliteFailed(false);
       void snapshotTiles(
         {
           source: "satellite",
@@ -1583,12 +1592,14 @@ export function PosterPanel({
           if (controller.signal.aborted) return;
           satelliteShotRef.current = shot;
           setSatelliteShot(shot);
+          setSatelliteFailed(false);
         })
         .catch((err: unknown) => {
           if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
           satelliteShotRef.current = null;
           setSatelliteShot(null);
           setSatelliteUrl(null);
+          setSatelliteFailed(true);
         });
     }, SATELLITE_SNAPSHOT_DELAY_MS);
     return () => {
@@ -3331,7 +3342,8 @@ export function PosterPanel({
                 {sentRefsHint(
                   maxRefs,
                   Boolean(satelliteUrl),
-                  maxRefs >= 2 && Boolean(schematicUrl) && !satelliteUrl,
+                  maxRefs >= 2 && Boolean(schematicUrl) && !satelliteUrl && !satelliteFailed,
+                  satelliteFailed,
                 )}
               </p>
               {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
