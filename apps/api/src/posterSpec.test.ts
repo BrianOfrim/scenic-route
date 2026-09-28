@@ -188,6 +188,27 @@ test("specToImagePrompt drops labels only when the value already says what it is
   );
 });
 
+test("specToImagePrompt closes the title block when the only stat is the title", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      text: {
+        title: "Chain of Lakes Trail",
+        subtitle: "",
+        stats: [{ label: "Title", value: "Chain of Lakes Trail" }],
+        rules: "",
+      },
+    }),
+  );
+  assert.match(prompt, /Title, exactly: "Chain of Lakes Trail"/);
+  assert.match(prompt, /Title-block text is closed\. It may contain only the title "Chain of Lakes Trail"/);
+  assert.match(prompt, /No stats were supplied\. Do not set a stats line/);
+  assert.match(prompt, /The marker is a symbol only/);
+  assert.doesNotMatch(prompt, /Stats to typeset/);
+  assert.doesNotMatch(prompt, /A distance, date, duration, or speed already says what it is/);
+  assert.doesNotMatch(prompt, /Title Chain of Lakes Trail/);
+});
+
 test("specToImagePrompt keeps time labels when moving and elapsed are both shown", () => {
   const prompt = specToImagePrompt(
     validatePosterSpec({
@@ -244,7 +265,8 @@ test("specToImagePrompt appends explicit exclusions once", () => {
   assert.match(prompt, /no numbered landmark discs, pin numbers, or numbered callouts/);
   assert.match(prompt, /no scale bar, graphic scale, distance ruler, or map scale/);
   assert.match(prompt, /Do not draw a scale bar, graphic scale, or distance ruler/);
-  assert.match(prompt, /no text other than the title block and the listed landmark, trail, region, and start\/finish names/);
+  assert.match(prompt, /no text other than the supplied title, subtitle, and stats in the title block, and the listed landmark, trail, region, and start\/finish names on the map/);
+  assert.match(prompt, /no title-block text other than the supplied title, subtitle, and stats/);
   assert.match(prompt, /no different route than the GPS track on the schematic/);
   assert.match(prompt, /no color-to-name legend or trail color key/);
   assert.match(prompt, /no schematic route colors on the finished path/);
@@ -356,7 +378,9 @@ test("specToImagePrompt renders an unlabeled map when there are no named feature
   );
   assert.match(prompt, /rich unlabeled background map/i);
   assert.match(prompt, /Do not add place names, landmark icons, trail labels, or district labels/);
-  assert.match(prompt, /no text other than the title block and optional start\/finish names/);
+  assert.match(prompt, /no text other than the supplied title, subtitle, and stats in the title block, and optional start\/finish names on the map/);
+  assert.match(prompt, /Title-block text is closed/);
+  assert.match(prompt, /Do not letter Start, Finish/);
   assert.match(prompt, /no landmark names, trail names, district labels, or invented place names/);
   assert.match(prompt, /relative to water, roads, and land cover/);
   assert.doesNotMatch(prompt, /route-only poster/i);
