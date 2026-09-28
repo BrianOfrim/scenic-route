@@ -338,16 +338,18 @@ export const PROMPT_EXCLUSIONS = [
 ];
 
 const NAMED_TEXT_EXCLUSION =
-  "no text other than the title block and the listed landmark, trail, region, and start/finish names";
+  "no text other than the supplied title, subtitle, and stats in the title block, and the listed landmark, trail, region, and start/finish names on the map";
 const ROUTE_ONLY_TEXT_EXCLUSION =
-  "no text other than the title block and optional start/finish names";
+  "no text other than the supplied title, subtitle, and stats in the title block, and optional start/finish names on the map";
+const TITLE_BLOCK_EXCLUSION =
+  "no title-block text other than the supplied title, subtitle, and stats; no invented date, distance, duration, elevation, season, or sport; no Start or Finish lettering unless those words are in the supplied title, subtitle, or stats";
 const ROUTE_ONLY_PLACE_EXCLUSION =
   "no landmark names, trail names, district labels, or invented place names";
 
 export function promptExclusions(routeOnly: boolean) {
   return routeOnly
-    ? [...PROMPT_EXCLUSIONS, ROUTE_ONLY_TEXT_EXCLUSION, ROUTE_ONLY_PLACE_EXCLUSION]
-    : [...PROMPT_EXCLUSIONS, NAMED_TEXT_EXCLUSION];
+    ? [...PROMPT_EXCLUSIONS, ROUTE_ONLY_TEXT_EXCLUSION, ROUTE_ONLY_PLACE_EXCLUSION, TITLE_BLOCK_EXCLUSION]
+    : [...PROMPT_EXCLUSIONS, NAMED_TEXT_EXCLUSION, TITLE_BLOCK_EXCLUSION];
 }
 
 /** Locked at the front of every image prompt. The route is the product. */
@@ -414,6 +416,17 @@ export function titlePromptLine(title: string) {
   const text = title.trim();
   if (!text) return "This design has no title. Do not add one.";
   return `Title, exactly: "${text}". ${TITLE_PHONE_RULE}`;
+}
+
+const TITLE_STAT = /^title$/i;
+
+function titleBlockClosure(title: string, subtitle: string, stats: string[]) {
+  const pieces: string[] = [];
+  if (title) pieces.push(`the title "${title}"`);
+  if (subtitle) pieces.push(`the subtitle "${subtitle}"`);
+  if (stats.length) pieces.push(`these stats: ${stats.join(" · ")}`);
+  const allowed = pieces.length ? `only ${pieces.join("; ")}` : "no text";
+  return `Title-block text is closed. It may contain ${allowed}. Do not add any other word, number, date, distance, duration, elevation, season, sport, or start/finish label. A style note about stats, metadata, or middle-dot separators applies only to stats listed here and is not permission to invent any. Instruction words in this prompt, including start, finish, marker, out-and-back, date, distance, and duration, are not poster text unless they appear inside that closed list.`;
 }
 
 const t = (value?: string) => (value ?? "").trim();
@@ -530,7 +543,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
       labeled("Title block", withTitlePhoneClause(spec.composition.titleBlock, posterHasTitle(spec.text.title))),
       labeled("Border", spec.composition.border),
       decorations.length ? `Decorations: ${decorations.join(", ")}.` : "",
-      "Do not draw a scale bar, graphic scale, or distance ruler — they will not be accurate. Distance belongs only in the title-block stats.",
+      "Do not draw a scale bar, graphic scale, or distance ruler — they will not be accurate. Do not invent a distance. A distance appears in the title block only when it is one of the supplied stats.",
     ]),
   );
 
@@ -574,19 +587,26 @@ export function specToImagePrompt(spec: PosterSpec): string {
   }
 
   const titled = posterHasTitle(spec.text.title);
-  const statItems = spec.text.stats.filter((item) => t(item.value));
+  const title = t(spec.text.title);
+  const subtitle = t(spec.text.subtitle);
+  const statItems = spec.text.stats.filter((item) => t(item.value) && !TITLE_STAT.test(t(item.label)));
   const stats = statItems.map((item) => typesetStat(item, statItems));
+  const droppedLabel = statItems.some((item, index) => stats[index] === t(item.value) && t(item.label));
+  const hasDistance = statItems.some(
+    (item) => /\bdistance\b/i.test(item.label) || /\d(?:\.\d+)?\s*(?:km|mi)\b/i.test(item.value),
+  );
   sections.push(
     paragraph([
-      titlePromptLine(spec.text.title),
-      t(spec.text.subtitle) ? `Subtitle, exactly: "${t(spec.text.subtitle)}".` : "",
-      stats.length ? `Stats to typeset, exactly: ${stats.join(" · ")}.` : "",
+      titlePromptLine(title),
+      subtitle ? `Subtitle, exactly: "${subtitle}".` : "",
+      stats.length ? `Stats to typeset, exactly: ${stats.join(" · ")}.` : "No stats were supplied. Do not set a stats line.",
       stats.length
-        ? "Typeset each item once, exactly as written, with no category word added in front. A distance, date, duration, or speed already says what it is."
+        ? `Typeset each item once, exactly as written${droppedLabel ? ", with no category word added in front. A distance, date, duration, or speed already says what it is" : ""}.`
         : "",
-      stats.length
+      hasDistance
         ? "Do not repeat a value in the title block: the distance must not appear as both a large display figure and a labeled line."
         : "",
+      titleBlockClosure(title, subtitle, stats),
       labeled("Text rules", withTitlePhoneRule(spec.text.rules, titled)),
     ]),
   );
@@ -748,7 +768,13 @@ function markerPrompt(start: string, finish: string, startName?: string, finishN
         : [startMark && `Start marker: ${startMark}.`, finishMark && `Finish marker: ${finishMark}.`]
             .filter(Boolean)
             .join(" ");
-  return [marks, placeNamePrompt(startName, finishName)].filter(Boolean).join(" ");
+  const named = Boolean((startName ?? "").trim() || (finishName ?? "").trim());
+  const symbolRule = marks
+    ? named
+      ? "Do not letter the words Start or Finish unless they are part of a name this prompt tells you to write. Those names stay on the map, not in the title block."
+      : "The marker is a symbol only. Do not letter Start, Finish, or any other word at the marker or in the title block."
+    : "";
+  return [marks, placeNamePrompt(startName, finishName), symbolRule].filter(Boolean).join(" ");
 }
 
 function fallbackPrompt(spec: PosterSpec): string {
