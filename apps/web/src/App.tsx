@@ -491,6 +491,7 @@ export function App() {
               </div>
             </div>
           </div>
+          {!isMobile && <AppTabs active="map" isMobile={false} onSelect={selectTab} />}
           <div className="top-actions">
             {!isMobile && error && (
               <p className="error banner">
@@ -616,11 +617,7 @@ export function App() {
             />
           ) : null}
         </div>
-        <AppTabs
-          active={isMobile ? mobilePane : "map"}
-          isMobile={isMobile}
-          onSelect={selectTab}
-        />
+        {isMobile && <AppTabs active={mobilePane} isMobile onSelect={selectTab} />}
       </div>
       {/* Stay mounted so tab switches and in-flight generate do not refetch or blank the list. */}
       <div className="gallery-host" hidden={!showGallery} aria-hidden={!showGallery}>
