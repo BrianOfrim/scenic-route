@@ -90,6 +90,7 @@ export function renderMaskedSatellite(
   frame: SatelliteFrame,
   options: {
     latlng: [number, number][];
+    routeBreaks?: number[];
     routeMarkers?: false | "ends" | "loop";
     mask?: GeoMask | null;
   },
@@ -110,7 +111,7 @@ export function renderMaskedSatellite(
       if (options.mask && maskIsActive(options.mask)) {
         maskImageToRegion(ctx, project, options.mask, options.latlng);
       }
-      overlayRoute(ctx, project, options.latlng, options.routeMarkers ?? "ends", frame.scale);
+      overlayRoute(ctx, project, options.latlng, options.routeBreaks ?? [], options.routeMarkers ?? "ends", frame.scale);
       resolve(canvas.toDataURL("image/jpeg", 0.85));
     };
     image.onerror = () => reject(new Error("Could not read the satellite image"));
@@ -146,6 +147,7 @@ function overlayRoute(
   ctx: CanvasRenderingContext2D,
   project: (lng: number, lat: number) => [number, number],
   latlng: [number, number][],
+  breaks: number[],
   markers: false | "ends" | "loop",
   scale: number,
 ) {
@@ -155,17 +157,21 @@ function overlayRoute(
   ctx.lineCap = "round";
   ctx.strokeStyle = "#111";
   ctx.lineWidth = 6 * scale;
-  stroke(ctx, points);
+  stroke(ctx, points, breaks);
   ctx.strokeStyle = "#e11d48";
   ctx.lineWidth = 3.5 * scale;
-  stroke(ctx, points);
+  stroke(ctx, points, breaks);
   if (markers) drawRouteEndMarkers(ctx, points[0], points[points.length - 1], markers, scale);
 }
 
-function stroke(ctx: CanvasRenderingContext2D, points: [number, number][]) {
+function stroke(ctx: CanvasRenderingContext2D, points: [number, number][], breaks: number[] = []) {
   ctx.beginPath();
   ctx.moveTo(points[0][0], points[0][1]);
-  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0], points[i][1]);
+  const starts = new Set(breaks);
+  for (let i = 1; i < points.length; i += 1) {
+    if (starts.has(i)) ctx.moveTo(points[i][0], points[i][1]);
+    else ctx.lineTo(points[i][0], points[i][1]);
+  }
   ctx.stroke();
 }
 

@@ -71,8 +71,10 @@ type AnnotatePreview = {
 
 type Props = {
   selectedLatLng: [number, number][] | null;
+  selectedRouteBreaks?: number[];
   trackLoading?: boolean;
   cropLatLng?: [number, number][] | null;
+  cropRouteBreaks?: number[];
   cropStops?: [number, number][];
   pois?: PosterPoi[];
   namedWays?: NamedWay[];
@@ -113,8 +115,10 @@ const SATELLITE_TILES = "/api/tiles/satellite/{z}/{x}/{y}.png";
 
 export function MapView({
   selectedLatLng,
+  selectedRouteBreaks = [],
   trackLoading = false,
   cropLatLng,
+  cropRouteBreaks = [],
   cropStops,
   pois,
   namedWays,
@@ -160,7 +164,9 @@ export function MapView({
   const mapRef = useRef<Map | null>(null);
   const markersRef = useRef<Marker[]>([]);
   const trackRef = useRef(selectedLatLng);
+  const trackBreaksRef = useRef(selectedRouteBreaks);
   const cropRef = useRef(cropLatLng);
+  const cropBreaksRef = useRef(cropRouteBreaks);
   const stopsRef = useRef(cropStops);
   const poisRef = useRef(pois);
   const namedWaysRef = useRef(namedWays);
@@ -202,7 +208,9 @@ export function MapView({
   const fitPaddingBottomRef = useRef(fitPaddingBottom);
   const selectedHitRef = useRef(selectedHit);
   trackRef.current = selectedLatLng;
+  trackBreaksRef.current = selectedRouteBreaks;
   cropRef.current = cropLatLng;
+  cropBreaksRef.current = cropRouteBreaks;
   stopsRef.current = cropStops;
   poisRef.current = pois;
   namedWaysRef.current = namedWays;
@@ -293,7 +301,9 @@ export function MapView({
       map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
       syncMapChrome(map, overlayRef.current, markersRef, basemapRef.current, {
         track: trackRef.current,
+        trackBreaks: trackBreaksRef.current,
         crop: cropRef.current,
+        cropBreaks: cropBreaksRef.current,
         stops: stopsRef.current,
         pois: poisRef.current,
         namedWays: namedWaysRef.current,
@@ -312,6 +322,7 @@ export function MapView({
     const redrawSchematic = () => {
       paintSchematicOverlay(map, overlayRef.current, {
         latlng: cropRef.current ?? trackRef.current,
+        routeBreaks: cropRef.current ? cropBreaksRef.current : trackBreaksRef.current,
         stops: stopsRef.current,
         ways: waysRef.current,
         layers: layersRef.current,
@@ -686,7 +697,7 @@ export function MapView({
     return () => {
       map.off("style.load", apply);
     };
-  }, [selectedLatLng, cropLatLng, cropStops, viewNonce, fitPaddingBottom, basemap]);
+  }, [selectedLatLng, selectedRouteBreaks, cropLatLng, cropRouteBreaks, cropStops, viewNonce, fitPaddingBottom, basemap]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -717,6 +728,7 @@ export function MapView({
     applyPoiMarkerHighlight(markersRef.current, highlight);
     paintSchematicOverlay(map, overlayRef.current, {
       latlng: cropRef.current ?? trackRef.current,
+      routeBreaks: cropRef.current ? cropBreaksRef.current : trackBreaksRef.current,
       stops: stopsRef.current,
       ways: waysRef.current,
       layers: layersRef.current,
@@ -1155,7 +1167,9 @@ function syncMapChrome(
   basemap: Basemap,
   data: {
     track: [number, number][] | null;
+    trackBreaks: number[];
     crop: [number, number][] | null | undefined;
+    cropBreaks: number[];
     stops: [number, number][] | undefined;
     pois: PosterPoi[] | undefined;
     namedWays: NamedWay[] | undefined;
@@ -1174,6 +1188,7 @@ function syncMapChrome(
     clearMarkers(markersRef);
     paintSchematicOverlay(map, overlay, {
       latlng: data.crop ?? data.track,
+      routeBreaks: data.crop ? data.cropBreaks : data.trackBreaks,
       stops: data.stops,
       ways: data.ways,
       layers: data.layers,
@@ -1188,6 +1203,7 @@ function syncMapChrome(
   }
   paintSchematicOverlay(map, overlay, {
     latlng: data.crop ?? data.track,
+    routeBreaks: data.crop ? data.cropBreaks : data.trackBreaks,
     stops: data.stops,
     ways: data.ways,
     layers: data.layers,
@@ -1211,6 +1227,7 @@ function paintSchematicOverlay(
   canvas: HTMLCanvasElement | null,
   data: {
     latlng: [number, number][] | null | undefined;
+    routeBreaks?: number[];
     stops?: [number, number][];
     ways: PosterWays | null | undefined;
     layers: SchematicLayers | null | undefined;
@@ -1255,6 +1272,7 @@ function paintSchematicOverlay(
     paintStreetTrack(
       ctx,
       data.latlng ?? [],
+      data.routeBreaks ?? [],
       data.stops,
       project,
       scale,
@@ -1272,6 +1290,7 @@ function paintSchematicOverlay(
     ctx,
     {
       latlng: data.latlng ?? [],
+      routeBreaks: data.routeBreaks,
       ways: data.ways ?? undefined,
       pois: data.pois,
       namedWays: data.namedWays,
@@ -1374,6 +1393,7 @@ function streetRouteMarkers(
 function paintStreetTrack(
   ctx: CanvasRenderingContext2D,
   latlng: [number, number][],
+  breaks: number[],
   stops: [number, number][] | undefined,
   project: (lng: number, lat: number) => [number, number],
   scale: number,
@@ -1386,7 +1406,11 @@ function paintStreetTrack(
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(points[0][0], points[0][1]);
-  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0], points[i][1]);
+  const starts = new Set(breaks);
+  for (let i = 1; i < points.length; i += 1) {
+    if (starts.has(i)) ctx.moveTo(points[i][0], points[i][1]);
+    else ctx.lineTo(points[i][0], points[i][1]);
+  }
   ctx.strokeStyle = "#111111";
   ctx.lineWidth = 8 * scale;
   ctx.globalAlpha = 0.9;

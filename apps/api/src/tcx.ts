@@ -13,6 +13,8 @@ const ACTIVITY_RE =
   /<(?:[\w.-]+:)?Activity\b([^>]*)>([\s\S]*?)<\/(?:[\w.-]+:)?Activity\s*>/gi;
 const COURSE_RE =
   /<(?:[\w.-]+:)?Course\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?Course\s*>/gi;
+const TRACK_RE =
+  /<(?:[\w.-]+:)?Track\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?Track\s*>/gi;
 
 export function parseTcx(xml: string): ParsedGpx {
   const source = xml.replace(/^\uFEFF/, "");
@@ -24,13 +26,15 @@ export function parseTcx(xml: string): ParsedGpx {
   }));
   const courses = [...source.matchAll(COURSE_RE)].map((match) => match[1]);
 
-  let points = activities.flatMap((activity) => parseTrackpoints(activity.body));
+  let segments = activities.flatMap((activity) => parseTracks(activity.body));
+  let points = segments.flat();
   let type = activities.find((activity) => activity.sport)?.sport ?? null;
   let name =
     activities.map((activity) => childText(activity.body, "Notes")).find(Boolean) ?? null;
 
   if (points.length < 2) {
-    points = courses.flatMap((body) => parseTrackpoints(body));
+    segments = courses.flatMap((body) => parseTracks(body));
+    points = segments.flat();
     name = name ?? courses.map((body) => childText(body, "Name")).find(Boolean) ?? null;
     type = type ?? courses.map((body) => childText(body, "Sport")).find(Boolean) ?? null;
   }
@@ -41,11 +45,16 @@ export function parseTcx(xml: string): ParsedGpx {
     points.find((point) => point.time)?.time ??
     parseTime(activities.map((activity) => childText(activity.body, "Id")).find(Boolean) ?? null);
 
-  return { name, type, startDate, points };
+  return { name, type, startDate, points, segments };
 }
 
 export function isTcxXml(xml: string): boolean {
   return /<(?:[\w.-]+:)?(?:TrainingCenterDatabase|Activity|Course)\b/i.test(xml);
+}
+
+function parseTracks(xml: string): ParsedGpx["points"][] {
+  const tracks = [...xml.matchAll(TRACK_RE)].map((match) => parseTrackpoints(match[1]));
+  return tracks.filter((points) => points.length > 0);
 }
 
 function parseTrackpoints(xml: string): ParsedGpx["points"] {

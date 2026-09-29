@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clampCrop, distToTrackM, isClosedLoop, isNearCroppedRoute, paddedBbox, schematicBbox, shiftRouteSpans, snapIndex, snapRadius } from "./crop";
+import { clampCrop, distToTrackM, isClosedLoop, isNearCroppedRoute, paddedBbox, schematicBbox, shiftRouteSpans, snapIndex, snapRadius, sliceTrackBreaks, trackDistanceM } from "./crop";
 
 test("snapIndex pulls nearby values onto a stop", () => {
   assert.equal(snapIndex(48, [10, 50, 90], 4), 50);
@@ -91,4 +91,13 @@ test("isClosedLoop treats nearby ends as one point", () => {
   ];
   assert.equal(isClosedLoop(loop), true);
   assert.equal(isClosedLoop([loop[0], [54, -112]]), false);
+});
+
+test("cropped distance and loop detection respect route breaks", () => {
+  const points: [number, number][] = [[49, -124], [49.001, -124], [50, -124], [50.001, -124]];
+  const breaks = sliceTrackBreaks([2], points.length, 0, 3);
+  assert.deepEqual(breaks, [2]);
+  assert.ok(trackDistanceM(points, breaks) < 230);
+  assert.ok(trackDistanceM(points) > 100_000);
+  assert.equal(isClosedLoop([[49, -124], [49.001, -124], [49, -124]], [2]), false);
 });

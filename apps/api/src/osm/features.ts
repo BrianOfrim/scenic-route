@@ -18,6 +18,7 @@ import {
   type LatLng,
 } from "../geo";
 import { formatDate, formatDuration, formatElevation, formatKm, formatSpeed } from "../format";
+import { remapTrackBreaks } from "../trackSegments";
 import { KIND_WEIGHTS, nearRouteMForKind, resolveFeatures, type FeatureDef } from "./catalog";
 import { corridorForRoute } from "./corridor";
 import { clipGeometryToFrame, clipWaysToQueryFrame, queryFrameExpandM } from "./geoExtent";
@@ -115,6 +116,7 @@ export type PosterContext = {
   };
   bbox: [[number, number], [number, number]];
   latlng: LatLng[];
+  routeBreaks: number[];
   stops: number[];
   ways: PosterWays;
   namedWays: NamedWay[];
@@ -166,8 +168,9 @@ export async function loadRouteFeatures(
   if (!row) throw new Error(`activity ${activityId} not found`);
   const latlng = parseLatLng(row.latlng);
   if (latlng.length < 2) throw new Error(`activity ${activityId} has no GPS track`);
+  const routeBreaks = parseNumberArray(row.route_breaks ?? null);
   const stops = findStopIndexes(latlng, parseNumberArray(row.time), parseNumberArray(row.velocity));
-  const simplified = simplifyTrack(latlng, 1200, stops);
+  const simplified = simplifyTrack(latlng, 1200, [...stops, ...routeBreaks, ...routeBreaks.map((index) => index - 1)]);
 
   const features = resolveFeatures(featureIds, nearRouteM);
   const trackBbox = bboxFromLatLng(latlng);
@@ -254,7 +257,8 @@ export async function loadRouteFeatures(
     },
     bbox: bboxToCorners(padded),
     latlng: simplified.points,
-    stops: simplified.kept,
+    routeBreaks: remapTrackBreaks(routeBreaks, simplified.indexes),
+    stops: stops.map((index) => simplified.indexes.indexOf(index)).filter((index) => index >= 0),
     ways,
     namedWays: frameNamedWays(
       collectNamedWays(namedWaysFc, latlng, padded, "osm", namedWayFeatures).map((way) => ({
