@@ -21,6 +21,7 @@ const NOT_SIDEWALK =
   "[footway!=sidewalk][footway!=crossing][footway!=traffic_island][footway!=link]";
 
 export const FEATURE_CATALOG: FeatureDef[] = [
+  { id: "urban", label: "Urban footprints", group: "geography", bucket: "urban", selectors: [], defaultOn: true },
   {
     id: "major-roads",
     label: "Major roads",

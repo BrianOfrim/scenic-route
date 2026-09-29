@@ -37,6 +37,7 @@ export type RenderSchematicOptions = {
       | { type: "MultiPolygon"; coordinates: number[][][][] };
   }>;
   layers?: {
+    urban?: boolean;
     roads?: boolean;
     streets?: boolean;
     paths?: boolean;
@@ -71,6 +72,7 @@ export function schematicLayersFromFeatureIds(
   routeMarkers: false | "ends" | "loop" = "ends",
 ): SchematicLayers {
   return {
+    urban: featureIds.includes("urban"),
     roads: featureIds.includes("major-roads"),
     streets: featureIds.includes("streets"),
     paths: featureIds.includes("paths"),
@@ -213,6 +215,7 @@ export function drawSchematicScene(
       ctx.closePath();
       ctx.clip();
     }
+    if (layers.urban !== false) fillBucket(ctx, ways.urban, project, "rgba(170, 162, 152, 0.25)");
     if (layers["vegetation"] !== false) fillBucket(ctx, ways["vegetation"], project, "rgba(199, 211, 151, 0.5)");
     if (layers["rock"] !== false) fillBucket(ctx, ways["rock"], project, "rgba(166, 160, 151, 0.5)");
     if (layers["beaches"] !== false) fillBucket(ctx, ways["beaches"], project, "rgba(235, 215, 159, 0.65)");

@@ -11,7 +11,7 @@ test("geography catalogs agree and all geography is enabled for new posters", ()
 });
 
 test("new land cover and shoreline layers render only while selected", () => {
-  const ids = ["wetlands", "vegetation", "beaches", "coastline", "rock", "cliffs", "glaciers"];
+  const ids = ["urban", "wetlands", "vegetation", "beaches", "coastline", "rock", "cliffs", "glaciers"];
   for (const id of ids) {
     const strokes = ["coastline", "cliffs"].includes(id);
     const points = [[0, 0], [1, 0], [1, 1], [0, 0]];

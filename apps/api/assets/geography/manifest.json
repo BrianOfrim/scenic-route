@@ -1,0 +1,62 @@
+{
+  "provider": "natural-earth",
+  "version": "scenic-ne-1",
+  "license": "Public domain",
+  "licenseUrl": "https://www.naturalearthdata.com/about/terms-of-use/",
+  "layers": {
+    "roads": {
+      "url": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_roads.zip",
+      "sourceVersion": [
+        "5.0.0"
+      ],
+      "sha256": "880b235383a1e1ccf33f4ea6f82b6755a2ffbce07e3974e412b43e88fe954ae9",
+      "assetSha256": "0b182093fbc8985813dc2a3f5ea2a146b79f0f5aa720b34e645e23b07d38d21e",
+      "features": 56600
+    },
+    "water": {
+      "url": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_lakes.zip",
+      "sourceVersion": [
+        "5.0.0"
+      ],
+      "sha256": "0803a06f9c3cb4671d89b68c48b142aad9366ba40f665245e12a913fbc61722a",
+      "assetSha256": "8a76db9d2ae30d6e474bb0d41185b1f9c31cd4f21299dbb770ff3d18b384cdb3",
+      "features": 1355
+    },
+    "waterways": {
+      "url": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_rivers_lake_centerlines.zip",
+      "sourceVersion": [
+        "5.0.0"
+      ],
+      "sha256": "ded71b01870855ccfe19b51f2ec14c9bb48fae23c0e9f3c11974d426433b5c38",
+      "assetSha256": "03aefcf8f6243985c53cfa8be37819a01d588c439ea89babe8adfce9ecab3901",
+      "features": 1473
+    },
+    "urban": {
+      "url": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_urban_areas.zip",
+      "sourceVersion": [
+        "4.1.0"
+      ],
+      "sha256": "2c593114e954ce1adb297ddee5465f05d9e81fa0a26deb13f8500d58a00d7051",
+      "assetSha256": "d9d740273b7e28ce63a6512bf10c7c33325ef9737cda7f887a7c941ac518a084",
+      "features": 11878
+    },
+    "ocean": {
+      "url": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_ocean.zip",
+      "sourceVersion": [
+        "5.1.1"
+      ],
+      "sha256": "db626fcd5d50b096b156c78a2cc95011b39f32a61b4e47d147e3f7a77b8b2719",
+      "assetSha256": "43d3f2c75b85e5b88f3ec6f0234e0e142dd22dbb9212d13af55bde2ace80cdfb",
+      "features": 1
+    },
+    "coastline": {
+      "url": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_coastline.zip",
+      "sourceVersion": [
+        "5.0.0-pre9"
+      ],
+      "sha256": "bfa04cdbcbef07ef90dfca1dabb48062eca29900a113df0f389303e255484017",
+      "assetSha256": "389061d73b424bfd36a8610029e7ff17cc91726b1583331eea72d27ab1124f49",
+      "features": 4133
+    }
+  }
+}

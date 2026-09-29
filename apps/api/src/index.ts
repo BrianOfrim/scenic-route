@@ -19,6 +19,7 @@ import {
   listActivities,
   listSportTypes,
   toActivitySummary,
+  parseLatLng,
 } from "./activities";
 import { databaseUrlSource, initDb } from "./db";
 import { purgeLegacyApiData } from "./fileFirstMigration";
@@ -27,6 +28,7 @@ import { sniffImageMime } from "./imageMime";
 import { importTrackFiles } from "./importActivity";
 import { filesFromRequest } from "./importRequest";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
+import { loadGeography, parseGeographyBbox } from "./osm/geography";
 import { loadRouteFeatures } from "./osm/features";
 import { lookupLandmark } from "./osm/landmark";
 import { OpenRouterError, imageModel, listImageModels, maxImageReferences } from "./openrouter";
@@ -155,7 +157,7 @@ app.get("/api/poster/context/:activityId", async (c) => {
     const activityId = Number(c.req.param("activityId"));
     const parsed = parseFeatureSelection(c.req.query("features"));
     const timings: Record<string, number> = {};
-    const context = await loadRouteFeatures(currentUserId(c), activityId, parsed.ids, parsed.nearRouteM, timings);
+    const context = await loadRouteFeatures(currentUserId(c), activityId, parsed.ids, parsed.nearRouteM, timings, c.req.query("geography") === "auto");
     const serializeStart = performance.now();
     const response = c.json(context);
     timings.serialize = performance.now() - serializeStart;
@@ -164,6 +166,24 @@ app.get("/api/poster/context/:activityId", async (c) => {
   } catch (error) {
     return fail(c, error);
   }
+});
+
+app.get("/api/poster/geography/:activityId", async (c) => {
+  try {
+    const activityId = Number(c.req.param("activityId"));
+    if (!Number.isFinite(activityId) || activityId <= 0) return c.json({ error: "Invalid activity" }, 400);
+    const activity = await getActivity(currentUserId(c), activityId);
+    if (!activity) return c.json({ error: "not found" }, 404);
+    let bbox;
+    try { bbox = parseGeographyBbox(JSON.parse(c.req.query("bbox") ?? "null")); }
+    catch { return c.json({ error: "Invalid geography frame" }, 400); }
+    const route = parseLatLng(activity.latlng).filter(([lat, lng]) =>
+      lng >= bbox[0] && lng <= bbox[2] && lat >= bbox[1] && lat <= bbox[3]);
+    return c.json(await loadGeography(
+      bbox, c.req.query("aspect") ?? "3:4",
+      c.req.query("mode") === "manual" ? "manual" : "auto", c.req.query("scene"), { route },
+    ));
+  } catch (error) { return fail(c, error); }
 });
 
 app.post("/api/poster/landmark", async (c) => {

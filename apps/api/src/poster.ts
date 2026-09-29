@@ -60,6 +60,10 @@ export type PosterRecord = {
 export const LIST_POSTER_CONCURRENCY = 8;
 
 export type PosterEditorSnapshot = {
+  geographyMode?: "auto" | "manual";
+  geographyPolicyVersion?: number;
+  geographySceneId?: string;
+  geographyFrameKey?: string;
   featureIds: string[];
   labels: string[];
   trailNames: string[];
@@ -580,6 +584,10 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const raw = value as Record<string, unknown>;
   return {
+    geographyMode: raw.geographyMode === "auto" ? "auto" : "manual",
+    geographyPolicyVersion: typeof raw.geographyPolicyVersion === "number" ? finiteInt(raw.geographyPolicyVersion, 1) : undefined,
+    geographySceneId: typeof raw.geographySceneId === "string" && /^[a-f0-9]{64}$/.test(raw.geographySceneId) ? raw.geographySceneId : undefined,
+    geographyFrameKey: typeof raw.geographyFrameKey === "string" ? raw.geographyFrameKey.slice(0, 500) : undefined,
     featureIds: stringList(raw.featureIds),
     labels: stringList(raw.labels),
     trailNames: stringList(raw.trailNames),

@@ -84,20 +84,62 @@ export function isLoop(latlng: LatLng[], diagonalM: number): boolean {
   return haversineM(latlng[0], latlng[latlng.length - 1]) <= closeM;
 }
 
+const METERS_PER_DEGREE = 111_320;
+/** Square side whose diagonal is the Overpass cap. */
+const TILE_SIDE_M = MAX_OVERPASS_DIAGONAL_M / Math.SQRT2;
+
 export function shouldTile(bbox: BBox): boolean {
   return bboxDiagonal(bbox) > MAX_OVERPASS_DIAGONAL_M;
 }
 
+/**
+ * Cut a box into squares of about 35 km so every tile's diagonal is at most 50 km.
+ * One box when it already fits. Empty when the box is unusable or does not get smaller.
+ */
 export function tileBboxes(bbox: BBox): BBox[] {
+  if (!isFiniteBBox(bbox)) return [];
+  if (bboxDiagonal(bbox) <= MAX_OVERPASS_DIAGONAL_M) return [bbox];
+
   const [minLng, minLat, maxLng, maxLat] = bbox;
-  const midLng = (minLng + maxLng) / 2;
-  const midLat = (minLat + maxLat) / 2;
-  return [
-    [minLng, minLat, midLng, midLat],
-    [midLng, minLat, maxLng, midLat],
-    [minLng, midLat, midLng, maxLat],
-    [midLng, midLat, maxLng, maxLat],
-  ];
+  const latSpanM = (maxLat - minLat) * METERS_PER_DEGREE;
+  const wideLat = Math.min(Math.abs(minLat), Math.abs(maxLat));
+  const cos = Math.max(0.2, Math.cos((wideLat * Math.PI) / 180));
+  const lngSpanM = (maxLng - minLng) * METERS_PER_DEGREE * cos;
+  let cols = Math.max(1, Math.ceil(lngSpanM / TILE_SIDE_M));
+  let rows = Math.max(1, Math.ceil(latSpanM / TILE_SIDE_M));
+
+  let previous = Number.POSITIVE_INFINITY;
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const tiles = gridBboxes(bbox, cols, rows);
+    const widest = Math.max(...tiles.map((tile) => bboxDiagonal(tile)));
+    if (widest <= MAX_OVERPASS_DIAGONAL_M) return tiles;
+    if (widest >= previous - 1) return [];
+    previous = widest;
+    if (lngSpanM / cols >= latSpanM / rows) cols += 1;
+    else rows += 1;
+  }
+  return [];
+}
+
+function isFiniteBBox(bbox: BBox): boolean {
+  return bbox.length === 4 && bbox.every((value) => Number.isFinite(value)) && bbox[2] >= bbox[0] && bbox[3] >= bbox[1];
+}
+
+function gridBboxes(bbox: BBox, cols: number, rows: number): BBox[] {
+  const [minLng, minLat, maxLng, maxLat] = bbox;
+  const dLng = (maxLng - minLng) / cols;
+  const dLat = (maxLat - minLat) / rows;
+  const tiles: BBox[] = [];
+  for (let row = 0; row < rows; row += 1) {
+    const south = minLat + row * dLat;
+    const north = row === rows - 1 ? maxLat : south + dLat;
+    for (let col = 0; col < cols; col += 1) {
+      const west = minLng + col * dLng;
+      const east = col === cols - 1 ? maxLng : west + dLng;
+      tiles.push([west, south, east, north]);
+    }
+  }
+  return tiles;
 }
 
 export const MIN_STOP_S = 45;

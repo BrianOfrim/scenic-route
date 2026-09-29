@@ -5,7 +5,6 @@ import type { Feature, FeatureCollection, Geometry } from "geojson";
 import {
   MAX_OVERPASS_DIAGONAL_M,
   bboxDiagonal,
-  shouldTile,
   tileBboxes,
   type BBox,
 } from "../geo";
@@ -14,15 +13,14 @@ import { OSM_CACHE_DIR } from "../paths";
 const DEFAULT_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.openstreetmap.fr/api/interpreter",
-  "https://overpass.osm.ch/api/interpreter",
 ];
 const USER_AGENT = "scenic-route/overpass (https://github.com/scenic-route)";
 const RETRYABLE = new Set([429, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Safety stop for one response. A tile past this is failed, not split. */
-const MAX_RESPONSE_BYTES = 256 * 1024 * 1024;
-/** Public Overpass servers typically allow up to 180s of query runtime. */
+const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+/** Legacy query default. Automatic geography supplies a shorter server timeout. */
 const QUERY_TIMEOUT_S = 180;
 /** Slightly above QUERY_TIMEOUT_S so the server can return its own timeout. */
 const REQUEST_TIMEOUT_MS = 190_000;
@@ -41,7 +39,7 @@ const TAG_KEYS = [
   "historic",
   "leisure",
   "man_made",
-  "route",
+  "route", "ref", "width", "population", "admin_level",
 ] as const;
 const AREA_KEYS = new Set([
   "building",
@@ -55,6 +53,20 @@ const AREA_KEYS = new Set([
 ]);
 
 export type OverpassFeature = Feature<Geometry, { id: string | null; name: string | null; tags: Record<string, string> }>;
+
+// One process-wide queue across geography, annotations, search, and client instances.
+let activeRequests = 0;
+const requestQueue: Array<() => void> = [];
+async function withOverpassSlot<T>(run: () => Promise<T>): Promise<T> {
+  if (activeRequests >= 2) await new Promise<void>(resolve => requestQueue.push(resolve));
+  else activeRequests++;
+  try { return await run(); }
+  finally {
+    const next = requestQueue.shift();
+    if (next) next();
+    else activeRequests--;
+  }
+}
 
 export function emptyCollection(): FeatureCollection {
   return { type: "FeatureCollection", features: [] };
@@ -72,9 +84,17 @@ export async function queryOverpass(
   warnings: string[],
   label: string,
   post: OverpassPoster = postOverpass,
+  budget?: { maxTiles: number; timeoutMs: number; maxBytes: number; queryTimeoutS: number },
 ): Promise<FeatureCollection> {
-  const tiles = shouldTile(bbox) ? tileBboxes(bbox) : [bbox];
-  if (tiles.some((tile) => bboxDiagonal(tile) > MAX_OVERPASS_DIAGONAL_M)) {
+  // Fail before allocating a continent-sized grid. The automatic provider switches sources much earlier.
+  const estimatedTiles = Math.ceil(Math.abs(bbox[3] - bbox[1]) * 111320 / 35000)
+    * Math.ceil(Math.abs(bbox[2] - bbox[0]) * 111320 * Math.max(.2, Math.cos(Math.min(Math.abs(bbox[1]), Math.abs(bbox[3])) * Math.PI / 180)) / 35000);
+  if (estimatedTiles > (budget?.maxTiles ?? 256)) {
+    warnings.push(`Overpass ${label} exceeds the total tile budget; skipped`);
+    return emptyCollection();
+  }
+  const tiles = tileBboxes(bbox);
+  if (tiles.length === 0 || (budget && tiles.length > budget.maxTiles) || tiles.some((tile) => bboxDiagonal(tile) > MAX_OVERPASS_DIAGONAL_M)) {
     warnings.push(`padded bbox is too large for Overpass; skipped ${label}`);
     return emptyCollection();
   }
@@ -83,11 +103,33 @@ export async function queryOverpass(
   let fetchMs = 0;
   let convertMs = 0;
   let fetchedTiles = 0;
+  let totalBytes = 0;
+  let exhausted = false;
+  const deadline = Date.now() + (budget?.timeoutMs ?? Number.POSITIVE_INFINITY);
 
   async function loadTile(tile: BBox): Promise<void> {
+    if (exhausted) return;
+    if (Date.now() > deadline) {
+      exhausted = true;
+      warnings.push(`Overpass ${label} exceeded its time budget`);
+      return;
+    }
     const started = performance.now();
     try {
-      const payload = await post(buildQuery(queryBody, tile));
+      const request = post(buildQuery(queryBody, tile, budget?.queryTimeoutS));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const payload = budget ? await Promise.race([
+        request,
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("query deadline exceeded")), Math.max(1, deadline - Date.now())); }),
+      ]).finally(() => { if (timer) clearTimeout(timer); }) : await request;
+      if (budget) {
+        totalBytes += Buffer.byteLength(JSON.stringify(payload));
+        if (totalBytes > budget.maxBytes || Date.now() > deadline) {
+          exhausted = true;
+          warnings.push(`Overpass ${label} exceeded its response budget`);
+          return;
+        }
+      }
       const fetched = performance.now();
       fetchMs += fetched - started;
       fetchedTiles += 1;
@@ -101,6 +143,7 @@ export async function queryOverpass(
     } catch (error) {
       fetchMs += performance.now() - started;
       fetchedTiles += 1;
+      if (Date.now() >= deadline) exhausted = true;
       warnings.push(`Overpass ${label} failed: ${error instanceof Error ? error.message : error}`);
     }
   }
@@ -123,11 +166,11 @@ async function runWithConcurrency<T>(items: T[], limit: number, run: (item: T) =
   await Promise.all(workers);
 }
 
-export function buildQuery(body: string, bbox: BBox): string {
+export function buildQuery(body: string, bbox: BBox, timeoutS = QUERY_TIMEOUT_S): string {
   const [minLng, minLat, maxLng, maxLat] = bbox;
   const bboxQl = `${minLat.toFixed(7)},${minLng.toFixed(7)},${maxLat.toFixed(7)},${maxLng.toFixed(7)}`;
   const filled = body.replaceAll("{{bbox}}", bboxQl);
-  return `[out:json][timeout:${QUERY_TIMEOUT_S}][bbox:${bboxQl}];\n${filled.trim()}\n`;
+  return `[out:json][timeout:${timeoutS}][bbox:${bboxQl}];\n${filled.trim()}\n`;
 }
 
 export function unionQuery(selectors: string[], output: "geom" | "center" = "geom"): string {
@@ -245,7 +288,8 @@ export function createOverpassClient(options: { cacheDir?: string; fetch?: typeo
         if (!status || !RETRYABLE.has(status) || attempt === MAX_ATTEMPTS - 1) {
           throw lastError;
         }
-        await sleep(1500 * (attempt + 1));
+        const retryAfterMs = (error as { retryAfterMs?: number }).retryAfterMs;
+        await sleep(status === 429 ? Math.min(30_000, Math.max(15_000, retryAfterMs ?? 0)) : 1500 * (attempt + 1));
       }
     }
     throw lastError ?? new Error("Overpass request failed");
@@ -261,15 +305,20 @@ export function createOverpassClient(options: { cacheDir?: string; fetch?: typeo
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         const status = (lastError as Error & { status?: number }).status;
-        if (status && status >= 400 && status < 500 && status !== 429) throw lastError;
-        if (lastError.message.includes("exceeded")) throw lastError;
+        if (status && status >= 400 && status < 500) throw lastError;
+        if (lastError.message.includes("exceeded") || lastError.name === "TimeoutError" || lastError.message.startsWith("Overpass remark:")) throw lastError;
       }
     }
     throw lastError ?? new Error("Overpass request failed");
   }
 
   async function postToEndpoint(endpoint: string, query: string): Promise<OverpassPayload> {
+    return withOverpassSlot(() => sendToEndpoint(endpoint, query));
+  }
+
+  async function sendToEndpoint(endpoint: string, query: string): Promise<OverpassPayload> {
     const started = performance.now();
+    const declaredTimeout = Number(query.match(/\[timeout:(\d+)\]/)?.[1] ?? QUERY_TIMEOUT_S);
     const response = await fetchResponse(endpoint, {
       method: "POST",
       headers: {
@@ -278,14 +327,16 @@ export function createOverpassClient(options: { cacheDir?: string; fetch?: typeo
         Accept: "application/json",
       },
       body: new URLSearchParams({ data: query }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, declaredTimeout * 1000 + 5000)),
     });
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 180);
       const err = new Error(`Overpass HTTP ${response.status}${detail ? `: ${detail}` : ""}`) as Error & {
-        status: number;
+        status: number; retryAfterMs?: number;
       };
       err.status = response.status;
+      const retryAfter = response.headers.get("Retry-After");
+      if (retryAfter) err.retryAfterMs = Number.isFinite(Number(retryAfter)) ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now());
       throw err;
     }
     const raw = await readCapped(response);
@@ -307,7 +358,7 @@ export function createOverpassClient(options: { cacheDir?: string; fetch?: typeo
     const file = cachePath(query);
     try {
       const stat = fs.statSync(file);
-      if (Date.now() - stat.mtimeMs > CACHE_TTL_MS) return null;
+      if (stat.size > MAX_RESPONSE_BYTES || Date.now() - stat.mtimeMs > CACHE_TTL_MS) return null;
       const payload = JSON.parse(fs.readFileSync(file, "utf8")) as OverpassPayload;
       if (!payload || !Array.isArray(payload.elements) || payload.remark) return null;
       return payload;

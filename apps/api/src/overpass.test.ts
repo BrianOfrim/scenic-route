@@ -15,6 +15,7 @@ import {
   splitWays,
   type NamedArea,
 } from "./osm/features";
+import { tileBboxes } from "./geo";
 import { buildQuery, elementsToFeatures, queryOverpass, unionQuery } from "./osm/overpass";
 
 test("buildQuery injects bbox and header", () => {
@@ -68,13 +69,38 @@ test("ways returned by more than one geographic tile are kept once", async () =>
   assert.deepEqual(warnings, []);
 });
 
+test("a highway-scale bbox is fetched as tiles instead of skipped", async () => {
+  let calls = 0;
+  const warnings: string[] = [];
+  const dempster: [number, number, number, number] = [-138.86, 63.94, -133.13, 68.42];
+  await queryOverpass("(way[highway=primary]({{bbox}}););out geom;", dempster, warnings, "ways", async () => {
+    calls += 1;
+    return { elements: [] };
+  });
+  assert.deepEqual(warnings, []);
+  assert.equal(calls, tileBboxes(dempster).length);
+  assert.ok(calls >= 80 && calls <= 180);
+});
+
+test("an unusable bbox is skipped before any request", async () => {
+  const warnings: string[] = [];
+  const result = await queryOverpass("(way[highway=primary]({{bbox}}););out geom;", [Number.NaN, 0, 1, 1], warnings, "ways", async () => {
+    throw new Error("should not query");
+  });
+  assert.equal(result.features.length, 0);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /too large for Overpass; skipped ways/);
+});
+
 test("geographic tiles are fetched with a small concurrency limit", async () => {
   let inFlight = 0;
   let maxInFlight = 0;
   const warnings: string[] = [];
+  const bbox: [number, number, number, number] = [-114, 53, -112.5, 53.36];
+  assert.ok(tileBboxes(bbox).length >= 3);
   await queryOverpass(
     "(way[highway=residential]({{bbox}}););out geom;",
-    [-113.5, 53.0, -113.0, 53.4],
+    bbox,
     warnings,
     "ways",
     async () => {

@@ -261,6 +261,7 @@ export function clipWaysToQueryFrame<T extends { features?: unknown[] }>(
   ways: Record<string, T>,
   bbox: BBox,
   expandM: number,
+  inferCoastalWater = true,
 ): Record<string, T> {
   const ring = queryFrameRing(bbox, expandM);
   const clipped = {} as Record<string, T>;
@@ -268,7 +269,7 @@ export function clipWaysToQueryFrame<T extends { features?: unknown[] }>(
     const features = ((bucket?.features ?? []) as ExtentFeature[]).flatMap((feature) => clipFeatureToFrame(feature, ring));
     clipped[key] = { ...bucket, features: features as T["features"] };
   }
-  const coastal = coastlineWaterFeatures((ways.coastline?.features ?? []) as ExtentFeature[], ring);
+  const coastal = inferCoastalWater ? coastlineWaterFeatures((ways.coastline?.features ?? []) as ExtentFeature[], ring) : [];
   if (coastal.length) {
     const water = clipped.water ?? ({ features: [] } as unknown as T);
     const features = [...((water.features ?? []) as ExtentFeature[]), ...coastal];
