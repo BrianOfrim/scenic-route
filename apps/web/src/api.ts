@@ -253,9 +253,10 @@ function apiFetch(input: string, init?: RequestInit) {
   return fetch(input, { ...init, credentials: "include" });
 }
 
-async function readJson<T>(response: Response): Promise<T> {
+async function readJson<T>(response: Response, onBody?: (body: string) => void): Promise<T> {
   if (response.status === 401) throw new AuthRequiredError();
   const text = await response.text();
+  onBody?.(text);
   let body: T & { error?: string; message?: string };
   try {
     body = JSON.parse(text) as T & { error?: string; message?: string };
@@ -400,9 +401,15 @@ export async function fetchPosterContext(
   return loadPosterContext(`/api/poster/context/${activityId}${qs}`);
 }
 
-const loadPosterGeography = coalesceRequests(async (url: string) => readJson<GeographyScene>(await apiFetch(url)));
-export function fetchPosterGeography(activityId: number, bbox: number[], aspect: string, mode: "auto" | "manual", detailScope: "none" | "route" | "all" = "none", sceneId?: string) {
-  const query = new URLSearchParams({ bbox: JSON.stringify(bbox), aspect, mode, detailScope });
+const loadPosterGeography = coalesceRequests(async (url: string) => {
+  let apiResponseBytes = 0;
+  const scene = await readJson<GeographyScene>(await apiFetch(url), body => {
+    apiResponseBytes = new TextEncoder().encode(body).byteLength;
+  });
+  return { ...scene, apiResponseBytes };
+});
+export function fetchPosterGeography(activityId: number, bbox: number[], aspect: string, mode: "auto" | "manual", sceneId?: string) {
+  const query = new URLSearchParams({ bbox: JSON.stringify(bbox), aspect, mode });
   if (sceneId) query.set("scene", sceneId);
   return loadPosterGeography(`/api/poster/geography/${activityId}?${query}`);
 }

@@ -4,10 +4,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Feature, FeatureCollection } from "geojson";
-import { automaticGeographyAllowance, geographyPolicy, geographySelectors, resolveGeographyScene } from "./geographyPolicy";
-import { loadGeography, parseGeographyBbox } from "./geography";
-import { queryOverpass } from "./overpass";
-import type { BBox } from "../geo";
+import { automaticGeographyAllowance, geographyPolicy, geographyProfileForScale, geographySelectors, resolveGeographyScene } from "./geographyPolicy";
+import { geographyQuery, loadGeography, parseGeographyBbox } from "./geography";
+import { queryOverpass, type OverpassQueryStats } from "./overpass";
+import { tileBboxes, type BBox } from "../geo";
 import { waterClass } from "./waterClasses";
 
 const city: BBox = [-113.52, 53.51, -113.47, 53.54];
@@ -26,16 +26,43 @@ test("OSM and bundled water sources retain subtype identity", () => {
   assert.equal(waterClass({ ...square(0, 0, .01), properties: { id: "ne/lakes/1" } }), "lake");
 });
 
-test("scale follows frame and aspect, with distinct local through continental profiles", () => {
+test("scale follows frame and aspect across five Overpass levels and bundled wide maps", () => {
+  for (const [scale, profile] of [[2.99, "close-up"], [3, "local"], [9.99, "local"], [10, "town"],
+    [24.99, "town"], [25, "district"], [49.99, "district"], [50, "regional"],
+    [99.99, "regional"], [100, "wide"]] as const) {
+    assert.equal(geographyProfileForScale(scale), profile);
+  }
+  assert.equal(geographyPolicy([-113.51, 53.495, -113.49, 53.505]).profile, "close-up");
   assert.equal(geographyPolicy(city).profile, "local");
-  assert.equal(geographyPolicy([-113.7, 53.4, -113.2, 53.7]).profile, "district");
-  assert.equal(geographyPolicy([-115, 52, -112, 54]).profile, "regional");
+  assert.equal(geographyPolicy([-113.6, 53.45, -113.4, 53.55]).profile, "town");
+  assert.equal(geographyPolicy([-113.7, 53.4, -113.3, 53.6]).profile, "district");
+  assert.equal(geographyPolicy([-113.9, 53.3, -113.1, 53.7]).profile, "regional");
   assert.equal(geographyPolicy(country).profile, "wide");
   assert.notEqual(geographyPolicy([-114,53,-113,53.1], "3:4").metersPerPixel,
     geographyPolicy([-114,53,-113,53.1], "16:9").metersPerPixel);
+  assert.match(geographySelectors("close-up").join(), /service|garden|recreation_ground/);
   assert.match(geographySelectors("local").join(), /residential/);
-  assert.doesNotMatch(geographySelectors("district").join(), /residential|service|footway/);
-  assert.match(geographySelectors("district").join(), /stream/);
+  assert.doesNotMatch(geographySelectors("local").join(), /service|garden|recreation_ground/);
+  assert.match(geographySelectors("town").join(), /cycleway|track/);
+  assert.doesNotMatch(geographySelectors("town").join(), /residential|footway|stream/);
+  assert.doesNotMatch(geographySelectors("district").join(), /residential|service|footway|cycleway|track/);
+  assert.match(geographySelectors("local").join(), /stream/);
+  assert.doesNotMatch(geographySelectors("district").join(), /stream/);
+  assert.match(geographySelectors("district").join(), /unclassified/);
+  assert.doesNotMatch(geographySelectors("regional").join(), /unclassified|stream|leisure=park/);
+  const sizes = (["close-up", "local", "town", "district", "regional"] as const)
+    .map(profile => geographySelectors(profile).length);
+  assert.ok(sizes.every((size, index) => index === 0 || size < sizes[index - 1]));
+});
+
+test("town keeps queried cycleways while district omits paths", () => {
+  const cycleway: Feature = { type: "Feature", properties: { tags: { highway: "cycleway" } },
+    geometry: { type: "LineString", coordinates: [[-113.51, 53.5], [-113.49, 53.5]] } };
+  const ways = { paths: collection([cycleway]) };
+  const town = geographyPolicy([-113.6, 53.45, -113.4, 53.55]);
+  const district = geographyPolicy([-113.7, 53.4, -113.3, 53.6]);
+  assert.equal(resolveGeographyScene(ways, town).paths.features.length, 1);
+  assert.equal(resolveGeographyScene(ways, district).paths.features.length, 0);
 });
 
 test("automatic summary describes allowed classes independently of data present", () => {
@@ -97,17 +124,78 @@ test("everywhere retains minor streets and paths away from a regional route", ()
   assert.equal(everywhere.paths.features.length, 1);
 });
 
-test("extra detail everywhere requests local classes at regional scale", async t => {
+test("automatic queries use each scale's selectors", async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geography-test-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
-  const bbox: BBox = [-125.1692, 48.3175, -124.3707, 49.0204];
   const seen: string[] = [];
   const query = async (query: string) => { seen.push(query); return collection([]); };
-  await loadGeography(bbox, "3:4", "auto", undefined, { sceneDir: dir, detailScope: "route", query });
-  await loadGeography(bbox, "3:4", "auto", undefined, { sceneDir: dir, detailScope: "all", query });
-  assert.equal(seen.length, 2);
-  assert.doesNotMatch(seen[0], /residential|footway|wetland/);
-  assert.match(seen[1], /residential|footway|wetland/);
+  const frames: BBox[] = [
+    [-113.51, 53.495, -113.49, 53.505],
+    city,
+    [-113.6, 53.45, -113.4, 53.55],
+    [-113.7, 53.4, -113.3, 53.6],
+    [-113.9, 53.3, -113.1, 53.7],
+  ];
+  for (const bbox of frames) await loadGeography(bbox, "3:4", "auto", undefined, { sceneDir: dir, query });
+  assert.equal(seen.length, 5);
+  assert.match(seen[0], /service|garden/);
+  assert.doesNotMatch(seen[1], /service|garden/);
+  assert.match(seen[2], /cycleway|track/);
+  assert.doesNotMatch(seen[3], /cycleway|track|stream/);
+  assert.doesNotMatch(seen[4], /unclassified|leisure=park/);
+});
+
+test("geography classifies all candidate types before expanding geometry", () => {
+  for (const selectors of [geographySelectors("district"), ['nwr[leisure~"^(park|nature_reserve|garden)$"]']]) {
+    const query = geographyQuery(selectors);
+    assert.match(query, /node\.candidates;/);
+    assert.match(query, /way\.candidates\(if:count_members\(\) <= 10000\);/);
+    assert.match(query, /rel\.candidates\(if:count_members\(\) <= 1000\);/);
+    assert.match(query, /convert oversized_way/);
+    assert.match(query, /convert oversized_relation/);
+    assert.doesNotMatch(query, /out geom\(/);
+  }
+});
+
+test("oversized summaries retain detailed geography in automatic and manual modes", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geography-test-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const oversized = [
+    { type: "oversized_relation", id: 6535292, tags: { name: "Tongass National Forest", memberCount: "27531" } },
+    { type: "oversized_way", id: 999, tags: { memberCount: "10001" } },
+    { type: "oversized_relation", id: "invalid", tags: { memberCount: "bad" } },
+  ];
+  const payload = { elements: [
+    { type: "way", id: 123, tags: { highway: "primary" }, geometry: [
+      { lat: 53.52, lon: -113.5 }, { lat: 53.53, lon: -113.49 },
+    ] }, ...oversized,
+  ] };
+  let calls = 0;
+  const query: typeof queryOverpass = (body, bbox, warnings, label, _post, budget, stats) =>
+    queryOverpass(body, bbox, warnings, label, async () => { calls++; return payload; }, budget, stats);
+  // Two tiles deliberately return the same summaries: omit counts must deduplicate.
+  const bbox: BBox = [-135.3680004, 59.5011153, -134.9747606, 59.8562177];
+  const stats: OverpassQueryStats = { responseBytes: 0, omittedElements: [] };
+  const warnings: string[] = [];
+  const result = await queryOverpass(geographyQuery(geographySelectors("district")), bbox, warnings,
+    "test", async () => payload, undefined, stats);
+  assert.equal(result.features.length, 1);
+  assert.equal(stats.omittedElements?.length, 2);
+  assert.deepEqual(warnings, []);
+  assert.equal(stats.omittedElements?.[0].type, "relation");
+  assert.equal(stats.omittedElements?.[1].type, "way");
+  for (const mode of ["auto", "manual"] as const) {
+    const scene = await loadGeography(city, "3:4", mode, undefined, { sceneDir: dir, query });
+    assert.equal(scene.source, "overpass");
+    assert.equal(scene.completeness, "partial");
+    assert.equal(scene.ways.roads.features.length, 1);
+    assert.equal(scene.omittedElements?.length, 2);
+    assert.match(scene.warnings.join(), /Tongass National Forest.*27,531 members/);
+    assert.doesNotMatch(scene.warnings.join(), /generalized|unavailable/);
+    const before = calls;
+    assert.deepEqual(await loadGeography(city, "3:4", mode, scene.sceneId, { sceneDir: dir, query }), scene);
+    assert.equal(calls, before);
+  }
 });
 
 test("river polygons are assigned to Rivers without adding an editor category", async t => {
@@ -149,6 +237,7 @@ test("route detail preference is part of the saved geography scene identity", as
   const options = { sceneDir: dir, route: [[53.52, -113.5]] as [number, number][],
     query: async () => collection([]) };
   const on = await loadGeography(city, "3:4", "auto", undefined, { ...options, detailScope: "route" });
+  assert.ok(on.queryResponseBytes && on.queryResponseBytes > 0);
   const off = await loadGeography(city, "3:4", "auto", on.sceneId, { ...options, detailScope: "none" });
   assert.notEqual(off.sceneId, on.sceneId);
   assert.deepEqual(await loadGeography(city, "3:4", "auto", off.sceneId, { ...options, detailScope: "none" }), off);
@@ -233,4 +322,12 @@ test("automatic queries stop waiting at their deadline and reject oversized cumu
   await queryOverpass("out geom;", city, sizeWarnings, "size", async () => ({ elements: [] }),
     { maxTiles: 8, timeoutMs: 1000, maxBytes: 1, queryTimeoutS: 1 });
   assert.match(sizeWarnings.join(), /response budget/);
+});
+
+test("Overpass reports the combined query response size", async () => {
+  const stats = { responseBytes: 0 };
+  const payload = { elements: [] };
+  await queryOverpass("out geom;", city, [], "size", async () => payload,
+    { maxTiles: 8, timeoutMs: 1000, maxBytes: 1024, queryTimeoutS: 1 }, stats);
+  assert.equal(stats.responseBytes, Buffer.byteLength(JSON.stringify(payload)) * tileBboxes(city).length);
 });

@@ -8,11 +8,32 @@ import type { BBox } from "../geo";
 import { FEATURE_CATALOG } from "./catalog";
 import { splitWays } from "./features";
 import { clipWaysToQueryFrame } from "./geoExtent";
-import { emptyCollection, queryOverpass, unionQuery } from "./overpass";
+import { emptyCollection, queryOverpass, type OverpassQueryStats } from "./overpass";
 import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, geographyPolicy, geographySelectors, resolveGeographyScene, visibleGeographyIds, type GeographyDetailScope, type GeographyMode, type GeographyWays, type GeographyScene } from "./geographyPolicy";
 import { isAreaFeature, waterClass } from "./waterClasses";
 
 export type { GeographyScene } from "./geographyPolicy";
+
+/** Heuristics for response size; byte and time budgets remain the final safeguards. */
+export const GEOGRAPHY_MAX_WAY_NODES = 10_000;
+export const GEOGRAPHY_MAX_RELATION_MEMBERS = 1_000;
+
+/** Classify candidates on Overpass before expanding their coordinates. */
+export function geographyQuery(selectors: string[]): string {
+  return `(\n${selectors.map(selector => `  ${selector}({{bbox}});`).join("\n")}\n)->.candidates;
+(
+  node.candidates;
+  way.candidates(if:count_members() <= ${GEOGRAPHY_MAX_WAY_NODES});
+  rel.candidates(if:count_members() <= ${GEOGRAPHY_MAX_RELATION_MEMBERS});
+);
+out geom;
+way.candidates(if:count_members() > ${GEOGRAPHY_MAX_WAY_NODES});
+convert oversized_way ::id=id(), name=t["name"], memberCount=count_members();
+out;
+rel.candidates(if:count_members() > ${GEOGRAPHY_MAX_RELATION_MEMBERS});
+convert oversized_relation ::id=id(), name=t["name"], memberCount=count_members();
+out;`;
+}
 
 const assets = new Map<string, Promise<FeatureCollection>>();
 async function naturalEarth(bbox: BBox, zoom: number, buckets = ["roads", "water", "waterways", "urban", "coastline", "ocean", "land"]): Promise<GeographyWays> {
@@ -79,13 +100,16 @@ export function parseGeographyBbox(raw: unknown): BBox {
 export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyMode = "auto", savedSceneId?: string, options: { route?: [number, number][]; detailScope?: GeographyDetailScope; routeDetail?: boolean; sceneDir?: string; query?: typeof queryOverpass } = {}): Promise<GeographyScene> {
   parseGeographyBbox(bbox);
   const detailScope = options.detailScope ?? (options.routeDetail === true ? "route" : "none");
-  const requestKey = JSON.stringify([bbox, aspect, mode, options.route ?? [], detailScope]);
+  const requestKey = JSON.stringify([bbox, aspect, mode, detailScope === "route" ? options.route ?? [] : [], detailScope]);
   const sceneDir = options.sceneDir ?? path.join(OSM_CACHE_DIR, "scenes");
   const warnings: string[] = [];
   if (savedSceneId && /^[a-f0-9]{64}$/.test(savedSceneId)) {
     try {
       const saved = JSON.parse(await fs.readFile(path.join(sceneDir, `${savedSceneId}.json`), "utf8"));
-      if (saved.requestKey === requestKey && saved.scene?.policyVersion === GEOGRAPHY_VERSION) return { ...saved.scene, sceneId: savedSceneId };
+      if (saved.requestKey === requestKey && saved.scene?.policyVersion === GEOGRAPHY_VERSION
+        && (saved.scene.source !== "overpass" || Number.isFinite(saved.scene.queryResponseBytes))) {
+        return { ...saved.scene, sceneId: savedSceneId };
+      }
     } catch { warnings.push("Saved map data is unavailable; geography has been refreshed."); }
   }
   const policy = geographyPolicy(bbox, aspect);
@@ -95,6 +119,7 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
     Math.min(180, policy.x1 * 360 - 180), Math.min(85.05112878, latitude(policy.y0))];
   let source: GeographyScene["source"] = "overpass";
   let completeness: GeographyScene["completeness"] = "complete";
+  const queryStats: OverpassQueryStats = { responseBytes: 0 };
   let ways: GeographyWays;
   // Global budget is evaluated before Overpass constructs a tile grid.
   const latKm = (bbox[3] - bbox[1]) * 111.32;
@@ -108,13 +133,16 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
   } else {
     const features = FEATURE_CATALOG.filter(f => f.group === "geography");
     const selectors = mode === "manual" ? features.flatMap(f => f.selectors)
-      : geographySelectors(detailScope === "all" ? "local" : policy.profile);
+      : geographySelectors(policy.profile);
     const previousWarnings = warnings.length;
     let raw: FeatureCollection;
     try {
-      raw = await (options.query ?? queryOverpass)(unionQuery(selectors), bbox, warnings,
+      raw = await (options.query ?? queryOverpass)(geographyQuery(selectors), bbox, warnings,
         mode === "manual" ? "manual geography" : "automatic geography", undefined,
-        { maxTiles: mode === "manual" ? 64 : 32, timeoutMs: 90_000, maxBytes: 48 * 1024 * 1024, queryTimeoutS: 25 });
+        { maxTiles: mode === "manual" ? 64 : 32, timeoutMs: 90_000, maxBytes: 256 * 1024 * 1024, queryTimeoutS: 25 }, queryStats);
+      if (queryStats.responseBytes === 0 && warnings.length === previousWarnings) {
+        queryStats.responseBytes = Buffer.byteLength(JSON.stringify(raw));
+      }
     } catch (error) {
       warnings.push(`Overpass geography failed: ${error instanceof Error ? error.message : String(error)}`);
       raw = emptyCollection();
@@ -127,6 +155,13 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
       ways = await naturalEarth(bbox, zoom);
       warnings.push("Detailed geography is unavailable. A generalized map is shown; small local features may be absent.");
     }
+  }
+  const omittedElements = queryStats.omittedElements ?? [];
+  if (source === "overpass" && omittedElements.length) {
+    completeness = "partial";
+    const examples = omittedElements.slice(0, 3).map(element =>
+      `${element.name ?? `${element.type}/${element.id}`} (${element.memberCount.toLocaleString("en-US")} ${element.type === "way" ? "nodes" : "members"})`);
+    warnings.push(`${omittedElements.length} oversized map ${omittedElements.length === 1 ? "object was" : "objects were"} omitted: ${examples.join(", ")}${omittedElements.length > 3 ? ", …" : ""}. Other detailed geography is shown.`);
   }
   // At regional OSM detail, a clipped collection of coastline ways can form a
   // false ocean polygon covering the whole frame. Use explicit generalized
@@ -141,7 +176,7 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
     policyVersion: policy.version, profile: policy.profile, metersPerPixel: policy.metersPerPixel,
     source, sourceVersion: source === "natural-earth" ? "scenic-ne-2"
       : regionalOsmBase ? "osm-query-cache-7d+scenic-ne-2-base" : "osm-query-cache-7d",
-    completeness, warnings };
+    completeness, warnings, ...(omittedElements.length ? { omittedElements } : {}), ...(queryStats.responseBytes > 0 ? { queryResponseBytes: queryStats.responseBytes } : {}) };
   const encoded = JSON.stringify({ requestKey, scene });
   const sceneId = createHash("sha256").update(encoded).digest("hex");
   await fs.mkdir(sceneDir, { recursive: true });
