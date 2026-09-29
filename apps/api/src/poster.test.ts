@@ -86,6 +86,20 @@ test("sanitizePosterEditor defaults paletteId to auto", () => {
   assert.deepEqual(editor?.paletteIdsByStyle, {});
 });
 
+test("saved geography mode and scene identity are validated", () => {
+  const editor = sanitizePosterEditor({ geographyMode: "auto", routeDetail: false, geographyPolicyVersion: 1,
+    geographySceneId: "a".repeat(64), geographyFrameKey: "frame", featureIds: [] });
+  assert.equal(editor?.geographyMode, "auto");
+  assert.equal(editor?.routeDetail, false);
+  assert.equal(editor?.detailScope, "none");
+  assert.equal(sanitizePosterEditor({ detailScope: "all" })?.detailScope, "all");
+  assert.equal(sanitizePosterEditor({})?.routeDetail, true);
+  assert.equal(editor?.geographySceneId, "a".repeat(64));
+  assert.deepEqual(editor?.featureIds, []);
+  assert.equal(sanitizePosterEditor({})?.geographyMode, "manual");
+  assert.equal(sanitizePosterEditor({ geographySceneId: "../../secret" })?.geographySceneId, undefined);
+});
+
 test("sanitizePosterEditor keeps per-style palette lists", () => {
   const editor = sanitizePosterEditor({
     styleIds: ["swiss", "risograph"],

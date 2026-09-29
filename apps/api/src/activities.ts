@@ -1,5 +1,6 @@
 import type { FeatureCollection, LineString } from "geojson";
 import { query, queryOne, withTransaction, type SqlClient } from "./db";
+import { rememberImportedId } from "./importedIds";
 
 export type ActivityRow = {
   id: number;
@@ -170,6 +171,7 @@ export async function deleteImportedByIds(
         skipped += 1;
         continue;
       }
+      await rememberImportedId(userId, id, client);
       await query("DELETE FROM activities WHERE user_id = $1 AND id = $2", [userId, id], client);
       deleted.push(toActivitySummary(row));
     }

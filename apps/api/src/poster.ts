@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { getActivity } from "./activities";
+import { getActivity, listActivities } from "./activities";
+import { getSetting, setSetting } from "./db";
+import { allocateImportedId } from "./importedIds";
+import { planPosterActivityRebind } from "./posterActivityRebind";
 import { imageDataUrl, sniffImageMime } from "./imageMime";
 import { mapWithConcurrency } from "./mapPool";
 import { revisePosterPrompt } from "./modifyPrompt";
@@ -60,6 +63,12 @@ export type PosterRecord = {
 export const LIST_POSTER_CONCURRENCY = 8;
 
 export type PosterEditorSnapshot = {
+  geographyMode?: "auto" | "manual";
+  routeDetail?: boolean;
+  detailScope?: "none" | "route" | "all";
+  geographyPolicyVersion?: number;
+  geographySceneId?: string;
+  geographyFrameKey?: string;
   featureIds: string[];
   labels: string[];
   trailNames: string[];
@@ -434,6 +443,7 @@ export function toPosterListItem(record: PosterRecord): PosterRecord {
 }
 
 export async function listPosters(userId: string, activityId?: number): Promise<PosterRecord[]> {
+  await rebindReusedActivityPosters(userId);
   const names = await posterStore().listJsonNames(userId);
   const ids = names.map((name) => name.slice(0, -".json".length));
   const loaded = await mapWithConcurrency(ids, LIST_POSTER_CONCURRENCY, (posterId) =>
@@ -446,6 +456,49 @@ export async function listPosters(userId: string, activityId?: number): Promise<
   });
   rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   return rows.map(toPosterListItem);
+}
+
+const REBIND_FLAG_PREFIX = "poster_activity_rebind_v1:";
+
+/** Move posters off an activity id that was recycled for a different route. Runs once per user. */
+async function rebindReusedActivityPosters(userId: string) {
+  const flag = `${REBIND_FLAG_PREFIX}${userId}`;
+  if (await getSetting(flag)) return;
+  const names = await posterStore().listJsonNames(userId);
+  const ids = names.map((name) => name.slice(0, -".json".length));
+  const loaded = await mapWithConcurrency(ids, LIST_POSTER_CONCURRENCY, (posterId) =>
+    readPosterRecord(userId, posterId),
+  );
+  const records = loaded.filter((record): record is PosterRecord => record != null);
+  const activities = await listActivities(userId);
+  let placeholder = 0;
+  const planned = planPosterActivityRebind(
+    records.map((record) => ({
+      posterId: record.posterId,
+      activityId: record.activityId,
+      title: record.title,
+      subtitle: record.subtitle ?? "",
+    })),
+    activities.map((activity) => ({ id: activity.id, name: activity.name, distance: activity.distance })),
+    () => {
+      placeholder -= 1;
+      return placeholder;
+    },
+  );
+  const assigned = new Map<number, number>();
+  for (const nextId of new Set(planned.values())) {
+    if (nextId < 0 && !assigned.has(nextId)) assigned.set(nextId, await allocateImportedId(userId));
+  }
+  const store = posterStore();
+  for (const record of records) {
+    const plannedId = planned.get(record.posterId);
+    if (plannedId == null) continue;
+    const activityId = plannedId < 0 ? assigned.get(plannedId) : plannedId;
+    if (activityId == null || activityId === record.activityId) continue;
+    const next: PosterRecord = { ...record, activityId };
+    await store.put(userId, `${record.posterId}.json`, Buffer.from(JSON.stringify(next, null, 2)), "application/json");
+  }
+  await setSetting(flag, "1");
 }
 
 export async function readPosterRecord(userId: string, posterId: string): Promise<PosterRecord | null> {
@@ -580,6 +633,13 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const raw = value as Record<string, unknown>;
   return {
+    geographyMode: raw.geographyMode === "auto" ? "auto" : "manual",
+    routeDetail: raw.routeDetail !== false,
+    detailScope: raw.detailScope === "all" || raw.detailScope === "none" || raw.detailScope === "route"
+      ? raw.detailScope : raw.routeDetail === false ? "none" : "route",
+    geographyPolicyVersion: typeof raw.geographyPolicyVersion === "number" ? finiteInt(raw.geographyPolicyVersion, 1) : undefined,
+    geographySceneId: typeof raw.geographySceneId === "string" && /^[a-f0-9]{64}$/.test(raw.geographySceneId) ? raw.geographySceneId : undefined,
+    geographyFrameKey: typeof raw.geographyFrameKey === "string" ? raw.geographyFrameKey.slice(0, 500) : undefined,
     featureIds: stringList(raw.featureIds),
     labels: stringList(raw.labels),
     trailNames: stringList(raw.trailNames),

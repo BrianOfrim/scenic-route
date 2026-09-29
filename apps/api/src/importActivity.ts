@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import { expandImportArchive, isZipBytes, maybeGunzip, type ArchiveTrack } from "./archive";
 import { toActivitySummary, type ActivityFormat, type ActivityOrigin, type ActivityRow, type ActivitySummary } from "./activities";
 import { query, queryOne, type SqlClient } from "./db";
+import { allocateImportedId, rememberImportedId } from "./importedIds";
 import { isFitBytes, parseFit } from "./fit";
 import { gpxToActivityFields, mapSport, parseGpx, ImportError, type GpxActivityFields } from "./gpx";
 import { isTcxXml, parseTcx } from "./tcx";
 
-export const IMPORTED_ID_BASE = 2_000_000_000_000;
+export { IMPORTED_ID_BASE } from "./importedIds";
 
 export type ImportFile = {
   filename: string;
@@ -188,7 +189,7 @@ async function insertImportedFields(
       )
     : null;
   if (duplicate) return "skipped";
-  const id = preferredId && preferredId > 0 ? preferredId : await nextImportedId(userId, client);
+  const id = preferredId && preferredId > 0 ? preferredId : await allocateImportedId(userId, client);
   const existing = preferredId && preferredId > 0
     ? await queryOne<ActivityRow>("SELECT * FROM activities WHERE user_id = $1 AND id = $2", [userId, preferredId], client)
     : null;
@@ -235,6 +236,7 @@ async function insertImportedFields(
       client,
     );
     if (!updated) throw new Error("imported activity was not saved");
+    await rememberImportedId(userId, id, client);
     return toActivitySummary(updated);
   }
   await query(
@@ -277,18 +279,10 @@ async function insertImportedFields(
     client,
   );
   if (!row) throw new Error("imported activity was not saved");
+  if (preferredId && preferredId > 0) await rememberImportedId(userId, id, client);
   return toActivitySummary(row);
 }
 
 function contentHash(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-async function nextImportedId(userId: string, client?: SqlClient): Promise<number> {
-  const row = await queryOne<{ maxId: number | null }>(
-    `SELECT MAX(id) AS "maxId" FROM activities WHERE user_id = $1 AND id >= $2`,
-    [userId, IMPORTED_ID_BASE],
-    client,
-  );
-  return (row?.maxId ?? IMPORTED_ID_BASE - 1) + 1;
 }

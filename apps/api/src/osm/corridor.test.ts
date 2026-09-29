@@ -120,6 +120,33 @@ test("a polygon is trimmed to the corridor", () => {
   assert.ok(Math.max(...lngs) > -114.01);
 });
 
+test("corridor clipping keeps a polygon's land-shaped hole", () => {
+  const rectangle = (west: number, south: number, east: number, north: number) => [
+    [west, south], [east, south], [east, north], [west, north], [west, south],
+  ];
+  const ocean = {
+    type: "Feature",
+    geometry: {
+      type: "Polygon",
+      coordinates: [
+        rectangle(-114.02, 50.99, -113.98, 51.03),
+        rectangle(-114.002, 51.009, -113.998, 51.011),
+      ],
+    },
+  };
+  const clipped = clipWaysToCorridor({ ocean: { features: [ocean] } }, [north(51), north(51.02)], 1_000);
+  const geometry = clipped.ocean.features[0]?.geometry;
+  assert.equal(geometry?.type, "Polygon");
+  if (geometry?.type !== "Polygon") return;
+  assert.equal(geometry.coordinates.length, 2, "the land hole remains in the ocean polygon");
+  const signedArea = (ring: number[][]) => ring.slice(1).reduce((sum, point, index) => {
+    const previous = ring[index];
+    return sum + previous[0] * point[1] - point[0] * previous[1];
+  }, 0);
+  assert.ok(signedArea(geometry.coordinates[0]) * signedArea(geometry.coordinates[1]) < 0,
+    "the hole winds against the ocean fill");
+});
+
 test("a diagonal route drops geometry in the empty corner of its box", () => {
   const route: LatLng[] = [
     [51, -114],

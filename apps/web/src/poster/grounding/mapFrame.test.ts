@@ -2,11 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { lngLatFromMercator, mercatorX, mercatorY, projectorForFrame } from "./geoMask";
 import { cameraForFrame, fittedFrame, projectorForBbox } from "./mapFrame";
+import { geographyPolicy, geographyProject } from "../../../../api/src/osm/geographyPolicy";
 
 const bbox: [[number, number], [number, number]] = [
   [-79.55, 43.58],
   [-79.05, 43.7],
 ];
+
+test("server geography and schematic use identical canonical pixels at every aspect and latitude", () => {
+  for (const aspect of ["3:4", "2:3", "1:1", "4:3", "16:9"]) {
+    for (const corners of [bbox, [[20, 70], [23, 73]]] as typeof bbox[]) {
+      const policy = geographyPolicy([corners[0][0], corners[0][1], corners[1][0], corners[1][1]], aspect);
+      const project = projectorForBbox(corners, policy.width, policy.height);
+      for (const point of corners) {
+        const a = geographyProject(policy, point), b = project(...point);
+        assert.ok(Math.abs(a[0] - b[0]) < 1e-6);
+        assert.ok(Math.abs(a[1] - b[1]) < 1e-6);
+      }
+    }
+  }
+});
 
 test("the fitted frame is the canvas, with the same margin on both axes", () => {
   const width = 1024;

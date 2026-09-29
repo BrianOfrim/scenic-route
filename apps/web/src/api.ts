@@ -1,3 +1,4 @@
+import type { GeographyScene } from "../../api/src/osm/geographyPolicy";
 import { noteArrivedPosters } from "./gallery/arrivedPosters";
 import { trackGeneration, type GenerationTask } from "./gallery/generationState";
 import type { FeatureCollection, LineString } from "geojson";
@@ -210,6 +211,12 @@ export type PosterRecord = {
 };
 
 export type PosterEditorSnapshot = {
+  geographyMode?: "auto" | "manual";
+  routeDetail?: boolean;
+  detailScope?: "none" | "route" | "all";
+  geographyPolicyVersion?: number;
+  geographySceneId?: string;
+  geographyFrameKey?: string;
   featureIds: string[];
   labels: string[];
   trailNames: string[];
@@ -387,8 +394,15 @@ export async function fetchPosterContext(
   featureQuery?: string,
 ): Promise<PosterContext> {
   const encoded = featureQuery ?? featureIds.join(",");
-  const qs = encoded ? `?features=${encodeURIComponent(encoded)}` : "";
+  const qs = `?geography=auto&features=${encodeURIComponent(encoded)}`;
   return loadPosterContext(`/api/poster/context/${activityId}${qs}`);
+}
+
+const loadPosterGeography = coalesceRequests(async (url: string) => readJson<GeographyScene>(await apiFetch(url)));
+export function fetchPosterGeography(activityId: number, bbox: number[], aspect: string, mode: "auto" | "manual", detailScope: "none" | "route" | "all" = "none", sceneId?: string) {
+  const query = new URLSearchParams({ bbox: JSON.stringify(bbox), aspect, mode, detailScope });
+  if (sceneId) query.set("scene", sceneId);
+  return loadPosterGeography(`/api/poster/geography/${activityId}?${query}`);
 }
 
 export async function lookupPosterLandmark(body: {

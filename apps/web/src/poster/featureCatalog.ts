@@ -44,6 +44,7 @@ const LANDMARK_KINDS: Record<string, string[]> = {
 };
 
 export const FEATURE_CATALOG: FeatureOption[] = [
+  { id: "urban", label: "Urban footprints", group: "geography", defaultOn: true },
   { id: "major-roads", label: "Major roads", group: "geography", defaultOn: true },
   { id: "streets", label: "Residential streets", group: "geography", defaultOn: true },
   { id: "paths", label: "Paths & trails", group: "geography", defaultOn: true },

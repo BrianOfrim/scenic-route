@@ -37,6 +37,7 @@ export type RenderSchematicOptions = {
       | { type: "MultiPolygon"; coordinates: number[][][][] };
   }>;
   layers?: {
+    urban?: boolean;
     roads?: boolean;
     streets?: boolean;
     paths?: boolean;
@@ -71,6 +72,7 @@ export function schematicLayersFromFeatureIds(
   routeMarkers: false | "ends" | "loop" = "ends",
 ): SchematicLayers {
   return {
+    urban: featureIds.includes("urban"),
     roads: featureIds.includes("major-roads"),
     streets: featureIds.includes("streets"),
     paths: featureIds.includes("paths"),
@@ -213,6 +215,10 @@ export function drawSchematicScene(
       ctx.closePath();
       ctx.clip();
     }
+    // Land tint must come from explicit land polygons. Empty canvas areas can
+    // represent missing geography (especially for Overpass scenes).
+    fillBucket(ctx, ways.land, project, "#dfe8cf");
+    if (layers.urban !== false) fillBucket(ctx, ways.urban, project, "rgba(170, 162, 152, 0.25)");
     if (layers["vegetation"] !== false) fillBucket(ctx, ways["vegetation"], project, "rgba(199, 211, 151, 0.5)");
     if (layers["rock"] !== false) fillBucket(ctx, ways["rock"], project, "rgba(166, 160, 151, 0.5)");
     if (layers["beaches"] !== false) fillBucket(ctx, ways["beaches"], project, "rgba(235, 215, 159, 0.65)");
@@ -224,7 +230,12 @@ export function drawSchematicScene(
     if (layers.parks !== false) fillBucket(ctx, ways.parks, project, "rgba(164, 196, 148, 0.5)");
     if (layers.forest !== false) fillBucket(ctx, ways.forest, project, "rgba(176, 201, 156, 0.55)");
     if (layers.water !== false || layers.coastline !== false) {
+      // Ocean must cover offshore parks and land-cover polygons completely.
+      fillBucket(ctx, ways.ocean, project, "#b7d2db");
       fillBucket(ctx, ways.water, project, "rgba(154, 196, 214, 0.7)");
+    }
+    if ((layers.waterways ?? layers.water) !== false) {
+      fillBucket(ctx, ways.riverAreas, project, "rgba(154, 196, 214, 0.7)");
     }
     if ((layers.waterways ?? layers.water) !== false) {
       ctx.strokeStyle = "rgba(90, 150, 180, 0.85)";

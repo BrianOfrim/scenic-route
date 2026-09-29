@@ -48,8 +48,27 @@ test("shouldTile when diagonal exceeds 50 km", () => {
   ]);
   assert.equal(shouldTile(small), false);
   assert.equal(shouldTile(large), true);
-  assert.equal(tileBboxes(large).length, 4);
-  assert.ok(bboxDiagonal(large) > 50_000);
+  assert.equal(tileBboxes(small).length, 1);
+  const tiles = tileBboxes(large);
+  assert.ok(tiles.length > 4);
+  for (const tile of tiles) assert.ok(bboxDiagonal(tile) <= 50_000);
+  assert.equal(Math.min(...tiles.map((tile) => tile[0])), large[0]);
+  assert.equal(Math.min(...tiles.map((tile) => tile[1])), large[1]);
+  assert.equal(Math.max(...tiles.map((tile) => tile[2])), large[2]);
+  assert.equal(Math.max(...tiles.map((tile) => tile[3])), large[3]);
+});
+
+test("a highway-scale box is cut into squares under the Overpass cap", () => {
+  const dempster: [number, number, number, number] = [-138.86, 63.94, -133.13, 68.42];
+  assert.ok(bboxDiagonal(dempster) > 500_000);
+  const tiles = tileBboxes(dempster);
+  assert.ok(tiles.length >= 80 && tiles.length <= 180);
+  for (const tile of tiles) assert.ok(bboxDiagonal(tile) <= 50_000);
+});
+
+test("a bbox that cannot be tiled is empty", () => {
+  assert.deepEqual(tileBboxes([Number.NaN, 0, 1, 1]), []);
+  assert.deepEqual(tileBboxes([1, 1, 0, 2]), []);
 });
 
 test("isLoop detects a closed ride", () => {

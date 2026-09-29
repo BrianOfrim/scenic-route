@@ -1,8 +1,11 @@
+import type { GeographyScene } from "../../../api/src/osm/geographyPolicy";
+import { GEOGRAPHY_BUCKETS, automaticGeographyAllowance, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
 import { beginGeneration, type GenerationTask } from "../gallery/generationState";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   fetchPosterCapabilities,
   fetchPosterContext,
+  fetchPosterGeography,
   formatKm,
   generatePoster,
   lookupPosterLandmark,
@@ -812,6 +815,11 @@ export function PosterPanel({
   const [rectAnchor, setRectAnchor] = useState<LngLat | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [geographyMode, setGeographyMode] = useState<"auto" | "manual">(() => seeded?.geographyMode ?? "auto");
+  const [detailScope, setDetailScope] = useState<"none" | "route" | "all">(() => seeded?.detailScope ?? (seeded ? seeded.routeDetail === false ? "none" : "route" : "none"));
+  const [geographyResult, setGeographyResult] = useState<{ key: string; scene: GeographyScene } | null>(null);
+  const [geographyError, setGeographyError] = useState<string | null>(null);
+  const [geographyRetry, setGeographyRetry] = useState(0);
   const [featureIds, setFeatureIds] = useState<string[]>(() => seeded?.featureIds ?? DEFAULT_FEATURE_IDS);
   const [landmarkNearM, setLandmarkNearM] = useState<Record<string, number>>(() => ({
     ...defaultLandmarkNearM(),
@@ -953,6 +961,8 @@ export function PosterPanel({
               trailNames: [],
               areaNames: [],
             });
+            setGeographyMode(restored.geographyMode ?? "manual");
+            setDetailScope(restored.detailScope ?? (restored.routeDetail === false ? "none" : "route"));
             setFeatureIds(restored.featureIds);
             enabledFeatureIds.current = restored.featureIds;
             allowRefineAutoNames.current = false;
@@ -1070,28 +1080,6 @@ export function PosterPanel({
     return null;
   }, [croppedLatLng, geoScope, polygon.points, rectangle.points]);
 
-  const visibleWays = useMemo(() => {
-    if (!context?.ways) return null;
-    if (croppedLatLng.length < 2 || geoScope === "all") return context.ways;
-    if (geoScope === "corridor" || geoScope === "ends") {
-      return clipWaysSoftThenHard(context.ways, croppedLatLng, geoScope, { corridorM: corridorMeters });
-    }
-    if (shapeRing && shapeRing.length >= 3) {
-      return clipWaysSoftThenHard(context.ways, croppedLatLng, "ring", { ring: shapeRing });
-    }
-    return context.ways;
-  }, [context, croppedLatLng, corridorMeters, geoScope, shapeRing]);
-
-  const satelliteMask = useMemo((): GeoMask | null => {
-    return satelliteReferenceMask({
-      queryBbox: context?.bbox,
-      track: context?.latlng,
-      route: croppedLatLng,
-      scope: geoScope === "corridor" || geoScope === "ends" ? geoScope : geoScope === "all" ? "all" : "ring",
-      corridorM: corridorMeters,
-      ring: shapeRing,
-    });
-  }, [context, croppedLatLng, geoScope, shapeRing, corridorMeters]);
   const editingOutline = geoScope === "polygon" || geoScope === "rectangle";
   const activeOutline = geoScope === "rectangle" ? rectangle : polygon;
 
@@ -1108,9 +1096,7 @@ export function PosterPanel({
     });
   }, [editingOutline, geoScope, activeOutline, shapeRing, rectAnchor]);
 
-  useEffect(() => {
-    onGeoMaskChange?.(satelliteMask);
-  }, [satelliteMask, onGeoMaskChange]);
+
 
   const polygonRef = useRef(polygon);
   const rectangleRef = useRef(rectangle);
@@ -1268,18 +1254,6 @@ export function PosterPanel({
   const posterPois = routeOnly ? EMPTY_POIS : selectedPois;
   const posterWays = routeOnly ? EMPTY_WAYS : selectedNamedWays;
   const posterAreas = routeOnly ? EMPTY_AREAS : selectedNamedAreas;
-  const hasGeographyLayers = catalog.some(
-    (item) => item.group === "geography" && featureIds.includes(item.id),
-  );
-
-  const schematicLayers = useMemo(() => {
-    const layers = schematicLayersFromFeatureIds(
-      featureIds,
-      routeMarkerMode(showRouteMarkers, croppedLatLng),
-    );
-    return { ...layers, labels: !routeOnly };
-  }, [featureIds, showRouteMarkers, croppedLatLng, routeOnly]);
-
   const displayBbox = useMemo(() => {
     if (croppedLatLng.length < 2) return context?.bbox ?? null;
     return paddedBbox(croppedLatLng, [...posterPois, ...posterWays, ...posterAreas]);
@@ -1288,6 +1262,66 @@ export function PosterPanel({
     if (croppedLatLng.length < 2) return displayBbox;
     return schematicBbox(croppedLatLng, [...posterPois, ...posterWays, ...posterAreas], landmarkNearM);
   }, [croppedLatLng, posterPois, posterWays, posterAreas, displayBbox, landmarkNearM]);
+  const geographyFrameKey = groundingBbox ? JSON.stringify([activityId, groundingBbox.flat().map(n => Number(n.toFixed(7))), aspectRatio, geographyMode, detailScope]) : "";
+  const geographyScene = geographyResult?.key === geographyFrameKey ? geographyResult.scene : null;
+  const geographyAllowance = geographyScene ? automaticGeographyAllowance(geographyScene.profile, geographyScene.source, detailScope) : null;
+  const geographyPending = Boolean(geographyFrameKey && !geographyScene && !geographyError);
+  useEffect(() => {
+    if (!geographyFrameKey) return;
+    let cancelled = false;
+    setGeographyError(null);
+    const timer = window.setTimeout(() => {
+      const [id, bbox, aspect, mode, requestedDetailScope] = JSON.parse(geographyFrameKey);
+      const savedScene = seeded?.geographyFrameKey === geographyFrameKey ? seeded.geographySceneId : undefined;
+      void fetchPosterGeography(id, bbox, aspect, mode, requestedDetailScope, savedScene).then(scene => {
+        if (!cancelled) setGeographyResult({ key: geographyFrameKey, scene });
+      }).catch((err: unknown) => {
+        if (!cancelled) setGeographyError(err instanceof Error ? err.message : "Could not load geography");
+      });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [geographyFrameKey, geographyRetry]);
+  const geographyWays = useMemo(() => geographyScene
+    ? { ...geographyScene.ways, cemeteries: context?.ways.cemeteries ?? { type: "FeatureCollection" as const, features: [] } }
+    : null, [geographyScene, context?.ways.cemeteries]);
+  const visibleWays = useMemo(() => {
+    if (!geographyWays) return null;
+    if (croppedLatLng.length < 2 || geoScope === "all") return geographyWays;
+    if (geoScope === "corridor" || geoScope === "ends") {
+      return clipWaysSoftThenHard(geographyWays, croppedLatLng, geoScope, { corridorM: corridorMeters });
+    }
+    if (shapeRing && shapeRing.length >= 3) {
+      return clipWaysSoftThenHard(geographyWays, croppedLatLng, "ring", { ring: shapeRing });
+    }
+    return geographyWays;
+  }, [geographyWays, croppedLatLng, corridorMeters, geoScope, shapeRing]);
+
+  const satelliteMask = useMemo((): GeoMask | null => {
+    return satelliteReferenceMask({
+      queryBbox: geographyScene ? [[geographyScene.bbox[0], geographyScene.bbox[1]], [geographyScene.bbox[2], geographyScene.bbox[3]]] : groundingBbox,
+      exactFrame: Boolean(geographyScene),
+      track: context?.latlng,
+      route: croppedLatLng,
+      scope: geoScope === "corridor" || geoScope === "ends" ? geoScope : geoScope === "all" ? "all" : "ring",
+      corridorM: corridorMeters,
+      ring: shapeRing,
+    });
+  }, [context, groundingBbox, geographyScene, croppedLatLng, geoScope, shapeRing, corridorMeters]);
+  const resolvedFeatureIds = useMemo(() => {
+    const selected = geographyMode === "auto"
+      ? [...Object.keys(GEOGRAPHY_BUCKETS).filter(id => id !== "cemeteries"), ...featureIds.filter(id => id === "cemeteries")]
+      : featureIds;
+    return visibleGeographyIds(visibleWays ?? {}, selected);
+  }, [geographyMode, featureIds, visibleWays]);
+  const hasGeographyLayers = resolvedFeatureIds.length > 0;
+  const schematicLayers = useMemo(() => ({
+    ...schematicLayersFromFeatureIds(resolvedFeatureIds, routeMarkerMode(showRouteMarkers, croppedLatLng)),
+    labels: !routeOnly,
+  }), [resolvedFeatureIds, showRouteMarkers, croppedLatLng, routeOnly]);
+
+  useEffect(() => {
+    onGeoMaskChange?.(satelliteMask);
+  }, [satelliteMask, onGeoMaskChange]);
   const satelliteBbox = groundingBbox;
 
   const loopRide = useMemo(() => isClosedLoop(croppedLatLng), [croppedLatLng]);
@@ -1719,7 +1753,7 @@ export function PosterPanel({
   ): Promise<
     { key: string; styleId: string; paletteId: string; spec: PosterSpec; cost: number | null }[] | null
   > {
-    if (!context) return null;
+    if (!context || !geographyScene) return null;
     if (!slots.length) return null;
     setPlanning(true);
     setError(null);
@@ -1746,7 +1780,7 @@ export function PosterPanel({
         geography: catalog
           .filter(
             (item) =>
-              (item.group === "geography" || item.id === "cemeteries") && featureIds.includes(item.id),
+              (item.group === "geography" || item.id === "cemeteries") && resolvedFeatureIds.includes(item.id),
           )
           .map((item) => ({ id: item.id, label: item.label })),
         pois: posterPois,
@@ -1843,7 +1877,7 @@ export function PosterPanel({
     }[],
     tasks?: Map<string, GenerationTask>,
   ) {
-    if (!context) return;
+    if (!context || !geographyScene) return;
     if (!activeImageModelIds.length) {
       setError("Image model capabilities are unavailable. Check the API configuration and try again.");
       return;
@@ -1916,6 +1950,12 @@ export function PosterPanel({
             promptCost: job.promptCost,
             promptModel: job.promptModel || undefined,
             editor: captureEditorSnapshot({
+              geographyMode,
+              routeDetail: detailScope !== "none",
+              detailScope,
+              geographyPolicyVersion: geographyScene?.policyVersion,
+              geographySceneId: geographyScene?.sceneId,
+              geographyFrameKey,
               featureIds,
               landmarkNearM,
               labels,
@@ -2007,6 +2047,7 @@ export function PosterPanel({
   }
 
   async function handlePlanAndGenerate() {
+    if (!geographyScene) return;
     if (!context || !activeImageModelIds.length) return;
     const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
     if (!slots.length) return;
@@ -2276,11 +2317,11 @@ export function PosterPanel({
   }
 
   const showEditor = context != null && cropActivityId.current === activityId;
-  const featuresRefreshing = loading && showEditor;
+  const featuresRefreshing = (loading || geographyPending) && showEditor;
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
   const croppedKm = trackDistanceM(croppedLatLng);
   const busy = planning || generating;
-  const planDisabledHint = planning
+  const planDisabledHint = geographyError ? "Map detail could not load. Open Geography to retry." : !geographyScene ? "Preparing map detail…" : planning
     ? null
     : generating
       ? "Wait until generation finishes."
@@ -2290,7 +2331,9 @@ export function PosterPanel({
           ? "Select a theme before generating."
           : !title.trim()
             ? "Add a title in Stats before generating."
-            : null;
+            : geographyScene?.completeness === "fallback"
+              ? "Detailed map data is temporarily unavailable; a generalized background will be used."
+              : null;
   const planSlots = stylePlanSlots(styleIds, paletteIdsByStyle);
   const generateCount = planSlots.length * activeImageModelIds.reduce((sum, id) => {
     const maxImages = imageModelFor(id)?.maxImages;
@@ -2570,7 +2613,7 @@ export function PosterPanel({
             <button
               className="button"
               type="button"
-              disabled={busy || !title.trim() || !styleIds.length}
+              disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
               onClick={() => void handlePlanAndGenerate()}
             >
               {planning
@@ -2711,22 +2754,46 @@ export function PosterPanel({
             accordion={!sheetMode}
             showTitle={!sheetMode}
             className={workflowPane("geography")}
-            hint={featuresRefreshing ? <FeatureQueryHint label="Querying OpenStreetMap…" /> : undefined}
+            hint={featuresRefreshing ? <FeatureQueryHint label="Preparing map detail…" /> : undefined}
           >
-            <div className="poster-geo-grid">
-              {catalog
-                .filter((item) => item.group === "geography")
-                .map((item) => (
-                  <label key={item.id} className="check">
-                    <input
-                      type="checkbox"
-                      checked={featureIds.includes(item.id)}
-                      onChange={() => toggleFeature(item.id)}
-                    />
-                    {item.label}
-                  </label>
-                ))}
-            </div>
+            <p className="muted">{geographyMode === "auto" ? <>
+              Map detail adjusts automatically to the area shown on your poster.
+              {geographyScene && <> Scale: <strong>{geographyScene.profile.charAt(0).toUpperCase() + geographyScene.profile.slice(1)}</strong>.</>}
+            </> : "Choose which available layers appear on your poster."}</p>
+            {geographyScene?.source === "natural-earth" && <p className="muted">A generalized map shows major roads, water and urban footprints. Small local features may be absent.</p>}
+            {geographyPending && <p role="status" className="muted">Preparing map detail…</p>}
+            {geographyError && <p role="alert">{geographyError} <button type="button" className="text-btn" onClick={() => setGeographyRetry(n => n + 1)}>Retry</button></p>}
+            {geographyScene?.warnings.length ? <p role="status" className="muted">{geographyScene.warnings.join(" · ")}</p> : null}
+            <details open={geographyMode === "manual" || undefined}>
+              <summary>Advanced geography</summary>
+              <label className="check"><input type="checkbox" checked={geographyMode === "auto"} onChange={event => setGeographyMode(event.target.checked ? "auto" : "manual")} />Choose map detail automatically</label>
+              {geographyMode === "manual" && <button type="button" className="text-btn" onClick={() => setGeographyMode("auto")}>Reset to automatic</button>}
+              {geographyMode === "auto" ? (
+                <>
+                  <label className="check"><input type="checkbox" checked={detailScope === "all"} onChange={event => setDetailScope(event.target.checked ? "all" : "none")} />Extra detail everywhere</label>
+                  {detailScope === "route" && <p className="muted">This saved poster uses the older route-near detail setting. <button type="button" className="text-btn" onClick={() => setDetailScope("none")}>Use standard detail instead</button></p>}
+                  <p className="muted">Affects automatic OpenStreetMap detail. Everywhere may take longer to load; wide maps still use generalized bundled data. The Extent setting below controls how far geography is drawn.</p>
+                  {geographyAllowance && <p className="muted" role="status">
+                    This filter allows: {geographyAllowance.categories.join(", ")}. {geographyAllowance.detail}
+                  </p>}
+                </>
+              ) : (
+                <div className="poster-geo-grid">
+                  {catalog
+                    .filter((item) => item.group === "geography")
+                    .map((item) => (
+                      <label key={item.id} className="check">
+                        <input
+                          type="checkbox"
+                          checked={featureIds.includes(item.id)}
+                          onChange={() => toggleFeature(item.id)}
+                        />
+                        {item.label}
+                      </label>
+                    ))}
+                </div>
+              )}
+            </details>
             <label className="poster-field">
               Extent
               <select
@@ -2944,7 +3011,7 @@ export function PosterPanel({
             showTitle={!sheetMode}
             className={workflowPane("annotations")}
             busy={featuresRefreshing}
-            hint={featuresRefreshing ? <FeatureQueryHint label="Querying OpenStreetMap…" /> : undefined}
+            hint={featuresRefreshing ? <FeatureQueryHint label="Preparing map detail…" /> : undefined}
           >
             <label className="check">
               <input
@@ -3299,7 +3366,7 @@ export function PosterPanel({
                 <button
                   className="button"
                   type="button"
-                  disabled={busy || !title.trim() || !styleIds.length}
+                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
                   onClick={() => void handlePlanAndGenerate()}
                 >
                   {planning
@@ -3351,7 +3418,7 @@ export function PosterPanel({
                 <button
                   className="button"
                   type="button"
-                  disabled={busy || !title.trim() || !styleIds.length}
+                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
                   onClick={() => void handlePlanAndGenerate()}
                 >
                   {planning

@@ -16,7 +16,7 @@
 
 - Full track (no crop UI on default path)
 - Annotations off (`routeOnly: true`)
-- Geography: **all layers on**, with controls collapsed by default on desktop and available in the Geography tab in mobile Customize.
+- Geography: **automatic detail for the final poster frame**. Local views use filtered OpenStreetMap detail; regional and continental views use bundled generalized roads, water, coastline, and urban footprints. Manual layer overrides live in Advanced geography, with Reset to automatic. Existing saved setups retain manual mode.
 - One theme: **Risograph** (auto-selected); last-used later if we add memory
 - 1 variant, default aspect
 - Hide planner refs / schematic on default path

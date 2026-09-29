@@ -156,6 +156,7 @@ export async function loadRouteFeatures(
   featureIds?: string[],
   nearRouteM?: Record<string, number>,
   timings?: Record<string, number>,
+  deferGeography = false,
 ): Promise<PosterContext> {
   const started = performance.now();
   if (!Number.isFinite(activityId) || activityId <= 0) {
@@ -176,24 +177,28 @@ export async function loadRouteFeatures(
   const loop = isLoop(latlng, trackDiagonal);
   const warnings: string[] = [];
 
-  const geoFeatures = features.filter((item) => !SPECIAL_BUCKETS.has(item.bucket));
+  const geoFeatures = features.filter((item) => !SPECIAL_BUCKETS.has(item.bucket) && (!deferGeography || (item.id === "lakes" && features.some(f => f.id === "named-water")) || item.id === "cemeteries"));
   const poiFeatures = features.filter((item) => item.bucket === "poi");
   const namedAreaFeatures = features.filter((item) => item.bucket === "named-areas");
   const namedWayFeatures = features.filter((item) => item.bucket === "named-ways");
 
+  const annotationsAllowed = !deferGeography || trackDiagonal < 100_000;
+  if (!annotationsAllowed && (poiFeatures.length || namedAreaFeatures.length || namedWayFeatures.length || geoFeatures.length)) {
+    warnings.push("Automatic annotation search is limited to local routes. Add specific places with search for wider routes.");
+  }
   const prepared = performance.now();
 
   const [waysFc, poisFc, namedAreaFc, namedWaysFc] = await Promise.all([
-    geoFeatures.length
+    geoFeatures.length && annotationsAllowed
       ? queryOverpass(unionQuery(geoFeatures.flatMap((item) => item.selectors)), padded, warnings, "ways")
       : Promise.resolve(emptyCollection()),
-    poiFeatures.length
+    poiFeatures.length && annotationsAllowed
       ? queryOverpass(unionQuery(poiFeatures.flatMap((item) => item.selectors), "center"), padded, warnings, "landmarks")
       : Promise.resolve(emptyCollection()),
-    namedAreaFeatures.length
+    namedAreaFeatures.length && annotationsAllowed
       ? queryOverpass(unionQuery(namedAreaFeatures.flatMap((item) => item.selectors)), padded, warnings, "named areas")
       : Promise.resolve(emptyCollection()),
-    namedWayFeatures.length
+    namedWayFeatures.length && annotationsAllowed
       ? queryOverpass(unionQuery(namedWayFeatures.flatMap((item) => item.selectors)), padded, warnings, "named trails")
       : Promise.resolve(emptyCollection()),
   ]);
@@ -287,7 +292,7 @@ export function splitWays(geojson: FeatureCollection, selected: FeatureDef[]): P
       else bucket = "streets";
     } else if (tags.railway) bucket = "rail";
     else if (tags.waterway) bucket = "waterways";
-    else if (tags.natural === "water" || tags.water) bucket = "water";
+    else if (tags.natural === "water" || tags.water || tags.landuse === "reservoir") bucket = "water";
     else if (tags.natural === "wetland") bucket = "wetlands";
     else if (/^(grassland|scrub|heath)$/.test(tags.natural ?? "")) bucket = "vegetation";
     else if (/^(beach|sand|shingle)$/.test(tags.natural ?? "")) bucket = "beaches";

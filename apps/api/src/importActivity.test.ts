@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Encoder, Profile, Utils } from "@garmin/fitsdk";
+import { deleteImportedByIds } from "./activities";
 import { closeDb, initDb, query } from "./db";
+import { clearImportedIdFloor } from "./importedIds";
 import { importTrackFiles } from "./importActivity";
 
 const SEMI = 2_147_483_648 / 180;
@@ -91,6 +93,7 @@ async function withUser(label: string, run: (userId: string) => Promise<void>) {
     await run(userId);
   } finally {
     await query("DELETE FROM activities WHERE user_id = $1", [userId]);
+    await clearImportedIdFloor(userId);
     await query(`DELETE FROM "user" WHERE id = $1`, [userId]);
   }
 }
@@ -164,6 +167,19 @@ describe("importTrackFiles", { concurrency: 1 }, () => {
       const points = JSON.parse(row[0].latlng) as number[][];
       assert.deepEqual(points[0], [45.42, -75.7]);
       assert.equal(points.length, 3);
+    });
+  });
+
+  test("a deleted import does not give its id to the next file", async () => {
+    await withUser("reuse", async (userId) => {
+      const first = await importTrackFiles(userId, [textFile("first.gpx", gpx("First Loop", 53.54, -113.5))]);
+      const firstId = first.activities[0]?.id;
+      assert.ok(firstId);
+      await deleteImportedByIds(userId, [firstId]);
+      const second = await importTrackFiles(userId, [textFile("second.gpx", gpx("Second Loop", 49.28, -123.12))]);
+      const secondId = second.activities[0]?.id;
+      assert.ok(secondId);
+      assert.ok(secondId > firstId);
     });
   });
 });
