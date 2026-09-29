@@ -19,7 +19,7 @@ const RETRYABLE = new Set([429, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Safety stop for one response. A tile past this is failed, not split. */
-const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 /** Legacy query default. Automatic geography supplies a shorter server timeout. */
 const QUERY_TIMEOUT_S = 180;
 /** Slightly above QUERY_TIMEOUT_S so the server can return its own timeout. */
@@ -78,6 +78,14 @@ export function collection(features: Feature[]): FeatureCollection {
 
 type OverpassPoster = (query: string) => Promise<{ elements?: unknown[] }>;
 
+export type OmittedOverpassElement = {
+  type: "way" | "relation";
+  id: number;
+  name?: string;
+  memberCount: number;
+};
+export type OverpassQueryStats = { responseBytes: number; omittedElements?: OmittedOverpassElement[] };
+
 export async function queryOverpass(
   queryBody: string,
   bbox: BBox,
@@ -85,6 +93,7 @@ export async function queryOverpass(
   label: string,
   post: OverpassPoster = postOverpass,
   budget?: { maxTiles: number; timeoutMs: number; maxBytes: number; queryTimeoutS: number },
+  stats?: OverpassQueryStats,
 ): Promise<FeatureCollection> {
   // Fail before allocating a continent-sized grid. The automatic provider switches sources much earlier.
   const estimatedTiles = Math.ceil(Math.abs(bbox[3] - bbox[1]) * 111320 / 35000)
@@ -100,6 +109,7 @@ export async function queryOverpass(
   }
   const merged: Feature[] = [];
   const seen = new Set<string>();
+  const omitted = new Set<string>();
   let fetchMs = 0;
   let convertMs = 0;
   let fetchedTiles = 0;
@@ -122,8 +132,11 @@ export async function queryOverpass(
         request,
         new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("query deadline exceeded")), Math.max(1, deadline - Date.now())); }),
       ]).finally(() => { if (timer) clearTimeout(timer); }) : await request;
-      if (budget) {
+      if (budget || stats) {
         totalBytes += Buffer.byteLength(JSON.stringify(payload));
+        if (stats) stats.responseBytes = totalBytes;
+      }
+      if (budget) {
         if (totalBytes > budget.maxBytes || Date.now() > deadline) {
           exhausted = true;
           warnings.push(`Overpass ${label} exceeded its response budget`);
@@ -133,6 +146,20 @@ export async function queryOverpass(
       const fetched = performance.now();
       fetchMs += fetched - started;
       fetchedTiles += 1;
+      // Derived summaries carry no drawable geometry. Keep them separate from
+      // request failures so a deliberate omission cannot trigger map fallback.
+      for (const raw of payload.elements ?? []) {
+        if (!stats || !isRecord(raw)) continue;
+        const type = raw.type === "oversized_way" ? "way" : raw.type === "oversized_relation" ? "relation" : null;
+        if (!type || !isRecord(raw.tags)) continue;
+        const id = Number(raw.id), memberCount = Number(raw.tags.memberCount);
+        if (!Number.isSafeInteger(id) || id <= 0 || !Number.isSafeInteger(memberCount) || memberCount <= 0) continue;
+        const key = `${type}/${id}`;
+        if (omitted.has(key)) continue;
+        omitted.add(key);
+        (stats.omittedElements ??= []).push({ type, id, memberCount,
+          ...(typeof raw.tags.name === "string" && raw.tags.name ? { name: raw.tags.name } : {}) });
+      }
       for (const feature of elementsToFeatures(payload.elements ?? [])) {
         const id = String(feature.properties?.id ?? "");
         if (id && seen.has(id)) continue;

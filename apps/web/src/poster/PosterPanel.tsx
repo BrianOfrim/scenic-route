@@ -1,5 +1,5 @@
 import type { GeographyScene } from "../../../api/src/osm/geographyPolicy";
-import { GEOGRAPHY_BUCKETS, automaticGeographyAllowance, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
+import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, automaticGeographyAllowance, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
 import { beginGeneration, type GenerationTask } from "../gallery/generationState";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
@@ -47,6 +47,12 @@ import {
 } from "./polygonEdit";
 
 type GeoScope = "all" | "corridor" | "ends" | "box" | "hull" | "loop" | "rectangle" | "polygon";
+
+function formatDataSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
 
 const GEO_SCOPES: { id: GeoScope; label: string; hint: string }[] = [
   { id: "all", label: "All", hint: "Everything in the route's map box. The satellite photograph is cut to that same box." },
@@ -818,7 +824,6 @@ export function PosterPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [geographyMode, setGeographyMode] = useState<"auto" | "manual">(() => seeded?.geographyMode ?? "auto");
-  const [detailScope, setDetailScope] = useState<"none" | "route" | "all">(() => seeded?.detailScope ?? (seeded ? seeded.routeDetail === false ? "none" : "route" : "none"));
   const [geographyResult, setGeographyResult] = useState<{ key: string; scene: GeographyScene } | null>(null);
   const [geographyError, setGeographyError] = useState<string | null>(null);
   const [geographyRetry, setGeographyRetry] = useState(0);
@@ -964,7 +969,6 @@ export function PosterPanel({
               areaNames: [],
             });
             setGeographyMode(restored.geographyMode ?? "manual");
-            setDetailScope(restored.detailScope ?? (restored.routeDetail === false ? "none" : "route"));
             setFeatureIds(restored.featureIds);
             enabledFeatureIds.current = restored.featureIds;
             allowRefineAutoNames.current = false;
@@ -1267,25 +1271,25 @@ export function PosterPanel({
     if (croppedLatLng.length < 2) return displayBbox;
     return schematicBbox(croppedLatLng, [...posterPois, ...posterWays, ...posterAreas], landmarkNearM);
   }, [croppedLatLng, posterPois, posterWays, posterAreas, displayBbox, landmarkNearM]);
-  const geographyFrameKey = groundingBbox ? JSON.stringify([activityId, groundingBbox.flat().map(n => Number(n.toFixed(7))), aspectRatio, geographyMode, detailScope]) : "";
+  const geographyFrameKey = groundingBbox ? JSON.stringify([activityId, groundingBbox.flat().map(n => Number(n.toFixed(7))), aspectRatio, geographyMode]) : "";
   const geographyScene = geographyResult?.key === geographyFrameKey ? geographyResult.scene : null;
-  const geographyAllowance = geographyScene ? automaticGeographyAllowance(geographyScene.profile, geographyScene.source, detailScope) : null;
+  const geographyAllowance = geographyScene ? automaticGeographyAllowance(geographyScene.profile, geographyScene.source) : null;
   const geographyPending = Boolean(geographyFrameKey && !geographyScene && !geographyError);
   useEffect(() => {
     if (!geographyFrameKey) return;
     let cancelled = false;
     setGeographyError(null);
     const timer = window.setTimeout(() => {
-      const [id, bbox, aspect, mode, requestedDetailScope] = JSON.parse(geographyFrameKey);
+      const [id, bbox, aspect, mode] = JSON.parse(geographyFrameKey);
       const savedScene = seeded?.geographyFrameKey === geographyFrameKey ? seeded.geographySceneId : undefined;
-      void fetchPosterGeography(id, bbox, aspect, mode, requestedDetailScope, savedScene).then(scene => {
+      void fetchPosterGeography(id, bbox, aspect, mode, savedScene).then(scene => {
         if (!cancelled) setGeographyResult({ key: geographyFrameKey, scene });
       }).catch((err: unknown) => {
         if (!cancelled) setGeographyError(err instanceof Error ? err.message : "Could not load geography");
       });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [geographyFrameKey, geographyRetry]);
+  }, [geographyFrameKey, geographyRetry, GEOGRAPHY_VERSION]);
   const geographyWays = useMemo(() => geographyScene
     ? { ...geographyScene.ways, cemeteries: context?.ways.cemeteries ?? { type: "FeatureCollection" as const, features: [] } }
     : null, [geographyScene, context?.ways.cemeteries]);
@@ -1962,8 +1966,8 @@ export function PosterPanel({
             promptModel: job.promptModel || undefined,
             editor: captureEditorSnapshot({
               geographyMode,
-              routeDetail: detailScope !== "none",
-              detailScope,
+              routeDetail: false,
+              detailScope: "none",
               geographyPolicyVersion: geographyScene?.policyVersion,
               geographySceneId: geographyScene?.sceneId,
               geographyFrameKey,
@@ -2774,16 +2778,27 @@ export function PosterPanel({
             {geographyScene?.source === "natural-earth" && <p className="muted">A generalized map shows major roads, water and urban footprints. Small local features may be absent.</p>}
             {geographyPending && <p role="status" className="muted">Preparing map detail…</p>}
             {geographyError && <p role="alert">{geographyError} <button type="button" className="text-btn" onClick={() => setGeographyRetry(n => n + 1)}>Retry</button></p>}
-            {geographyScene?.warnings.length ? <p role="status" className="muted">{geographyScene.warnings.join(" · ")}</p> : null}
+            {geographyScene?.warnings.length ? <p role="status" className="muted">
+              {geographyScene.warnings.join(" · ")}
+              {geographyScene.completeness === "fallback" && <> <button type="button" className="text-btn" onClick={() => {
+                setGeographyResult(null);
+                setGeographyRetry(n => n + 1);
+              }}>Retry detailed map</button></>}
+            </p> : null}
+            {geographyScene && <p className="muted">
+              Overpass query results: {geographyScene.queryResponseBytes === undefined
+                ? geographyScene.completeness === "generalized" ? "not queried" : "unavailable"
+                : formatDataSize(geographyScene.queryResponseBytes)}
+              {" · "}API to browser: {geographyScene.apiResponseBytes === undefined ? "unavailable" : formatDataSize(geographyScene.apiResponseBytes)}
+              {" (uncompressed JSON)"}
+            </p>}
             <details open={geographyMode === "manual" || undefined}>
               <summary>Advanced geography</summary>
               <label className="check"><input type="checkbox" checked={geographyMode === "auto"} onChange={event => setGeographyMode(event.target.checked ? "auto" : "manual")} />Choose map detail automatically</label>
               {geographyMode === "manual" && <button type="button" className="text-btn" onClick={() => setGeographyMode("auto")}>Reset to automatic</button>}
               {geographyMode === "auto" ? (
                 <>
-                  <label className="check"><input type="checkbox" checked={detailScope === "all"} onChange={event => setDetailScope(event.target.checked ? "all" : "none")} />Extra detail everywhere</label>
-                  {detailScope === "route" && <p className="muted">This saved poster uses the older route-near detail setting. <button type="button" className="text-btn" onClick={() => setDetailScope("none")}>Use standard detail instead</button></p>}
-                  <p className="muted">Affects automatic OpenStreetMap detail. Everywhere may take longer to load; wide maps still use generalized bundled data. The Extent setting below controls how far geography is drawn.</p>
+                  <p className="muted">Map detail follows the poster scale. Wide maps use generalized bundled data. The Extent setting below controls how far geography is drawn.</p>
                   {geographyAllowance && <p className="muted" role="status">
                     This filter allows: {geographyAllowance.categories.join(", ")}. {geographyAllowance.detail}
                   </p>}

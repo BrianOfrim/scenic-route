@@ -398,6 +398,32 @@ test("a concave polygon extent keeps both arms without filling its missing corne
   assert.equal(filled(0.5, 0.5), false, "missing corner stays empty");
 });
 
+test("split coastline ways join before filling ocean, independent of input order", () => {
+  const fragments = [
+    [[-79.38, 43.65], [-79.34, 43.65]],
+    [[-79.34, 43.65], [-79.25, 43.65]],
+    [[-79.55, 43.65], [-79.38, 43.65]],
+  ];
+  const island = [[-79.38, 43.62], [-79.36, 43.62], [-79.36, 43.63], [-79.38, 43.63], [-79.38, 43.62]];
+  const clipped = clipWaysToQueryFrame({ coastline: { features: [...fragments, island]
+    .map(coordinates => ({ geometry: { type: "LineString", coordinates } })) }, water: { features: [] } }, FRAME, 0);
+  const fills = clipped.water.features as unknown as { geometry: { coordinates: number[][][] } }[];
+  const filled = (lng: number, lat: number) => fills.some(feature => covers(feature.geometry.coordinates, lng, lat));
+  assert.equal(filled(-79.35, 43.62), true, "water is south of the directed mainland coastline");
+  assert.equal(filled(-79.35, 43.68), false, "mainland must not be flooded by the island fallback");
+  assert.equal(filled(-79.37, 43.625), false, "island remains a land hole");
+});
+
+test("an incomplete mainland shore prevents island-only ocean inference", () => {
+  const lines = [
+    [[-79.38, 43.65], [-79.34, 43.65]],
+    [[-79.38, 43.62], [-79.36, 43.62], [-79.36, 43.63], [-79.38, 43.63], [-79.38, 43.62]],
+  ];
+  const clipped = clipWaysToQueryFrame({ coastline: { features: lines
+    .map(coordinates => ({ geometry: { type: "LineString", coordinates } })) }, water: { features: [] } }, FRAME, 0);
+  assert.equal(clipped.water.features.length, 0, "partial coast cannot establish an ocean fill");
+});
+
 test("coastline closes into water on the right side of the line", () => {
   const shore = [[-79.55, 43.65], [-79.25, 43.65]];
   const clipped = clipWaysToQueryFrame(

@@ -1,15 +1,19 @@
 import type { Feature, FeatureCollection, Geometry, Position } from "geojson";
 import { mercX, mercY, type BBox } from "../geo";
 import { waterClass } from "./waterClasses";
+import type { OmittedOverpassElement } from "./overpass";
 
-export const GEOGRAPHY_VERSION = 6;
+export const GEOGRAPHY_VERSION = 11;
 export type GeographyMode = "auto" | "manual";
 export type GeographyDetailScope = "none" | "route" | "all";
-export type GeographyProfile = "local" | "district" | "regional" | "wide";
+export type GeographyProfile = "close-up" | "local" | "town" | "district" | "regional" | "wide";
 export type GeographyPolicy = ReturnType<typeof geographyPolicy>;
 export type GeographyWays = Record<string, FeatureCollection>;
 export type GeographyScene = {
   sceneId?: string;
+  queryResponseBytes?: number;
+  apiResponseBytes?: number;
+  omittedElements?: OmittedOverpassElement[];
   bbox: BBox;
   ways: GeographyWays;
   featureIds: string[];
@@ -18,7 +22,7 @@ export type GeographyScene = {
   metersPerPixel: number;
   source: "overpass" | "natural-earth";
   sourceVersion: string;
-  completeness: "complete" | "generalized" | "fallback";
+  completeness: "complete" | "partial" | "generalized" | "fallback";
   warnings: string[];
 };
 
@@ -36,6 +40,12 @@ export function automaticGeographyAllowance(profile: GeographyProfile, source: G
     categories: ["generalized roads", "urban footprints", "lakes and reservoirs", "river networks", "coastline and ocean"],
     detail: "Smaller features are omitted according to map scale and source detail.",
   };
+  if (profile === "close-up") return {
+    categories: ["major and local roads", "paths and trails", "railways", "lakes, ponds and reservoirs",
+      "rivers, streams and canals", "forests and parks", "farmland and vegetation", "wetlands", "beaches",
+      "coastline", "rock and cliffs", "glaciers", "gardens and recreation grounds"],
+    detail: "Small areas must be legible across the map.",
+  };
   if (profile === "local") return {
     categories: ["major and local roads", "paths and trails", "railways", "lakes, ponds and reservoirs",
       "rivers, streams and canals", "forests and parks", "farmland and vegetation", "wetlands", "beaches",
@@ -50,6 +60,16 @@ export function automaticGeographyAllowance(profile: GeographyProfile, source: G
       "coastline", "rock and cliffs", "glaciers"],
     detail: "Small features are retained across the map, regardless of distance from the route.",
   };
+  if (profile === "town") return {
+    categories: ["connecting roads", "cycleways and tracks", "railways", "lakes and reservoirs",
+      "rivers and canals", "forests and parks", "coastline", "glaciers"],
+    detail: "Minor streets, streams and small areas are omitted uniformly across the map.",
+  };
+  if (profile === "regional") return {
+    categories: ["arterial roads", "railways", "lakes and reservoirs", "rivers and canals",
+      "forests", "coastline", "glaciers"],
+    detail: "Minor streets, paths, parks and small areas are omitted uniformly across the map.",
+  };
   return {
     categories: ["through roads and connecting streets", "railways", "lakes and reservoirs",
       detailScope === "route" ? "large or route-near ponds" : "larger ponds", "rivers and canals",
@@ -61,6 +81,12 @@ export function automaticGeographyAllowance(profile: GeographyProfile, source: G
 }
 
 /** Canonical poster pixels, independent of editor camera, device pixels and print DPI. */
+export function geographyProfileForScale(metersPerPixel: number): GeographyProfile {
+  return metersPerPixel < 3 ? "close-up" : metersPerPixel < 10 ? "local"
+    : metersPerPixel < 25 ? "town" : metersPerPixel < 50 ? "district"
+      : metersPerPixel < 100 ? "regional" : "wide";
+}
+
 export function geographyPolicy(bbox: BBox, aspect = "3:4") {
   const [a, b] = /^(3:4|2:3|1:1|4:3|16:9)$/.test(aspect) ? aspect.split(":").map(Number) : [3, 4];
   const width = a <= b ? 1024 : Math.round(1024 * a / b);
@@ -78,9 +104,10 @@ export function geographyPolicy(bbox: BBox, aspect = "3:4") {
   const px = (x1 - x0) * .03, py = (y1 - y0) * .03;
   x0 -= px; x1 += px; y0 -= py; y1 += py;
   const metersPerPixel = (x1 - x0) * 40075016.686 / width * Math.cos((bbox[1] + bbox[3]) / 2 * Math.PI / 180);
-  const profile: GeographyProfile = metersPerPixel < 10 ? "local" : metersPerPixel < 50 ? "district" : metersPerPixel < 250 ? "regional" : "wide";
+  const profile = geographyProfileForScale(metersPerPixel);
   return { version: GEOGRAPHY_VERSION, profile, metersPerPixel, width, height, x0, x1, y0, y1,
-    minAreaPx: profile === "local" ? 12 : 24, simplifyPx: .65 };
+    minAreaPx: profile === "close-up" ? 8 : profile === "local" ? 12 : profile === "town" ? 16
+      : profile === "regional" ? 32 : 24, simplifyPx: .65 };
 }
 
 export function geographyProject(policy: GeographyPolicy, point: Position): [number, number] {
@@ -90,20 +117,28 @@ export function geographyProject(policy: GeographyPolicy, point: Position): [num
 
 /** Retrieve a superset of useful features. Never filter a road by individual way length. */
 export function geographySelectors(profile: GeographyProfile): string[] {
-  const local = profile === "local";
-  const roads = local ? "motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service" : "motorway|trunk|primary|secondary|tertiary|unclassified";
+  const closeUp = profile === "close-up";
+  const local = closeUp || profile === "local";
+  const roads = closeUp ? "motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service"
+    : profile === "local" ? "motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street"
+      : profile === "regional" || profile === "wide" ? "motorway|trunk|primary|secondary|tertiary"
+        : "motorway|trunk|primary|secondary|tertiary|unclassified";
+  const paths = local ? "cycleway|track|footway|path|bridleway|pedestrian"
+    : profile === "town" ? "cycleway|track" : null;
+  const landcover = ["natural=water", "landuse=reservoir", "landuse=forest", "natural=wood",
+    ...(profile === "regional" || profile === "wide" ? [] : ["leisure=park", "leisure=nature_reserve"]),
+    "natural=glacier",
+    ...(local ? ["landuse=farmland", "landuse=meadow", "landuse=orchard", "landuse=vineyard",
+      "natural=wetland", "natural=grassland", "natural=scrub", "natural=heath",
+      "natural=beach", "natural=sand", "natural=shingle", "natural=bare_rock", "natural=scree",
+      "natural=blockfield"] : []),
+    ...(closeUp ? ["leisure=garden", "landuse=recreation_ground"] : [])];
   return [
     `way[highway~"^(${roads})(_link)?$"]`,
-    ...(local ? ['way[highway~"^(cycleway|track|footway|path|bridleway|pedestrian)$"][footway!=sidewalk][footway!=crossing][footway!=traffic_island][footway!=link]'] : []),
-    'way[waterway~"^(river|stream|canal)$"]',
+    ...(paths ? [`way[highway~"^(${paths})$"]${local ? "[footway!=sidewalk][footway!=crossing][footway!=traffic_island][footway!=link]" : ""}`] : []),
+    `way[waterway~"^(${local ? "river|stream|canal" : "river|canal"})$"]`,
     'way[railway=rail]', 'way[natural=coastline]',
-    ...['natural=water', 'landuse=reservoir', 'landuse=forest', 'natural=wood',
-      'leisure=park', 'leisure=nature_reserve', 'natural=glacier',
-      ...(local ? ['landuse=farmland', 'landuse=meadow', 'landuse=orchard', 'landuse=vineyard',
-        'natural=wetland', 'natural=grassland', 'natural=scrub', 'natural=heath',
-        'natural=beach', 'natural=sand', 'natural=shingle', 'natural=bare_rock', 'natural=scree',
-        'natural=blockfield', 'leisure=garden', 'landuse=recreation_ground'] : [])]
-      .flatMap(tag => [`way[${tag}]`, `rel[${tag}]`]),
+    ...landcover.flatMap(tag => [`way[${tag}]`, `rel[${tag}]`]),
     ...(local ? ['way[natural=cliff]'] : []),
   ];
 }
@@ -182,9 +217,11 @@ export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPoli
       const g = feature.geometry;
       const tags = feature.properties?.tags ?? {};
       const kind = (key === "water" || key === "waterways" || key === "riverAreas") ? waterClass(feature) : null;
-      if (detailScope !== "all" && key === "waterways" && kind === "stream" && policy.profile !== "local"
+      if (detailScope !== "all" && key === "waterways" && kind === "stream" && !["close-up", "local"].includes(policy.profile)
         && !nearRoute(lines(g).flat(), 32)) return [];
-      if (detailScope !== "all" && policy.profile !== "local" && (key === "paths" || (key === "streets" && /^(residential|service|living_street)$/.test(tags.highway ?? "")))) return [];
+      if (detailScope !== "all" && !["close-up", "local", "town"].includes(policy.profile) && key === "paths") return [];
+      if (detailScope !== "all" && !["close-up", "local"].includes(policy.profile)
+        && key === "streets" && /^(residential|service|living_street)$/.test(tags.highway ?? "")) return [];
       if (detailScope !== "all" && (key === "streets" || key === "paths") && /^(service|residential|living_street|footway|path)$/.test(tags.highway ?? "")) {
         const vertices = lines(g).flat();
         if (vertices.length && vertices.every(p => (density.get(cell(p)) ?? 0) > 2500) && !nearRoute(vertices, 64)) return [];
@@ -193,7 +230,7 @@ export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPoli
         const area = polygonArea(p, policy);
         const minorWater = (key === "water" && (kind === "pond" || kind === "water"))
           || (key === "riverAreas" && kind === "stream");
-        const minimum = minorWater && policy.profile !== "local"
+        const minimum = minorWater && !["close-up", "local"].includes(policy.profile)
           ? Math.max(policy.minAreaPx, 96) : policy.minAreaPx;
         return detailScope === "all" ? area >= 3 : area >= minimum || (area >= 3 && nearRoute(p[0], 16));
       };

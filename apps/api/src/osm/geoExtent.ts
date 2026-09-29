@@ -366,6 +366,42 @@ function asPolygonRings(value: unknown): number[][][] {
 type BoundaryHit = { edge: number; t: number; pos: number };
 type ShoreChain = { pts: Pt[]; start: BoundaryHit; end: BoundaryHit };
 
+/** Join OSM way fragments without reversing their land-left / water-right direction. */
+function joinedCoastlines(features: ExtentFeature[]): number[][][] {
+  const lines = features.flatMap(feature => linesOf(feature.geometry)).filter(line => line.length >= 2);
+  const key = (point: number[]) => `${point[0].toFixed(7)},${point[1].toFixed(7)}`;
+  const starts = new Map<string, number[]>(), ends = new Map<string, number[]>();
+  for (const [index, line] of lines.entries()) {
+    const start = key(line[0]), end = key(line[line.length - 1]);
+    starts.set(start, [...(starts.get(start) ?? []), index]);
+    ends.set(end, [...(ends.get(end) ?? []), index]);
+  }
+  const used = new Set<number>();
+  const joined: number[][][] = [];
+  function walk(first: number) {
+    if (used.has(first)) return;
+    const points = lines[first].slice();
+    used.add(first);
+    let end = key(points[points.length - 1]);
+    while (starts.get(end)?.length === 1 && ends.get(end)?.length === 1) {
+      const next = starts.get(end)![0];
+      if (used.has(next)) break;
+      used.add(next);
+      for (const point of lines[next].slice(1)) points.push(point);
+      end = key(points[points.length - 1]);
+    }
+    joined.push(points);
+  }
+  // Start at the ends of open chains; walking from arbitrary middle fragments
+  // would leave the preceding fragments disconnected. Remaining chains are loops.
+  for (const [index, line] of lines.entries()) {
+    const start = key(line[0]);
+    if (ends.get(start)?.length !== 1 || starts.get(start)?.length !== 1) walk(index);
+  }
+  for (const index of lines.keys()) walk(index);
+  return joined;
+}
+
 /** Coastline is directed with water on the right. Close it along the frame. */
 function coastlineWaterFeatures(features: ExtentFeature[], ring: LngLat[]): ExtentFeature[] {
   const { local, lat0 } = frameLocals(ring);
@@ -374,23 +410,25 @@ function coastlineWaterFeatures(features: ExtentFeature[], ring: LngLat[]): Exte
   const chains: ShoreChain[] = [];
   const landHoles: Pt[][] = [];
   const enclosedWater: Pt[][] = [];
-  for (const feature of features) {
-    for (const line of linesOf(feature.geometry)) {
-      for (const piece of clipLineToRing(line, local, lat0)) {
-        const pts = piece.map(([lng, lat]) => project(lng, lat, lat0));
-        if (pts.length < 2) continue;
-        if (localClosed(pts)) {
-          if (signedArea(pts) >= 0) landHoles.push(pts);
-          else enclosedWater.push(pts);
-          continue;
-        }
-        const start = locateOnRect(pts[0], local);
-        const end = locateOnRect(pts[pts.length - 1], local);
-        if (!start || !end) continue;
-        chains.push({ pts, start, end });
+  let incompleteShore = false;
+  for (const line of joinedCoastlines(features)) {
+    for (const piece of clipLineToRing(line, local, lat0)) {
+      const pts = piece.map(([lng, lat]) => project(lng, lat, lat0));
+      if (pts.length < 2) continue;
+      if (localClosed(pts)) {
+        if (signedArea(pts) >= 0) landHoles.push(pts);
+        else enclosedWater.push(pts);
+        continue;
       }
+      const start = locateOnRect(pts[0], local);
+      const end = locateOnRect(pts[pts.length - 1], local);
+      if (!start || !end) { incompleteShore = true; continue; }
+      chains.push({ pts, start, end });
     }
   }
+  // An unfinished mainland shore cannot establish which part of the frame is
+  // ocean. In particular, small closed islands alone must not flood that frame.
+  if (incompleteShore) return [];
   const polygons: Pt[][][] = [];
   for (const water of enclosedWater) polygons.push([water]);
   const unused = new Set(chains);
