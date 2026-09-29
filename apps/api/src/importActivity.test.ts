@@ -170,6 +170,24 @@ describe("importTrackFiles", { concurrency: 1 }, () => {
     });
   });
 
+  test("re-importing a legacy track repairs its route while keeping the activity id", async () => {
+    await withUser("repair", async (userId) => {
+      const file = textFile("broken.gpx", `<gpx><trk><name>Broken</name>
+        <trkseg><trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.001"/></trkseg>
+        <trkseg><trkpt lat="0" lon="0.101"/><trkpt lat="0" lon="0.1"/></trkseg>
+      </trk></gpx>`);
+      const first = await importTrackFiles(userId, [file]);
+      const id = first.activities[0].id;
+      await query("UPDATE activities SET route_breaks = NULL, distance = 999999 WHERE user_id = $1 AND id = $2", [userId, id]);
+      const repaired = await importTrackFiles(userId, [file]);
+      assert.equal(repaired.activities[0].id, id);
+      assert.ok(repaired.activities[0].distance < 300);
+      const rows = await query<{ route_breaks: string }>("SELECT route_breaks FROM activities WHERE user_id = $1 AND id = $2", [userId, id]);
+      assert.deepEqual(JSON.parse(rows[0].route_breaks), [2]);
+      assert.equal((await importTrackFiles(userId, [file])).skipped, 1);
+    });
+  });
+
   test("a deleted import does not give its id to the next file", async () => {
     await withUser("reuse", async (userId) => {
       const first = await importTrackFiles(userId, [textFile("first.gpx", gpx("First Loop", 53.54, -113.5))]);

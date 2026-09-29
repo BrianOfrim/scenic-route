@@ -148,6 +148,7 @@ async function migrate(client: SqlClient) {
       velocity TEXT,
       altitude TEXT,
       bbox TEXT,
+      route_breaks TEXT,
       segment_efforts TEXT,
       source TEXT NOT NULL DEFAULT 'gpx',
       imported INTEGER NOT NULL DEFAULT 1,
@@ -210,6 +211,7 @@ async function migrate(client: SqlClient) {
 
   await ensureActivitiesTenancy(client);
   await ensureColumn(client, "activities", "segment_efforts", "TEXT");
+  await ensureColumn(client, "activities", "route_breaks", "TEXT");
   await ensureColumn(client, "activities", "source", "TEXT NOT NULL DEFAULT 'gpx'");
   await client.query("ALTER TABLE activities ALTER COLUMN source SET DEFAULT 'gpx'");
   if (await ensureColumn(client, "activities", "imported", "INTEGER NOT NULL DEFAULT 0")) {

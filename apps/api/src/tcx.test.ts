@@ -128,3 +128,17 @@ test("gpxToActivityFields maps TCX biking to Ride", () => {
   assert.equal(fields.elapsedTime, 40);
   assert.ok(fields.elevationGain != null && fields.elevationGain > 6 && fields.elevationGain < 7);
 });
+
+test("TCX track boundaries preserve a real recording gap", () => {
+  const xml = `<TrainingCenterDatabase><Activities><Activity Sport="Running"><Lap>
+    <Track><Trackpoint><Position><LatitudeDegrees>49</LatitudeDegrees><LongitudeDegrees>-124</LongitudeDegrees></Position></Trackpoint>
+    <Trackpoint><Position><LatitudeDegrees>49.001</LatitudeDegrees><LongitudeDegrees>-124</LongitudeDegrees></Position></Trackpoint></Track>
+    <Track><Trackpoint><Position><LatitudeDegrees>50</LatitudeDegrees><LongitudeDegrees>-124</LongitudeDegrees></Position></Trackpoint>
+    <Trackpoint><Position><LatitudeDegrees>50.001</LatitudeDegrees><LongitudeDegrees>-124</LongitudeDegrees></Position></Trackpoint></Track>
+  </Lap></Activity></Activities></TrainingCenterDatabase>`;
+  const parsed = parseTcx(xml);
+  assert.equal(parsed.segments?.length, 2);
+  const fields = gpxToActivityFields(parsed, "gap.tcx");
+  assert.deepEqual(fields.routeBreaks, [2]);
+  assert.ok(fields.distance > 200 && fields.distance < 230);
+});

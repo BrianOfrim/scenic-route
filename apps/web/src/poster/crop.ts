@@ -36,6 +36,11 @@ export function sliceTrack(latlng: [number, number][], start: number, end: numbe
   return latlng.slice(lo, hi + 1);
 }
 
+export function sliceTrackBreaks(breaks: readonly number[], length: number, start: number, end: number): number[] {
+  const [lo, hi] = clampCrop(length, start, end);
+  return breaks.filter((index) => index > lo && index <= hi).map((index) => index - lo);
+}
+
 /** Same corridor the API uses when first picking landmarks. */
 export const LANDMARK_NEAR_ROUTE_M = DEFAULT_NEAR_ROUTE_M;
 export { BEACH_NEAR_ROUTE_M, TOWN_NEAR_ROUTE_M };
@@ -80,16 +85,18 @@ export function shiftRouteSpans(
   return shifted;
 }
 
-export function isClosedLoop(latlng: [number, number][]): boolean {
+export function isClosedLoop(latlng: [number, number][], breaks: readonly number[] = []): boolean {
   if (latlng.length < 2) return false;
+  if (breaks.length) return false;
   const closeM = Math.max(150, 0.02 * trackDistanceM(latlng));
   return haversineM(latlng[0], latlng[latlng.length - 1]) <= closeM;
 }
 
-export function trackDistanceM(latlng: [number, number][]): number {
+export function trackDistanceM(latlng: [number, number][], breaks: readonly number[] = []): number {
+  const starts = new Set(breaks);
   let total = 0;
   for (let i = 1; i < latlng.length; i += 1) {
-    total += haversineM(latlng[i - 1], latlng[i]);
+    if (!starts.has(i)) total += haversineM(latlng[i - 1], latlng[i]);
   }
   return total;
 }

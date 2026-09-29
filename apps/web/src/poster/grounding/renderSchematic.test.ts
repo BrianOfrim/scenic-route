@@ -10,6 +10,18 @@ test("geography catalogs agree and all geography is enabled for new posters", ()
   for (const item of geography) assert.ok(DEFAULT_FEATURE_IDS.includes(item.id));
 });
 
+test("a route break starts a new stroke even after track sampling", () => {
+  const moves: number[] = [];
+  const ctx = new Proxy({}, {
+    get: (_target, key) => key === "moveTo" ? (x: number) => { moves.push(x); } : () => {},
+    set: () => true,
+  }) as CanvasRenderingContext2D;
+  const latlng = Array.from({ length: 2002 }, (_, i) => [0, i < 1001 ? i / 1000 : 10 + (i - 1001) / 1000] as [number, number]);
+  drawSchematicScene(ctx, { latlng, routeBreaks: [1001], layers: { route: true, labels: false, routeMarkers: false } },
+    (lng, lat) => [lng, lat], { width: 100, height: 100, northArrow: false });
+  assert.deepEqual(moves, [0, 10]);
+});
+
 test("new land cover and shoreline layers render only while selected", () => {
   const ids = ["urban", "wetlands", "vegetation", "beaches", "coastline", "rock", "cliffs", "glaciers"];
   for (const id of ids) {

@@ -115,6 +115,7 @@ export type PosterContext = {
   };
   bbox: [[number, number], [number, number]];
   latlng: [number, number][];
+  routeBreaks: number[];
   stops: number[];
   ways: PosterWays;
   namedWays: NamedWay[];
@@ -366,6 +367,7 @@ export async function removeActivities(ids: number[]): Promise<{
 export async function fetchActivityTrack(id: number): Promise<{
   activity: ActivitySummary;
   latlng: [number, number][];
+  routeBreaks: number[];
   track: FeatureCollection<LineString>;
 }> {
   return readJson(await apiFetch(`/api/activities/${id}`));

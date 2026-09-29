@@ -59,7 +59,7 @@ const GEO_SCOPES: { id: GeoScope; label: string; hint: string }[] = [
   { id: "polygon", label: "Polygon", hint: "Click the map to add a corner. Drag a corner to move it. Right-click a corner to remove it." },
 ];
 
-import { clampCrop, isClosedLoop, isNearCroppedRoute, paddedBbox, schematicBbox, shiftRouteSpans, sliceTrack, snapIndex, snapRadius, trackDistanceM } from "./crop";
+import { clampCrop, isClosedLoop, isNearCroppedRoute, paddedBbox, schematicBbox, shiftRouteSpans, sliceTrack, sliceTrackBreaks, snapIndex, snapRadius, trackDistanceM } from "./crop";
 import {
   FEATURE_CATALOG,
   DEFAULT_FEATURE_IDS,
@@ -729,6 +729,7 @@ type Props = {
   features: FeatureOption[];
   onClose: () => void;
   onCropChange?: (crop: [number, number][] | null) => void;
+  onBreaksChange?: (breaks: number[]) => void;
   onStopsChange?: (stops: [number, number][]) => void;
   onPoisChange?: (pois: PosterPoi[]) => void;
   onNamedWaysChange?: (trails: NamedWay[]) => void;
@@ -772,6 +773,7 @@ export function PosterPanel({
   features,
   onClose,
   onCropChange,
+  onBreaksChange,
   onStopsChange,
   onPoisChange,
   onNamedWaysChange,
@@ -1059,6 +1061,9 @@ export function PosterPanel({
     if (!context?.latlng?.length) return [];
     return sliceTrack(context.latlng, cropStart, cropEnd);
   }, [context, cropStart, cropEnd]);
+  const croppedRouteBreaks = useMemo(() => context
+    ? sliceTrackBreaks(context.routeBreaks ?? [], context.latlng.length, cropStart, cropEnd) : [],
+  [context, cropStart, cropEnd]);
 
   const corridorMeters = useMemo(() => {
     const limits = context?.corridor;
@@ -1067,8 +1072,8 @@ export function PosterPanel({
     if (corridorOverride != null) return clamp(corridorOverride);
     const fullTrack = croppedLatLng.length === context.latlng.length;
     if (fullTrack) return clamp(limits.meters);
-    return clamp(defaultCorridorM(croppedLatLng, isClosedLoop(croppedLatLng)));
-  }, [context, corridorOverride, croppedLatLng]);
+    return clamp(defaultCorridorM(croppedLatLng, isClosedLoop(croppedLatLng, croppedRouteBreaks)));
+  }, [context, corridorOverride, croppedLatLng, croppedRouteBreaks]);
 
   const shapeRing = useMemo(() => {
     if (croppedLatLng.length < 2) return null;
@@ -1324,7 +1329,7 @@ export function PosterPanel({
   }, [satelliteMask, onGeoMaskChange]);
   const satelliteBbox = groundingBbox;
 
-  const loopRide = useMemo(() => isClosedLoop(croppedLatLng), [croppedLatLng]);
+  const loopRide = useMemo(() => isClosedLoop(croppedLatLng, croppedRouteBreaks), [croppedLatLng, croppedRouteBreaks]);
 
   const suggestedPlaces = useMemo(() => {
     if (croppedLatLng.length < 2) return { start: "", finish: "" };
@@ -1367,6 +1372,8 @@ export function PosterPanel({
   useEffect(() => {
     onCropChange?.(croppedLatLng.length >= 2 ? croppedLatLng : null);
   }, [croppedLatLng, onCropChange]);
+
+  useEffect(() => { onBreaksChange?.(croppedRouteBreaks); }, [croppedRouteBreaks, onBreaksChange]);
 
   useEffect(() => {
     onStopsChange?.(stopLatLng);
@@ -1567,12 +1574,13 @@ export function PosterPanel({
   useEffect(
     () => () => {
       onCropChange?.(null);
+      onBreaksChange?.([]);
       onStopsChange?.([]);
       onWaysChange?.(null);
       onSchematicLayersChange?.(null);
       onGeoMaskChange?.(null);
     },
-    [onCropChange, onStopsChange, onWaysChange, onSchematicLayersChange, onGeoMaskChange],
+    [onCropChange, onBreaksChange, onStopsChange, onWaysChange, onSchematicLayersChange, onGeoMaskChange],
   );
 
   useEffect(() => {
@@ -1586,6 +1594,7 @@ export function PosterPanel({
       setSchematicUrl(
         renderSchematicDataUrl({
           latlng: croppedLatLng,
+          routeBreaks: croppedRouteBreaks,
           bbox: groundingBbox,
           ways: visibleWays ?? undefined,
           pois: posterPois,
@@ -1601,7 +1610,7 @@ export function PosterPanel({
       performance.clearMeasures("schematic.render-and-png");
       performance.measure("schematic.render-and-png", { start: renderStart, end: performance.now() });
     }
-  }, [visibleWays, croppedLatLng, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
+  }, [visibleWays, croppedLatLng, croppedRouteBreaks, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
 
   useEffect(() => {
     if (croppedLatLng.length < 2 || !satelliteBbox || maxRefs < 2) {
@@ -1648,6 +1657,7 @@ export function PosterPanel({
     let cancelled = false;
     void renderMaskedSatellite(shot, {
       latlng: croppedLatLng,
+      routeBreaks: croppedRouteBreaks,
       routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
       mask: satelliteMask,
     })
@@ -1660,7 +1670,7 @@ export function PosterPanel({
     return () => {
       cancelled = true;
     };
-  }, [satelliteShot, satelliteMask, croppedLatLng, showRouteMarkers]);
+  }, [satelliteShot, satelliteMask, croppedLatLng, croppedRouteBreaks, showRouteMarkers]);
 
   useEffect(() => {
     const layers = groundingLayers(
@@ -1725,6 +1735,7 @@ export function PosterPanel({
       }
       return await renderMaskedSatellite(shot, {
         latlng: croppedLatLng,
+        routeBreaks: croppedRouteBreaks,
         routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng),
         mask: satelliteMask,
       });
@@ -1765,11 +1776,11 @@ export function PosterPanel({
         activity: {
           name: context.activity.name,
           sportType: context.activity.sportType,
-          isLoop: isClosedLoop(croppedLatLng),
+          isLoop: isClosedLoop(croppedLatLng, croppedRouteBreaks),
         },
         routeMarkers: {
           enabled: showRouteMarkers,
-          mode: isClosedLoop(croppedLatLng) ? "loop" as const : "start-finish" as const,
+          mode: isClosedLoop(croppedLatLng, croppedRouteBreaks) ? "loop" as const : "start-finish" as const,
           startName: startPlace.trim() || undefined,
           finishName: (samePlace ? startPlace : finishPlace).trim() || undefined,
         },
@@ -2319,7 +2330,7 @@ export function PosterPanel({
   const showEditor = context != null && cropActivityId.current === activityId;
   const featuresRefreshing = (loading || geographyPending) && showEditor;
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
-  const croppedKm = trackDistanceM(croppedLatLng);
+  const croppedKm = trackDistanceM(croppedLatLng, croppedRouteBreaks);
   const busy = planning || generating;
   const planDisabledHint = geographyError ? "Map detail could not load. Open Geography to retry." : !geographyScene ? "Preparing map detail…" : planning
     ? null
@@ -2741,7 +2752,7 @@ export function PosterPanel({
             </div>
             <p className="muted">
               {showRouteMarkers
-                ? isClosedLoop(croppedLatLng)
+                ? isClosedLoop(croppedLatLng, croppedRouteBreaks)
                   ? "Start and finish are the same place — one combined marker. "
                   : "Green start · black finish. "
                 : ""}

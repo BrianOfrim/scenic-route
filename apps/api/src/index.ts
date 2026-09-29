@@ -20,6 +20,7 @@ import {
   listSportTypes,
   toActivitySummary,
   parseLatLng,
+  parseNumberArray,
 } from "./activities";
 import { databaseUrlSource, initDb } from "./db";
 import { sealImportedIdFloors } from "./importedIds";
@@ -147,6 +148,7 @@ app.get("/api/activities/:id", async (c) => {
     activity: toActivitySummary(row),
     track: activityToFeatureCollection(row),
     latlng: row.latlng ? JSON.parse(row.latlng) : [],
+    routeBreaks: parseNumberArray(row.route_breaks ?? null),
   });
 });
 
