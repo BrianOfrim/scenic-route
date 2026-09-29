@@ -3,19 +3,20 @@ import path from "node:path";
 import { OSM_CACHE_DIR } from "../paths";
 import fs from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
-import type { FeatureCollection } from "geojson";
+import type { Feature, FeatureCollection } from "geojson";
 import type { BBox } from "../geo";
 import { FEATURE_CATALOG } from "./catalog";
 import { splitWays } from "./features";
 import { clipWaysToQueryFrame } from "./geoExtent";
-import { queryOverpass, unionQuery } from "./overpass";
-import { GEOGRAPHY_BUCKETS, geographyPolicy, geographySelectors, resolveGeographyScene, visibleGeographyIds, type GeographyMode, type GeographyWays, type GeographyScene } from "./geographyPolicy";
+import { emptyCollection, queryOverpass, unionQuery } from "./overpass";
+import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, geographyPolicy, geographySelectors, resolveGeographyScene, visibleGeographyIds, type GeographyMode, type GeographyWays, type GeographyScene } from "./geographyPolicy";
+import { isAreaFeature, waterClass } from "./waterClasses";
 
 export type { GeographyScene } from "./geographyPolicy";
 
 const assets = new Map<string, Promise<FeatureCollection>>();
-async function naturalEarth(bbox: BBox, zoom: number): Promise<GeographyWays> {
-  const entries = await Promise.all(["roads", "water", "waterways", "urban", "coastline", "ocean"].map(async bucket => {
+async function naturalEarth(bbox: BBox, zoom: number, buckets = ["roads", "water", "waterways", "urban", "coastline", "ocean", "land"]): Promise<GeographyWays> {
+  const entries = await Promise.all(buckets.map(async bucket => {
     let pending = assets.get(bucket);
     if (!pending) {
       pending = fs.readFile(new URL(`../../assets/geography/${bucket}.geojson.gz`, import.meta.url))
@@ -30,10 +31,41 @@ async function naturalEarth(bbox: BBox, zoom: number): Promise<GeographyWays> {
         && (bucket === "urban" || bucket === "coastline" || Number(feature.properties?.minZoom ?? 0) <= zoom + 1);
     }) }] as const;
   }));
-  const ways = Object.fromEntries(entries);
-  ways.water.features.push(...ways.ocean.features);
-  delete ways.ocean;
-  return ways;
+  return Object.fromEntries(entries);
+}
+
+/** River polygons are filled water, but belong to the Rivers control. */
+function separateRiverAreas(ways: GeographyWays): GeographyWays {
+  const riverAreas: Feature[] = [];
+  const separate = (key: "water" | "waterways") => {
+    const bucket = ways[key];
+    if (!bucket) return;
+    bucket.features = bucket.features.filter(feature => {
+      if (isAreaFeature(feature) && ["river", "stream", "canal"].includes(waterClass(feature))) {
+        riverAreas.push(feature);
+        return false;
+      }
+      return true;
+    });
+  };
+  separate("water");
+  separate("waterways");
+  return { ...ways, riverAreas: { type: "FeatureCollection", features: riverAreas } };
+}
+
+/** Keep clipped ocean areas separate from lakes and rivers. */
+function separateOceanAreas(ways: GeographyWays): GeographyWays {
+  const water = ways.water;
+  if (!water) return ways;
+  const ocean = ways.ocean ?? { type: "FeatureCollection" as const, features: [] };
+  water.features = water.features.filter(feature => {
+    if (feature.properties?.geographyClass === "ocean") {
+      ocean.features.push(feature);
+      return false;
+    }
+    return true;
+  });
+  return { ...ways, ocean };
 }
 
 /** Reject malformed/unbounded input before any network access or grid allocation. */
@@ -52,7 +84,7 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
   if (savedSceneId && /^[a-f0-9]{64}$/.test(savedSceneId)) {
     try {
       const saved = JSON.parse(await fs.readFile(path.join(sceneDir, `${savedSceneId}.json`), "utf8"));
-      if (saved.requestKey === requestKey) return { ...saved.scene, sceneId: savedSceneId };
+      if (saved.requestKey === requestKey && saved.scene?.policyVersion === GEOGRAPHY_VERSION) return { ...saved.scene, sceneId: savedSceneId };
     } catch { warnings.push("Saved map data is unavailable; geography has been refreshed."); }
   }
   const policy = geographyPolicy(bbox, aspect);
@@ -66,9 +98,9 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
   // Global budget is evaluated before Overpass constructs a tile grid.
   const latKm = (bbox[3] - bbox[1]) * 111.32;
   const lngKm = (bbox[2] - bbox[0]) * 111.32 * Math.cos(Math.min(Math.abs(bbox[1]), Math.abs(bbox[3])) * Math.PI / 180);
-  const tooManyTiles = Math.ceil(latKm / 35) * Math.ceil(lngKm / 35) > 8;
+  const tooManyTiles = Math.ceil(latKm / 35) * Math.ceil(lngKm / 35) > 32;
   const zoom = Math.log2(policy.width / (policy.x1 - policy.x0) / 512);
-  if (policy.profile === "regional" || policy.profile === "wide" || tooManyTiles) {
+  if (mode === "auto" && (policy.metersPerPixel >= 100 || tooManyTiles)) {
     source = "natural-earth";
     completeness = "generalized";
     ways = await naturalEarth(bbox, zoom);
@@ -76,21 +108,37 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
     const features = FEATURE_CATALOG.filter(f => f.group === "geography");
     const selectors = mode === "manual" ? features.flatMap(f => f.selectors) : geographySelectors(policy.profile);
     const previousWarnings = warnings.length;
-    const raw = await (options.query ?? queryOverpass)(unionQuery(selectors), bbox, warnings, "automatic geography", undefined, { maxTiles: 8, timeoutMs: 90_000, maxBytes: 48 * 1024 * 1024, queryTimeoutS: 25 });
+    let raw: FeatureCollection;
+    try {
+      raw = await (options.query ?? queryOverpass)(unionQuery(selectors), bbox, warnings,
+        mode === "manual" ? "manual geography" : "automatic geography", undefined,
+        { maxTiles: mode === "manual" ? 64 : 32, timeoutMs: 90_000, maxBytes: 48 * 1024 * 1024, queryTimeoutS: 25 });
+    } catch (error) {
+      warnings.push(`Overpass geography failed: ${error instanceof Error ? error.message : String(error)}`);
+      raw = emptyCollection();
+    }
     ways = splitWays(raw, features);
     if (warnings.length > previousWarnings) {
+      if (mode === "manual") throw new Error(`OpenStreetMap could not cover this poster frame: ${warnings.slice(previousWarnings).join("; ")}. Try a smaller frame or retry.`);
       source = "natural-earth";
       completeness = "fallback";
       ways = await naturalEarth(bbox, zoom);
       warnings.push("Detailed geography is unavailable. A generalized map is shown; small local features may be absent.");
     }
   }
+  // At regional OSM detail, a clipped collection of coastline ways can form a
+  // false ocean polygon covering the whole frame. Use explicit generalized
+  // land/ocean polygons as the base beneath the detailed OSM features instead.
+  const regionalOsmBase = mode === "auto" && source === "overpass" && policy.metersPerPixel >= 50;
+  if (regionalOsmBase) ways = { ...ways, ...await naturalEarth(bbox, zoom, ["land", "ocean"]) };
   // Full polygon clipping preserves lakes containing the entire frame.
-  const clipped = clipWaysToQueryFrame(ways, bbox, 0, source !== "natural-earth") as GeographyWays;
-  const resolved = mode === "auto" ? resolveGeographyScene(clipped, policy, options.route) : clipped;
+  const clipped = clipWaysToQueryFrame(ways, bbox, 0, source === "overpass" && policy.metersPerPixel < 50) as GeographyWays;
+  const separated = separateOceanAreas(separateRiverAreas(clipped));
+  const resolved = mode === "auto" ? resolveGeographyScene(separated, policy, options.route) : separated;
   const scene: GeographyScene = { bbox, ways: resolved, featureIds: visibleGeographyIds(resolved, Object.keys(GEOGRAPHY_BUCKETS)),
     policyVersion: policy.version, profile: policy.profile, metersPerPixel: policy.metersPerPixel,
-    source, sourceVersion: source === "natural-earth" ? "scenic-ne-1" : "osm-query-cache-7d",
+    source, sourceVersion: source === "natural-earth" ? "scenic-ne-2"
+      : regionalOsmBase ? "osm-query-cache-7d+scenic-ne-2-base" : "osm-query-cache-7d",
     completeness, warnings };
   const encoded = JSON.stringify({ requestKey, scene });
   const sceneId = createHash("sha256").update(encoded).digest("hex");

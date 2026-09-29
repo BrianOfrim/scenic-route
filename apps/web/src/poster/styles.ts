@@ -11,6 +11,11 @@ function titleFace(face: string) {
   return `${face}. ${TITLE_PHONE_CLAUSE}`;
 }
 
+/** Lettering for stats the rider actually chose. Not a request to invent them. */
+function suppliedStats(treatment: string) {
+  return `If title-block stats were supplied, set only those ${treatment}. If none were supplied, set no stats line. Do not add a date, distance, duration, elevation, season, sport, or any other word.`;
+}
+
 export type ColorMode = "identity" | "canonical" | "open";
 
 export type StylePalette = {
@@ -53,9 +58,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "swiss",
     label: "Swiss minimal",
     prompt:
-      "Swiss modernist map poster: hairline roads, a single accent route, generous negative space, no ornament, no texture beyond a faint paper tooth. Make the title the dominant graphic element: huge ultra-bold geometric grotesk sans serif, with tight but readable tracking, a single clean baseline, and a wide, confident wordmark. When the title block does not fill the available width, left-justify the title and its date, distance, and duration line; otherwise use the composition's natural balance. Set the date, distance, and duration in the same sans serif at a smaller regular weight with middle-dot separators. Preserve ample blank space around the type; crisp lettering only, with no decorative forms, serifs, outlines, shadows, or small timid title.",
+      `Swiss modernist map poster: hairline roads, a single accent route, generous negative space, no ornament, no texture beyond a faint paper tooth. Make the title the dominant graphic element: huge ultra-bold geometric grotesk sans serif, with tight but readable tracking, a single clean baseline, and a wide, confident wordmark. When the title block does not fill the available width, left-justify the title and any supplied stats; otherwise use the composition's natural balance. ${suppliedStats("in the same sans serif at a smaller regular weight with middle-dot separators")} Preserve ample blank space around the type; crisp lettering only, with no decorative forms, serifs, outlines, shadows, or small timid title.`,
     palette: ["off-white", "grey", "red"],
-    typography: titleFace("huge ultra-bold geometric grotesk title with smaller regular sans metadata"),
+    typography: titleFace("huge ultra-bold geometric grotesk title with smaller regular sans for supplied stats only"),
     colorMode: "canonical",
     palettes: [
       { id: "red", label: "Red", colors: ["off-white", "grey", "red"] },
@@ -111,9 +116,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "transit",
     label: "Transit diagram",
     prompt:
-      "Beck-style transit diagram: 45-degree and horizontal lines only, landmarks as named station dots, a bold route, and small sans-serif tags. Schematic, not geographic texture. Use a clean Swiss/neo-grotesk sans-serif system: set the title in a very large, ultra-bold, tightly tracked sans serif. Set the date, distance, and duration in the same typeface at a smaller semibold weight with middle-dot separators. Keep the title on one line; crisp, flat vector lettering only, with no hand lettering, serifs, outlines, shadows, or decorative effects.",
+      `Beck-style transit diagram: 45-degree and horizontal lines only, landmarks as named station dots, a bold route, and small sans-serif tags. Schematic, not geographic texture. Use a clean Swiss/neo-grotesk sans-serif system: set the title in a very large, ultra-bold, tightly tracked sans serif. ${suppliedStats("in the same typeface at a smaller semibold weight with middle-dot separators")} Keep the title on one line; crisp, flat vector lettering only, with no hand lettering, serifs, outlines, shadows, or decorative effects.`,
     palette: ["cream", "route-red", "navy"],
-    typography: titleFace("ultra-bold neo-grotesk header title with semibold sans metadata"),
+    typography: titleFace("ultra-bold neo-grotesk header title with semibold sans for supplied stats only"),
     colorMode: "canonical",
     palettes: [
       { id: "central-red", label: "Central red", colors: ["cream", "route-red", "navy"] },
@@ -203,9 +208,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "bauhaus",
     label: "Bauhaus",
     prompt:
-      "Bauhaus constructivist map poster in the manner of the Weimar and Dessau workshops: surrounding land and water reduced to flat circles, squares, and triangles on an asymmetric grid. Heavy rules and bars in the darkest ink structure the sheet. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a geometric sans built from circles and straight strokes, like Herbert Bayer's universal alphabet: large, single weight, tight tracking, lowercase, with the date, distance, and duration in the same face at a smaller size and middle-dot separators. Flat unmodulated ink only; no serifs, outlines, shadows, or hand lettering.",
+      `Bauhaus constructivist map poster in the manner of the Weimar and Dessau workshops: surrounding land and water reduced to flat circles, squares, and triangles on an asymmetric grid. Heavy rules and bars in the darkest ink structure the sheet. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a geometric sans built from circles and straight strokes, like Herbert Bayer's universal alphabet: large, single weight, tight tracking, lowercase. ${suppliedStats("in the same face at a smaller size with middle-dot separators")} Flat unmodulated ink only; no serifs, outlines, shadows, or hand lettering.`,
     palette: ["red", "yellow", "blue", "black", "white"],
-    typography: titleFace("lowercase geometric universal sans with smaller same-face metadata"),
+    typography: titleFace("lowercase geometric universal sans with smaller same-face supplied stats"),
     colorMode: "canonical",
     palettes: [
       { id: "primary", label: "Primary", colors: ["red", "yellow", "blue", "black", "white"] },
@@ -218,9 +223,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "modernist",
     label: "Modernist",
     prompt:
-      "Mid-century modern graphic poster, 1950s–60s, in the manner of Paul Rand and Saul Bass: surrounding land and water as flat overlapping silhouettes and cropped color shapes, asymmetric and playful, on an open paper ground. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a bold geometric sans at display size, mixed case, with open tracking, and the date, distance, and duration in the same face at a smaller weight with middle-dot separators. Flat ink only; no serifs, outlines, shadows, or hand lettering.",
+      `Mid-century modern graphic poster, 1950s–60s, in the manner of Paul Rand and Saul Bass: surrounding land and water as flat overlapping silhouettes and cropped color shapes, asymmetric and playful, on an open paper ground. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a bold geometric sans at display size, mixed case, with open tracking. ${suppliedStats("in the same face at a smaller weight with middle-dot separators")} Flat ink only; no serifs, outlines, shadows, or hand lettering.`,
     palette: ["mustard", "charcoal", "cream", "terracotta"],
-    typography: titleFace("bold mixed-case geometric sans display title with smaller same-face metadata"),
+    typography: titleFace("bold mixed-case geometric sans display title with smaller same-face supplied stats"),
     colorMode: "canonical",
     palettes: [
       { id: "studio", label: "Studio", colors: ["mustard", "charcoal", "cream", "terracotta"] },
@@ -233,9 +238,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "flat",
     label: "Flat",
     prompt:
-      "Flat vector map illustration: surrounding land and water as simple solid-filled shapes with no outlines. Uniform color regions, no gradients, no shadows, no texture. The route is one even stroke of uniform weight tracing the given path. Set the title in a clean geometric sans at a medium-bold weight, mixed case, with the date, distance, and duration in the same face at a smaller regular weight and middle-dot separators. Solid ink only.",
+      `Flat vector map illustration: surrounding land and water as simple solid-filled shapes with no outlines. Uniform color regions, no gradients, no shadows, no texture. The route is one even stroke of uniform weight tracing the given path. Set the title in a clean geometric sans at a medium-bold weight, mixed case. ${suppliedStats("in the same face at a smaller regular weight with middle-dot separators")} Solid ink only.`,
     palette: ["sky-blue", "leaf-green", "sand", "off-white"],
-    typography: titleFace("medium-bold geometric sans with smaller regular same-face metadata"),
+    typography: titleFace("medium-bold geometric sans with smaller regular same-face supplied stats"),
     colorMode: "canonical",
     palettes: [
       { id: "daylight", label: "Daylight", colors: ["sky-blue", "leaf-green", "sand", "off-white"] },
@@ -248,9 +253,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "psychedelic",
     label: "Psychedelic",
     prompt:
-      "1960s psychedelic concert poster in the manner of Wes Wilson and Victor Moscoso: land and water as liquid swirling contours and concentric waves, neighboring colors vibrating against each other, the map field packed with pattern. The route is one heavy undulating band of uniform weight tracing the given path, and it stays the strongest mark. Set the title in swollen, warped display lettering that still reads as words, with the date, distance, and duration in the same swelling face at a smaller size and middle-dot separators. Flat ink; no photographic texture and no quiet empty margin inside the map field.",
+      `1960s psychedelic concert poster in the manner of Wes Wilson and Victor Moscoso: land and water as liquid swirling contours and concentric waves, neighboring colors vibrating against each other, the map field packed with pattern. The route is one heavy undulating band of uniform weight tracing the given path, and it stays the strongest mark. Set the title in swollen, warped display lettering that still reads as words. ${suppliedStats("in the same swelling face at a smaller size with middle-dot separators")} Flat ink; no photographic texture and no quiet empty margin inside the map field.`,
     palette: ["hot-pink", "orange", "yellow", "purple"],
-    typography: titleFace("swollen warped display lettering with smaller same-face metadata"),
+    typography: titleFace("swollen warped display lettering with smaller same-face supplied stats"),
     colorMode: "canonical",
     palettes: [
       { id: "fillmore", label: "Fillmore", colors: ["hot-pink", "orange", "yellow", "purple"] },
@@ -263,9 +268,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "neobrutalism",
     label: "Neobrutalism",
     prompt:
-      "Neobrutalist graphic poster: every land shape, water shape, and label sits in a hard-edged block with a thick outline and a hard offset shadow in the darkest ink, shifted down and to the right, with no blur. Raw flat fills, clashing and unshaded. The route is one heavy outlined stroke of uniform weight tracing the given path. Set the title in a chunky grotesque, ultra-bold, tight tracking, with the date, distance, and duration in the same face at a smaller bold weight and middle-dot separators. No gradients, texture, soft shadows, or delicate linework.",
+      `Neobrutalist graphic poster: every land shape, water shape, and label sits in a hard-edged block with a thick outline and a hard offset shadow in the darkest ink, shifted down and to the right, with no blur. Raw flat fills, clashing and unshaded. The route is one heavy outlined stroke of uniform weight tracing the given path. Set the title in a chunky grotesque, ultra-bold, tight tracking. ${suppliedStats("in the same face at a smaller bold weight with middle-dot separators")} No gradients, texture, soft shadows, or delicate linework.`,
     palette: ["hot-pink", "yellow", "black", "off-white"],
-    typography: titleFace("ultra-bold chunky grotesque with smaller bold same-face metadata"),
+    typography: titleFace("ultra-bold chunky grotesque with smaller bold same-face supplied stats"),
     colorMode: "canonical",
     palettes: [
       { id: "sticker", label: "Sticker", colors: ["hot-pink", "yellow", "black", "off-white"] },
@@ -278,9 +283,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "minimalist",
     label: "Minimalist",
     prompt:
-      "Minimalist poster: an unprinted ground with nothing on it except the route and the title block. No roads, water, land cover, frames, compass, texture, or ornament. The route is one thin even line of uniform weight tracing the given path. Set the title in a light geometric grotesque, large, with open tracking and ample space around every letter, and the date, distance, and duration in the same face at a smaller regular weight with middle-dot separators.",
+      `Minimalist poster: an unprinted ground with nothing on it except the route and the title block. No roads, water, land cover, frames, compass, texture, or ornament. The route is one thin even line of uniform weight tracing the given path. Set the title in a light geometric grotesque, large, with open tracking and ample space around every letter. ${suppliedStats("in the same face at a smaller regular weight with middle-dot separators")}`,
     palette: ["off-white", "black"],
-    typography: titleFace("light geometric grotesque with smaller regular same-face metadata"),
+    typography: titleFace("light geometric grotesque with smaller regular same-face supplied stats"),
     colorMode: "canonical",
     palettes: [
       { id: "ink", label: "Ink", colors: ["off-white", "black"] },

@@ -1,7 +1,8 @@
 import type { Feature, FeatureCollection, Geometry, Position } from "geojson";
 import { mercX, mercY, type BBox } from "../geo";
+import { waterClass } from "./waterClasses";
 
-export const GEOGRAPHY_VERSION = 1;
+export const GEOGRAPHY_VERSION = 6;
 export type GeographyMode = "auto" | "manual";
 export type GeographyProfile = "local" | "district" | "regional" | "wide";
 export type GeographyPolicy = ReturnType<typeof geographyPolicy>;
@@ -12,7 +13,7 @@ export type GeographyScene = {
   ways: GeographyWays;
   featureIds: string[];
   policyVersion: number;
-  profile: string;
+  profile: GeographyProfile;
   metersPerPixel: number;
   source: "overpass" | "natural-earth";
   sourceVersion: string;
@@ -27,6 +28,26 @@ export const GEOGRAPHY_BUCKETS: Record<string, string> = {
   beaches: "beaches", coastline: "coastline", rock: "rock", cliffs: "cliffs",
   glaciers: "glaciers", urban: "urban", cemeteries: "cemeteries",
 };
+
+/** Explain what the policy can include, regardless of which features exist in a frame. */
+export function automaticGeographyAllowance(profile: GeographyProfile, source: GeographyScene["source"]) {
+  if (source === "natural-earth") return {
+    categories: ["generalized roads", "urban footprints", "lakes and reservoirs", "river networks", "coastline and ocean"],
+    detail: "Smaller features are omitted according to map scale and source detail.",
+  };
+  if (profile === "local") return {
+    categories: ["major and local roads", "paths and trails", "railways", "lakes, ponds and reservoirs",
+      "rivers, streams and canals", "forests and parks", "farmland and vegetation", "wetlands", "beaches",
+      "coastline", "rock and cliffs", "glaciers"],
+    detail: "Small areas must be legible, with an exception for features near the route.",
+  };
+  return {
+    categories: ["through roads and connecting streets", "railways", "lakes and reservoirs",
+      "large or route-near ponds", "rivers and canals", "route-near streams", "forests and larger parks",
+      "coastline", "glaciers"],
+    detail: "Minor streets are omitted; small areas may remain when they are near the route.",
+  };
+}
 
 /** Canonical poster pixels, independent of editor camera, device pixels and print DPI. */
 export function geographyPolicy(bbox: BBox, aspect = "3:4") {
@@ -63,7 +84,7 @@ export function geographySelectors(profile: GeographyProfile): string[] {
   return [
     `way[highway~"^(${roads})(_link)?$"]`,
     ...(local ? ['way[highway~"^(cycleway|track|footway|path|bridleway|pedestrian)$"][footway!=sidewalk][footway!=crossing][footway!=traffic_island][footway!=link]'] : []),
-    `way[waterway~"^(${local ? "river|stream|canal" : "river|canal"})$"]`,
+    'way[waterway~"^(river|stream|canal)$"]',
     'way[railway=rail]', 'way[natural=coastline]',
     ...['natural=water', 'landuse=reservoir', 'landuse=forest', 'natural=wood',
       'leisure=park', 'leisure=nature_reserve', 'natural=glacier',
@@ -149,6 +170,9 @@ export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPoli
     type: "FeatureCollection", features: bucket.features.flatMap((feature): Feature[] => {
       const g = feature.geometry;
       const tags = feature.properties?.tags ?? {};
+      const kind = (key === "water" || key === "waterways" || key === "riverAreas") ? waterClass(feature) : null;
+      if (key === "waterways" && kind === "stream" && policy.profile !== "local"
+        && !nearRoute(lines(g).flat(), 32)) return [];
       if (policy.profile !== "local" && (key === "paths" || (key === "streets" && /^(residential|service|living_street)$/.test(tags.highway ?? "")))) return [];
       if ((key === "streets" || key === "paths") && /^(service|residential|living_street|footway|path)$/.test(tags.highway ?? "")) {
         const vertices = lines(g).flat();
@@ -156,7 +180,11 @@ export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPoli
       }
       const keepPolygon = (p: Position[][]) => {
         const area = polygonArea(p, policy);
-        return area >= policy.minAreaPx || (area >= 3 && nearRoute(p[0], 16));
+        const minorWater = (key === "water" && (kind === "pond" || kind === "water"))
+          || (key === "riverAreas" && kind === "stream");
+        const minimum = minorWater && policy.profile !== "local"
+          ? Math.max(policy.minAreaPx, 96) : policy.minAreaPx;
+        return area >= minimum || (area >= 3 && nearRoute(p[0], 16));
       };
       if (g.type === "Polygon") return keepPolygon(g.coordinates) ? [feature] : [];
       if (g.type === "MultiPolygon") {
@@ -171,5 +199,7 @@ export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPoli
 }
 
 export function visibleGeographyIds(ways: GeographyWays, ids: readonly string[]) {
-  return ids.filter(id => (ways[GEOGRAPHY_BUCKETS[id]]?.features.length ?? 0) > 0);
+  return ids.filter(id => id === "rivers"
+    ? (ways.waterways?.features.length ?? 0) + (ways.riverAreas?.features.length ?? 0) > 0
+    : (ways[GEOGRAPHY_BUCKETS[id]]?.features.length ?? 0) > 0);
 }

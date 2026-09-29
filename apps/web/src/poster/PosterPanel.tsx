@@ -1,5 +1,5 @@
 import type { GeographyScene } from "../../../api/src/osm/geographyPolicy";
-import { GEOGRAPHY_BUCKETS, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
+import { GEOGRAPHY_BUCKETS, automaticGeographyAllowance, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
 import { beginGeneration, type GenerationTask } from "../gallery/generationState";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
@@ -687,10 +687,16 @@ function PosterSection({
   );
 }
 
-function sentRefsHint(maxRefs: number, hasSatellite: boolean, satellitePending: boolean) {
+function sentRefsHint(
+  maxRefs: number,
+  hasSatellite: boolean,
+  satellitePending: boolean,
+  satelliteFailed = false,
+) {
   const parts = ["schematic"];
   if (maxRefs >= 2) {
     if (hasSatellite) parts.push("satellite");
+    else if (satelliteFailed) parts.push("satellite (unavailable)");
     else if (satellitePending) parts.push("satellite (loading)");
   }
   if (parts.length === 1) return "1 schematic reference will be sent. Click the preview to enlarge.";
@@ -870,6 +876,7 @@ export function PosterPanel({
   const variants = DEFAULT_VARIANTS;
   const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
   const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
+  const [satelliteFailed, setSatelliteFailed] = useState(false);
   const [satelliteShot, setSatelliteShot] = useState<SatelliteFrame | null>(null);
   const satelliteShotRef = useRef<SatelliteFrame | null>(null);
   const [, setModelRefs] = useState<ModelRef[]>([]);
@@ -1255,6 +1262,7 @@ export function PosterPanel({
   }, [croppedLatLng, posterPois, posterWays, posterAreas, displayBbox, landmarkNearM]);
   const geographyFrameKey = groundingBbox ? JSON.stringify([activityId, groundingBbox.flat().map(n => Number(n.toFixed(7))), aspectRatio, geographyMode]) : "";
   const geographyScene = geographyResult?.key === geographyFrameKey ? geographyResult.scene : null;
+  const geographyAllowance = geographyScene ? automaticGeographyAllowance(geographyScene.profile, geographyScene.source) : null;
   const geographyPending = Boolean(geographyFrameKey && !geographyScene && !geographyError);
   useEffect(() => {
     if (!geographyFrameKey) return;
@@ -1598,10 +1606,12 @@ export function PosterPanel({
       satelliteShotRef.current = null;
       setSatelliteShot(null);
       setSatelliteUrl(null);
+      setSatelliteFailed(false);
       return;
     }
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
+      setSatelliteFailed(false);
       void snapshotTiles(
         {
           source: "satellite",
@@ -1614,12 +1624,14 @@ export function PosterPanel({
           if (controller.signal.aborted) return;
           satelliteShotRef.current = shot;
           setSatelliteShot(shot);
+          setSatelliteFailed(false);
         })
         .catch((err: unknown) => {
           if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
           satelliteShotRef.current = null;
           setSatelliteShot(null);
           setSatelliteUrl(null);
+          setSatelliteFailed(true);
         });
     }, SATELLITE_SNAPSHOT_DELAY_MS);
     return () => {
@@ -2740,7 +2752,10 @@ export function PosterPanel({
             className={workflowPane("geography")}
             hint={featuresRefreshing ? <FeatureQueryHint label="Preparing map detail…" /> : undefined}
           >
-            <p className="muted">{geographyMode === "auto" ? "Map detail adjusts automatically to the area shown on your poster." : "Choose which available layers appear on your poster."}</p>
+            <p className="muted">{geographyMode === "auto" ? <>
+              Map detail adjusts automatically to the area shown on your poster.
+              {geographyScene && <> Scale: <strong>{geographyScene.profile.charAt(0).toUpperCase() + geographyScene.profile.slice(1)}</strong>.</>}
+            </> : "Choose which available layers appear on your poster."}</p>
             {geographyScene?.source === "natural-earth" && <p className="muted">A generalized map shows major roads, water and urban footprints. Small local features may be absent.</p>}
             {geographyPending && <p role="status" className="muted">Preparing map detail…</p>}
             {geographyError && <p role="alert">{geographyError} <button type="button" className="text-btn" onClick={() => setGeographyRetry(n => n + 1)}>Retry</button></p>}
@@ -2749,21 +2764,26 @@ export function PosterPanel({
               <summary>Advanced geography</summary>
               <label className="check"><input type="checkbox" checked={geographyMode === "auto"} onChange={event => setGeographyMode(event.target.checked ? "auto" : "manual")} />Choose map detail automatically</label>
               {geographyMode === "manual" && <button type="button" className="text-btn" onClick={() => setGeographyMode("auto")}>Reset to automatic</button>}
-            <div className="poster-geo-grid">
-              {catalog
-                .filter((item) => item.group === "geography")
-                .map((item) => (
-                  <label key={item.id} className="check">
-                    <input
-                      type="checkbox"
-                      checked={geographyMode === "auto" ? resolvedFeatureIds.includes(item.id) : featureIds.includes(item.id)}
-                      disabled={geographyMode === "auto"}
-                      onChange={() => toggleFeature(item.id)}
-                    />
-                    {item.label}
-                  </label>
-                ))}
-            </div>
+              {geographyMode === "auto" ? (
+                geographyAllowance && <p className="muted" role="status">
+                  This filter allows: {geographyAllowance.categories.join(", ")}. {geographyAllowance.detail}
+                </p>
+              ) : (
+                <div className="poster-geo-grid">
+                  {catalog
+                    .filter((item) => item.group === "geography")
+                    .map((item) => (
+                      <label key={item.id} className="check">
+                        <input
+                          type="checkbox"
+                          checked={featureIds.includes(item.id)}
+                          onChange={() => toggleFeature(item.id)}
+                        />
+                        {item.label}
+                      </label>
+                    ))}
+                </div>
+              )}
             </details>
             <label className="poster-field">
               Extent
@@ -3380,7 +3400,8 @@ export function PosterPanel({
                 {sentRefsHint(
                   maxRefs,
                   Boolean(satelliteUrl),
-                  maxRefs >= 2 && Boolean(schematicUrl) && !satelliteUrl,
+                  maxRefs >= 2 && Boolean(schematicUrl) && !satelliteUrl && !satelliteFailed,
+                  satelliteFailed,
                 )}
               </p>
               {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}

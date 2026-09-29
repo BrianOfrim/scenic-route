@@ -22,6 +22,7 @@ import {
   parseLatLng,
 } from "./activities";
 import { databaseUrlSource, initDb } from "./db";
+import { sealImportedIdFloors } from "./importedIds";
 import { purgeLegacyApiData } from "./fileFirstMigration";
 import { ImportError } from "./gpx";
 import { sniffImageMime } from "./imageMime";
@@ -375,6 +376,7 @@ function fail(c: Context, error: unknown) {
 
 try {
   await initDb();
+  await sealImportedIdFloors();
   const purge = await purgeLegacyApiData();
   if (purge.activities || purge.posters || purge.traces) {
     console.log(

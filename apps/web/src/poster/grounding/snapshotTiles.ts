@@ -16,6 +16,8 @@ export type SatelliteFrame = MapFrame & {
   scale: number;
 };
 
+const TILE_SETTLE_TIMEOUT_MS = 45_000;
+
 export async function snapshotTiles(
   options: {
     source: TileSource;
@@ -26,6 +28,8 @@ export async function snapshotTiles(
 ): Promise<SatelliteFrame> {
   if (signal?.aborted) throw abortError();
   const { width, height } = canvasSize(options.aspectRatio);
+  const fitted = fittedFrame(options.bbox, width, height);
+  const camera = cameraForFrame({ width, height, nw: fitted.nw, se: fitted.se });
   const container = document.createElement("div");
   container.style.cssText = `position:fixed;left:-10000px;top:0;width:${width}px;height:${height}px;`;
   document.body.appendChild(container);
@@ -42,6 +46,11 @@ export async function snapshotTiles(
   try {
     map = new Map({
       container,
+      center: camera.center,
+      zoom: camera.zoom,
+      maxZoom: Math.max(22, camera.zoom),
+      bearing: 0,
+      pitch: 0,
       style: {
         version: 8,
         sources: {
@@ -64,20 +73,12 @@ export async function snapshotTiles(
       fadeDuration: 0,
     });
     if (signal?.aborted) throw abortError();
-    await waitFor(map, "load", 12_000, signal);
     map.resize();
-    const frame = fittedFrame(options.bbox, width, height);
-    const camera = cameraForFrame({ width, height, nw: frame.nw, se: frame.se });
-    if (camera.zoom > map.getMaxZoom()) map.setMaxZoom(camera.zoom);
-    map.jumpTo({
-      center: camera.center,
-      zoom: camera.zoom,
-      bearing: 0,
-      pitch: 0,
-      padding: { top: 0, bottom: 0, left: 0, right: 0 },
-    });
-    await waitFor(map, "idle", 12_000, signal);
+    // Low-zoom placeholders stay on screen until every target tile has arrived.
+    // Capturing on a timer saves that blur with only the tiles that won the race.
+    await waitForSettledTiles(map, TILE_SETTLE_TIMEOUT_MS, signal);
     if (signal?.aborted) throw abortError();
+    map.redraw();
     return captureFrame(map, options.source);
   } finally {
     dispose();
@@ -172,34 +173,39 @@ function abortError() {
   return new DOMException("Satellite snapshot aborted", "AbortError");
 }
 
-function waitFor(map: Map, event: "load" | "idle", timeoutMs = 12_000, signal?: AbortSignal) {
+function waitForSettledTiles(map: Map, timeoutMs: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
       reject(abortError());
       return;
     }
-    if (event === "load" && map.loaded()) {
-      resolve();
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      cleanup();
-      resolve();
-    }, timeoutMs);
-    const onEvent = () => {
-      cleanup();
-      resolve();
-    };
-    const onAbort = () => {
-      cleanup();
-      reject(abortError());
-    };
-    const cleanup = () => {
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
       window.clearTimeout(timer);
-      map.off(event, onEvent);
+      map.off("idle", onIdle);
       signal?.removeEventListener("abort", onAbort);
+      if (error) reject(error);
+      else resolve();
     };
+    const onIdle = () => {
+      try {
+        if (map.areTilesLoaded()) finish();
+      } catch (error) {
+        finish(error);
+      }
+    };
+    const onAbort = () => finish(abortError());
+    const timer = window.setTimeout(() => {
+      finish(new Error("Satellite imagery did not finish loading"));
+    }, timeoutMs);
     signal?.addEventListener("abort", onAbort);
-    map.once(event, onEvent);
+    map.on("idle", onIdle);
+    try {
+      if (map.loaded() && map.areTilesLoaded()) finish();
+    } catch (error) {
+      finish(error);
+    }
   });
 }

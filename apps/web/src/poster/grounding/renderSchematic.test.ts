@@ -67,6 +67,7 @@ test("a custom polygon clips background geography and leaves the route outside t
 test("retained lakes and rivers can each be hidden independently", () => {
   const ways = {
     water: { features: [{ geometry: { type: "Polygon" as const, coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } }] },
+    riverAreas: { features: [{ geometry: { type: "Polygon" as const, coordinates: [[[1, 0], [2, 0], [2, 1], [1, 0]]] } }] },
     waterways: { features: [{ geometry: { type: "LineString" as const, coordinates: [[0, 0], [1, 1]] } }] },
   };
   for (const ids of [[], ["lakes"], ["rivers"], ["lakes", "rivers"]]) {
@@ -80,7 +81,7 @@ test("retained lakes and rivers can each be hidden independently", () => {
       latlng: [], ways,
       layers: { ...schematicLayersFromFeatureIds(ids, false), labels: false },
     }, (lng, lat) => [lng, lat], { width: 100, height: 100 });
-    assert.equal(fills, ids.includes("lakes") ? 1 : 0);
+    assert.equal(fills, Number(ids.includes("lakes")) + Number(ids.includes("rivers")));
     assert.equal(strokes, ids.includes("rivers") ? 1 : 0);
   }
 });

@@ -4,16 +4,27 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Feature, FeatureCollection } from "geojson";
-import { geographyPolicy, geographySelectors, resolveGeographyScene } from "./geographyPolicy";
+import { automaticGeographyAllowance, geographyPolicy, geographySelectors, resolveGeographyScene } from "./geographyPolicy";
 import { loadGeography, parseGeographyBbox } from "./geography";
 import { queryOverpass } from "./overpass";
 import type { BBox } from "../geo";
+import { waterClass } from "./waterClasses";
 
 const city: BBox = [-113.52, 53.51, -113.47, 53.54];
 const country: BBox = [-125, 44, -65, 56];
 const collection = (features: Feature[]): FeatureCollection => ({ type: "FeatureCollection", features });
 const square = (x: number, y: number, d: number): Feature => ({ type: "Feature", properties: {},
   geometry: { type: "Polygon", coordinates: [[[x,y],[x+d,y],[x+d,y+d],[x,y+d],[x,y]]] } });
+
+test("OSM and bundled water sources retain subtype identity", () => {
+  const tagged = (tags: Record<string, string>): Feature => ({ ...square(0, 0, .01), properties: { tags } });
+  assert.equal(waterClass(tagged({ natural: "water", water: "reservoir" })), "reservoir");
+  assert.equal(waterClass(tagged({ landuse: "reservoir" })), "reservoir");
+  assert.equal(waterClass(tagged({ natural: "water", water: "river" })), "river");
+  assert.equal(waterClass(tagged({ natural: "water" })), "water");
+  assert.equal(waterClass({ ...square(0, 0, .01), properties: { id: "ne/ocean/1" } }), "ocean");
+  assert.equal(waterClass({ ...square(0, 0, .01), properties: { id: "ne/lakes/1" } }), "lake");
+});
 
 test("scale follows frame and aspect, with distinct local through continental profiles", () => {
   assert.equal(geographyPolicy(city).profile, "local");
@@ -23,7 +34,20 @@ test("scale follows frame and aspect, with distinct local through continental pr
   assert.notEqual(geographyPolicy([-114,53,-113,53.1], "3:4").metersPerPixel,
     geographyPolicy([-114,53,-113,53.1], "16:9").metersPerPixel);
   assert.match(geographySelectors("local").join(), /residential/);
-  assert.doesNotMatch(geographySelectors("district").join(), /residential|service|footway|stream/);
+  assert.doesNotMatch(geographySelectors("district").join(), /residential|service|footway/);
+  assert.match(geographySelectors("district").join(), /stream/);
+});
+
+test("automatic summary describes allowed classes independently of data present", () => {
+  const local = automaticGeographyAllowance("local", "overpass");
+  const district = automaticGeographyAllowance("district", "overpass");
+  const wide = automaticGeographyAllowance("wide", "natural-earth");
+  assert.match(local.categories.join(), /paths and trails|ponds|streams/);
+  assert.match(district.categories.join(), /route-near streams|large or route-near ponds/);
+  assert.doesNotMatch(district.categories.join(), /paths and trails|farmland/);
+  assert.match(wide.categories.join(), /urban footprints|coastline and ocean/);
+  assert.doesNotMatch(wide.categories.join(), /ponds|streams|parks/);
+  assert.deepEqual(automaticGeographyAllowance("local", "natural-earth"), wide);
 });
 
 test("pixel-size selection protects legible route-adjacent ponds and preserves polygon holes", () => {
@@ -36,6 +60,31 @@ test("pixel-size selection protects legible route-adjacent ponds and preserves p
   const nearby = resolveGeographyScene(ways, policy, [[.002,.002]]);
   assert.equal(nearby.water.features.length, 2);
   assert.deepEqual(nearby.water.features[1].geometry, large.geometry);
+});
+
+test("district water keeps lakes and route-adjacent ponds, while suppressing distant ponds and streams", () => {
+  const policy = geographyPolicy([0, 0, .25, .25], "1:1");
+  assert.equal(policy.profile, "district");
+  const pond = (x: number): Feature => ({ ...square(x, .1, .0008), properties: { tags: { natural: "water", water: "pond" } } });
+  const lake: Feature = { ...square(.18, .1, .01), properties: { tags: { natural: "water", water: "lake" } } };
+  const stream = (x: number): Feature => ({ type: "Feature", properties: { tags: { waterway: "stream" } },
+    geometry: { type: "LineString", coordinates: [[x, .04], [x, .1], [x, .2]] } });
+  const result = resolveGeographyScene({ water: collection([pond(.03), pond(.08), lake]),
+    waterways: collection([stream(.03), stream(.08)]) }, policy, [[.1, .03]]);
+  assert.equal(result.water.features.length, 2);
+  assert.equal(result.waterways.features.length, 1);
+});
+
+test("river polygons are assigned to Rivers without adding an editor category", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geography-test-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const river = { ...square(-113.5, 53.52, .005), properties: { tags: { natural: "water", water: "river" } } };
+  const scene = await loadGeography(city, "3:4", "auto", undefined, { sceneDir: dir,
+    query: async () => collection([river]) });
+  assert.equal(scene.ways.riverAreas.features.length, 1);
+  assert.equal(scene.ways.water.features.length, 0);
+  assert.ok(scene.featureIds.includes("rivers"));
+  assert.ok(!scene.featureIds.includes("lakes"));
 });
 
 test("line generalization preserves shared junctions and short main-road segments", () => {
@@ -57,6 +106,48 @@ test("wide scenes use bundled assets without network and reproduce saved geometr
   for (const bucket of ["water", "waterways", "roads", "urban"]) assert.ok(scene.ways[bucket].features.length > 0, bucket);
   assert.ok(scene.sceneId);
   assert.deepEqual(await loadGeography(country, "3:4", "auto", scene.sceneId, options), scene);
+});
+
+test("regional OSM scenes use explicit land and ocean beneath detailed features", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geography-test-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const westCoastFrame: BBox = [-125.1692, 48.3175, -124.3707, 49.0204];
+  const coast: Feature = { type: "Feature", properties: { tags: { natural: "coastline" } },
+    geometry: { type: "LineString", coordinates: [[-125.2, 48.7], [-124.3, 48.7]] } };
+  const scene = await loadGeography(westCoastFrame, "3:4", "auto", undefined, { sceneDir: dir,
+    query: async () => collection([coast]) });
+  assert.equal(scene.profile, "regional");
+  assert.equal(scene.source, "overpass");
+  assert.ok(scene.ways.land.features.length > 0);
+  assert.ok(scene.ways.ocean.features.length > 0);
+  assert.ok(scene.ways.ocean.features.every(feature => String(feature.properties?.id).startsWith("ne/ocean/")),
+    "fragmented OSM coastlines must not turn the whole frame into synthetic ocean");
+  assert.ok(scene.ways.coastline.features.length > 0);
+});
+
+test("manual mode requests Overpass even for a wide frame and does not generalize its features", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geography-test-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  let calls = 0;
+  const scene = await loadGeography(country, "3:4", "manual", undefined, { sceneDir: dir,
+    query: async (query, _bbox, _warnings, _label, _post, budget) => {
+      calls++;
+      assert.match(query, /residential|footway|wetland/);
+      assert.equal(budget?.maxTiles, 64);
+      return collection([{ ...square(-110, 50, .0001), properties: { tags: { natural: "water", water: "pond" } } }]);
+    } });
+  assert.equal(calls, 1);
+  assert.equal(scene.source, "overpass");
+  assert.equal(scene.completeness, "complete");
+  assert.equal(scene.ways.water.features.length, 1, "manual mode does not apply the auto area threshold");
+});
+
+test("manual mode reports Overpass limits and failures without substituting bundled data", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geography-test-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await assert.rejects(loadGeography(country, "3:4", "manual", undefined, { sceneDir: dir }), /OpenStreetMap.*tile budget/);
+  await assert.rejects(loadGeography(city, "3:4", "manual", undefined, { sceneDir: dir,
+    query: async () => { throw new Error("simulated outage"); } }), /OpenStreetMap.*simulated outage/);
 });
 
 test("cropping a wide route to a city retrieves local classes; failures report a generalized fallback", async t => {

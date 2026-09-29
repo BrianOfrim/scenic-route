@@ -1,6 +1,6 @@
 {
   "provider": "natural-earth",
-  "version": "scenic-ne-1",
+  "version": "scenic-ne-2",
   "license": "Public domain",
   "licenseUrl": "https://www.naturalearthdata.com/about/terms-of-use/",
   "layers": {
@@ -57,6 +57,15 @@
       "sha256": "bfa04cdbcbef07ef90dfca1dabb48062eca29900a113df0f389303e255484017",
       "assetSha256": "389061d73b424bfd36a8610029e7ff17cc91726b1583331eea72d27ab1124f49",
       "features": 4133
+    },
+    "land": {
+      "url": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_land.zip",
+      "sourceVersion": [
+        "5.1.1"
+      ],
+      "sha256": "e547d749445eaa0964aba76738090ec88f5e63c4585122170f98c67a7ea922dc",
+      "assetSha256": "8f3a21bee642883b2f287a10629b8fa6e1307d848f49a5241ec3ea3e60ec60a7",
+      "features": 11
     }
   }
 }

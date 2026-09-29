@@ -1,7 +1,7 @@
 """Build pinned public-domain scenery assets from Natural Earth source ZIPs.
 
 Usage: python3 scripts/prepare-geography.py /tmp/scenic-ne-
-Requires pyshp and shapely. ZIP suffixes: roads, lakes, rivers, urban, coast, ocean.
+Requires pyshp and shapely. ZIP suffixes: roads, lakes, rivers, urban, coast, ocean, land.
 Source URLs, archive hashes and source versions are written into manifest.json.
 """
 import gzip
@@ -24,8 +24,9 @@ sources = {
     "urban": ("urban", "10m_cultural/ne_10m_urban_areas.zip"),
     "ocean": ("ocean", "10m_physical/ne_10m_ocean.zip"),
     "coast": ("coastline", "10m_physical/ne_10m_coastline.zip"),
+    "land": ("land", "10m_physical/ne_10m_land.zip"),
 }
-manifest = {"provider": "natural-earth", "version": "scenic-ne-1", "license": "Public domain",
+manifest = {"provider": "natural-earth", "version": "scenic-ne-2", "license": "Public domain",
             "licenseUrl": "https://www.naturalearthdata.com/about/terms-of-use/", "layers": {}}
 for key, (bucket, source) in sources.items():
     data = Path(sys.argv[1] + key + ".zip").read_bytes()

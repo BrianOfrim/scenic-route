@@ -17,6 +17,8 @@ const M_PER_DEG = 111_320;
 
 const AREA_BUCKETS = new Set([
   "water",
+  "ocean",
+  "riverAreas",
   "parks",
   "forest",
   "farmland",
@@ -430,7 +432,7 @@ function coastlineWaterFeatures(features: ExtentFeature[], ring: LngLat[]): Exte
   return polygons.flatMap((polygon) => {
     const coordinates = normalizeWinding(polygon.map((pts) => pts.map((point) => unproject(point, lat0))), lat0);
     if (coordinates[0].length < 4) return [];
-    return [{ type: "Feature", geometry: { type: "Polygon", coordinates }, properties: { tags: { natural: "water" } } }];
+    return [{ type: "Feature", geometry: { type: "Polygon", coordinates }, properties: { tags: { natural: "water" }, geographyClass: "ocean" } }];
   });
 }
 

@@ -10,13 +10,16 @@ as schematic rendering; parity tests cover every aspect and high latitudes.
 - Below 10 ground meters per logical pixel: local roads, streets, paths, water,
   parks, forest, and other useful ground cover.
 - 10–50 m/px: through roads, rivers/canals, larger water and green spaces.
-- 50–250 m/px: generalized regional scenery.
+- 50–250 m/px: regional scenery.
 - Above 250 m/px: generalized continental scenery.
 
-Local and district retrieval uses class-specific Overpass selectors. Regional and
-wide retrieval uses the bundled `scenic-ne-1` Natural Earth provider. A local frame
-requiring more than eight query tiles also uses the generalized provider. Budget
-exhaustion or source failures produce an explicit fallback warning.
+Automatic retrieval uses class-specific Overpass selectors below 100 m/px, including
+regional frames from 50–100 m/px. Those regional OSM scenes use bundled Natural
+Earth land and ocean polygons as a base, because clipped OSM coastline fragments
+cannot reliably define which side is water. At 100 m/px and above, the whole scene
+uses the bundled `scenic-ne-2` Natural Earth provider. A frame requiring more than
+32 query tiles also uses the generalized provider. Budget exhaustion or source
+failures produce an explicit fallback warning.
 
 Geometry is clipped to the aspect-fitted frame, then filtered by visible polygon
 area. Ordinary areas need 12 pixels² locally or 24 pixels² at other scales. Areas
@@ -25,6 +28,22 @@ the route are suppressed. Lines use 0.65-pixel simplification with shared juncti
 vertices protected. Major roads and rivers are not discarded based on the length
 of individual OSM ways. Polygon rings and holes are retained; the bundled data is
 topologically simplified during preprocessing.
+
+## Policy version 2: water detail
+
+The Water and Rivers controls remain simple. Internally, OSM water tags distinguish
+rivers, streams, canals, lakes, ponds and reservoirs. Natural Earth distinguishes
+generalized land and ocean polygons, lakes, river centerlines and coastlines. Land
+is tinted only inside explicit generalized land polygons; blank areas are not
+assumed to be land. River polygons belong to
+Rivers and remain filled. At district scale, streams are retained near the route;
+distant streams and small ponds are suppressed. A pond near the route can survive
+down to three logical pixels². Larger lakes, reservoirs, river areas and the ocean
+remain available subject to the existing area and source-ranking rules. Missing
+OSM subtype tags are treated as generic water and filtered by visible size.
+
+Saved version 1 scenes refresh under this policy; unchanged historical posters
+still use their saved image and editor settings.
 
 The region/continent provider intentionally has fewer feature categories than
 local OSM. It does not supply forests, parks, or field parcels, and its historical
@@ -51,22 +70,28 @@ Keep this directory on persistent storage if exact regeneration matters. If a sa
 scene has been removed, the API refreshes it and reports that fact. Legacy snapshots
 without a scene ID preserve selections but cannot reproduce historical upstream data.
 
-Advanced geography allows manual layers and Reset to automatic. Manual mode preserves
-all fetched features, while retaining retrieval safety limits. At wide scales its
-available categories are still those in the generalized provider.
+Advanced geography allows manual layers and Reset to automatic. Manual mode always
+queries Overpass for the poster frame, including Regional and Wide scales. It
+preserves all fetched features, while retaining a 64-tile, 90-second and 48 MiB
+request budget. When the frame exceeds that budget or Overpass fails, the editor
+shows an error and asks for a smaller frame or retry; it does not substitute
+Natural Earth. Previously saved manual scenes from older policy versions refresh.
+In automatic mode the read-only summary describes the classes allowed by the current
+scale policy and source, even when no matching feature exists in the poster frame.
+Editable checkboxes appear only after switching to manual.
 
 ## Resource limits
 
-Automatic Overpass queries permit at most eight tiles, 48 MiB of cumulative response
+Automatic Overpass queries permit at most 32 tiles, 48 MiB of cumulative response
 data, and a 90-second response deadline, with 25-second server query timeouts. Individual
 responses are capped at 32 MiB. One shared queue limits actual network requests to two
 across all query groups. Broad annotation searches are skipped beyond a 100 km route
 diagonal; specific place search and custom annotations remain available. Generic legacy
 queries have a 256-tile allocation guard. They do not use the automatic scene budget.
 
-The bundled scene provider is finite and offline, but loads approximately 29 MiB of
-compressed assets into server memory on first use. Cache its decoded geometry for the
-life of the process. Asset licenses and provenance are in the asset directory.
+The bundled scene provider is finite and offline. Its compressed assets total about
+33 MB; the API decodes and caches geometry in server memory on first use. Asset
+licenses and provenance are in the asset directory.
 
 ## Verification and remaining calibration
 
