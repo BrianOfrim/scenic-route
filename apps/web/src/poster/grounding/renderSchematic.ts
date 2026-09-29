@@ -230,7 +230,8 @@ export function drawSchematicScene(
     if (layers.parks !== false) fillBucket(ctx, ways.parks, project, "rgba(164, 196, 148, 0.5)");
     if (layers.forest !== false) fillBucket(ctx, ways.forest, project, "rgba(176, 201, 156, 0.55)");
     if (layers.water !== false || layers.coastline !== false) {
-      fillBucket(ctx, ways.ocean, project, "rgba(154, 196, 214, 0.7)");
+      // Ocean must cover offshore parks and land-cover polygons completely.
+      fillBucket(ctx, ways.ocean, project, "#b7d2db");
       fillBucket(ctx, ways.water, project, "rgba(154, 196, 214, 0.7)");
     }
     if ((layers.waterways ?? layers.water) !== false) {

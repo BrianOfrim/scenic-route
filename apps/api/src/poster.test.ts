@@ -87,9 +87,13 @@ test("sanitizePosterEditor defaults paletteId to auto", () => {
 });
 
 test("saved geography mode and scene identity are validated", () => {
-  const editor = sanitizePosterEditor({ geographyMode: "auto", geographyPolicyVersion: 1,
+  const editor = sanitizePosterEditor({ geographyMode: "auto", routeDetail: false, geographyPolicyVersion: 1,
     geographySceneId: "a".repeat(64), geographyFrameKey: "frame", featureIds: [] });
   assert.equal(editor?.geographyMode, "auto");
+  assert.equal(editor?.routeDetail, false);
+  assert.equal(editor?.detailScope, "none");
+  assert.equal(sanitizePosterEditor({ detailScope: "all" })?.detailScope, "all");
+  assert.equal(sanitizePosterEditor({})?.routeDetail, true);
   assert.equal(editor?.geographySceneId, "a".repeat(64));
   assert.deepEqual(editor?.featureIds, []);
   assert.equal(sanitizePosterEditor({})?.geographyMode, "manual");

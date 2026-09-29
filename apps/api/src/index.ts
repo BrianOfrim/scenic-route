@@ -182,7 +182,9 @@ app.get("/api/poster/geography/:activityId", async (c) => {
       lng >= bbox[0] && lng <= bbox[2] && lat >= bbox[1] && lat <= bbox[3]);
     return c.json(await loadGeography(
       bbox, c.req.query("aspect") ?? "3:4",
-      c.req.query("mode") === "manual" ? "manual" : "auto", c.req.query("scene"), { route },
+      c.req.query("mode") === "manual" ? "manual" : "auto", c.req.query("scene"),
+      { route, detailScope: c.req.query("detailScope") === "all" ? "all"
+        : c.req.query("detailScope") === "route" || (!c.req.query("detailScope") && c.req.query("routeDetail") === "true") ? "route" : "none" },
     ));
   } catch (error) { return fail(c, error); }
 });

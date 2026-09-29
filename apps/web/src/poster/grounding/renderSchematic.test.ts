@@ -85,3 +85,24 @@ test("retained lakes and rivers can each be hidden independently", () => {
     assert.equal(strokes, ids.includes("rivers") ? 1 : 0);
   }
 });
+
+test("ocean paint is opaque over offshore park polygons", () => {
+  const polygon = { type: "Polygon" as const, coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] };
+  const ways = {
+    parks: { features: [{ geometry: polygon }] },
+    ocean: { features: [{ geometry: polygon }] },
+  };
+  let fillStyle = "";
+  const fills: string[] = [];
+  const ctx = new Proxy({}, {
+    get: (_target, key) => key === "fillStyle" ? fillStyle : key === "fill" ? () => { fills.push(fillStyle); } : () => {},
+    set: (_target, key, value) => { if (key === "fillStyle") fillStyle = String(value); return true; },
+  }) as CanvasRenderingContext2D;
+  drawSchematicScene(ctx, {
+    latlng: [], ways,
+    layers: { ...schematicLayersFromFeatureIds(["parks", "coastline"], false), labels: false },
+  }, (lng, lat) => [lng, lat], { width: 100, height: 100 });
+  assert.equal(fills.length, 2);
+  assert.match(fills[0], /^rgba\(/);
+  assert.match(fills[1], /^#[0-9a-f]{6}$/i);
+});

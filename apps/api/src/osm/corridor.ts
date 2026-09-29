@@ -273,12 +273,24 @@ class RouteIndex {
     if (!this.boundsMeet(bounds)) return [];
     if (!this.variable && this.ringInside(outer)) return [rings.map((ring) => ring.slice())];
     const outline = simplify(dedupe(outer), Math.max(15, this.radius / 8), 220);
+    const holes = rings.slice(1).map((ring) => ({
+      bounds: ringBounds(ring),
+      outline: simplify(dedupe(ring), Math.max(15, this.radius / 8), 220),
+    }));
     const pieces: Ring[][] = [];
     for (const capsule of this.capsules) {
-      if (!boundsOverlap(bounds, ringBounds(capsule), 0)) continue;
+      const capsuleBounds = ringBounds(capsule);
+      if (!boundsOverlap(bounds, capsuleBounds, 0)) continue;
       const clipped = clipConvex(outline, capsule);
       if (clipped.length < 3 || Math.abs(signedArea(clipped)) < 250) continue;
-      pieces.push([clipped]);
+      const clippedHoles = holes.flatMap(({ bounds: holeBounds, outline: hole }) => {
+        if (!boundsOverlap(holeBounds, capsuleBounds, 0)) return [];
+        const ring = clipConvex(hole, capsule);
+        if (ring.length < 3 || Math.abs(signedArea(ring)) < 250) return [];
+        // Canvas uses nonzero winding, so holes must wind against the outer ring.
+        return [signedArea(ring) * signedArea(clipped) > 0 ? ring.reverse() : ring];
+      });
+      pieces.push([clipped, ...clippedHoles]);
     }
     return pieces;
   }

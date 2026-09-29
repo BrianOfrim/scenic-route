@@ -4,6 +4,7 @@ import { waterClass } from "./waterClasses";
 
 export const GEOGRAPHY_VERSION = 6;
 export type GeographyMode = "auto" | "manual";
+export type GeographyDetailScope = "none" | "route" | "all";
 export type GeographyProfile = "local" | "district" | "regional" | "wide";
 export type GeographyPolicy = ReturnType<typeof geographyPolicy>;
 export type GeographyWays = Record<string, FeatureCollection>;
@@ -30,7 +31,7 @@ export const GEOGRAPHY_BUCKETS: Record<string, string> = {
 };
 
 /** Explain what the policy can include, regardless of which features exist in a frame. */
-export function automaticGeographyAllowance(profile: GeographyProfile, source: GeographyScene["source"]) {
+export function automaticGeographyAllowance(profile: GeographyProfile, source: GeographyScene["source"], detailScope: GeographyDetailScope = "none") {
   if (source === "natural-earth") return {
     categories: ["generalized roads", "urban footprints", "lakes and reservoirs", "river networks", "coastline and ocean"],
     detail: "Smaller features are omitted according to map scale and source detail.",
@@ -39,13 +40,23 @@ export function automaticGeographyAllowance(profile: GeographyProfile, source: G
     categories: ["major and local roads", "paths and trails", "railways", "lakes, ponds and reservoirs",
       "rivers, streams and canals", "forests and parks", "farmland and vegetation", "wetlands", "beaches",
       "coastline", "rock and cliffs", "glaciers"],
-    detail: "Small areas must be legible, with an exception for features near the route.",
+    detail: detailScope === "all" ? "Small features are retained across the map."
+      : detailScope === "route" ? "Small areas must be legible, with an exception for features near the route."
+        : "Small areas must be legible across the map.",
+  };
+  if (detailScope === "all") return {
+    categories: ["major and local roads", "paths and trails", "railways", "lakes, ponds and reservoirs",
+      "rivers, streams and canals", "forests and parks", "farmland and vegetation", "wetlands", "beaches",
+      "coastline", "rock and cliffs", "glaciers"],
+    detail: "Small features are retained across the map, regardless of distance from the route.",
   };
   return {
     categories: ["through roads and connecting streets", "railways", "lakes and reservoirs",
-      "large or route-near ponds", "rivers and canals", "route-near streams", "forests and larger parks",
+      detailScope === "route" ? "large or route-near ponds" : "larger ponds", "rivers and canals",
+      ...(detailScope === "route" ? ["route-near streams"] : []), "forests and larger parks",
       "coastline", "glaciers"],
-    detail: "Minor streets are omitted; small areas may remain when they are near the route.",
+    detail: detailScope === "route" ? "Minor streets are omitted; small areas may remain when they are near the route."
+      : "Minor streets, streams and small areas are omitted uniformly across the map.",
   };
 }
 
@@ -139,8 +150,8 @@ function lines(geometry: Geometry): Position[][] {
 }
 
 /** Input is frame-clipped. Preserve polygon topology; generalized providers simplify polygons upstream. */
-export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPolicy, route: [number, number][] = []): GeographyWays {
-  const routePixels = route.filter((_, i) => i % Math.max(1, Math.ceil(route.length / 256)) === 0)
+export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPolicy, route: [number, number][] = [], detailScope: GeographyDetailScope = "none"): GeographyWays {
+  const routePixels = (detailScope === "route" ? route : []).filter((_, i) => i % Math.max(1, Math.ceil(route.length / 256)) === 0)
     .map(([lat, lng]) => geographyProject(policy, [lng, lat]));
   const nearRoute = (coordinates: Position[], radius: number) => coordinates.some((p, i) => {
     if (i % Math.max(1, Math.ceil(coordinates.length / 32)) !== 0) return false;
@@ -171,10 +182,10 @@ export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPoli
       const g = feature.geometry;
       const tags = feature.properties?.tags ?? {};
       const kind = (key === "water" || key === "waterways" || key === "riverAreas") ? waterClass(feature) : null;
-      if (key === "waterways" && kind === "stream" && policy.profile !== "local"
+      if (detailScope !== "all" && key === "waterways" && kind === "stream" && policy.profile !== "local"
         && !nearRoute(lines(g).flat(), 32)) return [];
-      if (policy.profile !== "local" && (key === "paths" || (key === "streets" && /^(residential|service|living_street)$/.test(tags.highway ?? "")))) return [];
-      if ((key === "streets" || key === "paths") && /^(service|residential|living_street|footway|path)$/.test(tags.highway ?? "")) {
+      if (detailScope !== "all" && policy.profile !== "local" && (key === "paths" || (key === "streets" && /^(residential|service|living_street)$/.test(tags.highway ?? "")))) return [];
+      if (detailScope !== "all" && (key === "streets" || key === "paths") && /^(service|residential|living_street|footway|path)$/.test(tags.highway ?? "")) {
         const vertices = lines(g).flat();
         if (vertices.length && vertices.every(p => (density.get(cell(p)) ?? 0) > 2500) && !nearRoute(vertices, 64)) return [];
       }
@@ -184,7 +195,7 @@ export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPoli
           || (key === "riverAreas" && kind === "stream");
         const minimum = minorWater && policy.profile !== "local"
           ? Math.max(policy.minAreaPx, 96) : policy.minAreaPx;
-        return area >= minimum || (area >= 3 && nearRoute(p[0], 16));
+        return detailScope === "all" ? area >= 3 : area >= minimum || (area >= 3 && nearRoute(p[0], 16));
       };
       if (g.type === "Polygon") return keepPolygon(g.coordinates) ? [feature] : [];
       if (g.type === "MultiPolygon") {

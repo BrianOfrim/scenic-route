@@ -376,6 +376,28 @@ test("a lake larger than the frame keeps only the overlap, including holes", () 
   assert.ok(Math.max(...lngs) < -79.299);
 });
 
+test("a shaped extent preserves land holes in a clipped ocean polygon", () => {
+  const outer = [[-2, -2], [2, -2], [2, 2], [-2, 2], [-2, -2]];
+  const land = [[-0.5, -0.5], [-0.5, 0.5], [0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]];
+  const extent: [number, number][] = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  const clipped = clipWaysToRing({ ocean: { features: [{ geometry: { type: "Polygon", coordinates: [outer, land] } }] } }, extent);
+  const geometry = (clipped.ocean.features[0] as { geometry: { coordinates: number[][][] } }).geometry;
+  assert.equal(geometry.coordinates.length, 2);
+  assert.equal(covers(geometry.coordinates, 0, 0), false, "the land stays unpainted by ocean");
+  assert.equal(covers(geometry.coordinates, 0.8, 0), true, "ocean remains inside the extent");
+});
+
+test("a concave polygon extent keeps both arms without filling its missing corner", () => {
+  const extent: [number, number][] = [[-1, -1], [1, -1], [1, 0], [0, 0], [0, 1], [-1, 1]];
+  const outer = [[-2, -2], [2, -2], [2, 2], [-2, 2], [-2, -2]];
+  const clipped = clipWaysToRing({ land: { features: [{ geometry: { type: "Polygon", coordinates: [outer] } }] } }, extent);
+  const pieces = clipped.land.features as { geometry: { coordinates: number[][][] } }[];
+  const filled = (lng: number, lat: number) => pieces.some((piece) => covers(piece.geometry.coordinates, lng, lat));
+  assert.equal(filled(-0.5, 0.5), true, "vertical arm remains");
+  assert.equal(filled(0.5, -0.5), true, "horizontal arm remains");
+  assert.equal(filled(0.5, 0.5), false, "missing corner stays empty");
+});
+
 test("coastline closes into water on the right side of the line", () => {
   const shore = [[-79.55, 43.65], [-79.25, 43.65]];
   const clipped = clipWaysToQueryFrame(

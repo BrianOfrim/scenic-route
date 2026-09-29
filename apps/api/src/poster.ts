@@ -64,6 +64,8 @@ export const LIST_POSTER_CONCURRENCY = 8;
 
 export type PosterEditorSnapshot = {
   geographyMode?: "auto" | "manual";
+  routeDetail?: boolean;
+  detailScope?: "none" | "route" | "all";
   geographyPolicyVersion?: number;
   geographySceneId?: string;
   geographyFrameKey?: string;
@@ -632,6 +634,9 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
   const raw = value as Record<string, unknown>;
   return {
     geographyMode: raw.geographyMode === "auto" ? "auto" : "manual",
+    routeDetail: raw.routeDetail !== false,
+    detailScope: raw.detailScope === "all" || raw.detailScope === "none" || raw.detailScope === "route"
+      ? raw.detailScope : raw.routeDetail === false ? "none" : "route",
     geographyPolicyVersion: typeof raw.geographyPolicyVersion === "number" ? finiteInt(raw.geographyPolicyVersion, 1) : undefined,
     geographySceneId: typeof raw.geographySceneId === "string" && /^[a-f0-9]{64}$/.test(raw.geographySceneId) ? raw.geographySceneId : undefined,
     geographyFrameKey: typeof raw.geographyFrameKey === "string" ? raw.geographyFrameKey.slice(0, 500) : undefined,

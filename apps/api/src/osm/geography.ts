@@ -9,7 +9,7 @@ import { FEATURE_CATALOG } from "./catalog";
 import { splitWays } from "./features";
 import { clipWaysToQueryFrame } from "./geoExtent";
 import { emptyCollection, queryOverpass, unionQuery } from "./overpass";
-import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, geographyPolicy, geographySelectors, resolveGeographyScene, visibleGeographyIds, type GeographyMode, type GeographyWays, type GeographyScene } from "./geographyPolicy";
+import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, geographyPolicy, geographySelectors, resolveGeographyScene, visibleGeographyIds, type GeographyDetailScope, type GeographyMode, type GeographyWays, type GeographyScene } from "./geographyPolicy";
 import { isAreaFeature, waterClass } from "./waterClasses";
 
 export type { GeographyScene } from "./geographyPolicy";
@@ -76,9 +76,10 @@ export function parseGeographyBbox(raw: unknown): BBox {
   return raw as BBox;
 }
 
-export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyMode = "auto", savedSceneId?: string, options: { route?: [number, number][]; sceneDir?: string; query?: typeof queryOverpass } = {}): Promise<GeographyScene> {
+export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyMode = "auto", savedSceneId?: string, options: { route?: [number, number][]; detailScope?: GeographyDetailScope; routeDetail?: boolean; sceneDir?: string; query?: typeof queryOverpass } = {}): Promise<GeographyScene> {
   parseGeographyBbox(bbox);
-  const requestKey = JSON.stringify([bbox, aspect, mode, options.route ?? []]);
+  const detailScope = options.detailScope ?? (options.routeDetail === true ? "route" : "none");
+  const requestKey = JSON.stringify([bbox, aspect, mode, options.route ?? [], detailScope]);
   const sceneDir = options.sceneDir ?? path.join(OSM_CACHE_DIR, "scenes");
   const warnings: string[] = [];
   if (savedSceneId && /^[a-f0-9]{64}$/.test(savedSceneId)) {
@@ -106,7 +107,8 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
     ways = await naturalEarth(bbox, zoom);
   } else {
     const features = FEATURE_CATALOG.filter(f => f.group === "geography");
-    const selectors = mode === "manual" ? features.flatMap(f => f.selectors) : geographySelectors(policy.profile);
+    const selectors = mode === "manual" ? features.flatMap(f => f.selectors)
+      : geographySelectors(detailScope === "all" ? "local" : policy.profile);
     const previousWarnings = warnings.length;
     let raw: FeatureCollection;
     try {
@@ -134,7 +136,7 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
   // Full polygon clipping preserves lakes containing the entire frame.
   const clipped = clipWaysToQueryFrame(ways, bbox, 0, source === "overpass" && policy.metersPerPixel < 50) as GeographyWays;
   const separated = separateOceanAreas(separateRiverAreas(clipped));
-  const resolved = mode === "auto" ? resolveGeographyScene(separated, policy, options.route) : separated;
+  const resolved = mode === "auto" ? resolveGeographyScene(separated, policy, options.route, detailScope) : separated;
   const scene: GeographyScene = { bbox, ways: resolved, featureIds: visibleGeographyIds(resolved, Object.keys(GEOGRAPHY_BUCKETS)),
     policyVersion: policy.version, profile: policy.profile, metersPerPixel: policy.metersPerPixel,
     source, sourceVersion: source === "natural-earth" ? "scenic-ne-2"

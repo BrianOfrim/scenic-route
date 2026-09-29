@@ -26,6 +26,8 @@ const ASPECTS: AspectRatio[] = ["3:4", "2:3", "1:1", "4:3", "16:9"];
 
 export type PosterEditorSnapshot = {
   geographyMode?: "auto" | "manual";
+  routeDetail?: boolean;
+  detailScope?: "none" | "route" | "all";
   geographyPolicyVersion?: number;
   geographySceneId?: string;
   geographyFrameKey?: string;
@@ -62,6 +64,8 @@ export type PosterEditorSnapshot = {
 
 export type EditorCapture = {
   geographyMode?: "auto" | "manual";
+  routeDetail?: boolean;
+  detailScope?: "none" | "route" | "all";
   geographyPolicyVersion?: number;
   geographySceneId?: string;
   geographyFrameKey?: string;
@@ -130,6 +134,8 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
   const paletteIdsByStyle = snapshotPalettes(input.styleIds, input.paletteIdsByStyle, input.paletteId);
   return {
     geographyMode: input.geographyMode ?? "manual",
+    routeDetail: input.routeDetail !== false,
+    detailScope: input.detailScope ?? (input.routeDetail === false ? "none" : "route"),
     geographyPolicyVersion: input.geographyPolicyVersion,
     geographySceneId: input.geographySceneId,
     geographyFrameKey: input.geographyFrameKey,
@@ -167,6 +173,8 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
 
 export type RestoredEditor = {
   geographyMode?: "auto" | "manual";
+  routeDetail?: boolean;
+  detailScope?: "none" | "route" | "all";
   geographyPolicyVersion?: number;
   geographySceneId?: string;
   geographyFrameKey?: string;
@@ -384,6 +392,8 @@ export function editorSeed(record?: PosterRecord | null) {
   });
   return {
     geographyMode: restored.geographyMode,
+    routeDetail: restored.routeDetail,
+    detailScope: restored.detailScope,
     geographyPolicyVersion: restored.geographyPolicyVersion,
     geographySceneId: restored.geographySceneId,
     geographyFrameKey: restored.geographyFrameKey,
@@ -429,6 +439,8 @@ export function restoreEditor(
     editor && (editor.labels.length > 0 || editor.trailNames.length > 0 || editor.areaNames.length > 0);
   return {
     geographyMode: editor?.geographyMode ?? "manual",
+    routeDetail: editor?.routeDetail !== false,
+    detailScope: editor?.detailScope ?? (editor?.routeDetail === false ? "none" : "route"),
     geographyPolicyVersion: editor?.geographyPolicyVersion,
     geographySceneId: editor?.geographySceneId,
     geographyFrameKey: editor?.geographyFrameKey,

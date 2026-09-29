@@ -43,7 +43,11 @@ test("automatic summary describes allowed classes independently of data present"
   const district = automaticGeographyAllowance("district", "overpass");
   const wide = automaticGeographyAllowance("wide", "natural-earth");
   assert.match(local.categories.join(), /paths and trails|ponds|streams/);
-  assert.match(district.categories.join(), /route-near streams|large or route-near ponds/);
+  assert.doesNotMatch(district.categories.join(), /route-near|streams/);
+  const legacyRoute = automaticGeographyAllowance("district", "overpass", "route");
+  assert.match(legacyRoute.categories.join(), /route-near streams|large or route-near ponds/);
+  const everywhere = automaticGeographyAllowance("district", "overpass", "all");
+  assert.match(everywhere.categories.join(), /paths and trails|streams|wetlands/);
   assert.doesNotMatch(district.categories.join(), /paths and trails|farmland/);
   assert.match(wide.categories.join(), /urban footprints|coastline and ocean/);
   assert.doesNotMatch(wide.categories.join(), /ponds|streams|parks/);
@@ -57,8 +61,10 @@ test("pixel-size selection protects legible route-adjacent ponds and preserves p
   if (large.geometry.type === "Polygon") large.geometry.coordinates.push([[.0045,.0045],[.005,.0045],[.005,.005],[.0045,.005],[.0045,.0045]]);
   const ways = { water: collection([small, large]) };
   assert.equal(resolveGeographyScene(ways, policy).water.features.length, 1);
-  const nearby = resolveGeographyScene(ways, policy, [[.002,.002]]);
+  const nearby = resolveGeographyScene(ways, policy, [[.002,.002]], "route");
   assert.equal(nearby.water.features.length, 2);
+  assert.equal(resolveGeographyScene(ways, policy, [[.002,.002]], "none").water.features.length, 1);
+  assert.equal(resolveGeographyScene(ways, policy, [], "all").water.features.length, 2);
   assert.deepEqual(nearby.water.features[1].geometry, large.geometry);
 });
 
@@ -70,9 +76,38 @@ test("district water keeps lakes and route-adjacent ponds, while suppressing dis
   const stream = (x: number): Feature => ({ type: "Feature", properties: { tags: { waterway: "stream" } },
     geometry: { type: "LineString", coordinates: [[x, .04], [x, .1], [x, .2]] } });
   const result = resolveGeographyScene({ water: collection([pond(.03), pond(.08), lake]),
-    waterways: collection([stream(.03), stream(.08)]) }, policy, [[.1, .03]]);
+    waterways: collection([stream(.03), stream(.08)]) }, policy, [[.1, .03]], "route");
   assert.equal(result.water.features.length, 2);
   assert.equal(result.waterways.features.length, 1);
+  const everywhere = resolveGeographyScene({ water: collection([pond(.03), pond(.08), lake]),
+    waterways: collection([stream(.03), stream(.08)]) }, policy, [], "all");
+  assert.equal(everywhere.water.features.length, 3);
+  assert.equal(everywhere.waterways.features.length, 2);
+});
+
+test("everywhere retains minor streets and paths away from a regional route", () => {
+  const policy = geographyPolicy([0, 0, .25, .25], "1:1");
+  const minor = (highway: string): Feature => ({ type: "Feature", properties: { tags: { highway } },
+    geometry: { type: "LineString", coordinates: [[.15, .15], [.16, .16]] } });
+  const ways = { streets: collection([minor("residential")]), paths: collection([minor("footway")]) };
+  const regular = resolveGeographyScene(ways, policy, [[.01, .01]], "route");
+  assert.equal(regular.streets.features.length + regular.paths.features.length, 0);
+  const everywhere = resolveGeographyScene(ways, policy, [[.01, .01]], "all");
+  assert.equal(everywhere.streets.features.length, 1);
+  assert.equal(everywhere.paths.features.length, 1);
+});
+
+test("extra detail everywhere requests local classes at regional scale", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geography-test-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const bbox: BBox = [-125.1692, 48.3175, -124.3707, 49.0204];
+  const seen: string[] = [];
+  const query = async (query: string) => { seen.push(query); return collection([]); };
+  await loadGeography(bbox, "3:4", "auto", undefined, { sceneDir: dir, detailScope: "route", query });
+  await loadGeography(bbox, "3:4", "auto", undefined, { sceneDir: dir, detailScope: "all", query });
+  assert.equal(seen.length, 2);
+  assert.doesNotMatch(seen[0], /residential|footway|wetland/);
+  assert.match(seen[1], /residential|footway|wetland/);
 });
 
 test("river polygons are assigned to Rivers without adding an editor category", async t => {
@@ -106,6 +141,21 @@ test("wide scenes use bundled assets without network and reproduce saved geometr
   for (const bucket of ["water", "waterways", "roads", "urban"]) assert.ok(scene.ways[bucket].features.length > 0, bucket);
   assert.ok(scene.sceneId);
   assert.deepEqual(await loadGeography(country, "3:4", "auto", scene.sceneId, options), scene);
+});
+
+test("route detail preference is part of the saved geography scene identity", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geography-test-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const options = { sceneDir: dir, route: [[53.52, -113.5]] as [number, number][],
+    query: async () => collection([]) };
+  const on = await loadGeography(city, "3:4", "auto", undefined, { ...options, detailScope: "route" });
+  const off = await loadGeography(city, "3:4", "auto", on.sceneId, { ...options, detailScope: "none" });
+  assert.notEqual(off.sceneId, on.sceneId);
+  assert.deepEqual(await loadGeography(city, "3:4", "auto", off.sceneId, { ...options, detailScope: "none" }), off);
+  assert.deepEqual(await loadGeography(city, "3:4", "auto", on.sceneId, { ...options, detailScope: "route" }), on);
+  const everywhere = await loadGeography(city, "3:4", "auto", on.sceneId, { ...options, detailScope: "all" });
+  assert.notEqual(everywhere.sceneId, on.sceneId);
+  assert.deepEqual(await loadGeography(city, "3:4", "auto", everywhere.sceneId, { ...options, detailScope: "all" }), everywhere);
 });
 
 test("regional OSM scenes use explicit land and ocean beneath detailed features", async t => {

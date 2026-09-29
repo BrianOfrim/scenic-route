@@ -89,11 +89,17 @@ const defaults = {
 test("legacy geography stays manual; automatic scene identity and explicit empty selections restore", () => {
   const legacy = restoreEditor(record({ spec: undefined, prompt: "", labels: [], featureIds: [] }), 10, defaults);
   assert.equal(legacy.geographyMode, "manual");
-  const snapshot = captureEditorSnapshot({ ...legacy, geographyMode: "auto", geographyPolicyVersion: 1,
+  const snapshot = captureEditorSnapshot({ ...legacy, geographyMode: "auto", routeDetail: false, detailScope: "none", geographyPolicyVersion: 1,
     geographySceneId: "a".repeat(64), geographyFrameKey: "frame", featureIds: [], labels: [], trailNames: [], areaNames: [],
     imageModelIds: [], variants: 1, qualities: [] });
   const restored = restoreEditor(record({ spec: undefined, prompt: "", labels: [], editor: snapshot }), 10, defaults);
   assert.equal(restored.geographyMode, "auto");
+  assert.equal(restored.routeDetail, false);
+  assert.equal(restored.detailScope, "none");
+  const everywhere = { ...snapshot, detailScope: "all" as const };
+  assert.equal(restoreEditor(record({ spec: undefined, prompt: "", labels: [], editor: everywhere }), 10, defaults).detailScope, "all");
+  const priorPoster = { ...snapshot, routeDetail: true, detailScope: "route" as const };
+  assert.equal(restoreEditor(record({ spec: undefined, prompt: "", labels: [], editor: priorPoster }), 10, defaults).detailScope, "route");
   assert.equal(restored.geographySceneId, "a".repeat(64));
   assert.equal(restored.geographyPolicyVersion, 1);
   assert.deepEqual(restored.featureIds, []);

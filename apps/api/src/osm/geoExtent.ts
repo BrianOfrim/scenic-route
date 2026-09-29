@@ -551,10 +551,11 @@ export function clipWaysToRing<T extends { features?: unknown[] }>(
   if (ring.length < 3) return ways;
   const lat0 = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
   const localRing = ensureCcw(openPts(ring.map(([lng, lat]) => project(lng, lat, lat0))));
+  const polygonClips = convexPieces(localRing);
   const clipped = {} as Record<string, T>;
   for (const [key, bucket] of Object.entries(ways)) {
     const features = ((bucket?.features ?? []) as ExtentFeature[]).flatMap((feature) =>
-      clipFeatureToRing(feature, localRing, lat0),
+      clipFeatureToRing(feature, localRing, polygonClips, lat0),
     );
     clipped[key] = { ...bucket, features: features as T["features"] };
   }
@@ -719,7 +720,7 @@ function openPts(points: Pt[]): Pt[] {
   return points;
 }
 
-function clipFeatureToRing(feature: ExtentFeature, ring: Pt[], lat0: number): ExtentFeature[] {
+function clipFeatureToRing(feature: ExtentFeature, ring: Pt[], polygonClips: Pt[][], lat0: number): ExtentFeature[] {
   const geometry = feature.geometry;
   if (!geometry) return [];
   if (geometry.type === "LineString" || geometry.type === "MultiLineString") {
@@ -730,11 +731,13 @@ function clipFeatureToRing(feature: ExtentFeature, ring: Pt[], lat0: number): Ex
     return lines.map((line) => ({ ...feature, geometry: { type: "LineString", coordinates: line } }));
   }
   if (geometry.type === "Polygon" || geometry.type === "MultiPolygon") {
-    const rings = outerRings(geometry)
-      .map((shape) => clipPolygonToRing(shape, ring, lat0))
-      .filter((shape) => shape.length >= 3);
-    if (!rings.length) return [];
-    return rings.map((shape) => ({ ...feature, geometry: { type: "Polygon", coordinates: [shape] } }));
+    const polygons = geometry.type === "Polygon"
+      ? [asPolygonRings(geometry.coordinates)]
+      : asPolygons(geometry.coordinates);
+    return polygons.flatMap((polygon) => polygonClips.flatMap((clip) => {
+      const clipped = clipPolygonWithHoles(polygon, clip, lat0);
+      return clipped.length ? [{ ...feature, geometry: { type: "Polygon", coordinates: clipped } }] : [];
+    }));
   }
   return [];
 }
@@ -815,6 +818,44 @@ function clipPolygonToRing(shape: number[][], ring: Pt[], lat0: number): number[
     if (output.length < 3) return [];
   }
   return output.map((point) => unproject(point, lat0));
+}
+
+/** The polygon clipper uses half-planes, so split concave extents into convex pieces first. */
+function convexPieces(ring: Pt[]): Pt[][] {
+  const vertices = ring.filter((point, index) => {
+    const prev = ring[(index + ring.length - 1) % ring.length];
+    const next = ring[(index + 1) % ring.length];
+    return Math.abs((point.x - prev.x) * (next.y - point.y) - (point.y - prev.y) * (next.x - point.x)) > 1e-6;
+  });
+  if (vertices.length < 3) return [];
+  const cross = (a: Pt, b: Pt, c: Pt) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  if (vertices.every((point, index) => cross(point, vertices[(index + 1) % vertices.length], vertices[(index + 2) % vertices.length]) >= -1e-6)) {
+    return [vertices];
+  }
+  const remaining = vertices.slice();
+  const triangles: Pt[][] = [];
+  while (remaining.length > 3) {
+    let ear = -1;
+    for (let i = 0; i < remaining.length; i += 1) {
+      const a = remaining[(i + remaining.length - 1) % remaining.length];
+      const b = remaining[i];
+      const c = remaining[(i + 1) % remaining.length];
+      if (cross(a, b, c) <= 1e-6) continue;
+      const containsVertex = remaining.some((point, index) => {
+        if (index === i || index === (i + 1) % remaining.length || index === (i + remaining.length - 1) % remaining.length) return false;
+        return cross(a, b, point) >= -1e-6 && cross(b, c, point) >= -1e-6 && cross(c, a, point) >= -1e-6;
+      });
+      if (!containsVertex) { ear = i; break; }
+    }
+    if (ear < 0) return [vertices];
+    const a = remaining[(ear + remaining.length - 1) % remaining.length];
+    const b = remaining[ear];
+    const c = remaining[(ear + 1) % remaining.length];
+    triangles.push([a, b, c]);
+    remaining.splice(ear, 1);
+  }
+  triangles.push(remaining);
+  return triangles;
 }
 
 /** Where segment ab crosses the infinite line through cd. */
