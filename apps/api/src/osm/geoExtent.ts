@@ -17,6 +17,8 @@ const M_PER_DEG = 111_320;
 
 const AREA_BUCKETS = new Set([
   "water",
+  "ocean",
+  "riverAreas",
   "parks",
   "forest",
   "farmland",
@@ -261,6 +263,7 @@ export function clipWaysToQueryFrame<T extends { features?: unknown[] }>(
   ways: Record<string, T>,
   bbox: BBox,
   expandM: number,
+  inferCoastalWater = true,
 ): Record<string, T> {
   const ring = queryFrameRing(bbox, expandM);
   const clipped = {} as Record<string, T>;
@@ -268,7 +271,7 @@ export function clipWaysToQueryFrame<T extends { features?: unknown[] }>(
     const features = ((bucket?.features ?? []) as ExtentFeature[]).flatMap((feature) => clipFeatureToFrame(feature, ring));
     clipped[key] = { ...bucket, features: features as T["features"] };
   }
-  const coastal = coastlineWaterFeatures((ways.coastline?.features ?? []) as ExtentFeature[], ring);
+  const coastal = inferCoastalWater ? coastlineWaterFeatures((ways.coastline?.features ?? []) as ExtentFeature[], ring) : [];
   if (coastal.length) {
     const water = clipped.water ?? ({ features: [] } as unknown as T);
     const features = [...((water.features ?? []) as ExtentFeature[]), ...coastal];
@@ -363,6 +366,42 @@ function asPolygonRings(value: unknown): number[][][] {
 type BoundaryHit = { edge: number; t: number; pos: number };
 type ShoreChain = { pts: Pt[]; start: BoundaryHit; end: BoundaryHit };
 
+/** Join OSM way fragments without reversing their land-left / water-right direction. */
+function joinedCoastlines(features: ExtentFeature[]): number[][][] {
+  const lines = features.flatMap(feature => linesOf(feature.geometry)).filter(line => line.length >= 2);
+  const key = (point: number[]) => `${point[0].toFixed(7)},${point[1].toFixed(7)}`;
+  const starts = new Map<string, number[]>(), ends = new Map<string, number[]>();
+  for (const [index, line] of lines.entries()) {
+    const start = key(line[0]), end = key(line[line.length - 1]);
+    starts.set(start, [...(starts.get(start) ?? []), index]);
+    ends.set(end, [...(ends.get(end) ?? []), index]);
+  }
+  const used = new Set<number>();
+  const joined: number[][][] = [];
+  function walk(first: number) {
+    if (used.has(first)) return;
+    const points = lines[first].slice();
+    used.add(first);
+    let end = key(points[points.length - 1]);
+    while (starts.get(end)?.length === 1 && ends.get(end)?.length === 1) {
+      const next = starts.get(end)![0];
+      if (used.has(next)) break;
+      used.add(next);
+      for (const point of lines[next].slice(1)) points.push(point);
+      end = key(points[points.length - 1]);
+    }
+    joined.push(points);
+  }
+  // Start at the ends of open chains; walking from arbitrary middle fragments
+  // would leave the preceding fragments disconnected. Remaining chains are loops.
+  for (const [index, line] of lines.entries()) {
+    const start = key(line[0]);
+    if (ends.get(start)?.length !== 1 || starts.get(start)?.length !== 1) walk(index);
+  }
+  for (const index of lines.keys()) walk(index);
+  return joined;
+}
+
 /** Coastline is directed with water on the right. Close it along the frame. */
 function coastlineWaterFeatures(features: ExtentFeature[], ring: LngLat[]): ExtentFeature[] {
   const { local, lat0 } = frameLocals(ring);
@@ -371,23 +410,25 @@ function coastlineWaterFeatures(features: ExtentFeature[], ring: LngLat[]): Exte
   const chains: ShoreChain[] = [];
   const landHoles: Pt[][] = [];
   const enclosedWater: Pt[][] = [];
-  for (const feature of features) {
-    for (const line of linesOf(feature.geometry)) {
-      for (const piece of clipLineToRing(line, local, lat0)) {
-        const pts = piece.map(([lng, lat]) => project(lng, lat, lat0));
-        if (pts.length < 2) continue;
-        if (localClosed(pts)) {
-          if (signedArea(pts) >= 0) landHoles.push(pts);
-          else enclosedWater.push(pts);
-          continue;
-        }
-        const start = locateOnRect(pts[0], local);
-        const end = locateOnRect(pts[pts.length - 1], local);
-        if (!start || !end) continue;
-        chains.push({ pts, start, end });
+  let incompleteShore = false;
+  for (const line of joinedCoastlines(features)) {
+    for (const piece of clipLineToRing(line, local, lat0)) {
+      const pts = piece.map(([lng, lat]) => project(lng, lat, lat0));
+      if (pts.length < 2) continue;
+      if (localClosed(pts)) {
+        if (signedArea(pts) >= 0) landHoles.push(pts);
+        else enclosedWater.push(pts);
+        continue;
       }
+      const start = locateOnRect(pts[0], local);
+      const end = locateOnRect(pts[pts.length - 1], local);
+      if (!start || !end) { incompleteShore = true; continue; }
+      chains.push({ pts, start, end });
     }
   }
+  // An unfinished mainland shore cannot establish which part of the frame is
+  // ocean. In particular, small closed islands alone must not flood that frame.
+  if (incompleteShore) return [];
   const polygons: Pt[][][] = [];
   for (const water of enclosedWater) polygons.push([water]);
   const unused = new Set(chains);
@@ -429,7 +470,7 @@ function coastlineWaterFeatures(features: ExtentFeature[], ring: LngLat[]): Exte
   return polygons.flatMap((polygon) => {
     const coordinates = normalizeWinding(polygon.map((pts) => pts.map((point) => unproject(point, lat0))), lat0);
     if (coordinates[0].length < 4) return [];
-    return [{ type: "Feature", geometry: { type: "Polygon", coordinates }, properties: { tags: { natural: "water" } } }];
+    return [{ type: "Feature", geometry: { type: "Polygon", coordinates }, properties: { tags: { natural: "water" }, geographyClass: "ocean" } }];
   });
 }
 
@@ -548,10 +589,11 @@ export function clipWaysToRing<T extends { features?: unknown[] }>(
   if (ring.length < 3) return ways;
   const lat0 = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
   const localRing = ensureCcw(openPts(ring.map(([lng, lat]) => project(lng, lat, lat0))));
+  const polygonClips = convexPieces(localRing);
   const clipped = {} as Record<string, T>;
   for (const [key, bucket] of Object.entries(ways)) {
     const features = ((bucket?.features ?? []) as ExtentFeature[]).flatMap((feature) =>
-      clipFeatureToRing(feature, localRing, lat0),
+      clipFeatureToRing(feature, localRing, polygonClips, lat0),
     );
     clipped[key] = { ...bucket, features: features as T["features"] };
   }
@@ -716,7 +758,7 @@ function openPts(points: Pt[]): Pt[] {
   return points;
 }
 
-function clipFeatureToRing(feature: ExtentFeature, ring: Pt[], lat0: number): ExtentFeature[] {
+function clipFeatureToRing(feature: ExtentFeature, ring: Pt[], polygonClips: Pt[][], lat0: number): ExtentFeature[] {
   const geometry = feature.geometry;
   if (!geometry) return [];
   if (geometry.type === "LineString" || geometry.type === "MultiLineString") {
@@ -727,11 +769,13 @@ function clipFeatureToRing(feature: ExtentFeature, ring: Pt[], lat0: number): Ex
     return lines.map((line) => ({ ...feature, geometry: { type: "LineString", coordinates: line } }));
   }
   if (geometry.type === "Polygon" || geometry.type === "MultiPolygon") {
-    const rings = outerRings(geometry)
-      .map((shape) => clipPolygonToRing(shape, ring, lat0))
-      .filter((shape) => shape.length >= 3);
-    if (!rings.length) return [];
-    return rings.map((shape) => ({ ...feature, geometry: { type: "Polygon", coordinates: [shape] } }));
+    const polygons = geometry.type === "Polygon"
+      ? [asPolygonRings(geometry.coordinates)]
+      : asPolygons(geometry.coordinates);
+    return polygons.flatMap((polygon) => polygonClips.flatMap((clip) => {
+      const clipped = clipPolygonWithHoles(polygon, clip, lat0);
+      return clipped.length ? [{ ...feature, geometry: { type: "Polygon", coordinates: clipped } }] : [];
+    }));
   }
   return [];
 }
@@ -812,6 +856,44 @@ function clipPolygonToRing(shape: number[][], ring: Pt[], lat0: number): number[
     if (output.length < 3) return [];
   }
   return output.map((point) => unproject(point, lat0));
+}
+
+/** The polygon clipper uses half-planes, so split concave extents into convex pieces first. */
+function convexPieces(ring: Pt[]): Pt[][] {
+  const vertices = ring.filter((point, index) => {
+    const prev = ring[(index + ring.length - 1) % ring.length];
+    const next = ring[(index + 1) % ring.length];
+    return Math.abs((point.x - prev.x) * (next.y - point.y) - (point.y - prev.y) * (next.x - point.x)) > 1e-6;
+  });
+  if (vertices.length < 3) return [];
+  const cross = (a: Pt, b: Pt, c: Pt) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  if (vertices.every((point, index) => cross(point, vertices[(index + 1) % vertices.length], vertices[(index + 2) % vertices.length]) >= -1e-6)) {
+    return [vertices];
+  }
+  const remaining = vertices.slice();
+  const triangles: Pt[][] = [];
+  while (remaining.length > 3) {
+    let ear = -1;
+    for (let i = 0; i < remaining.length; i += 1) {
+      const a = remaining[(i + remaining.length - 1) % remaining.length];
+      const b = remaining[i];
+      const c = remaining[(i + 1) % remaining.length];
+      if (cross(a, b, c) <= 1e-6) continue;
+      const containsVertex = remaining.some((point, index) => {
+        if (index === i || index === (i + 1) % remaining.length || index === (i + remaining.length - 1) % remaining.length) return false;
+        return cross(a, b, point) >= -1e-6 && cross(b, c, point) >= -1e-6 && cross(c, a, point) >= -1e-6;
+      });
+      if (!containsVertex) { ear = i; break; }
+    }
+    if (ear < 0) return [vertices];
+    const a = remaining[(ear + remaining.length - 1) % remaining.length];
+    const b = remaining[ear];
+    const c = remaining[(ear + 1) % remaining.length];
+    triangles.push([a, b, c]);
+    remaining.splice(ear, 1);
+  }
+  triangles.push(remaining);
+  return triangles;
 }
 
 /** Where segment ab crosses the infinite line through cd. */

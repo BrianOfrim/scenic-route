@@ -4,6 +4,7 @@ import { posterCardSrc } from "./galleryList";
 import { ReadyImage } from "./GalleryViewer";
 import { lineageFamily } from "./galleryRuns";
 import { ShareButton } from "../share";
+import { MOBILE_QUERY, useMediaQuery } from "../useMediaQuery";
 
 type Props = {
   source: PosterRecord;
@@ -20,6 +21,7 @@ function versionLabel(item: PosterRecord, originalId?: string) {
 }
 
 export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }: Props) {
+  const isMobile = useMediaQuery(MOBILE_QUERY);
   const family = useMemo(() => {
     const found = lineageFamily(posters, source.posterId);
     return found.length ? found : [source];
@@ -80,6 +82,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
           <p className="brand">Scenic Route</p>
           <h1>Refine image</h1>
         </div>
+        {!isMobile && tabs}
         <div className="top-actions">
           {error && (
             <p className="error banner">
@@ -155,7 +158,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
           ))}
         </div>
       </div>
-      {tabs}
+      {isMobile && tabs}
     </div>
   );
 }

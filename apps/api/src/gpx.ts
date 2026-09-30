@@ -1,4 +1,5 @@
-import { bboxFromLatLng, haversineM, trackDistanceM, type LatLng } from "./geo";
+import { bboxFromLatLng, haversineM, type LatLng } from "./geo";
+import { stitchTrackSegments, trackDistanceWithBreaks } from "./trackSegments";
 
 export class ImportError extends Error {
   constructor(message: string) {
@@ -26,6 +27,7 @@ export type ParsedGpx = {
   type: string | null;
   startDate: Date | null;
   points: GpxPoint[];
+  segments?: GpxPoint[][];
 };
 
 export type GpxActivityFields = {
@@ -40,6 +42,7 @@ export type GpxActivityFields = {
   averageSpeed: number | null;
   maxSpeed: number | null;
   latlng: LatLng[];
+  routeBreaks: number[];
   time: number[] | null;
   velocity: number[] | null;
   altitude: number[] | null;
@@ -111,7 +114,9 @@ export function parseGpx(xml: string): ParsedGpx {
   const route = firstBlock(source, "rte");
   const metadata = firstBlock(source, "metadata");
   const pointSource = track || route || source;
-  const points = parsePoints(pointSource);
+  const segments = track ? [...source.matchAll(/<(?:[\w.-]+:)?trkseg\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?trkseg\s*>/gi)]
+    .map((match) => parsePoints(match[1])) : [];
+  const points = segments.length ? segments.flat() : parsePoints(pointSource);
   if (points.length < 2) {
     throw new GpxError("GPX file needs at least two GPS points");
   }
@@ -127,20 +132,21 @@ export function parseGpx(xml: string): ParsedGpx {
   const startDate =
     points.find((point) => point.time)?.time ?? parseGpxTime(childText(metadata ?? "", "time"));
 
-  return { name, type, startDate, points };
+  return { name, type, startDate, points, segments: segments.length ? segments : undefined };
 }
 
 export function gpxToActivityFields(parsed: ParsedGpx, filename = "upload.gpx"): GpxActivityFields {
-  const latlng = parsed.points.map((point) => [point.lat, point.lng] as LatLng);
-  const distance = trackDistanceM(latlng);
+  const { points, breaks: routeBreaks } = stitchTrackSegments(parsed.segments ?? [parsed.points]);
+  const latlng = points.map((point) => [point.lat, point.lng] as LatLng);
+  const distance = trackDistanceWithBreaks(latlng, routeBreaks);
   const sport = mapSport(parsed.type);
-  const altitude = parsed.points.every((point) => point.ele != null)
-    ? parsed.points.map((point) => point.ele as number)
+  const altitude = points.every((point) => point.ele != null)
+    ? points.map((point) => point.ele as number)
     : null;
-  const timestamps = parsed.points.map((point) => point.time);
+  const timestamps = points.map((point) => point.time);
   const timed = timestamps.every((time) => time != null) ? (timestamps as Date[]) : null;
   const time = timed ? timed.map((value) => Math.round((value.getTime() - timed[0].getTime()) / 1000)) : null;
-  const velocity = time ? speedsFromTrack(latlng, time) : null;
+  const velocity = time ? speedsFromTrack(latlng, time, routeBreaks) : null;
   const elapsedTime = time && time.length ? time[time.length - 1] - time[0] : null;
   const movingTime = time && velocity ? movingSeconds(time, velocity) : elapsedTime;
   const maxSpeed = velocity?.reduce((max, speed) => Math.max(max, speed), 0) ?? null;
@@ -161,6 +167,7 @@ export function gpxToActivityFields(parsed: ParsedGpx, filename = "upload.gpx"):
     averageSpeed,
     maxSpeed: maxSpeed && maxSpeed > 0 ? maxSpeed : null,
     latlng,
+    routeBreaks,
     time,
     velocity,
     altitude,
@@ -222,11 +229,12 @@ function elevationGainM(eles: number[]): number {
   return gain;
 }
 
-function speedsFromTrack(latlng: LatLng[], time: number[]): number[] {
+function speedsFromTrack(latlng: LatLng[], time: number[], breaks: number[] = []): number[] {
   const speeds = [0];
+  const starts = new Set(breaks);
   for (let i = 1; i < latlng.length; i += 1) {
     const dt = time[i] - time[i - 1];
-    speeds.push(dt > 0 ? haversineM(latlng[i - 1], latlng[i]) / dt : 0);
+    speeds.push(dt > 0 && !starts.has(i) ? haversineM(latlng[i - 1], latlng[i]) / dt : 0);
   }
   return speeds;
 }

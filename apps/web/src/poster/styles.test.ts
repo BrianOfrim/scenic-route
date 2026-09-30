@@ -85,6 +85,15 @@ test("styleLabel prefers the preset, then a fallback name", () => {
   assert.equal(styleLabel(""), "Unknown theme");
 });
 
+test("style presets style supplied stats and do not demand a date, distance, or duration line", () => {
+  for (const style of POSTER_STYLES) {
+    assert.doesNotMatch(style.prompt, /set the date, distance, and duration/i, style.id);
+    assert.doesNotMatch(style.typography, /\bmetadata\b/i, style.id);
+  }
+  assert.match(styleById("swiss").prompt, /If none were supplied, set no stats line/);
+  assert.match(styleById("minimalist").prompt, /Do not add a date, distance, duration/);
+});
+
 test("style presets do not require mountains", () => {
   assert.doesNotMatch(styleById("middle-earth").prompt, /hachured mountains|purple haze mountains|stylized peaks/i);
   assert.doesNotMatch(styleById("vintage-topo").prompt, /mountain/i);

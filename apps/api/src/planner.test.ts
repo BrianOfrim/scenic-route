@@ -55,7 +55,9 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.match(String(messages[0].content), /not title-block stats/);
   assert.match(String(messages[0].content), /never a prose string in place of an object/);
   assert.match(String(messages[0].content), /Do not request a scale bar/);
-  assert.match(String(messages[0].content), /Each stat is printed once/);
+  assert.match(String(messages[0].content), /Each supplied stat is printed once/);
+  assert.match(String(messages[0].content), /The title block is closed/);
+  assert.match(String(messages[0].content), /Do not invent a date, distance, duration/);
   assert.match(String(messages[0].content), /8% of the poster width/);
   assert.match(String(messages[0].content), /clearly readable when the whole poster is viewed on a phone/);
   assert.match(String(messages[0].content), /Do not add a title when the design has none/);
@@ -146,12 +148,13 @@ test("repairPlannerOutput adds a title-block credit for people and keeps other s
     { label: "With", value: "Alex, Jordan, and Sam" },
   ]);
   const prompt = specToImagePrompt(spec);
-  assert.match(prompt, /Stats to typeset: Distance 12\.4 km\./);
+  assert.match(prompt, /Stats to typeset, exactly: 12\.4 km\./);
   assert.match(
     prompt,
     /People who did this activity, typeset once in the title block, exactly: "With Alex, Jordan, and Sam"\./,
   );
   assert.match(prompt, /These are people, not places/);
+  assert.match(prompt, /the people credit "With Alex, Jordan, and Sam"/);
   assert.doesNotMatch(prompt, /someone else/);
 });
 

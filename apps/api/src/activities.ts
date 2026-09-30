@@ -1,5 +1,6 @@
 import type { FeatureCollection, LineString } from "geojson";
 import { query, queryOne, withTransaction, type SqlClient } from "./db";
+import { rememberImportedId } from "./importedIds";
 
 export type ActivityRow = {
   id: number;
@@ -17,6 +18,7 @@ export type ActivityRow = {
   has_gps: number;
   streams_synced: number;
   latlng: string | null;
+  route_breaks?: string | null;
   time: string | null;
   velocity: string | null;
   altitude: string | null;
@@ -170,6 +172,7 @@ export async function deleteImportedByIds(
         skipped += 1;
         continue;
       }
+      await rememberImportedId(userId, id, client);
       await query("DELETE FROM activities WHERE user_id = $1 AND id = $2", [userId, id], client);
       deleted.push(toActivitySummary(row));
     }
@@ -204,8 +207,7 @@ export function activityToFeatureCollection(row: ActivityRow): FeatureCollection
   }
   return {
     type: "FeatureCollection",
-    features: [
-      {
+    features: splitTrack(points, parseNumberArray(row.route_breaks ?? null)).filter((segment) => segment.length >= 2).map((segment) => ({
         type: "Feature",
         properties: {
           activity_id: row.id,
@@ -216,11 +218,15 @@ export function activityToFeatureCollection(row: ActivityRow): FeatureCollection
         },
         geometry: {
           type: "LineString",
-          coordinates: points.map(([lat, lng]) => [lng, lat]),
+          coordinates: segment.map(([lat, lng]) => [lng, lat]),
         },
-      },
-    ],
+      })),
   };
+}
+
+export function splitTrack(points: [number, number][], breaks: number[]): [number, number][][] {
+  const starts = [0, ...breaks.filter((index) => Number.isInteger(index) && index > 0 && index < points.length).sort((a, b) => a - b), points.length];
+  return starts.slice(0, -1).map((start, i) => points.slice(start, starts[i + 1]));
 }
 
 export async function listSportTypes(userId: string): Promise<string[]> {

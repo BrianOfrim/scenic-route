@@ -1,3 +1,4 @@
+import type { GeographyScene } from "../../api/src/osm/geographyPolicy";
 import { noteArrivedPosters } from "./gallery/arrivedPosters";
 import { trackGeneration, type GenerationTask } from "./gallery/generationState";
 import type { FeatureCollection, LineString } from "geojson";
@@ -114,6 +115,7 @@ export type PosterContext = {
   };
   bbox: [[number, number], [number, number]];
   latlng: [number, number][];
+  routeBreaks: number[];
   stops: number[];
   ways: PosterWays;
   namedWays: NamedWay[];
@@ -210,6 +212,12 @@ export type PosterRecord = {
 };
 
 export type PosterEditorSnapshot = {
+  geographyMode?: "auto" | "manual";
+  routeDetail?: boolean;
+  detailScope?: "none" | "route" | "all";
+  geographyPolicyVersion?: number;
+  geographySceneId?: string;
+  geographyFrameKey?: string;
   featureIds: string[];
   labels: string[];
   trailNames: string[];
@@ -247,9 +255,10 @@ function apiFetch(input: string, init?: RequestInit) {
   return fetch(input, { ...init, credentials: "include" });
 }
 
-async function readJson<T>(response: Response): Promise<T> {
+async function readJson<T>(response: Response, onBody?: (body: string) => void): Promise<T> {
   if (response.status === 401) throw new AuthRequiredError();
   const text = await response.text();
+  onBody?.(text);
   let body: T & { error?: string; message?: string };
   try {
     body = JSON.parse(text) as T & { error?: string; message?: string };
@@ -361,6 +370,7 @@ export async function removeActivities(ids: number[]): Promise<{
 export async function fetchActivityTrack(id: number): Promise<{
   activity: ActivitySummary;
   latlng: [number, number][];
+  routeBreaks: number[];
   track: FeatureCollection<LineString>;
 }> {
   return readJson(await apiFetch(`/api/activities/${id}`));
@@ -389,8 +399,21 @@ export async function fetchPosterContext(
   featureQuery?: string,
 ): Promise<PosterContext> {
   const encoded = featureQuery ?? featureIds.join(",");
-  const qs = encoded ? `?features=${encodeURIComponent(encoded)}` : "";
+  const qs = `?geography=auto&features=${encodeURIComponent(encoded)}`;
   return loadPosterContext(`/api/poster/context/${activityId}${qs}`);
+}
+
+const loadPosterGeography = coalesceRequests(async (url: string) => {
+  let apiResponseBytes = 0;
+  const scene = await readJson<GeographyScene>(await apiFetch(url), body => {
+    apiResponseBytes = new TextEncoder().encode(body).byteLength;
+  });
+  return { ...scene, apiResponseBytes };
+});
+export function fetchPosterGeography(activityId: number, bbox: number[], aspect: string, mode: "auto" | "manual", sceneId?: string) {
+  const query = new URLSearchParams({ bbox: JSON.stringify(bbox), aspect, mode });
+  if (sceneId) query.set("scene", sceneId);
+  return loadPosterGeography(`/api/poster/geography/${activityId}?${query}`);
 }
 
 export async function lookupPosterLandmark(body: {

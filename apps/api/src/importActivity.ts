@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import { expandImportArchive, isZipBytes, maybeGunzip, type ArchiveTrack } from "./archive";
 import { toActivitySummary, type ActivityFormat, type ActivityOrigin, type ActivityRow, type ActivitySummary } from "./activities";
 import { query, queryOne, type SqlClient } from "./db";
+import { allocateImportedId, rememberImportedId } from "./importedIds";
 import { isFitBytes, parseFit } from "./fit";
 import { gpxToActivityFields, mapSport, parseGpx, ImportError, type GpxActivityFields } from "./gpx";
 import { isTcxXml, parseTcx } from "./tcx";
 
-export const IMPORTED_ID_BASE = 2_000_000_000_000;
+export { IMPORTED_ID_BASE } from "./importedIds";
 
 export type ImportFile = {
   filename: string;
@@ -187,8 +188,22 @@ async function insertImportedFields(
         client,
       )
     : null;
-  if (duplicate) return "skipped";
-  const id = preferredId && preferredId > 0 ? preferredId : await nextImportedId(userId, client);
+  if (duplicate) {
+    if (duplicate.route_breaks != null) return "skipped";
+    await query(
+      `UPDATE activities SET latlng = $1, route_breaks = $2, distance = $3,
+         "time" = $4, velocity = $5, altitude = $6, bbox = $7, average_speed = $8
+       WHERE user_id = $9 AND id = $10`,
+      [JSON.stringify(fields.latlng), JSON.stringify(fields.routeBreaks), fields.distance,
+        fields.time ? JSON.stringify(fields.time) : null,
+        fields.velocity ? JSON.stringify(fields.velocity) : null,
+        fields.altitude ? JSON.stringify(fields.altitude) : null,
+        JSON.stringify(fields.bbox), fields.averageSpeed, userId, duplicate.id],
+      client,
+    );
+    return toActivitySummary({ ...duplicate, distance: fields.distance, average_speed: fields.averageSpeed });
+  }
+  const id = preferredId && preferredId > 0 ? preferredId : await allocateImportedId(userId, client);
   const existing = preferredId && preferredId > 0
     ? await queryOne<ActivityRow>("SELECT * FROM activities WHERE user_id = $1 AND id = $2", [userId, preferredId], client)
     : null;
@@ -201,8 +216,8 @@ async function insertImportedFields(
          average_speed = $9, max_speed = $10, has_gps = 1, streams_synced = 1, imported = 1,
          latlng = $11, "time" = $12, velocity = $13, altitude = $14, bbox = $15,
          source = $16, origin = $17, file_format = $18, external_id = $19, content_hash = $20,
-         segment_efforts = NULL
-       WHERE user_id = $21 AND id = $22`,
+         route_breaks = $21, segment_efforts = NULL
+       WHERE user_id = $22 AND id = $23`,
       [
         fields.name,
         fields.type,
@@ -224,6 +239,7 @@ async function insertImportedFields(
         format,
         preferredId ? String(preferredId) : null,
         hash ?? null,
+        JSON.stringify(fields.routeBreaks),
         userId,
         existing.id,
       ],
@@ -235,6 +251,7 @@ async function insertImportedFields(
       client,
     );
     if (!updated) throw new Error("imported activity was not saved");
+    await rememberImportedId(userId, id, client);
     return toActivitySummary(updated);
   }
   await query(
@@ -242,9 +259,9 @@ async function insertImportedFields(
        user_id, id, name, "type", sport_type, start_date, distance, moving_time, elapsed_time,
        total_elevation_gain, average_speed, max_speed, trainer, has_gps, streams_synced,
        latlng, "time", velocity, altitude, bbox, source, imported,
-       origin, file_format, external_id, content_hash
+       origin, file_format, external_id, content_hash, route_breaks
      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, 1, 1,
-       $13, $14, $15, $16, $17, $18, 1, $19, $20, $21, $22)`,
+       $13, $14, $15, $16, $17, $18, 1, $19, $20, $21, $22, $23)`,
     [
       userId,
       id,
@@ -268,6 +285,7 @@ async function insertImportedFields(
       format,
       preferredId ? String(preferredId) : null,
       hash ?? null,
+      JSON.stringify(fields.routeBreaks),
     ],
     client,
   );
@@ -277,18 +295,10 @@ async function insertImportedFields(
     client,
   );
   if (!row) throw new Error("imported activity was not saved");
+  if (preferredId && preferredId > 0) await rememberImportedId(userId, id, client);
   return toActivitySummary(row);
 }
 
 function contentHash(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-async function nextImportedId(userId: string, client?: SqlClient): Promise<number> {
-  const row = await queryOne<{ maxId: number | null }>(
-    `SELECT MAX(id) AS "maxId" FROM activities WHERE user_id = $1 AND id >= $2`,
-    [userId, IMPORTED_ID_BASE],
-    client,
-  );
-  return (row?.maxId ?? IMPORTED_ID_BASE - 1) + 1;
 }

@@ -157,9 +157,97 @@ test("specToImagePrompt renders prose without JSON or empty fields", () => {
   assert.match(prompt, /Typography: Helvetica\. Large display title/);
   assert.match(prompt, /Title block: top\. Large display title/);
   assert.match(prompt, /no title too small to read when the whole poster is viewed on a phone/);
-  assert.match(prompt, /Stats to typeset: Distance 42\.0 km\./);
-  assert.match(prompt, /Typeset each stat once/);
+  assert.match(prompt, /Stats to typeset, exactly: 42\.0 km\./);
+  assert.match(prompt, /with no category word added in front/);
+  assert.doesNotMatch(prompt, /Distance 42\.0 km/);
+  assert.match(prompt, /Typeset each item once/);
   assert.match(prompt, /must not appear as both a large display figure and a labeled line/);
+});
+
+test("specToImagePrompt drops labels only when the value already says what it is", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      text: {
+        ...sample.text,
+        subtitle: "",
+        stats: [
+          { label: "Date", value: "Sep 27, 2026" },
+          { label: "Distance", value: "10.0 km" },
+          { label: "Moving time", value: "1h 5m" },
+          { label: "Average speed", value: "14.2 km/h" },
+          { label: "Elevation gain", value: "420 m" },
+          { label: "Sport", value: "Ride" },
+        ],
+      },
+    }),
+  );
+  assert.match(
+    prompt,
+    /Stats to typeset, exactly: Sep 27, 2026 · 10\.0 km · 1h 5m · 14\.2 km\/h · Elevation gain 420 m · Ride\./,
+  );
+});
+
+test("specToImagePrompt typesets a people credit once and keeps it off the map", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      text: {
+        ...sample.text,
+        subtitle: "",
+        stats: [
+          { label: "Distance", value: "12.4 km" },
+          { label: "With", value: "Alex, Jordan, and Sam" },
+        ],
+      },
+    }),
+  );
+  assert.match(prompt, /Stats to typeset, exactly: 12\.4 km\./);
+  assert.match(
+    prompt,
+    /People who did this activity, typeset once in the title block, exactly: "With Alex, Jordan, and Sam"\./,
+  );
+  assert.match(prompt, /These are people, not places\. Do not add them to the map/);
+  assert.match(prompt, /the people credit "With Alex, Jordan, and Sam"/);
+  assert.doesNotMatch(prompt, /With Alex, Jordan, and Sam ·/);
+});
+
+test("specToImagePrompt closes the title block when the only stat is the title", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      text: {
+        title: "Chain of Lakes Trail",
+        subtitle: "",
+        stats: [{ label: "Title", value: "Chain of Lakes Trail" }],
+        rules: "",
+      },
+    }),
+  );
+  assert.match(prompt, /Title, exactly: "Chain of Lakes Trail"/);
+  assert.match(prompt, /Title-block text is closed\. It may contain only the title "Chain of Lakes Trail"/);
+  assert.match(prompt, /No stats were supplied\. Do not set a stats line/);
+  assert.match(prompt, /The marker is a symbol only/);
+  assert.doesNotMatch(prompt, /Stats to typeset/);
+  assert.doesNotMatch(prompt, /A distance, date, duration, or speed already says what it is/);
+  assert.doesNotMatch(prompt, /Title Chain of Lakes Trail/);
+});
+
+test("specToImagePrompt keeps time labels when moving and elapsed are both shown", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      text: {
+        ...sample.text,
+        subtitle: "",
+        stats: [
+          { label: "Moving time", value: "1h 5m" },
+          { label: "Elapsed time", value: "1h 20m" },
+        ],
+      },
+    }),
+  );
+  assert.match(prompt, /Stats to typeset, exactly: Moving time 1h 5m · Elapsed time 1h 20m\./);
 });
 
 test("specToImagePrompt does not add a title when the design has none", () => {
@@ -201,7 +289,8 @@ test("specToImagePrompt appends explicit exclusions once", () => {
   assert.match(prompt, /no numbered landmark discs, pin numbers, or numbered callouts/);
   assert.match(prompt, /no scale bar, graphic scale, distance ruler, or map scale/);
   assert.match(prompt, /Do not draw a scale bar, graphic scale, or distance ruler/);
-  assert.match(prompt, /no text other than the title block and the listed landmark, trail, region, and start\/finish names/);
+  assert.match(prompt, /no text other than the supplied title, subtitle, and stats in the title block, and the listed landmark, trail, region, and start\/finish names on the map/);
+  assert.match(prompt, /no title-block text other than the supplied title, subtitle, and stats/);
   assert.match(prompt, /no different route than the GPS track on the schematic/);
   assert.match(prompt, /no color-to-name legend or trail color key/);
   assert.match(prompt, /no schematic route colors on the finished path/);
@@ -313,7 +402,9 @@ test("specToImagePrompt renders an unlabeled map when there are no named feature
   );
   assert.match(prompt, /rich unlabeled background map/i);
   assert.match(prompt, /Do not add place names, landmark icons, trail labels, or district labels/);
-  assert.match(prompt, /no text other than the title block and optional start\/finish names/);
+  assert.match(prompt, /no text other than the supplied title, subtitle, and stats in the title block, and optional start\/finish names on the map/);
+  assert.match(prompt, /Title-block text is closed/);
+  assert.match(prompt, /Do not letter Start, Finish/);
   assert.match(prompt, /no landmark names, trail names, district labels, or invented place names/);
   assert.match(prompt, /relative to water, roads, and land cover/);
   assert.doesNotMatch(prompt, /route-only poster/i);

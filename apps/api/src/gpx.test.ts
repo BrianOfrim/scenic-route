@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import fs from "node:fs";
 import { GpxError, gpxToActivityFields, mapSport, nameFromFilename, parseGpx } from "./gpx";
 
 const STRAVA_GPX = `<?xml version="1.0" encoding="UTF-8"?>
@@ -51,6 +52,7 @@ test("parseGpx joins multiple track segments and falls back to routes", () => {
     </trk>
   </gpx>`);
   assert.equal(multi.points.length, 3);
+  assert.equal(multi.segments?.length, 2);
 
   const route = parseGpx(`<gpx>
     <rte>
@@ -61,6 +63,15 @@ test("parseGpx joins multiple track segments and falls back to routes", () => {
   </gpx>`);
   assert.equal(route.name, "Dirt shortcut");
   assert.equal(route.points.length, 2);
+});
+
+test("West Coast Trail segments stitch without the five long jumps", () => {
+  const xml = fs.readFileSync(new URL("../../../examples/canadian-routes/west-coast-trail.gpx", import.meta.url), "utf8");
+  const parsed = parseGpx(xml);
+  assert.equal(parsed.segments?.length, 7);
+  const fields = gpxToActivityFields(parsed, "west-coast-trail.gpx");
+  assert.deepEqual(fields.routeBreaks, []);
+  assert.ok(fields.distance > 75_000 && fields.distance < 77_000);
 });
 
 test("parseGpx handles namespaced tags and CDATA names", () => {

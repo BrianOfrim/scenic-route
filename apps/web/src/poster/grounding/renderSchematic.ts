@@ -13,6 +13,7 @@ type WayFeature = {
 
 export type RenderSchematicOptions = {
   latlng: [number, number][];
+  routeBreaks?: number[];
   bbox?: [[number, number], [number, number]];
   ways?: Record<string, { features?: WayFeature[] }>;
   /** Landmarks drawn as numbered discs, most important first. Names live in the prompt key. */
@@ -37,6 +38,7 @@ export type RenderSchematicOptions = {
       | { type: "MultiPolygon"; coordinates: number[][][][] };
   }>;
   layers?: {
+    urban?: boolean;
     roads?: boolean;
     streets?: boolean;
     paths?: boolean;
@@ -71,6 +73,7 @@ export function schematicLayersFromFeatureIds(
   routeMarkers: false | "ends" | "loop" = "ends",
 ): SchematicLayers {
   return {
+    urban: featureIds.includes("urban"),
     roads: featureIds.includes("major-roads"),
     streets: featureIds.includes("streets"),
     paths: featureIds.includes("paths"),
@@ -128,13 +131,16 @@ function drawGpsTrack(
   ctx: CanvasRenderingContext2D,
   points: [number, number][],
   vertexColors: Array<string | null>,
+  breaks: readonly number[] = [],
   scale = 1,
 ) {
   if (points.length < 2) return;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   const runs: Array<{ color: string | null; start: number; end: number }> = [];
+  const breakSet = new Set(breaks);
   for (let i = 0; i < points.length - 1; i += 1) {
+    if (breakSet.has(i + 1)) continue;
     const color = vertexColors[i] ?? vertexColors[i + 1] ?? null;
     const last = runs[runs.length - 1];
     if (last && last.color === color && last.end === i) last.end = i + 1;
@@ -213,6 +219,10 @@ export function drawSchematicScene(
       ctx.closePath();
       ctx.clip();
     }
+    // Land tint must come from explicit land polygons. Empty canvas areas can
+    // represent missing geography (especially for Overpass scenes).
+    fillBucket(ctx, ways.land, project, "#dfe8cf");
+    if (layers.urban !== false) fillBucket(ctx, ways.urban, project, "rgba(170, 162, 152, 0.25)");
     if (layers["vegetation"] !== false) fillBucket(ctx, ways["vegetation"], project, "rgba(199, 211, 151, 0.5)");
     if (layers["rock"] !== false) fillBucket(ctx, ways["rock"], project, "rgba(166, 160, 151, 0.5)");
     if (layers["beaches"] !== false) fillBucket(ctx, ways["beaches"], project, "rgba(235, 215, 159, 0.65)");
@@ -224,7 +234,12 @@ export function drawSchematicScene(
     if (layers.parks !== false) fillBucket(ctx, ways.parks, project, "rgba(164, 196, 148, 0.5)");
     if (layers.forest !== false) fillBucket(ctx, ways.forest, project, "rgba(176, 201, 156, 0.55)");
     if (layers.water !== false || layers.coastline !== false) {
+      // Ocean must cover offshore parks and land-cover polygons completely.
+      fillBucket(ctx, ways.ocean, project, "#b7d2db");
       fillBucket(ctx, ways.water, project, "rgba(154, 196, 214, 0.7)");
+    }
+    if ((layers.waterways ?? layers.water) !== false) {
+      fillBucket(ctx, ways.riverAreas, project, "rgba(154, 196, 214, 0.7)");
     }
     if ((layers.waterways ?? layers.water) !== false) {
       ctx.strokeStyle = "rgba(90, 150, 180, 0.85)";
@@ -268,12 +283,13 @@ export function drawSchematicScene(
     options.latlng,
     options.silhouette || !trails.length ? null : routeVertexColors(options.latlng, trails),
     2000,
+    options.routeBreaks ?? [],
   );
   const route = sampled.latlng.map(([lat, lng]) => project(lng, lat));
   const markers = options.silhouette ? false : (layers.routeMarkers ?? "ends");
   if ((layers.route !== false || options.silhouette) && route.length >= 2) {
     const vertexColors = sampled.colors ?? route.map(() => null);
-    drawGpsTrack(ctx, route, vertexColors, scale);
+    drawGpsTrack(ctx, route, vertexColors, sampled.breaks, scale);
     if (markers) drawRouteEndMarkers(ctx, route[0], route[route.length - 1], markers, scale);
   }
 
@@ -560,15 +576,17 @@ function simplifyColored(
   latlng: [number, number][],
   colors: Array<string | null> | null,
   maxPoints: number,
-): { latlng: [number, number][]; colors: Array<string | null> | null } {
-  if (latlng.length <= maxPoints) return { latlng, colors };
+  breaks: readonly number[] = [],
+): { latlng: [number, number][]; colors: Array<string | null> | null; breaks: number[] } {
+  if (latlng.length <= maxPoints) return { latlng, colors, breaks: [...breaks] };
   const step = (latlng.length - 1) / (maxPoints - 1);
-  const nextLat: [number, number][] = [];
-  const nextColors: Array<string | null> | null = colors ? [] : null;
-  for (let index = 0; index < maxPoints; index += 1) {
-    const i = Math.round(index * step);
-    nextLat.push(latlng[i]);
-    if (nextColors && colors) nextColors.push(colors[i] ?? null);
+  const indexes = new Set<number>();
+  for (let index = 0; index < maxPoints; index += 1) indexes.add(Math.round(index * step));
+  for (const start of breaks) {
+    if (start > 0 && start < latlng.length) { indexes.add(start - 1); indexes.add(start); }
   }
-  return { latlng: nextLat, colors: nextColors };
+  const selected = [...indexes].sort((a, b) => a - b);
+  return { latlng: selected.map((index) => latlng[index]),
+    colors: colors ? selected.map((index) => colors[index] ?? null) : null,
+    breaks: breaks.map((start) => selected.indexOf(start)).filter((index) => index > 0) };
 }

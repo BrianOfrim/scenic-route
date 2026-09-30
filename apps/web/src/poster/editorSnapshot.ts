@@ -25,6 +25,12 @@ export type SavedSetupNames = {
 const ASPECTS: AspectRatio[] = ["3:4", "2:3", "1:1", "4:3", "16:9"];
 
 export type PosterEditorSnapshot = {
+  geographyMode?: "auto" | "manual";
+  routeDetail?: boolean;
+  detailScope?: "none" | "route" | "all";
+  geographyPolicyVersion?: number;
+  geographySceneId?: string;
+  geographyFrameKey?: string;
   featureIds: string[];
   labels: string[];
   trailNames: string[];
@@ -58,6 +64,12 @@ export type PosterEditorSnapshot = {
 };
 
 export type EditorCapture = {
+  geographyMode?: "auto" | "manual";
+  routeDetail?: boolean;
+  detailScope?: "none" | "route" | "all";
+  geographyPolicyVersion?: number;
+  geographySceneId?: string;
+  geographyFrameKey?: string;
   featureIds: string[];
   labels: string[];
   trailNames: string[];
@@ -123,6 +135,12 @@ export function statIdFromLabel(label: string) {
 export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapshot {
   const paletteIdsByStyle = snapshotPalettes(input.styleIds, input.paletteIdsByStyle, input.paletteId);
   return {
+    geographyMode: input.geographyMode ?? "manual",
+    routeDetail: input.routeDetail !== false,
+    detailScope: input.detailScope ?? (input.routeDetail === false ? "none" : "route"),
+    geographyPolicyVersion: input.geographyPolicyVersion,
+    geographySceneId: input.geographySceneId,
+    geographyFrameKey: input.geographyFrameKey,
     featureIds: [...input.featureIds],
     labels: [...input.labels],
     trailNames: [...input.trailNames],
@@ -157,6 +175,12 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
 }
 
 export type RestoredEditor = {
+  geographyMode?: "auto" | "manual";
+  routeDetail?: boolean;
+  detailScope?: "none" | "route" | "all";
+  geographyPolicyVersion?: number;
+  geographySceneId?: string;
+  geographyFrameKey?: string;
   featureIds: string[];
   labels: string[];
   trailNames: string[];
@@ -331,8 +355,8 @@ export function savedSetupNames(record: PosterRecord): SavedSetupNames {
   };
 }
 
-export function featureIdsToResolveNames(featureIds: string[], names: SavedSetupNames): string[] {
-  const ids = [...new Set((featureIds.length ? featureIds : DEFAULT_FEATURE_IDS).map((id) =>
+export function featureIdsToResolveNames(featureIds: string[], names: SavedSetupNames, preserveEmpty = false): string[] {
+  const ids = [...new Set((featureIds.length || preserveEmpty ? featureIds : DEFAULT_FEATURE_IDS).map((id) =>
     id === "strava-segments" ? "named-trails" : id,
   ))];
   const hasLandmark = ids.some((id) => FEATURE_CATALOG.some((item) => item.id === id && item.group === "landmarks"));
@@ -371,6 +395,12 @@ export function editorSeed(record?: PosterRecord | null) {
     areaNames: [],
   });
   return {
+    geographyMode: restored.geographyMode,
+    routeDetail: restored.routeDetail,
+    detailScope: restored.detailScope,
+    geographyPolicyVersion: restored.geographyPolicyVersion,
+    geographySceneId: restored.geographySceneId,
+    geographyFrameKey: restored.geographyFrameKey,
     featureIds: restored.featureIds,
     labels: restored.labels,
     trailNames: restored.trailNames,
@@ -413,9 +443,16 @@ export function restoreEditor(
   const fromEditor =
     editor && (editor.labels.length > 0 || editor.trailNames.length > 0 || editor.areaNames.length > 0);
   return {
+    geographyMode: editor?.geographyMode ?? "manual",
+    routeDetail: editor?.routeDetail !== false,
+    detailScope: editor?.detailScope ?? (editor?.routeDetail === false ? "none" : "route"),
+    geographyPolicyVersion: editor?.geographyPolicyVersion,
+    geographySceneId: editor?.geographySceneId,
+    geographyFrameKey: editor?.geographyFrameKey,
     featureIds: featureIdsToResolveNames(
-      editor?.featureIds?.length ? editor.featureIds : record.featureIds ?? [],
+      editor?.featureIds ?? record.featureIds ?? [],
       saved,
+      Array.isArray(editor?.featureIds),
     ),
     labels: fromEditor && editor ? editor.labels : saved.labels,
     trailNames: fromEditor && editor ? editor.trailNames : saved.trailNames,

@@ -16,6 +16,8 @@ export type SatelliteFrame = MapFrame & {
   scale: number;
 };
 
+const TILE_SETTLE_TIMEOUT_MS = 45_000;
+
 export async function snapshotTiles(
   options: {
     source: TileSource;
@@ -26,6 +28,8 @@ export async function snapshotTiles(
 ): Promise<SatelliteFrame> {
   if (signal?.aborted) throw abortError();
   const { width, height } = canvasSize(options.aspectRatio);
+  const fitted = fittedFrame(options.bbox, width, height);
+  const camera = cameraForFrame({ width, height, nw: fitted.nw, se: fitted.se });
   const container = document.createElement("div");
   container.style.cssText = `position:fixed;left:-10000px;top:0;width:${width}px;height:${height}px;`;
   document.body.appendChild(container);
@@ -42,6 +46,11 @@ export async function snapshotTiles(
   try {
     map = new Map({
       container,
+      center: camera.center,
+      zoom: camera.zoom,
+      maxZoom: Math.max(22, camera.zoom),
+      bearing: 0,
+      pitch: 0,
       style: {
         version: 8,
         sources: {
@@ -64,20 +73,12 @@ export async function snapshotTiles(
       fadeDuration: 0,
     });
     if (signal?.aborted) throw abortError();
-    await waitFor(map, "load", 12_000, signal);
     map.resize();
-    const frame = fittedFrame(options.bbox, width, height);
-    const camera = cameraForFrame({ width, height, nw: frame.nw, se: frame.se });
-    if (camera.zoom > map.getMaxZoom()) map.setMaxZoom(camera.zoom);
-    map.jumpTo({
-      center: camera.center,
-      zoom: camera.zoom,
-      bearing: 0,
-      pitch: 0,
-      padding: { top: 0, bottom: 0, left: 0, right: 0 },
-    });
-    await waitFor(map, "idle", 12_000, signal);
+    // Low-zoom placeholders stay on screen until every target tile has arrived.
+    // Capturing on a timer saves that blur with only the tiles that won the race.
+    await waitForSettledTiles(map, TILE_SETTLE_TIMEOUT_MS, signal);
     if (signal?.aborted) throw abortError();
+    map.redraw();
     return captureFrame(map, options.source);
   } finally {
     dispose();
@@ -89,6 +90,7 @@ export function renderMaskedSatellite(
   frame: SatelliteFrame,
   options: {
     latlng: [number, number][];
+    routeBreaks?: number[];
     routeMarkers?: false | "ends" | "loop";
     mask?: GeoMask | null;
   },
@@ -109,7 +111,7 @@ export function renderMaskedSatellite(
       if (options.mask && maskIsActive(options.mask)) {
         maskImageToRegion(ctx, project, options.mask, options.latlng);
       }
-      overlayRoute(ctx, project, options.latlng, options.routeMarkers ?? "ends", frame.scale);
+      overlayRoute(ctx, project, options.latlng, options.routeBreaks ?? [], options.routeMarkers ?? "ends", frame.scale);
       resolve(canvas.toDataURL("image/jpeg", 0.85));
     };
     image.onerror = () => reject(new Error("Could not read the satellite image"));
@@ -145,6 +147,7 @@ function overlayRoute(
   ctx: CanvasRenderingContext2D,
   project: (lng: number, lat: number) => [number, number],
   latlng: [number, number][],
+  breaks: number[],
   markers: false | "ends" | "loop",
   scale: number,
 ) {
@@ -154,17 +157,21 @@ function overlayRoute(
   ctx.lineCap = "round";
   ctx.strokeStyle = "#111";
   ctx.lineWidth = 6 * scale;
-  stroke(ctx, points);
+  stroke(ctx, points, breaks);
   ctx.strokeStyle = "#e11d48";
   ctx.lineWidth = 3.5 * scale;
-  stroke(ctx, points);
+  stroke(ctx, points, breaks);
   if (markers) drawRouteEndMarkers(ctx, points[0], points[points.length - 1], markers, scale);
 }
 
-function stroke(ctx: CanvasRenderingContext2D, points: [number, number][]) {
+function stroke(ctx: CanvasRenderingContext2D, points: [number, number][], breaks: number[] = []) {
   ctx.beginPath();
   ctx.moveTo(points[0][0], points[0][1]);
-  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0], points[i][1]);
+  const starts = new Set(breaks);
+  for (let i = 1; i < points.length; i += 1) {
+    if (starts.has(i)) ctx.moveTo(points[i][0], points[i][1]);
+    else ctx.lineTo(points[i][0], points[i][1]);
+  }
   ctx.stroke();
 }
 
@@ -172,34 +179,39 @@ function abortError() {
   return new DOMException("Satellite snapshot aborted", "AbortError");
 }
 
-function waitFor(map: Map, event: "load" | "idle", timeoutMs = 12_000, signal?: AbortSignal) {
+function waitForSettledTiles(map: Map, timeoutMs: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
       reject(abortError());
       return;
     }
-    if (event === "load" && map.loaded()) {
-      resolve();
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      cleanup();
-      resolve();
-    }, timeoutMs);
-    const onEvent = () => {
-      cleanup();
-      resolve();
-    };
-    const onAbort = () => {
-      cleanup();
-      reject(abortError());
-    };
-    const cleanup = () => {
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
       window.clearTimeout(timer);
-      map.off(event, onEvent);
+      map.off("idle", onIdle);
       signal?.removeEventListener("abort", onAbort);
+      if (error) reject(error);
+      else resolve();
     };
+    const onIdle = () => {
+      try {
+        if (map.areTilesLoaded()) finish();
+      } catch (error) {
+        finish(error);
+      }
+    };
+    const onAbort = () => finish(abortError());
+    const timer = window.setTimeout(() => {
+      finish(new Error("Satellite imagery did not finish loading"));
+    }, timeoutMs);
     signal?.addEventListener("abort", onAbort);
-    map.once(event, onEvent);
+    map.on("idle", onIdle);
+    try {
+      if (map.loaded() && map.areTilesLoaded()) finish();
+    } catch (error) {
+      finish(error);
+    }
   });
 }

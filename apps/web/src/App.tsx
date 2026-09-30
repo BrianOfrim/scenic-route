@@ -100,8 +100,10 @@ export function App() {
   const [features, setFeatures] = useState<FeatureOption[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedLatLng, setSelectedLatLng] = useState<[number, number][] | null>(null);
+  const [selectedRouteBreaks, setSelectedRouteBreaks] = useState<number[]>([]);
   const [trackLoading, setTrackLoading] = useState(false);
   const [cropLatLng, setCropLatLng] = useState<[number, number][] | null>(null);
+  const [cropRouteBreaks, setCropRouteBreaks] = useState<number[]>([]);
   const [cropStops, setCropStops] = useState<[number, number][]>([]);
   const [pois, setPois] = useState<PosterPoi[]>([]);
   const [namedWays, setNamedWays] = useState<NamedWay[]>([]);
@@ -340,15 +342,20 @@ export function App() {
   useEffect(() => {
     if (selectedId == null) {
       setSelectedLatLng(null);
+      setSelectedRouteBreaks([]);
       setTrackLoading(false);
       return;
     }
     let cancelled = false;
     setSelectedLatLng(null);
+    setSelectedRouteBreaks([]);
     setTrackLoading(true);
     fetchActivityTrack(selectedId)
       .then((body) => {
-        if (!cancelled) setSelectedLatLng(body.latlng);
+        if (!cancelled) {
+          setSelectedLatLng(body.latlng);
+          setSelectedRouteBreaks(body.routeBreaks ?? []);
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not load track");
@@ -491,6 +498,7 @@ export function App() {
               </div>
             </div>
           </div>
+          {!isMobile && <AppTabs active="map" isMobile={false} onSelect={selectTab} />}
           <div className="top-actions">
             {!isMobile && error && (
               <p className="error banner">
@@ -537,8 +545,10 @@ export function App() {
             {basemapSelect}
             <MapView
               selectedLatLng={selectedLatLng}
+              selectedRouteBreaks={selectedRouteBreaks}
               trackLoading={trackLoading}
               cropLatLng={posterOpen ? cropLatLng : null}
+              cropRouteBreaks={posterOpen ? cropRouteBreaks : []}
               cropStops={posterOpen ? cropStops : []}
               pois={posterOpen ? pois : EMPTY_POIS}
               namedWays={posterOpen ? namedWays : EMPTY_WAYS}
@@ -588,6 +598,7 @@ export function App() {
               onSheetHeightChange={isMobile ? onPosterSheetHeight : undefined}
               onClose={closePoster}
               onCropChange={setCropLatLng}
+              onBreaksChange={setCropRouteBreaks}
               onStopsChange={setCropStops}
               onPoisChange={setPois}
               onNamedWaysChange={setNamedWays}
@@ -616,11 +627,7 @@ export function App() {
             />
           ) : null}
         </div>
-        <AppTabs
-          active={isMobile ? mobilePane : "map"}
-          isMobile={isMobile}
-          onSelect={selectTab}
-        />
+        {isMobile && <AppTabs active={mobilePane} isMobile onSelect={selectTab} />}
       </div>
       {/* Stay mounted so tab switches and in-flight generate do not refetch or blank the list. */}
       <div className="gallery-host" hidden={!showGallery} aria-hidden={!showGallery}>

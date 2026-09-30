@@ -9,6 +9,7 @@ import { posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
 import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
 import { ShareButton } from "../share";
+import { MOBILE_QUERY, useMediaQuery } from "../useMediaQuery";
 
 type Props = {
   onEditSetup: (poster: PosterRecord) => void;
@@ -198,6 +199,7 @@ function GalleryRun({
 }
 
 export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpenPosterHandled }: Props) {
+  const isMobile = useMediaQuery(MOBILE_QUERY);
   const generation = useGenerationState();
   const arrivedEpoch = useArrivedEpoch();
   const [posters, setPosters] = useState<PosterRecord[]>([]);
@@ -432,12 +434,13 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             </div>
           </div>
         </div>
+        {!isMobile && tabs}
         <div className="top-actions">
           <label className="gallery-sort">
             Sort by
             <select value={sort} onChange={(event) => setSort(event.target.value as GallerySort)}>
-              <option value="generated">Most recently generated image</option>
-              <option value="activity" disabled={!activityDates}>Most recent activity</option>
+              <option value="generated">Recent Image</option>
+              <option value="activity" disabled={!activityDates}>Recent Activity</option>
             </select>
           </label>
           <button
@@ -655,7 +658,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
           </div>
         </div>
       )}
-      {tabs}
+      {isMobile && tabs}
     </div>
   );
 }

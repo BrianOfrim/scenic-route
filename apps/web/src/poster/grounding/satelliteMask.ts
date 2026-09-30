@@ -16,6 +16,7 @@ type Scope = "all" | "corridor" | "ends" | "ring";
  */
 export function satelliteReferenceMask(input: {
   /** Padded Overpass box, as stored on poster context: [[minLng, minLat], [maxLng, maxLat]]. */
+  exactFrame?: boolean;
   queryBbox: QueryCorners | null | undefined;
   /** Full track the query was built from, [lat, lng]. */
   track: [number, number][] | null | undefined;
@@ -29,7 +30,7 @@ export function satelliteReferenceMask(input: {
   const [a, b] = input.queryBbox;
   const frame = queryFrameRing(
     [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])],
-    queryFrameExpandM(track),
+    input.exactFrame ? 0 : queryFrameExpandM(track),
   );
   if (frame.length < 3) return null;
   if (input.scope === "all") return { clip: frame };
