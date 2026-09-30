@@ -43,6 +43,7 @@ export type PosterEditorSnapshot = {
   showRouteMarkers: boolean;
   routeOnly: boolean;
   title: string;
+  location?: string | null;
   startPlace: string;
   finishPlace: string;
   placesEdited: boolean;
@@ -82,6 +83,7 @@ export type EditorCapture = {
   showRouteMarkers: boolean;
   routeOnly?: boolean;
   title: string;
+  location?: string | null;
   startPlace: string;
   finishPlace: string;
   placesEdited: boolean;
@@ -153,6 +155,7 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
     showRouteMarkers: input.showRouteMarkers,
     routeOnly: Boolean(input.routeOnly),
     title: input.title,
+    location: input.location ?? null,
     startPlace: input.startPlace,
     finishPlace: input.finishPlace,
     placesEdited: input.placesEdited,
@@ -193,6 +196,7 @@ export type RestoredEditor = {
   showRouteMarkers: boolean;
   routeOnly: boolean;
   title: string;
+  location?: string | null;
   startPlace: string;
   finishPlace: string;
   placesEdited: boolean;
@@ -413,6 +417,7 @@ export function editorSeed(record?: PosterRecord | null) {
     paletteIdsByStyle: restored.paletteIdsByStyle,
     aspectRatio: restored.aspectRatio,
     title: restored.title,
+    location: restored.location,
     showRouteMarkers: restored.showRouteMarkers,
     routeOnly: restored.routeOnly,
     imageModelIds: restored.imageModelIds,
@@ -465,6 +470,7 @@ export function restoreEditor(
     showRouteMarkers: editor?.showRouteMarkers ?? true,
     routeOnly: editor?.routeOnly === true,
     title: editor?.title || record.title || defaults.title,
+    location: editor?.location !== undefined ? editor.location : record.stats?.find(item => /^location$/i.test(item.label))?.value ?? null,
     startPlace,
     finishPlace,
     placesEdited: editor?.placesEdited ?? Boolean(startPlace || finishPlace),

@@ -420,11 +420,12 @@ export function titlePromptLine(title: string) {
 
 const TITLE_STAT = /^title$/i;
 
-function titleBlockClosure(title: string, subtitle: string, stats: string[], people = "") {
+function titleBlockClosure(title: string, subtitle: string, stats: string[], people = "", hasLocation = false) {
   const pieces: string[] = [];
   if (title) pieces.push(`the title "${title}"`);
   if (subtitle) pieces.push(`the subtitle "${subtitle}"`);
   if (stats.length) pieces.push(`these stats: ${stats.join(" · ")}`);
+  if (hasLocation) pieces.push("the separately supplied location caption, if placed here");
   if (people) pieces.push(`the people credit "${people}"`);
   const allowed = pieces.length ? `only ${pieces.join("; ")}` : "no text";
   return `Title-block text is closed. It may contain ${allowed}. Do not add any other word, number, date, distance, duration, elevation, season, sport, or start/finish label. A style note about stats, metadata, or middle-dot separators applies only to stats listed here and is not permission to invent any. Instruction words in this prompt, including start, finish, marker, out-and-back, date, distance, and duration, are not poster text unless they appear inside that closed list.`;
@@ -434,6 +435,15 @@ const t = (value?: string) => (value ?? "").trim();
 
 function isPeopleStat(item: { label?: string }) {
   return /^with$/i.test(t(item.label));
+}
+
+function isLocationStat(item: { label: string; value: string }) {
+  return /^location$/i.test(t(item.label));
+}
+
+function locationCredit(stats: Array<{ label: string; value: string }>) {
+  const value = t(stats.find(isLocationStat)?.value);
+  return value ? `Location caption, exactly: ${JSON.stringify(value)}. Typeset it once as an elegant place caption, such as spaced lettering in a bottom margin or footer, in clear map negative space, or in the title block if that suits the theme. Print only the supplied place text, without a "Location" prefix or invented words. Keep it readable and clear of every route segment. This is display text, not a landmark pin or an instruction to change the geography.` : "";
 }
 
 function peopleCreditLine(stats: Array<{ label: string; value: string }>) {
@@ -621,7 +631,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
   const title = t(spec.text.title);
   const subtitle = t(spec.text.subtitle);
   const statItems = spec.text.stats.filter(
-    (item) => t(item.value) && !TITLE_STAT.test(t(item.label)) && !isPeopleStat(item),
+    (item) => t(item.value) && !TITLE_STAT.test(t(item.label)) && !isPeopleStat(item) && !isLocationStat(item),
   );
   const stats = statItems.map((item) => typesetStat(item, statItems));
   const droppedLabel = statItems.some((item, index) => stats[index] === t(item.value) && t(item.label));
@@ -637,10 +647,11 @@ export function specToImagePrompt(spec: PosterSpec): string {
         ? `Typeset each item once, exactly as written${droppedLabel ? ", with no category word added in front. A distance, date, duration, or speed already says what it is" : ""}.`
         : "",
       people,
+      locationCredit(spec.text.stats),
       hasDistance
         ? "Do not repeat a value in the title block: the distance must not appear as both a large display figure and a labeled line."
         : "",
-      titleBlockClosure(title, subtitle, stats, peopleLine),
+      titleBlockClosure(title, subtitle, stats, peopleLine, Boolean(locationCredit(spec.text.stats))),
       labeled("Text rules", withTitlePhoneRule(spec.text.rules, titled)),
     ]),
   );
@@ -676,7 +687,9 @@ export function specToImagePrompt(spec: PosterSpec): string {
   const avoid = Array.from(
     new Set([
       ...list(spec.negative).filter(keepAsPosterInstruction),
-      ...promptExclusions(routeOnly),
+      ...promptExclusions(routeOnly).map(rule => locationCredit(spec.text.stats)
+        ? rule.replace("the supplied title, subtitle, and stats", "the supplied title, subtitle, stats, and separately supplied location caption")
+        : rule),
       ...(posterHasTitle(spec.text.title)
         ? [
             "no caption-sized title",
@@ -840,7 +853,7 @@ function fallbackPrompt(spec: PosterSpec): string {
 
 /** One owner for each instruction; planner prose cannot override geometry or printed text. */
 function unannotatedImagePrompt(spec: PosterSpec): string {
-  const statItems = spec.text.stats.filter(item => t(item.value) && !TITLE_STAT.test(t(item.label)) && !isPeopleStat(item));
+  const statItems = spec.text.stats.filter(item => t(item.value) && !TITLE_STAT.test(t(item.label)) && !isPeopleStat(item) && !isLocationStat(item));
   const subtitleParts = t(spec.text.subtitle).split(/\s*·\s*/).filter(Boolean);
   const printed = [...new Set([t(spec.text.title), ...subtitleParts, ...statItems.map(item => typesetStat(item, statItems))].filter(Boolean))];
   const references = spec.grounding.images.map(image =>
@@ -849,12 +862,13 @@ function unannotatedImagePrompt(spec: PosterSpec): string {
   const hasSatellite = spec.grounding.images.some(image => /satellite/i.test(image.role));
   const routeReference = spec.grounding.images.find(image => /route-only|silhouette/i.test(image.role));
   const people = peopleCredit(spec.text.stats);
+  const location = locationCredit(spec.text.stats);
   const endpointNames = spec.route.startName || spec.route.finishName
     ? "Only the supplied endpoint names may additionally appear at their map markers."
     : "";
   const text = printed.length
-    ? `Print each of these text items once: ${printed.map(value => JSON.stringify(value)).join("; ")}. ${endpointNames || (people ? "" : "Add no other text.")}`.trim()
-    : people
+    ? `Print each of these text items once: ${printed.map(value => JSON.stringify(value)).join("; ")}. ${endpointNames || (people || location ? "" : "Add no other text.")}`.trim()
+    : people || location
       ? `Print no other title-block text. ${endpointNames}`.trim()
       : "Print no title-block text.";
   const geography = spec.geography.map(item => `${item.kind}: ${item.treatment}`).filter(Boolean);
@@ -880,7 +894,8 @@ function unannotatedImagePrompt(spec: PosterSpec): string {
     geography.length ? `Background treatments: ${geography.join("; ")}. Preserve geographic shapes and positions; apply the theme through color and surface treatment. Confine print misregistration to background texture.` : "",
     text,
     people,
+    location,
     posterHasTitle(spec.text.title) ? "Make the title the largest text, with font size at least 8% of poster width. Wrap as needed. Place it in unused space or a separate band without covering or cropping the route." : "There is no title.",
-    "No additional place annotations, legend, scale bar, coordinate grid or watermark.",
+    `${location ? "No place annotations beyond the supplied location caption." : "No additional place annotations."} No legend, scale bar, coordinate grid or watermark.`,
   ].filter(Boolean).join("\n\n");
 }

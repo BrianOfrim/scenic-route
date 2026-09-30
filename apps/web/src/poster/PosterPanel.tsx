@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import {
   fetchPosterCapabilities,
   fetchPosterContext,
+  fetchPosterLocation,
   fetchPosterGeography,
   formatKm,
   generatePoster,
@@ -864,6 +865,10 @@ export function PosterPanel({
     return planSlotKey(id, paletteId);
   });
   const [title, setTitle] = useState(seeded?.title ?? "");
+  const [locationOverride, setLocationOverride] = useState<string | null>(seeded?.location ?? null);
+  const [suggestedLocation, setSuggestedLocation] = useState("");
+  const [locationStatus, setLocationStatus] = useState("");
+  const location = locationOverride ?? suggestedLocation;
   const [startPlace, setStartPlace] = useState("");
   const [finishPlace, setFinishPlace] = useState("");
   const [placesEdited, setPlacesEdited] = useState(false);
@@ -996,6 +1001,7 @@ export function PosterPanel({
             setShowRouteMarkers(restored.showRouteMarkers);
 
             setTitle(restored.title);
+            setLocationOverride(restored.location ?? null);
             setStartPlace(restored.startPlace);
             setFinishPlace(restored.finishPlace);
             setPlacesEdited(restored.placesEdited);
@@ -1037,6 +1043,8 @@ export function PosterPanel({
             setTrailNames(incomingTrails);
             setAreaNames(incomingAreas);
             setTitle(next.activity.name || "Ride");
+            setLocationOverride(null);
+            setSuggestedLocation("");
             setCropStart(0);
             setCropEnd(Math.max(1, next.latlng.length - 1));
             setPlacesEdited(false);
@@ -1364,14 +1372,31 @@ export function PosterPanel({
     loopRide ||
     (Boolean(startPlace.trim()) && startPlace.trim().toLowerCase() === finishPlace.trim().toLowerCase());
 
+  useEffect(() => {
+    if (!context || cropActivityId.current !== activityId) return;
+    let cancelled = false;
+    setSuggestedLocation("");
+    setLocationStatus("Finding location…");
+    const timer = window.setTimeout(() => {
+      void fetchPosterLocation(activityId, cropStart, cropEnd).then(result => {
+        if (cancelled) return;
+        setSuggestedLocation(result.location);
+        setLocationStatus(result.resolved ? "Suggested from the route coordinates." : "Place lookup unavailable. Coordinates are shown; enter a location below.");
+      }).catch(() => {
+        if (!cancelled) setLocationStatus("Could not look up this location. Enter a location below.");
+      });
+    }, 500);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [activityId, Boolean(context), cropStart, cropEnd]);
+
   const listedStats = useMemo((): FormattedStat[] => {
     const available = applyStatUnits(
-      (context?.stats ?? []).filter((item) => item.id !== "title"),
+      (context?.stats ?? []).filter((item) => item.id !== "title" && item.id !== "location"),
       context?.activity,
       statUnits,
     );
-    return [{ id: "title", label: "Title", value: title }, ...available];
-  }, [context, title, statUnits]);
+    return [{ id: "title", label: "Title", value: title }, ...available, { id: "location", label: "Location", value: location.trim() }];
+  }, [context, title, statUnits, location]);
 
   const selectedStats = useMemo(() => {
     return listedStats.filter((item) => statIds.includes(item.id) && (item.id === "title" || item.value));
@@ -1379,7 +1404,7 @@ export function PosterPanel({
 
   const subtitle = useMemo(() => {
     return selectedStats
-      .filter((item) => item.id !== "title")
+      .filter((item) => item.id !== "title" && item.id !== "location")
       .map((item) => item.value)
       .join(" · ");
   }, [selectedStats]);
@@ -1986,7 +2011,7 @@ export function PosterPanel({
         try {
           const records = await generatePoster({
             activityId,
-            spec: job.spec,
+            spec: { ...job.spec, text: { ...job.spec.text, title, subtitle, stats: posterStats } },
             featureIds,
             labels: posterPois.map((poi) => poi.name),
             stats: posterStats,
@@ -2022,6 +2047,7 @@ export function PosterPanel({
               showRouteMarkers,
               routeOnly,
               title,
+              location: locationOverride,
               startPlace,
               finishPlace,
               placesEdited,
@@ -3300,6 +3326,19 @@ export function PosterPanel({
               </label>
             ))}
             <input className="search" value={title} onChange={(event) => setTitle(event.target.value)} />
+            <label className="poster-field">
+              Display location
+              <input
+                className="search"
+                value={location}
+                maxLength={200}
+                placeholder="City · Region · Country"
+                onChange={event => setLocationOverride(event.target.value)}
+              />
+            </label>
+            <p className="muted">Optional. Printed once in a footer, clear map space, or the title block to suit the theme.</p>
+            <p className="muted">{locationOverride === null ? locationStatus : "Using your custom location."}</p>
+            {locationOverride !== null && <button type="button" className="chip" onClick={() => setLocationOverride(null)}>Use suggested location</button>}
             <label className="poster-field">
               People
               <textarea

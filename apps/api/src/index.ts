@@ -20,6 +20,7 @@ import {
   listSportTypes,
   toActivitySummary,
   parseNumberArray,
+  parseLatLng,
 } from "./activities";
 import { databaseUrlSource, initDb } from "./db";
 import { sealImportedIdFloors } from "./importedIds";
@@ -31,6 +32,7 @@ import { filesFromRequest } from "./importRequest";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
 import { loadGeography, parseGeographyBbox } from "./osm/geography";
 import { loadRouteFeatures } from "./osm/features";
+import { reverseLocation } from "./osm/location";
 import { lookupLandmark } from "./osm/landmark";
 import { OpenRouterError, imageModel, listImageModels, maxImageReferences } from "./openrouter";
 import { planPoster } from "./planner";
@@ -168,6 +170,22 @@ app.get("/api/poster/context/:activityId", async (c) => {
   } catch (error) {
     return fail(c, error);
   }
+});
+
+app.get("/api/poster/location/:activityId", async (c) => {
+  try {
+    const activity = await getActivity(currentUserId(c), Number(c.req.param("activityId")));
+    if (!activity) return c.json({ error: "not found" }, 404);
+    const track = parseLatLng(activity.latlng);
+    const start = Number(c.req.query("start") ?? 0);
+    const end = Number(c.req.query("end") ?? track.length - 1);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end >= track.length) {
+      return c.json({ error: "Invalid route crop" }, 400);
+    }
+    const [lat, lng] = track[Math.floor((start + end) / 2)];
+    const location = await reverseLocation(lat, lng);
+    return c.json({ location: location || `${lat.toFixed(3)}°, ${lng.toFixed(3)}°`, resolved: Boolean(location) });
+  } catch (error) { return fail(c, error); }
 });
 
 app.get("/api/poster/geography/:activityId", async (c) => {

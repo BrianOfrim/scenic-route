@@ -81,6 +81,7 @@ export type PosterEditorSnapshot = {
   showRouteMarkers: boolean;
   routeOnly: boolean;
   title: string;
+  location?: string | null;
   startPlace: string;
   finishPlace: string;
   placesEdited: boolean;

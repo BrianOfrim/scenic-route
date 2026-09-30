@@ -475,3 +475,15 @@ test("namesFromPrompt ignores style clauses after hand-lettered place names", ()
     "University of Alberta - Augustana Campus",
   ]);
 });
+
+test("location override and automatic mode survive saving, including a deliberately empty override", () => {
+  const restored = restoreEditor(record(), 10, defaults);
+  for (const location of [null, "Custom place", ""]) {
+    const editor = captureEditorSnapshot({ ...restored, location, imageModelIds: [], variants: 4, qualities: undefined });
+    const saved = record({ editor, stats: [{ label: "Location", value: "Automatic place" }] });
+    assert.equal(restoreEditor(saved, 10, defaults).location, location);
+  }
+  const legacy = restoreEditor(record({ stats: [{ label: "Location", value: "Vancouver" }] }), 10, defaults);
+  assert.equal(legacy.location, "Vancouver");
+  assert.ok(legacy.statIds.includes("location"));
+});
