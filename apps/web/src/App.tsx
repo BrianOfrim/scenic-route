@@ -97,6 +97,7 @@ export function App() {
   const [posterSheetOffset, setPosterSheetOffset] = useState(SHEET_OFFSET_FALLBACK.half);
   const [posterSheetHeightPx, setPosterSheetHeightPx] = useState(SHEET_OFFSET_FALLBACK_PX.half);
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(true);
   const [features, setFeatures] = useState<FeatureOption[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedLatLng, setSelectedLatLng] = useState<[number, number][] | null>(null);
@@ -276,6 +277,7 @@ export function App() {
   }, []);
 
   const refresh = useCallback(async () => {
+    setActivitiesLoading(true);
     try {
       const [nextActivities, nextFeatures] = await Promise.all([
         fetchActivities(),
@@ -289,6 +291,8 @@ export function App() {
         throw err;
       }
       throw err;
+    } finally {
+      setActivitiesLoading(false);
     }
   }, []);
 
@@ -531,6 +535,7 @@ export function App() {
         >
           <ActivityList
             activities={activities}
+            loading={activitiesLoading}
             selectedId={selectedId}
             importing={importing}
             importNotice={importNotice}

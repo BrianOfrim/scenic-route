@@ -8,6 +8,7 @@ import type { ImportNotice } from "./importNotice";
 
 type Props = {
   activities: ActivitySummary[];
+  loading: boolean;
   selectedId: number | null;
   importing: boolean;
   importNotice: ImportNotice | null;
@@ -19,6 +20,7 @@ type Props = {
 
 export function ActivityList({
   activities,
+  loading,
   selectedId,
   importing,
   importNotice,
@@ -246,7 +248,13 @@ export function ActivityList({
           )}
         </div>
       )}
-      <div className="activity-list">
+      <div className="activity-list" aria-busy={loading}>
+        {loading && (
+          <div className="muted activity-loading" role="status">
+            <span className="spinner" aria-hidden="true" />
+            Loading activities…
+          </div>
+        )}
         {filtered.map((item) => (
           <div key={item.id} className={`activity-row${item.id === selectedId ? " on" : ""}`}>
             {selecting && (
@@ -271,7 +279,7 @@ export function ActivityList({
             </button>
           </div>
         ))}
-        {!filtered.length && (
+        {!loading && !filtered.length && (
           <p className="muted activity-empty">
             {activities.length
               ? "No matching activities."

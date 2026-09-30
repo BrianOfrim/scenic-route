@@ -378,6 +378,13 @@ h1 {
   padding: 14px 16px;
 }
 
+.activity-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
 .poster-panel {
   border-right: 0;
   border-left: 1px solid var(--line);
