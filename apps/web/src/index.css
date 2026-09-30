@@ -680,12 +680,13 @@ textarea:disabled {
 .map-empty {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 1;
   display: grid;
   place-items: center;
   pointer-events: none;
   padding: 24px;
   text-align: center;
+  background: #202b1c;
 }
 
 .map-empty-copy {
@@ -695,7 +696,7 @@ textarea:disabled {
 .map-empty-copy strong {
   display: block;
   margin-bottom: 6px;
-  color: #2a241a;
+  color: var(--ink);
   font-size: var(--text-heading);
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -703,13 +704,14 @@ textarea:disabled {
 
 .map-empty-copy p {
   margin: 0;
-  color: #5a4e38;
+  color: var(--muted);
   font-size: var(--text-body);
   line-height: 1.4;
 }
 
 .map-loading {
-  background: color-mix(in srgb, #f4efe3 72%, transparent);
+  z-index: 2;
+  background: color-mix(in srgb, #202b1c 88%, transparent);
 }
 
 .map-loading-spinner {
