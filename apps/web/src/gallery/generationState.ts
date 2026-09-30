@@ -71,6 +71,13 @@ export async function trackGeneration<T>(
 
 export const getGenerationState = () => snapshot;
 
+/** Dismiss a failed placeholder without retrying or affecting active requests. */
+export function clearFailedImage(id: string) {
+  const failed = snapshot.failed.filter((image) => image.id !== id);
+  if (failed.length === snapshot.failed.length) return;
+  publish({ ...snapshot, failed, error: failed.at(-1)?.error ?? null });
+}
+
 export function useGenerationState() {
   return useSyncExternalStore(
     (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },

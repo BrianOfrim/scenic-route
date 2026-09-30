@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { PosterRecord } from "../api";
 import { mergePosterList, posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
+import { unzipSync } from "fflate";
+import { deleteGalleryImages, galleryArchive, selectedGalleryImages } from "./gallerySelection";
 
 function item(overrides: Partial<PosterRecord> = {}): PosterRecord {
   return {
@@ -20,6 +22,41 @@ function item(overrides: Partial<PosterRecord> = {}): PosterRecord {
     ...overrides,
   };
 }
+
+test("bulk selection only targets displayed images, never hidden versions or filtered images", () => {
+  const visible = [item({ posterId: "latest" }), item({ posterId: "other" })];
+  const ids = new Set(["latest", "hidden-version", "filtered-out"]);
+  assert.deepEqual(selectedGalleryImages(visible, ids).map(image => image.posterId), ["latest"]);
+});
+
+test("gallery ZIP downloads preserve distinct images with safe names", async () => {
+  const images = [item({ posterId: "one", title: "../../Same route" }), item({ posterId: "two", title: "../../Same route" })];
+  const loaded: string[] = [];
+  const archive = await galleryArchive(images, async id => {
+    loaded.push(id);
+    return new Uint8Array([id === "one" ? 1 : 2, 3, 4]);
+  });
+  const files = unzipSync(archive);
+  assert.deepEqual(loaded, ["one", "two"]);
+  assert.equal(Object.keys(files).length, 2, "matching titles must not overwrite images");
+  for (const name of Object.keys(files)) {
+    assert.ok(!name.includes("/") && !name.includes(".."));
+    assert.ok(name.endsWith(".png"));
+  }
+  assert.deepEqual([...Object.values(files)[0]], [1, 3, 4]);
+  assert.deepEqual([...Object.values(files)[1]], [2, 3, 4]);
+});
+
+test("bulk deletion reports successes and retains each failed image for retry", async () => {
+  const attempted: string[] = [];
+  const result = await deleteGalleryImages([item({ posterId: "one" }), item({ posterId: "two" }), item({ posterId: "three" })], async id => {
+    attempted.push(id);
+    if (id === "two") throw new Error("Network unavailable");
+  });
+  assert.deepEqual(attempted, ["one", "two", "three"]);
+  assert.deepEqual(result.deleted, ["one", "three"]);
+  assert.deepEqual(result.failed, [{ id: "two", message: "Ride: Network unavailable" }]);
+});
 
 test("posterCardSrc prefers the WebP thumb", () => {
   assert.equal(posterCardSrc(item()), "/api/posters/p1/thumb.webp");

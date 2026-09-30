@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { generatePoster } from "../api";
 import { getArrivedPosters } from "./arrivedPosters";
-import { beginGeneration, getGenerationState, trackGeneration } from "./generationState";
+import { beginGeneration, clearFailedImage, getGenerationState, trackGeneration } from "./generationState";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -116,4 +116,27 @@ test("failed cards retry once per request, survive repeated failures, and clear 
   await retry;
   assert.equal(getGenerationState().pending.filter((image) => image.title === "Retry route").length, 0);
   assert.equal(getGenerationState().failed.filter((image) => image.title === "Retry route").length, 0);
+});
+
+test("clearing failed images preserves other failures and pending work without regenerating", () => {
+  for (const image of getGenerationState().failed) clearFailedImage(image.id);
+  const first = beginGeneration({ title: "Dismiss this" });
+  const second = beginGeneration({ title: "Keep this" });
+  const pending = beginGeneration({ title: "Still generating" });
+  first.setRetry(async () => { assert.fail("clearing must not regenerate"); });
+  first.finish(new Error("First failure"));
+  second.finish(new Error("Second failure"));
+  const [a, b] = getGenerationState().failed;
+  const pendingIds = getGenerationState().pending.map(image => image.id);
+  clearFailedImage(b.id);
+  assert.deepEqual(getGenerationState().failed.map(image => image.id), [a.id]);
+  assert.equal(getGenerationState().error, "First failure");
+  assert.deepEqual(getGenerationState().pending.map(image => image.id), pendingIds);
+  clearFailedImage(a.id);
+  assert.equal(getGenerationState().failed.length, 0);
+  assert.equal(getGenerationState().error, null, "clearing the last failure also removes its banner");
+  const cleared = getGenerationState();
+  clearFailedImage(a.id);
+  assert.equal(getGenerationState(), cleared, "repeated clearing is harmless");
+  pending.finish();
 });
