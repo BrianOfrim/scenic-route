@@ -12,7 +12,7 @@ import {
   variantCount,
   type PosterRecord,
 } from "./poster";
-import { specToImagePrompt, validatePosterSpec } from "./posterSpec";
+import { SINGLE_ROUTE_RULE, specToImagePrompt, validatePosterSpec } from "./posterSpec";
 
 test("clampVariants keeps requests in 1–10 and defaults to 4", () => {
   assert.equal(DEFAULT_VARIANTS, 4);
@@ -172,7 +172,9 @@ test("resolveImagePrompt prefers a non-empty override", () => {
     negative: [],
     finalPrompt: "assembled from spec",
   });
-  assert.equal(resolveImagePrompt(spec, "  warmer paper  "), "warmer paper");
+  assert.equal(resolveImagePrompt(spec, "  warmer paper  "), `${SINGLE_ROUTE_RULE}\n\nwarmer paper`);
+  const savedPrompt = resolveImagePrompt(spec, "warmer paper");
+  assert.equal(resolveImagePrompt(spec, savedPrompt), savedPrompt);
   assert.equal(resolveImagePrompt(spec, "   "), specToImagePrompt(spec));
 });
 

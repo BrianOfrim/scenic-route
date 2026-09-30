@@ -18,6 +18,7 @@ test("buildModifyMessages sends the poster, previous prompt, and request", () =>
   assert.equal(messages.length, 2);
   assert.match(String(messages[0].content), /current poster as image 1/);
   assert.match(String(messages[0].content), /complete replacement prompt/);
+  assert.match(String(messages[0].content), /Draw that route exactly once on one unified map/);
   assert.match(String(messages[0].content), /do not invent place names/i);
   assert.match(String(messages[0].content), /8% of the poster width/);
   assert.match(String(messages[0].content), /clearly readable when the whole poster is viewed on a phone/);
@@ -39,6 +40,7 @@ test("withModifySourceRule prefixes once", () => {
   const revised = "Warm cream paper. Larger title.";
   const once = withModifySourceRule(revised);
   assert.ok(once.startsWith(MODIFY_SOURCE_RULE));
+  assert.match(once, /Do not draw one route per reference image/);
   assert.match(once, /Warm cream paper/);
   assert.equal(withModifySourceRule(once), once);
   assert.equal(withModifySourceRule("  "), "");
