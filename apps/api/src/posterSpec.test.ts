@@ -392,40 +392,42 @@ test("specToImagePrompt tells the model named regions are washes not pins", () =
   assert.doesNotMatch(prompt, /[{}\[\]]/);
 });
 
-test("specToImagePrompt renders an unlabeled map when there are no named features", () => {
-  const prompt = specToImagePrompt(
-    validatePosterSpec({
-      ...sample,
-      geography: [],
-      landmarks: [],
-    }),
-  );
-  assert.match(prompt, /rich unlabeled background map/i);
-  assert.match(prompt, /Do not add place names, landmark icons, trail labels, or district labels/);
-  assert.match(prompt, /no text other than the supplied title, subtitle, and stats in the title block, and optional start\/finish names on the map/);
-  assert.match(prompt, /Title-block text is closed/);
-  assert.match(prompt, /Do not letter Start, Finish/);
-  assert.match(prompt, /no landmark names, trail names, district labels, or invented place names/);
-  assert.match(prompt, /relative to water, roads, and land cover/);
-  assert.doesNotMatch(prompt, /route-only poster/i);
-  assert.doesNotMatch(prompt, /Castle Mountain/);
-  assert.doesNotMatch(prompt, /listed landmark, trail, region/);
+test("unannotated prompt keeps geometry, deduplicates text and omits obsolete planner rules", () => {
+  const prompt = specToImagePrompt(validatePosterSpec({ ...sample,
+    geography: [{ kind: "water", name: "", treatment: "flat blue lakes" }], landmarks: [],
+    negative: ["no red route"], finalPrompt: "Invent a new route", grounding: {
+      images: sample.grounding.images, rules: ["Print invented text"],
+    },
+  }));
+  assert.match(prompt, /flat blue lakes/);
+  assert.match(prompt, /Preserve every segment/);
+  assert.match(prompt, /Preserve segment breaks/);
+  assert.match(prompt, /Background roads, bridges and shorelines must never become route segments/);
+  assert.match(prompt, /Draw the route in red/);
+  assert.equal(prompt.match(/42\.0 km/g)?.length, 1);
+  assert.equal(prompt.match(/8%/g)?.length, 1);
+  assert.doesNotMatch(prompt, /Castle Mountain|numbered|ochre|no red route|Invent a new route|Print invented text/);
 });
 
-test("specToImagePrompt keeps geography without annotations when layers have no names", () => {
-  const prompt = specToImagePrompt(
-    validatePosterSpec({
-      ...sample,
-      geography: [{ kind: "water", name: "", placement: "", treatment: "flat blue lakes", color: "", letter: "" }],
-      landmarks: [],
-    }),
-  );
-  assert.match(prompt, /rich unlabeled background map/i);
-  assert.match(prompt, /roads, water, parks, and land cover as an unlabeled background map/);
-  assert.match(prompt, /flat blue lakes/);
-  assert.match(prompt, /relative to water, roads, and land cover/);
-  assert.doesNotMatch(prompt, /route-only poster: only the GPS track/i);
-  assert.doesNotMatch(prompt, /Castle Mountain/);
+test("unannotated prompt typesets a people credit once and keeps it off the map", () => {
+  const prompt = specToImagePrompt(validatePosterSpec({
+    ...sample,
+    geography: [{ kind: "water", name: "", treatment: "flat blue lakes" }],
+    landmarks: [],
+    text: {
+      title: "Bow Valley",
+      subtitle: "42.0 km",
+      stats: [
+        { label: "Distance", value: "42.0 km" },
+        { label: "With", value: "Alex, Jordan, and Sam" },
+      ],
+      rules: "",
+    },
+  }));
+  assert.equal(prompt.match(/42\.0 km/g)?.length, 1);
+  assert.match(prompt, /People who did this activity, typeset once in the title block, exactly: "With Alex, Jordan, and Sam"/);
+  assert.match(prompt, /These are people, not places\. Do not add them to the map/);
+  assert.equal(prompt.match(/With Alex, Jordan, and Sam/g)?.length, 1);
 });
 
 test("specToImagePrompt explains a route-only reference when present", () => {

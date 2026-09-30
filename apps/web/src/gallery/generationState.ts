@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from "react";
 
 type PendingImage = { id: string; title: string; model: string; styleId?: string; paletteId?: string };
-let snapshot: { pending: PendingImage[]; revision: number; error: string | null } = {
-  pending: [], revision: 0, error: null,
+type FailedImage = PendingImage & { error: string; retry: () => Promise<void> };
+let snapshot: { failed: FailedImage[]; pending: PendingImage[]; revision: number; error: string | null } = {
+  failed: [], pending: [], revision: 0, error: null,
 };
 const listeners = new Set<() => void>();
 function publish(next: typeof snapshot) {
@@ -11,7 +12,7 @@ function publish(next: typeof snapshot) {
 }
 
 export type GenerationDetails = { title: string; model?: string; styleId?: string; paletteId?: string; variants?: number };
-export type GenerationTask = { finish: (error?: unknown) => void };
+export type GenerationTask = { finish: (error?: unknown) => void; setRetry: (retry: () => Promise<unknown>) => void };
 
 /** Reserve placeholders synchronously, before any prompt or image work starts. */
 export function beginGeneration(details: GenerationDetails): GenerationTask {
@@ -22,17 +23,33 @@ export function beginGeneration(details: GenerationDetails): GenerationTask {
   }));
   publish({ ...snapshot, pending: [...snapshot.pending, ...images], error: null });
   let finished = false;
-  return {
+  let retryWork: (() => Promise<unknown>) | undefined;
+  const retry = async () => {
+    if (!finished || !retryWork) return;
+    finished = false;
+    publish({ ...snapshot, failed: snapshot.failed.filter((image) => !image.id.startsWith(`${requestId}:`)), pending: [...snapshot.pending, ...images], error: null });
+    try {
+      await retryWork();
+      task.finish();
+    } catch (error) {
+      task.finish(error);
+    }
+  };
+  const task: GenerationTask = {
+    setRetry(work) { retryWork = work; },
     finish(error) {
       if (finished) return;
       finished = true;
+      const message = error instanceof Error ? error.message : "Image generation failed";
       publish({
+        failed: error == null ? snapshot.failed : [...snapshot.failed, ...images.map((image) => ({ ...image, error: message, retry }))],
         pending: snapshot.pending.filter((image) => !image.id.startsWith(`${requestId}:`)),
         revision: snapshot.revision + 1,
         error: error == null ? snapshot.error : error instanceof Error ? error.message : "Image generation failed",
       });
     },
   };
+  return task;
 }
 
 /** Reuse a task across prompt preparation and the image request. */
@@ -41,6 +58,7 @@ export async function trackGeneration<T>(
   generate: () => Promise<T>,
   task = beginGeneration(details),
 ): Promise<T> {
+  task.setRetry(generate);
   try {
     const result = await generate();
     task.finish();

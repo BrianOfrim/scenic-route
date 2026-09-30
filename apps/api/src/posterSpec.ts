@@ -529,6 +529,7 @@ function scrubIndexLanguage(text: string) {
  * arrays are omitted entirely so the model never sees `"palette": []`.
  */
 export function specToImagePrompt(spec: PosterSpec): string {
+  if (isRouteOnlyPoster(spec)) return unannotatedImagePrompt(spec);
   const sections: string[] = [];
   const routeOnly = isRouteOnlyPoster(spec);
 
@@ -825,4 +826,50 @@ function fallbackPrompt(spec: PosterSpec): string {
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+/** One owner for each instruction; planner prose cannot override geometry or printed text. */
+function unannotatedImagePrompt(spec: PosterSpec): string {
+  const statItems = spec.text.stats.filter(item => t(item.value) && !TITLE_STAT.test(t(item.label)) && !isPeopleStat(item));
+  const subtitleParts = t(spec.text.subtitle).split(/\s*·\s*/).filter(Boolean);
+  const printed = [...new Set([t(spec.text.title), ...subtitleParts, ...statItems.map(item => typesetStat(item, statItems))].filter(Boolean))];
+  const references = spec.grounding.images.map(image =>
+    `Image ${image.index}: ${image.role}${image.legend ? ` (${image.legend})` : ""}.`
+  );
+  const hasSatellite = spec.grounding.images.some(image => /satellite/i.test(image.role));
+  const routeReference = spec.grounding.images.find(image => /route-only|silhouette/i.test(image.role));
+  const people = peopleCredit(spec.text.stats);
+  const endpointNames = spec.route.startName || spec.route.finishName
+    ? "Only the supplied endpoint names may additionally appear at their map markers."
+    : "";
+  const text = printed.length
+    ? `Print each of these text items once: ${printed.map(value => JSON.stringify(value)).join("; ")}. ${endpointNames || (people ? "" : "Add no other text.")}`.trim()
+    : people
+      ? `Print no other title-block text. ${endpointNames}`.trim()
+      : "Print no title-block text.";
+  const geography = spec.geography.map(item => `${item.kind}: ${item.treatment}`).filter(Boolean);
+  return [
+    `Create a north-up ${spec.style.name} map poster. Aspect ratio: ${spec.composition.aspectRatio}.`,
+    references.join(" "),
+    `${routeReference ? `Image ${routeReference.index} defines the exact route geometry and endpoints; the schematic locates them within the geography.` : "The schematic defines the exact GPS route, endpoint positions and geographic layout."} Preserve every segment, bend, crossing, out-and-back and gap, in the same position relative to the geography. Do not smooth, straighten, shortcut, add connections, or snap onto nearby roads. Background roads, bridges and shorelines must never become route segments. Title place names are display text only; use the supplied geometry throughout generation and refinement.`,
+    hasSatellite ? "The satellite shows the same frame and supplies land-cover context. Its red overlay depicts the same GPS path. Black margins, if present, are empty. Keep the output stylized." : "",
+    `Draw the route in ${spec.route.color}, with uniform weight and strong contrast against every adjacent surface. Keep background linework thinner and subdued; it must not share the route's combination of color and weight. Preserve segment breaks. Keep the complete route clear of labels, decoration and texture.`,
+    markerPrompt(spec.route.startMarker, spec.route.finishMarker, spec.route.startName, spec.route.finishName),
+    /^none$/i.test(spec.route.startMarker) && /^none$/i.test(spec.route.finishMarker) ? "Draw no endpoint markers." : "Keep each endpoint marker at its supplied reference position.",
+    paragraph([
+      labeled("Medium", spec.style.medium),
+      labeled("Palette", spec.style.palette.join(", ")),
+      labeled("Typography", stripTitlePhoneLanguage(spec.style.typography)),
+      labeled("Texture", spec.style.texture),
+      labeled("Style inspiration", spec.style.references),
+      labeled("Title placement", stripTitlePhoneLanguage(spec.composition.titleBlock)),
+      labeled("Border", spec.composition.border),
+      labeled("Decorations", spec.composition.decorations.join(", ")),
+    ]),
+    geography.length ? `Background treatments: ${geography.join("; ")}. Preserve geographic shapes and positions; apply the theme through color and surface treatment. Confine print misregistration to background texture.` : "",
+    text,
+    people,
+    posterHasTitle(spec.text.title) ? "Make the title the largest text, with font size at least 8% of poster width. Wrap as needed. Place it in unused space or a separate band without covering or cropping the route." : "There is no title.",
+    "No additional place annotations, legend, scale bar, coordinate grid or watermark.",
+  ].filter(Boolean).join("\n\n");
 }

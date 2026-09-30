@@ -8,7 +8,7 @@ export const TITLE_PHONE_CLAUSE =
   "Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.";
 
 function titleFace(face: string) {
-  return `${face}. ${TITLE_PHONE_CLAUSE}`;
+  return face;
 }
 
 /** Lettering for stats the rider actually chose. Not a request to invent them. */
@@ -40,7 +40,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "middle-earth",
     label: "Middle-earth",
     prompt:
-      "Hand-inked map on aged parchment in the style of a Tolkien journey map. Tree-cluster forests, calligraphic labels, an ornate compass rose, and a decorative cartouche for the title. The route is a red dotted journey line. Warm tea-stain paper, sepia ink, no modern cartography.",
+      "Hand-inked map on aged parchment in the style of a Tolkien journey map. Tree-cluster forests, calligraphic labels, an ornate compass rose, and a decorative cartouche for the title. The route is an unbroken oxblood ink line preserving all supplied segment breaks. Warm tea-stain paper, sepia ink, no modern cartography.",
     palette: ["tea-stain", "sepia", "oxblood"],
     typography: titleFace("calligraphic uncials"),
     colorMode: "identity",
@@ -107,7 +107,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "star-chart",
     label: "Star chart",
     prompt:
-      "Celestial chart: deep navy field, the route as a constellation of linked gold stars, gold serif labels, decorative celestial border and corner flourishes. No daylight landscape.",
+      "Celestial chart: deep navy field, the exact route as a continuous gold trace with small star accents beside it, gold serif labels, decorative celestial border and corner flourishes. No daylight landscape.",
     palette: ["navy", "gold"],
     typography: titleFace("gold serif"),
     colorMode: "identity",
@@ -116,7 +116,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "transit",
     label: "Transit diagram",
     prompt:
-      `Beck-style transit diagram: 45-degree and horizontal lines only, landmarks as named station dots, a bold route, and small sans-serif tags. Schematic, not geographic texture. Use a clean Swiss/neo-grotesk sans-serif system: set the title in a very large, ultra-bold, tightly tracked sans serif. ${suppliedStats("in the same typeface at a smaller semibold weight with middle-dot separators")} Keep the title on one line; crisp, flat vector lettering only, with no hand lettering, serifs, outlines, shadows, or decorative effects.`,
+      `Beck-style transit diagram: bold route with round joins, restrained background linework, and clean typography. Preserve every supplied route bend and geographic shape; use transit styling only for color, line weight and lettering. Use a clean Swiss/neo-grotesk sans-serif system: set the title in a very large, ultra-bold, tightly tracked sans serif. ${suppliedStats("in the same typeface at a smaller semibold weight with middle-dot separators")} Wrap the title as needed; crisp, flat vector lettering only, with no hand lettering, serifs, outlines, shadows, or decorative effects.`,
     palette: ["cream", "route-red", "navy"],
     typography: titleFace("ultra-bold neo-grotesk header title with semibold sans for supplied stats only"),
     colorMode: "canonical",
@@ -146,7 +146,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "rpg",
     label: "16-bit RPG",
     prompt:
-      "16-bit RPG overworld map: chunky pixel tiles, sprite-like landmarks, dotted path for the route, limited NES-era palette, no anti-aliasing. Looks like a pause-screen map from a 1990s SNES game.",
+      "16-bit RPG overworld map: chunky pixel tiles, sprite-like landmarks, solid path for the route preserving all supplied segment breaks, limited NES-era palette, no anti-aliasing. Looks like a pause-screen map from a 1990s SNES game.",
     palette: ["nes-green", "nes-blue", "nes-tan"],
     typography: titleFace("pixel caps"),
     colorMode: "canonical",
@@ -161,7 +161,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "risograph",
     label: "Risograph",
     prompt:
-      "Two-ink risograph print: slight misregistration, coarse halftone dots, cheap paper grain. The route is the louder ink. Handmade zine energy.",
+      "Two-ink risograph print: slight misregistration in background texture only, coarse halftone dots, cheap paper grain. Keep the route geometry and edges exact. The route is the louder ink. Handmade zine energy.",
     palette: [],
     typography: titleFace("zine sans"),
     colorMode: "open",
@@ -208,7 +208,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "bauhaus",
     label: "Bauhaus",
     prompt:
-      `Bauhaus constructivist map poster in the manner of the Weimar and Dessau workshops: surrounding land and water reduced to flat circles, squares, and triangles on an asymmetric grid. Heavy rules and bars in the darkest ink structure the sheet. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a geometric sans built from circles and straight strokes, like Herbert Bayer's universal alphabet: large, single weight, tight tracking, lowercase. ${suppliedStats("in the same face at a smaller size with middle-dot separators")} Flat unmodulated ink only; no serifs, outlines, shadows, or hand lettering.`,
+      `Bauhaus constructivist map poster in the manner of the Weimar and Dessau workshops: surrounding land and water as flat color fills preserving their supplied outlines and positions. Heavy rules and bars in the darkest ink structure the sheet. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a geometric sans built from circles and straight strokes, like Herbert Bayer's universal alphabet: large, single weight, tight tracking, lowercase. ${suppliedStats("in the same face at a smaller size with middle-dot separators")} Flat unmodulated ink only; no serifs, outlines, shadows, or hand lettering.`,
     palette: ["red", "yellow", "blue", "black", "white"],
     typography: titleFace("lowercase geometric universal sans with smaller same-face supplied stats"),
     colorMode: "canonical",
@@ -223,7 +223,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "modernist",
     label: "Modernist",
     prompt:
-      `Mid-century modern graphic poster, 1950s–60s, in the manner of Paul Rand and Saul Bass: surrounding land and water as flat overlapping silhouettes and cropped color shapes, asymmetric and playful, on an open paper ground. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a bold geometric sans at display size, mixed case, with open tracking. ${suppliedStats("in the same face at a smaller weight with middle-dot separators")} Flat ink only; no serifs, outlines, shadows, or hand lettering.`,
+      `Mid-century modern graphic poster, 1950s–60s, in the manner of Paul Rand and Saul Bass: surrounding land and water as flat silhouettes preserving their supplied outlines and positions on an open paper ground. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a bold geometric sans at display size, mixed case, with open tracking. ${suppliedStats("in the same face at a smaller weight with middle-dot separators")} Flat ink only; no serifs, outlines, shadows, or hand lettering.`,
     palette: ["mustard", "charcoal", "cream", "terracotta"],
     typography: titleFace("bold mixed-case geometric sans display title with smaller same-face supplied stats"),
     colorMode: "canonical",
