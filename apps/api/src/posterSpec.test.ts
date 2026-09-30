@@ -402,6 +402,9 @@ test("unannotated prompt keeps geometry, deduplicates text and omits obsolete pl
   assert.match(prompt, /flat blue lakes/);
   assert.match(prompt, /Preserve every segment/);
   assert.match(prompt, /Preserve segment breaks/);
+  assert.match(prompt, /All reference images depict the same single GPS route/);
+  assert.match(prompt, /Draw that route exactly once on one unified map/);
+  assert.match(prompt, /Preserve the route's actual parallel segments/);
   assert.match(prompt, /Background roads, bridges and shorelines must never become route segments/);
   assert.match(prompt, /Draw the route in red/);
   assert.equal(prompt.match(/42\.0 km/g)?.length, 1);
@@ -444,6 +447,7 @@ test("specToImagePrompt explains a route-only reference when present", () => {
     }),
   );
   assert.match(prompt, /image 2 is the route-only/);
+  assert.match(prompt, /Draw that route exactly once on one unified map/);
   assert.match(prompt, /every separate red stroke on it is a required segment/i);
   assert.match(prompt, /same red GPS track/);
   assert.match(prompt, /Do not drop a stroke/);

@@ -1,5 +1,6 @@
 import { alignDataUrlMime } from "./imageMime";
 import { OpenRouterError, chatJson } from "./openrouter";
+import { SINGLE_ROUTE_RULE } from "./posterSpec";
 
 export const MODIFY_PROMPT_SCHEMA = {
   type: "object",
@@ -12,7 +13,7 @@ export const MODIFY_PROMPT_SCHEMA = {
 
 /** Locked prefix so the image model treats image 1 as the artwork to revise. */
 export const MODIFY_SOURCE_RULE =
-  "Image 1 is the current poster. Keep everything that still belongs and apply only the requested changes. Later images are geographic grounding for the route and land — do not copy their schematic colors, numbered discs, or letters onto the finished poster.";
+  "Image 1 is the current poster. Keep everything that still belongs and apply only the requested changes. Later images are geographic grounding for the route and land — do not copy their schematic colors, numbered discs, or letters onto the finished poster. " + SINGLE_ROUTE_RULE;
 
 export type ModifyPromptInput = {
   imageUrl: string;
@@ -34,6 +35,7 @@ export function buildModifyMessages(input: ModifyPromptInput) {
         "Write a complete replacement prompt, not a list of deltas.",
         "The image model will receive the current poster as image 1, then the same geographic grounding images as before (schematic, then satellite if present). Rewrite any reference-image numbering to match that order.",
         "Tell the image model to start from image 1 (the current poster) and apply only the requested changes.",
+        SINGLE_ROUTE_RULE,
         "Keep critical route-fidelity instructions. Do not invent place names.",
       ].join(" "),
     },
