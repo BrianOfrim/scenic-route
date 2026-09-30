@@ -1,7 +1,7 @@
 import { Map } from "../../maplibre";
 import { maskImageToRegion, maskIsActive, projectorForFrame, type GeoMask, type MapFrame } from "./geoMask";
 import { cameraForFrame, fittedFrame } from "./mapFrame";
-import { canvasSize, drawRouteEndMarkers } from "./renderSchematic";
+import { canvasSize, drawGpsTrack, drawRouteEndMarkers } from "./renderSchematic";
 
 export type TileSource = "osm" | "topo" | "satellite";
 
@@ -112,7 +112,8 @@ export function renderMaskedSatellite(
         maskImageToRegion(ctx, project, options.mask, options.latlng);
       }
       overlayRoute(ctx, project, options.latlng, options.routeBreaks ?? [], options.routeMarkers ?? "ends", frame.scale);
-      resolve(canvas.toDataURL("image/jpeg", 0.85));
+      // Keep the route's edges and reference color free of JPEG compression artifacts.
+      resolve(canvas.toDataURL("image/png"));
     };
     image.onerror = () => reject(new Error("Could not read the satellite image"));
     image.src = frame.url;
@@ -153,26 +154,8 @@ function overlayRoute(
 ) {
   if (latlng.length < 2) return;
   const points = latlng.map(([lat, lng]) => project(lng, lat));
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  ctx.strokeStyle = "#111";
-  ctx.lineWidth = 6 * scale;
-  stroke(ctx, points, breaks);
-  ctx.strokeStyle = "#e11d48";
-  ctx.lineWidth = 3.5 * scale;
-  stroke(ctx, points, breaks);
+  drawGpsTrack(ctx, points, [], breaks, scale, true);
   if (markers) drawRouteEndMarkers(ctx, points[0], points[points.length - 1], markers, scale);
-}
-
-function stroke(ctx: CanvasRenderingContext2D, points: [number, number][], breaks: number[] = []) {
-  ctx.beginPath();
-  ctx.moveTo(points[0][0], points[0][1]);
-  const starts = new Set(breaks);
-  for (let i = 1; i < points.length; i += 1) {
-    if (starts.has(i)) ctx.moveTo(points[i][0], points[i][1]);
-    else ctx.lineTo(points[i][0], points[i][1]);
-  }
-  ctx.stroke();
 }
 
 function abortError() {

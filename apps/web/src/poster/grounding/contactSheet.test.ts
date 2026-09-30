@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { gridFor, planContactSheets, type GroundingLayer } from "./contactSheet";
+import { selectReferenceLayers } from "./referenceLayers";
 
 function layer(role: string): GroundingLayer {
   return { role, legend: `${role} legend`, dataUrl: `data:${role}` };
@@ -29,4 +30,14 @@ test("planContactSheets packs extras into at most maxRefs sheets", () => {
   assert.equal(sheets.reduce((sum, sheet) => sum + sheet.items.length, 0), 4);
   assert.ok(sheets.some((sheet) => sheet.items.length > 1));
   assert.match(sheets.find((sheet) => sheet.items.length > 1)!.role, /contact-sheet:/);
+});
+
+test("route references stay at full resolution under one-, two- and three-image limits", () => {
+  const schematic = layer("schematic"), route = layer("route-only"), satellite = layer("satellite");
+  for (const [limit, roles] of [[1, ["schematic"]], [2, ["route-only", "schematic"]], [3, ["route-only", "schematic", "satellite"]]] as const) {
+    const refs = selectReferenceLayers(schematic, route, satellite, limit);
+    assert.deepEqual(refs.map(ref => ref.role), roles);
+    assert.ok(planContactSheets(refs, limit).every(sheet => sheet.items.length === 1));
+  }
+  assert.deepEqual(selectReferenceLayers(schematic, route, null, 3).map(ref => ref.role), ["route-only", "schematic"]);
 });

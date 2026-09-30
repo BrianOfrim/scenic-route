@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { FEATURE_CATALOG, DEFAULT_FEATURE_IDS } from "../featureCatalog";
 import { FEATURE_CATALOG as API_CATALOG } from "../../../../api/src/osm/catalog";
-import { drawSchematicScene, schematicLayersFromFeatureIds } from "./renderSchematic";
+import { drawGpsTrack, drawSchematicScene, renderSchematic, schematicLayersFromFeatureIds } from "./renderSchematic";
 
 test("geography catalogs agree and all geography is enabled for new posters", () => {
   const geography = FEATURE_CATALOG.filter((item) => item.group === "geography");
@@ -117,4 +117,64 @@ test("ocean paint is opaque over offshore park polygons", () => {
   assert.equal(fills.length, 2);
   assert.match(fills[0], /^rgba\(/);
   assert.match(fills[1], /^#[0-9a-f]{6}$/i);
+});
+
+test("exported schematic and route-only references retain every vertex, tight turn and gap", () => {
+  const latlng = Array.from({ length: 4001 }, (_, i) => [0, i / 4000] as [number, number]);
+  latlng[1] = [0.1, 0.00025]; // A tight excursion that fixed-count sampling would omit.
+  const paths: number[][][] = [];
+  for (const silhouette of [false, true]) {
+    const vertices: number[][] = [];
+    let moves = 0;
+    const ctx = new Proxy({}, {
+      get: (_target, key) => {
+        if (key === "moveTo") return (x: number, y: number) => { moves++; vertices.push([x, y]); };
+        if (key === "lineTo") return (x: number, y: number) => { vertices.push([x, y]); };
+        return () => {};
+      },
+      set: () => true,
+    }) as CanvasRenderingContext2D;
+    const canvas = { getContext: () => ctx, toDataURL: () => "data:image/png;base64,test" } as unknown as HTMLCanvasElement;
+    renderSchematic(canvas, {
+      latlng, routeBreaks: [2001], bbox: [[-0.2, -0.2], [1.2, 0.2]],
+      layers: { routeMarkers: false, labels: false }, silhouette,
+    });
+    assert.equal(vertices.length, latlng.length);
+    assert.equal(moves, 2, "the route gap remains a separate stroke");
+    assert.notEqual(vertices[1][1], vertices[0][1], "the tight excursion is preserved");
+    paths.push(vertices);
+  }
+  assert.deepEqual(paths[0], paths[1], "both references use the same pixels without refitting the route");
+});
+
+test("route-only removes geography and labels but retains the requested endpoint positions", () => {
+  const markerPositions: number[][] = [];
+  let text = 0;
+  const ctx = new Proxy({}, {
+    get: (_target, key) => {
+      if (key === "arc") return (x: number, y: number) => { markerPositions.push([x, y]); };
+      if (key === "fillText") return () => { text++; };
+      if (key === "clip") return () => { assert.fail("route-only must not clip to geography"); };
+      return () => {};
+    },
+    set: () => true,
+  }) as CanvasRenderingContext2D;
+  drawSchematicScene(ctx, {
+    latlng: [[1, 2], [3, 4]], silhouette: true, layers: { routeMarkers: "ends" },
+    clipPolygon: [[0, 0], [1, 0], [0, 1]], pois: [{ name: "Decoy", lat: 2, lng: 3 }],
+  }, (lng, lat) => [lng, lat], { width: 100, height: 100 });
+  assert.deepEqual(markerPositions, [[2, 1], [4, 3]]);
+  assert.equal(text, 0);
+});
+
+test("the satellite halo uses the same red track and width without connecting gaps", () => {
+  const ctx = { lineWidth: 0, strokeStyle: "", lineJoin: "", lineCap: "",
+    beginPath() {}, moveTo(x: number) { moves.push(x); }, lineTo() {},
+    stroke() { strokes.push([this.strokeStyle, this.lineWidth]); },
+  };
+  const strokes: Array<[string, number]> = [];
+  const moves: number[] = [];
+  drawGpsTrack(ctx as unknown as CanvasRenderingContext2D, [[0, 0], [1, 1], [10, 10], [11, 11]], [], [2], 1, true);
+  assert.deepEqual(strokes, [["#ffffff", 9], ["#ffffff", 9], ["#ff0000", 6], ["#ff0000", 6]]);
+  assert.deepEqual(moves, [0, 10, 0, 10]);
 });

@@ -25,6 +25,8 @@
 
 Crop, themes, geography layers + distances, multi-theme, N variants, palettes, planner refs. The planner receives the reference images as well as their metadata.
 
+References share the same north-up map frame and scale: a red route on white, the schematic with that same red track, and satellite context with the same track plus a white contrast halo. Exported PNG references retain every GPS vertex and segment break without JPEG artifacts around the route. With two reference slots, send route-only and schematic; with one, send the schematic. Keep these images at full resolution rather than packing them into contact sheets.
+
 Preserve: Edit Setup restores generation-time state; desktop ≥900px three-column; route accuracy first; new setups keep landmarks, coloured trail annotations and named regions off. Saved setups replan using current rules; existing gallery artwork and annotation records are retained.
 
 ## Build order (mobile-first)
