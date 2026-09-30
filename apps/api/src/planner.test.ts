@@ -77,6 +77,7 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
     namedRegions: Array<Record<string, unknown>>;
     customStylePrompt: string;
     vibes: string | null;
+    people: string[] | null;
     groundingImages: Array<{ role: string }>;
     routeMarkers: { enabled: boolean; mode: string };
     routeOnly: boolean;
@@ -99,11 +100,62 @@ test("buildPlannerMessages includes landmarks and grounding roles", () => {
   assert.match(String(messages[0].content), /never copy the letters/);
   assert.equal(user.customStylePrompt, "more negative space");
   assert.equal(user.vibes, null);
+  assert.equal(user.people, null);
   assert.match(String(messages[0].content), /If vibes is supplied/);
+  assert.match(String(messages[0].content), /If people is supplied/);
+  assert.match(String(messages[0].content), /Names in people are people, not places/);
   assert.match(String(messages[0].content), /color of vegetation/);
   assert.equal(user.groundingImages[0].role, "schematic");
   assert.deepEqual(user.routeMarkers, { enabled: true, mode: "loop" });
   assert.equal(user.routeOnly, false);
+});
+
+test("buildPlannerMessages passes the people who did the activity", () => {
+  const messages = buildPlannerMessages({
+    ...input,
+    people: ["  Alex  ", "Jordan", "alex", "Sam"],
+  });
+  const user = JSON.parse(String(messages[1].content)) as { people: string[] };
+  assert.deepEqual(user.people, ["Alex", "Jordan", "Sam"]);
+  assert.match(String(messages[0].content), /label "With"/);
+  assert.match(String(messages[0].content), /Do not add the names to the subtitle/);
+});
+
+test("repairPlannerOutput adds a title-block credit for people and keeps other stats", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Blueprint", medium: "cyanotype", palette: ["navy"], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: {
+        title: "T",
+        subtitle: "12.4 km",
+        stats: [{ label: "Distance", value: "12.4 km" }, { label: "With", value: "someone else" }],
+        rules: "",
+      },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    { ...input, people: ["Alex", "Jordan", "Sam"] },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.text.subtitle, "12.4 km");
+  assert.deepEqual(spec.text.stats, [
+    { label: "Distance", value: "12.4 km" },
+    { label: "With", value: "Alex, Jordan, and Sam" },
+  ]);
+  const prompt = specToImagePrompt(spec);
+  assert.match(prompt, /Print each of these text items once: "T"; "12.4 km"\./);
+  assert.equal(prompt.match(/12\.4 km/g)?.length, 1);
+  assert.match(
+    prompt,
+    /People who did this activity, typeset once in the title block, exactly: "With Alex, Jordan, and Sam"\./,
+  );
+  assert.match(prompt, /These are people, not places\. Do not add them to the map/);
+  assert.doesNotMatch(prompt, /someone else/);
 });
 
 test("buildPlannerMessages passes a rider's vibes note to the planner", () => {
@@ -186,6 +238,8 @@ test("unannotated planner receives ordered image parts without annotation metada
   const user = JSON.parse(parts[0].text);
   assert.deepEqual(user.geographyLayers, input.geography);
   assert.equal(user.landmarks, undefined);
+  assert.equal(user.people, null);
+  assert.match(system, /people who did the activity/);
   assert.deepEqual(parts.filter(part => part.type === "image_url").map(part => part.image_url.url), [dataUrl, dataUrl]);
   assert.match(parts[1].text, /Image 1: schematic/);
   assert.match(parts[3].text, /Image 2: satellite/);
@@ -233,6 +287,34 @@ test("repairPlannerOutput in route-only mode strips landmarks and named geograph
   assert.match(prompt, /Background treatments: water/);
   assert.match(prompt, /No additional place annotations/);
   assert.doesNotMatch(prompt, /route-only poster: only the GPS track/i);
+});
+
+test("repairPlannerOutput keeps a people credit after route-only stats are restored", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: ["red"], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [{ label: "With", value: "someone else" }], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    { ...input, routeOnly: true, people: ["Alex", "Jordan", "Sam"] },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.deepEqual(spec.text.stats, [
+    { label: "Distance", value: "12.4 km" },
+    { label: "With", value: "Alex, Jordan, and Sam" },
+  ]);
+  const prompt = specToImagePrompt(spec);
+  assert.match(prompt, /"12.4 km"/);
+  assert.match(prompt, /People who did this activity, typeset once in the title block, exactly: "With Alex, Jordan, and Sam"/);
+  assert.match(prompt, /These are people, not places\. Do not add them to the map/);
+  assert.doesNotMatch(prompt, /someone else/);
+  assert.equal(prompt.match(/With Alex, Jordan, and Sam/g)?.length, 1);
 });
 
 test("repairPlannerOutput coerces prose fields into the nested shape", () => {

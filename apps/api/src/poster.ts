@@ -91,6 +91,8 @@ export type PosterEditorSnapshot = {
   stylePrompt: string;
   /** Optional day note that flavoured the planned prompt. */
   vibes?: string;
+  /** Optional names of the people who did the activity, printed on the image. */
+  people?: string;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
@@ -602,6 +604,11 @@ function normalizeStoredVibes(value: unknown) {
   return value.replace(/\s+/g, " ").trim().slice(0, 500);
 }
 
+function normalizeStoredPeople(value: unknown) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim().slice(0, 300);
+}
+
 function finiteInt(value: unknown, fallback: number) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.round(n) : fallback;
@@ -661,6 +668,7 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     styleIds: stringList(raw.styleIds),
     stylePrompt: typeof raw.stylePrompt === "string" ? raw.stylePrompt : "",
     vibes: normalizeStoredVibes(raw.vibes),
+    people: normalizeStoredPeople(raw.people),
     paletteId: typeof raw.paletteId === "string" && raw.paletteId.trim() ? raw.paletteId.trim() : "auto",
     paletteIdsByStyle: stringListMap(raw.paletteIdsByStyle),
     imageModelIds: stringList(raw.imageModelIds),
