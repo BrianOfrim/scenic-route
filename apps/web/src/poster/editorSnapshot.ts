@@ -437,6 +437,8 @@ export function restoreEditor(
   const editor = snapshotOf(record);
   const places = savedStartFinish(record);
   const styleId = styleIdFromRecord(record);
+  const availableStyleIds = editor?.styleIds?.filter((id) => POSTER_STYLES.some((style) => style.id === id));
+  const styleIds = availableStyleIds?.length ? availableStyleIds : [styleId];
   const saved = savedSetupNames(record);
   const [cropStart, cropEnd] = clampCrop(
     trackLength,
@@ -483,21 +485,21 @@ export function restoreEditor(
         : [...DEFAULT_STAT_IDS],
     statUnits: statUnitsFrom(editor?.statUnits),
     aspectRatio: asAspectRatio(editor?.aspectRatio || record.aspectRatio),
-    styleIds: editor?.styleIds?.length ? editor.styleIds : [styleId],
+    styleIds,
     stylePrompt: editor?.stylePrompt || record.stylePrompt || DEFAULT_POSTER_STYLE.prompt,
     vibes: editor?.vibes?.trim() ?? "",
     people: editor?.people?.replace(/\s+/g, " ").trim().slice(0, 300)
       || record.stats?.find((item) => /^with$/i.test(item.label))?.value?.trim()
       || "",
     paletteIdsByStyle: snapshotPalettes(
-      editor?.styleIds?.length ? editor.styleIds : [styleId],
+      styleIds,
       editor?.paletteIdsByStyle,
       editor?.paletteId,
     ),
     paletteId: firstPaletteId(
-      editor?.styleIds?.length ? editor.styleIds : [styleId],
+      styleIds,
       snapshotPalettes(
-        editor?.styleIds?.length ? editor.styleIds : [styleId],
+        styleIds,
         editor?.paletteIdsByStyle,
         editor?.paletteId,
       ),
