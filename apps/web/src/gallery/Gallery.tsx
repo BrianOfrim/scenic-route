@@ -1,11 +1,12 @@
 import { forgetArrivedPoster, getArrivedEpoch, getArrivedPosters, useArrivedEpoch } from "./arrivedPosters";
-import { useGenerationState } from "./generationState";
+import { clearFailedImage, useGenerationState } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { deletePoster, fetchActivities, fetchPoster, fetchPosters, setPosterFavorite, variantPoster, type PosterRecord } from "../api";
+import { deletePoster, fetchActivities, fetchPoster, fetchPosterImage, fetchPosters, setPosterFavorite, variantPoster, type PosterRecord } from "../api";
 import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
 import { AUTO_PALETTE_ID, paletteChoiceLabel, showsPalettePicker, styleById, styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, viewerThumbStacks, type GallerySort } from "./galleryRuns";
 import { posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
+import { deleteGalleryImages, galleryArchive, selectedGalleryImages } from "./gallerySelection";
 import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
 import { ShareButton } from "../share";
@@ -91,6 +92,10 @@ function GalleryCard({
   versionCount = 1,
   onOpen,
   onToggleFavorite,
+  selecting = false,
+  selected = false,
+  selectionBusy = false,
+  onToggleSelection,
 }: {
   poster: PosterRecord;
   title?: string;
@@ -98,15 +103,21 @@ function GalleryCard({
   versionCount?: number;
   onOpen: () => void;
   onToggleFavorite: () => void;
+  selecting?: boolean;
+  selected?: boolean;
+  selectionBusy?: boolean;
+  onToggleSelection?: () => void;
 }) {
   const favorited = Boolean(poster.favorited);
   const stacked = versionCount > 1;
   return (
-    <div className={`gallery-card${stacked ? " stacked" : ""}`}>
+    <div className={`gallery-card${stacked ? " stacked" : ""}${selected ? " selected" : ""}`}>
       <button
         type="button"
         className="gallery-card-open"
-        onClick={onOpen}
+        onClick={selecting ? onToggleSelection : onOpen}
+        disabled={selecting && selectionBusy}
+        aria-pressed={selecting ? selected : undefined}
         aria-label={stacked ? `${poster.title}, ${versionCount} versions` : undefined}
       >
         {stacked ? (
@@ -130,6 +141,12 @@ function GalleryCard({
           ))}
         </span>
       </button>
+      {selecting && (
+        <label className="gallery-select">
+          <input type="checkbox" checked={selected} disabled={selectionBusy}
+            onChange={onToggleSelection} aria-label={`Select ${poster.title}, ${styleLabel(poster.styleId)}`} />
+        </label>
+      )}
       <button
         type="button"
         className={`gallery-fav ${favorited ? "on" : ""}`}
@@ -149,11 +166,19 @@ function GalleryRun({
   versionCount,
   onOpen,
   onToggleFavorite,
+  selecting,
+  selectedIds,
+  selectionBusy,
+  onToggleSelection,
 }: {
   posters: PosterRecord[];
   versionCount: (poster: PosterRecord) => number;
   onOpen: (poster: PosterRecord) => void;
   onToggleFavorite: (poster: PosterRecord) => void;
+  selecting: boolean;
+  selectedIds: ReadonlySet<string>;
+  selectionBusy: boolean;
+  onToggleSelection: (id: string) => void;
 }) {
   const headline = runHeadline(posters);
   const styles = mixedStyles(posters);
@@ -189,6 +214,10 @@ function GalleryRun({
               versionCount={versions}
               lines={[posterLabel(poster, posters, styles, models, qualities), note].filter(Boolean)}
               onOpen={() => onOpen(poster)}
+              selecting={selecting}
+              selected={selectedIds.has(poster.posterId)}
+              selectionBusy={selectionBusy}
+              onToggleSelection={() => onToggleSelection(poster.posterId)}
               onToggleFavorite={() => onToggleFavorite(poster)}
             />
           );
@@ -212,6 +241,11 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const [showMeta, setShowMeta] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [sort, setSort] = useState<GallerySort>("generated");
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectionAction, setSelectionAction] = useState<"download" | "delete" | null>(null);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const removedIds = useRef(new Set<string>());
   const [activityDates, setActivityDates] = useState<Map<number, string> | null>(null);
 
   useEffect(() => {
@@ -229,7 +263,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   useEffect(() => {
     const records = getArrivedPosters<PosterRecord>();
     if (!records.length) return;
-    setPosters((current) => unionPosters(current, records));
+    setPosters((current) => unionPosters(current, records).filter(image => !removedIds.current.has(image.posterId)));
   }, [arrivedEpoch]);
 
   useEffect(() => {
@@ -239,7 +273,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     fetchPosters()
       .then((items) => {
         if (cancelled) return;
-        setPosters((current) => refreshPosterList(current, items, startedEpoch, getArrivedEpoch()));
+        setPosters((current) => refreshPosterList(current, items, startedEpoch, getArrivedEpoch()).filter(image => !removedIds.current.has(image.posterId)));
         setError((current) =>
           current === "Failed to fetch" || current === "Could not load images" ? null : current,
         );
@@ -273,6 +307,18 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     () => gallerySections(sortGalleryRuns(galleryRuns(visible), sort, activityDates ?? new Map())),
     [visible, sort, activityDates],
   );
+  const displayed = useMemo(() => sections.flatMap(section => section.kind === "singles" ? section.posters : section.run.posters), [sections]);
+  const selectedImages = selectedGalleryImages(displayed, selectedIds);
+  const selectionBusy = selectionAction !== null;
+
+  useEffect(() => {
+    const available = new Set(displayed.map(image => image.posterId));
+    setSelectedIds(current => {
+      const next = new Set([...current].filter(id => available.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [displayed]);
+
   const versionCount = useMemo(() => {
     return (poster: PosterRecord) => lineageFamily(posters, poster.posterId).length;
   }, [posters]);
@@ -402,9 +448,65 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   async function handleDelete(poster: PosterRecord) {
     if (!window.confirm(`Delete “${poster.title}”?`)) return;
     await deletePoster(poster.posterId);
+    removedIds.current.add(poster.posterId);
     forgetArrivedPoster(poster.posterId);
     setPosters((current) => current.filter((item) => item.posterId !== poster.posterId));
     setActive((current) => (current?.posterId === poster.posterId ? null : current));
+  }
+
+  function toggleSelection(id: string) {
+    if (selectionBusy) return;
+    setSelectionNotice(null);
+    setSelectedIds(current => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleDownloadSelected() {
+    if (!selectedImages.length || selectionBusy) return;
+    setSelectionAction("download");
+    setSelectionNotice(null);
+    setError(null);
+    try {
+      const archive = await galleryArchive(selectedImages, fetchPosterImage);
+      const url = URL.createObjectURL(new Blob([new Uint8Array(archive)], { type: "application/zip" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "scenic-route-images.zip";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setSelectionNotice(`Downloaded ${selectedImages.length} images as a ZIP.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not download selected images");
+    } finally {
+      setSelectionAction(null);
+    }
+  }
+
+  async function handleDeleteSelected() {
+    if (!selectedImages.length || selectionBusy) return;
+    if (!window.confirm(`Delete ${selectedImages.length} selected image${selectedImages.length === 1 ? "" : "s"}? This cannot be undone. Only selected images will be deleted; other versions remain.`)) return;
+    setSelectionAction("delete");
+    setSelectionNotice(null);
+    setError(null);
+    try {
+      const { deleted, failed } = await deleteGalleryImages(selectedImages, deletePoster);
+      for (const id of deleted) {
+        removedIds.current.add(id);
+        forgetArrivedPoster(id);
+      }
+      setPosters(current => current.filter(image => !removedIds.current.has(image.posterId)));
+      setActive(current => current && removedIds.current.has(current.posterId) ? null : current);
+      setSelectedIds(new Set(failed.map(image => image.id)));
+      if (failed.length) setError(`${failed.length} image${failed.length === 1 ? "" : "s"} could not be deleted. ${failed[0].message}`);
+      if (deleted.length) setSelectionNotice(`Deleted ${deleted.length} image${deleted.length === 1 ? "" : "s"}.`);
+    } finally {
+      setSelectionAction(null);
+    }
   }
 
   const selectedImage = active
@@ -436,6 +538,11 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         </div>
         {!isMobile && tabs}
         <div className="top-actions">
+          <button type="button" className={`text-btn ${selecting ? "on" : ""}`}
+            disabled={selectionBusy} aria-pressed={selecting}
+            onClick={() => { setSelecting(!selecting); setSelectedIds(new Set()); setSelectionNotice(null); }}>
+            {selecting ? "Done selecting" : "Select images"}
+          </button>
           <label className="gallery-sort">
             Sort by
             <select value={sort} onChange={(event) => setSort(event.target.value as GallerySort)}>
@@ -454,6 +561,20 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
           {account}
         </div>
       </header>
+      {selecting && (
+        <section className="gallery-selection-bar" aria-label="Selected image actions" aria-busy={selectionBusy}>
+          <strong aria-live="polite">{selectedImages.length} selected</strong>
+          <button type="button" className="text-btn" disabled={selectionBusy || !displayed.length}
+            onClick={() => setSelectedIds(new Set(displayed.map(image => image.posterId)))}>Select all</button>
+          <button type="button" className="text-btn" disabled={selectionBusy || !selectedImages.length}
+            onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+          <button type="button" className="button" disabled={selectionBusy || !selectedImages.length}
+            onClick={() => void handleDownloadSelected()}>{selectionAction === "download" ? "Preparing ZIP…" : "Download selected"}</button>
+          <button type="button" className="button" disabled={selectionBusy || !selectedImages.length}
+            onClick={() => void handleDeleteSelected()}>{selectionAction === "delete" ? "Deleting…" : "Delete selected"}</button>
+        </section>
+      )}
+      {selectionNotice && <p className="muted banner" role="status">{selectionNotice}</p>}
       {error && <p className="error banner">{error}</p>}
       {generation.error && <p className="error banner">{generation.error}</p>}
       <div className="gallery-runs">
@@ -468,7 +589,10 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                     <strong>{image.title}</strong>
                     <p className="muted">{[image.styleId ? styleLabel(image.styleId) : null, image.model ? shortModelLabel(image.model) : null].filter(Boolean).join(" · ")}</p>
                     <p role="alert">{image.error}</p>
-                    <button type="button" onClick={() => { void image.retry(); }}>Regenerate</button>
+                    <div className="poster-actions">
+                      <button type="button" onClick={() => { void image.retry(); }}>Regenerate</button>
+                      <button type="button" onClick={() => clearFailedImage(image.id)}>Clear</button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -525,6 +649,10 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                           ? `${versions} versions`
                           : new Date(poster.createdAt).toLocaleString()),
                     ]}
+                    selecting={selecting}
+                    selected={selectedIds.has(poster.posterId)}
+                    selectionBusy={selectionBusy}
+                    onToggleSelection={() => toggleSelection(poster.posterId)}
                     onOpen={() => openPoster(poster)}
                     onToggleFavorite={() => void handleFavorite(poster)}
                   />
@@ -536,6 +664,10 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
               key={section.run.key}
               posters={section.run.posters}
               versionCount={versionCount}
+              selecting={selecting}
+              selectedIds={selectedIds}
+              selectionBusy={selectionBusy}
+              onToggleSelection={toggleSelection}
               onOpen={openPoster}
               onToggleFavorite={(poster) => void handleFavorite(poster)}
             />

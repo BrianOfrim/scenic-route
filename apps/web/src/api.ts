@@ -552,6 +552,12 @@ export async function deletePoster(id: string): Promise<void> {
   await readJson(await apiFetch(`/api/posters/${id}`, { method: "DELETE" }));
 }
 
+export async function fetchPosterImage(id: string): Promise<Uint8Array> {
+  const response = await apiFetch(`/api/posters/${id}/image.png`);
+  if (!response.ok) await readJson(response);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 export async function setPosterFavorite(id: string, favorited: boolean): Promise<PosterRecord> {
   return readJson(
     await apiFetch(`/api/posters/${id}`, {
