@@ -23,14 +23,12 @@ const IDENTITY_HUES: Record<string, RegExp> = {
   "middle-earth": /tea-stain|sepia|red dotted/i,
   "vintage-topo": /tan and sage|bold red/i,
   blueprint: /cyan paper|white technical/i,
-  "star-chart": /navy field|gold stars/i,
 };
 
 const COSTUME_CLICHE: Record<string, RegExp> = {
   swiss: /\bred\b/i,
   wpa: /poster-orange|forest-green/i,
   watercolour: /wash-blue|sap-green/i,
-  transit: /route-red/i,
   "art-deco": /gold and teal|\bgold\b|\bteal\b/i,
   rpg: /nes-green|nes-blue|nes-tan/i,
   risograph: /fluorescent pink|\bteal\b/i,
@@ -38,9 +36,6 @@ const COSTUME_CLICHE: Record<string, RegExp> = {
   "art-nouveau": /gold-green|muted-rose/i,
   bauhaus: /\bred\b|\byellow\b|\bblue\b/i,
   modernist: /\bmustard\b|\bterracotta\b|\bturquoise\b|\bolive\b/i,
-  flat: /\bsky-blue\b|\bleaf-green\b|\bmint\b|\bindigo\b/i,
-  psychedelic: /\bhot-pink\b|\bacid-green\b|\bultraviolet\b|\bcrimson\b/i,
-  neobrutalism: /\bhot-pink\b|\blime\b|\belectric-blue\b/i,
   minimalist: /\bblack\b|\bespresso\b|\bpale-blue\b/i,
 };
 
@@ -57,13 +52,15 @@ test("preset typography leaves title sizing to the shared prompt", () => {
   }
 });
 
-test("default poster style is Risograph", () => {
-  assert.equal(DEFAULT_POSTER_STYLE.id, "risograph");
-  assert.equal(DEFAULT_POSTER_STYLE.label, "Risograph");
+test("default poster style is Swiss", () => {
+  assert.equal(DEFAULT_POSTER_STYLE.id, "swiss");
+  assert.equal(DEFAULT_POSTER_STYLE.label, "Swiss");
 });
 
-test("Linocut is not available as a new-poster style", () => {
-  assert.equal(POSTER_STYLES.some((style) => style.id === "linocut"), false);
+test("retired themes are not available as new-poster styles", () => {
+  for (const id of ["linocut", "transit", "flat", "star-chart", "psychedelic", "neobrutalism"]) {
+    assert.equal(POSTER_STYLES.some((style) => style.id === id), false, id);
+  }
 });
 
 test("styleById returns the matching preset", () => {
@@ -72,15 +69,12 @@ test("styleById returns the matching preset", () => {
   assert.equal(styleById("art-nouveau").label, "Art nouveau");
   assert.equal(styleById("bauhaus").label, "Bauhaus");
   assert.equal(styleById("modernist").label, "Modernist");
-  assert.equal(styleById("flat").label, "Flat");
-  assert.equal(styleById("psychedelic").label, "Psychedelic");
-  assert.equal(styleById("neobrutalism").label, "Neobrutalism");
   assert.equal(styleById("minimalist").label, "Minimalist");
   assert.equal(styleById("missing").id, DEFAULT_POSTER_STYLE.id);
 });
 
 test("styleLabel prefers the preset, then a fallback name", () => {
-  assert.equal(styleLabel("swiss"), "Swiss minimal");
+  assert.equal(styleLabel("swiss"), "Swiss");
   assert.equal(styleLabel("made-up", "Ink wash"), "Ink wash");
   assert.equal(styleLabel(""), "Unknown theme");
 });
@@ -118,17 +112,12 @@ test("costume base prompts do not name costume hues", () => {
   }
 });
 
-test("Swiss and transit prompts lock the GPT-inspired type hierarchy without locking palette colors", () => {
+test("Swiss prompt locks the GPT-inspired type hierarchy without locking palette colors", () => {
   const swiss = styleById("swiss");
   assert.match(swiss.prompt, /huge ultra-bold geometric grotesk sans serif/i);
   assert.match(swiss.prompt, /does not fill the available width, left-justify/i);
   assert.doesNotMatch(swiss.prompt, /lower margin|beneath the map/i);
   assert.doesNotMatch(swiss.prompt, /off-white paper|hairline grey|accent-color/i);
-
-  const transit = styleById("transit");
-  assert.match(transit.prompt, /very large, ultra-bold, tightly tracked sans serif/i);
-  assert.doesNotMatch(transit.prompt, /centered|header band|above the map|directly beneath/i);
-  assert.doesNotMatch(transit.prompt, /colored route|cream field/i);
 });
 
 test("Bauhaus locks elementary forms and Bayer type without locking hues", () => {
@@ -157,31 +146,7 @@ test("Modernist locks mid-century silhouettes and mixed-case sans without lockin
   assert.deepEqual(resolveStyleColor(modernist, "pool").palette, ["turquoise", "sand", "charcoal"]);
 });
 
-test("Flat, Psychedelic, Neobrutalism, and Minimalist lock their systems without locking hues", () => {
-  const flat = styleById("flat");
-  assert.match(flat.prompt, /solid-filled shapes with no outlines/i);
-  assert.match(flat.prompt, /no shadows/i);
-  assert.doesNotMatch(flat.prompt, /mountain|peak/i);
-  const flatAuto = resolveStyleColor(flat, AUTO_PALETTE_ID);
-  assert.deepEqual(flatAuto.palette, ["sky-blue", "leaf-green", "sand", "off-white"]);
-  assert.deepEqual(resolveStyleColor(flat, "candy").palette, ["pink", "mint", "charcoal"]);
-
-  const psychedelic = styleById("psychedelic");
-  assert.match(psychedelic.prompt, /liquid swirling contours/i);
-  assert.match(psychedelic.prompt, /Wes Wilson and Victor Moscoso/i);
-  assert.match(psychedelic.prompt, /swollen, warped display lettering/i);
-  const psychedelicAuto = resolveStyleColor(psychedelic, AUTO_PALETTE_ID);
-  assert.deepEqual(psychedelicAuto.palette, ["hot-pink", "orange", "yellow", "purple"]);
-  assert.deepEqual(resolveStyleColor(psychedelic, "blacklight").palette, ["ultraviolet", "acid-green", "magenta"]);
-
-  const neo = styleById("neobrutalism");
-  assert.match(neo.prompt, /thick outline and a hard offset shadow/i);
-  assert.match(neo.prompt, /no blur/i);
-  assert.match(neo.prompt, /soft shadows/i);
-  const neoAuto = resolveStyleColor(neo, AUTO_PALETTE_ID);
-  assert.deepEqual(neoAuto.palette, ["hot-pink", "yellow", "black", "off-white"]);
-  assert.deepEqual(resolveStyleColor(neo, "hazard").palette, ["lime", "black", "off-white"]);
-
+test("Minimalist locks its system without locking hues", () => {
   const minimalist = styleById("minimalist");
   assert.match(minimalist.prompt, /nothing on it except the route and the title block/i);
   assert.match(minimalist.prompt, /No roads, water, land cover/i);
@@ -248,7 +213,7 @@ test("stylePlanSlots expands each selected palette per style", () => {
     slots.map((slot) => slot.key),
     ["swiss::auto", "swiss::black", "risograph::pink-teal", "blueprint::auto"],
   );
-  assert.equal(planSlotLabel("swiss", "black"), "Swiss minimal · Black");
+  assert.equal(planSlotLabel("swiss", "black"), "Swiss · Black");
   assert.equal(planSlotLabel("blueprint", "auto"), "Blueprint");
   assert.deepEqual(parsePlanSlotKey("swiss::process-blue"), { styleId: "swiss", paletteId: "process-blue" });
   assert.deepEqual(parsePlanSlotKey("swiss"), { styleId: "swiss", paletteId: AUTO_PALETTE_ID });
@@ -264,8 +229,6 @@ test("specForSlot prefers a slot key and falls back to a legacy style key for Au
 
 
 test("themes preserve geometry and permit title wrapping", () => {
-  const transit = POSTER_STYLES.find(style => style.id === "transit")!;
-  assert.doesNotMatch(transit.prompt, /45-degree|title on one line/);
   for (const id of ["bauhaus", "modernist"]) {
     assert.match(POSTER_STYLES.find(style => style.id === id)!.prompt, /preserving their supplied outlines and positions/);
   }

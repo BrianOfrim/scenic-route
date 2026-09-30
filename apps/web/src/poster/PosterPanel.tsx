@@ -3399,7 +3399,7 @@ export function PosterPanel({
             ) : (
               <>
                 <div className="chip-row">
-                  {POSTER_STYLES.map((style) => (
+                  {POSTER_STYLES.filter((style) => style.id !== "custom").map((style) => (
                     <button
                       key={style.id}
                       type="button"

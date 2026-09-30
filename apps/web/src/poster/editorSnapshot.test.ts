@@ -118,6 +118,26 @@ test("styleIdFromRecord uses a known style or custom", () => {
   assert.equal(styleIdFromRecord(record({ styleId: "unknown" })), "custom");
 });
 
+test("restoreEditor reopens retired themes as Custom with their saved prompt", () => {
+  for (const styleId of ["transit", "flat", "star-chart", "psychedelic", "neobrutalism"]) {
+    const saved = record({ styleId, stylePrompt: `Saved ${styleId} prompt` });
+    const prior = restoreEditor(saved, 10, defaults);
+    saved.editor = captureEditorSnapshot({
+      ...prior,
+      styleIds: [styleId],
+      qualities: [],
+      paletteIdsByStyle: { [styleId]: ["old-palette"] },
+      imageModelIds: [],
+      variants: 1,
+    });
+    const restored = restoreEditor(saved, 10, defaults);
+    assert.deepEqual(restored.styleIds, ["custom"], styleId);
+    assert.equal(restored.stylePrompt, saved.stylePrompt, styleId);
+    assert.deepEqual(restored.paletteIdsByStyle, { custom: ["auto"] }, styleId);
+    assert.equal(restored.specs.custom, saved.spec, styleId);
+  }
+});
+
 test("restoreEditor reapplies a full snapshot including crop and annotations", () => {
   const snapshot = captureEditorSnapshot({
     featureIds: ["lakes", "rivers", "peaks"],
