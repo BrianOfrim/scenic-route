@@ -44,7 +44,7 @@ const COSTUME_CLICHE: Record<string, RegExp> = {
   minimalist: /\bblack\b|\bespresso\b|\bpale-blue\b/i,
 };
 
-test("preset typography requires a phone-readable title and custom adds none", () => {
+test("preset typography leaves title sizing to the shared prompt", () => {
   assert.match(TITLE_PHONE_CLAUSE, /8% of the poster width/);
   assert.match(TITLE_PHONE_CLAUSE, /not a zoomed crop/);
   for (const style of POSTER_STYLES) {
@@ -52,8 +52,8 @@ test("preset typography requires a phone-readable title and custom adds none", (
       assert.equal(style.typography, "");
       continue;
     }
-    assert.match(style.typography, /clearly readable when the whole poster is viewed on a phone/, style.id);
-    assert.match(style.typography, /8% of the poster width/, style.id);
+    assert.ok(style.typography.trim(), style.id);
+    assert.doesNotMatch(style.typography, /8%|clearly readable when the whole poster/, style.id);
   }
 });
 
@@ -133,7 +133,7 @@ test("Swiss and transit prompts lock the GPT-inspired type hierarchy without loc
 
 test("Bauhaus locks elementary forms and Bayer type without locking hues", () => {
   const bauhaus = styleById("bauhaus");
-  assert.match(bauhaus.prompt, /circles, squares, and triangles/i);
+  assert.match(bauhaus.prompt, /flat color fills preserving their supplied outlines/i);
   assert.match(bauhaus.prompt, /Herbert Bayer/i);
   assert.match(bauhaus.prompt, /lowercase/i);
   assert.doesNotMatch(bauhaus.prompt, /mountain|peak/i);
@@ -146,7 +146,7 @@ test("Bauhaus locks elementary forms and Bayer type without locking hues", () =>
 
 test("Modernist locks mid-century silhouettes and mixed-case sans without locking hues", () => {
   const modernist = styleById("modernist");
-  assert.match(modernist.prompt, /overlapping silhouettes and cropped color shapes/i);
+  assert.match(modernist.prompt, /flat silhouettes preserving their supplied outlines/i);
   assert.match(modernist.prompt, /Paul Rand and Saul Bass/i);
   assert.match(modernist.prompt, /mixed case/i);
   assert.doesNotMatch(modernist.prompt, /mountain|peak|circle|square|triangle/i);
@@ -260,4 +260,13 @@ test("specForSlot prefers a slot key and falls back to a legacy style key for Au
   assert.equal(specForSlot(specs, "swiss", "black"), "named");
   assert.equal(specForSlot(specs, "swiss", AUTO_PALETTE_ID), "legacy");
   assert.equal(specForSlot({ "swiss::auto": "slot" }, "swiss", AUTO_PALETTE_ID), "slot");
+});
+
+
+test("themes preserve geometry and permit title wrapping", () => {
+  const transit = POSTER_STYLES.find(style => style.id === "transit")!;
+  assert.doesNotMatch(transit.prompt, /45-degree|title on one line/);
+  for (const id of ["bauhaus", "modernist"]) {
+    assert.match(POSTER_STYLES.find(style => style.id === id)!.prompt, /preserving their supplied outlines and positions/);
+  }
 });

@@ -2,7 +2,7 @@
 
 Route-image studio. Import a GPS activity, choose how much of the surrounding map to show, and generate a stylized image of the route to share.
 
-A chat model on OpenRouter turns the ride, geography, theme, and stats into a structured prompt. Meta Muse Image renders that prompt from grounding images: a schematic of the route, plus a satellite snapshot when the image model accepts a second reference. Finished images live in a gallery.
+A chat model on OpenRouter receives the schematic and available satellite reference, then chooses aesthetic treatments. The application assembles a compact prompt with fixed route-fidelity rules and deduplicated text. Meta Muse Image renders that prompt from grounding images: a schematic of the route, plus a satellite snapshot when the image model accepts a second reference. Finished images live in a gallery.
 
 Production: [https://scenic-route.ca](https://scenic-route.ca)
 
@@ -19,7 +19,7 @@ These controls stay off the default path. **Edit setup** restores them from the 
 
 - **Crop** trims the track and snaps to recorded pauses. Start and finish markers can be shown or hidden.
 - **Geography** draws OpenStreetMap context: major roads, residential streets, paths and trails, railways, lakes, rivers, forest, parks, farmland, wetlands, grassland, beaches, coastline, rock, cliffs, and glaciers. Visibility is local; changing a checkbox does not refetch the map. The extent can be the whole map box, a corridor along the route, a tighter band with wider ends, whole areas the route touches, a rotated box, a convex hull, the inside of a loop, or a rectangle or polygon drawn on the map.
-- **Annotations** are off until turned on. They add landmarks near the route (peaks, towns, neighbourhoods, named water, trails, viewpoints, historic places, parks, structures, food, worship, lodging, playgrounds, schools, colleges, cemeteries), each with its own search distance. Named trails can be renamed and their start and end re-marked on the GPS track. Landmarks can be searched, placed, moved, and renamed. Large areas are lettered washes; trails and pins are a private index for the model, and the finished image is asked to show the names.
+- **Annotations** are temporarily paused. New setups use a single red GPS track without landmark discs, coloured trail stretches or lettered regions. Existing gallery images and their saved annotation data remain available.
 - **Stats** default to title, date, distance, and moving time. Sport, elapsed time, elevation gain, and average speed can be added when the activity has them.
 - **Themes** are Middle-earth, Vintage topo, Swiss minimal, Blueprint, WPA park, Watercolour journal, Star chart, Transit diagram, Art deco, 16-bit RPG, Risograph, Linen postcard, Art nouveau, and a custom prompt. Several themes offer palettes, including Auto. The desktop composer can plan more than one theme at once; the phone editor keeps a single theme.
 

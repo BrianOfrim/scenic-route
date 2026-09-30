@@ -44,7 +44,7 @@ export type PlannerInput = {
   pois: PosterPoi[];
   namedWays?: NamedWay[];
   namedAreas?: NamedArea[];
-  grounding: Array<{ index: number; role: string; legend: string }>;
+  grounding: Array<{ index: number; role: string; legend: string; dataUrl?: string }>;
   refineNotes?: string;
   previousSpec?: PosterSpec;
   /** No landmarks, trail names, or named districts — geography layers may still be included. */
@@ -78,6 +78,7 @@ export function proximityWord(distToRouteM: number): string {
 }
 
 export function buildPlannerMessages(input: PlannerInput) {
+  if (input.routeOnly) return buildUnannotatedPlannerMessages(input);
   // Coarse verbal placement only: image models place labels by region, and the
   // planner tends to echo whatever phrase it is given straight into the prompt.
   const landmarks = input.routeOnly
@@ -437,9 +438,11 @@ export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<s
   if (!str(text.subtitle)) text.subtitle = input.subtitle;
   if (!Array.isArray(text.stats) || !text.stats.length) text.stats = input.stats;
   const hasTitle = posterHasTitle(str(text.title));
-  style.typography = withTitlePhoneClause(str(style.typography), hasTitle);
-  composition.titleBlock = withTitlePhoneClause(str(composition.titleBlock), hasTitle);
-  text.rules = withTitlePhoneRule(str(text.rules), hasTitle);
+  if (!input.routeOnly) {
+    style.typography = withTitlePhoneClause(str(style.typography), hasTitle);
+    composition.titleBlock = withTitlePhoneClause(str(composition.titleBlock), hasTitle);
+    text.rules = withTitlePhoneRule(str(text.rules), hasTitle);
+  }
   applyVibes(style, input.vibes);
   record.style = style;
   record.composition = composition;
@@ -450,6 +453,21 @@ export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<s
     : { rules: splitList(record.grounding) };
   if (!Array.isArray(grounding.images) || !grounding.images.length) grounding.images = input.grounding;
   if (!Array.isArray(grounding.rules)) grounding.rules = splitList(grounding.rules);
+  if (input.routeOnly) {
+    grounding.images = input.grounding.map(({ index, role, legend }) => ({ index, role, legend }));
+    grounding.rules = [];
+    text.title = input.title;
+    text.subtitle = input.subtitle;
+    text.stats = input.stats;
+    text.rules = "";
+    route.shapeNotes = "";
+    route.treatment = "uniform solid line";
+    if (input.routeMarkers?.enabled && input.routeMarkers.mode === "loop") {
+      route.finishMarker = route.startMarker = str(route.startMarker) || "combined endpoint dot";
+    }
+    record.finalPrompt = "";
+    record.negative = [];
+  }
   record.grounding = grounding;
 
   if (!Array.isArray(record.negative)) record.negative = splitList(record.negative);
@@ -474,14 +492,75 @@ export async function planPoster(
   userId: string,
   input: PlannerInput,
 ): Promise<{ spec: PosterSpec; cost: number | null; model: string }> {
+  input = { ...input, routeOnly: true, pois: [], namedWays: [], namedAreas: [] };
   const { value, cost, model } = await chatJson<unknown>({
     messages: buildPlannerMessages(input),
     schemaName: "poster_spec",
-    schema: POSTER_SPEC_SCHEMA,
+    schema: UNANNOTATED_PLANNER_SCHEMA,
     label: "plan",
     user: userId,
   });
   const spec = validatePosterSpec(repairPlannerOutput(value, input));
+  if (!spec.route.color.trim()) throw new Error("Planner did not choose a route color. Try planning again.");
   assertUsableSpec(spec);
   return { spec, cost, model };
+}
+
+
+// Only aesthetic decisions cross the planner boundary. Existing saved specs retain their schema.
+const UNANNOTATED_PLANNER_SHAPE = {
+  style: POSTER_SPEC_SHAPE.style,
+  composition: { titleBlock: "", border: "", decorations: [""] },
+  route: { color: "", startMarker: "", finishMarker: "" },
+  geography: [{ kind: "", treatment: "" }],
+};
+function selectSchemaFields(schema: { type: string; additionalProperties: boolean; required: readonly string[]; properties: Record<string, unknown> }, names: string[]) {
+  return { ...schema, required: names, properties: Object.fromEntries(names.map(name => [name, schema.properties[name]])) };
+}
+const UNANNOTATED_PLANNER_SCHEMA = {
+  type: "object", additionalProperties: false,
+  required: ["style", "composition", "route", "geography"],
+  properties: {
+    style: POSTER_SPEC_SCHEMA.properties.style,
+    composition: selectSchemaFields(POSTER_SPEC_SCHEMA.properties.composition, ["titleBlock", "border", "decorations"]),
+    route: selectSchemaFields(POSTER_SPEC_SCHEMA.properties.route, ["color", "startMarker", "finishMarker"]),
+    geography: { type: "array", items: selectSchemaFields(POSTER_SPEC_SCHEMA.properties.geography.items, ["kind", "treatment"]) },
+  },
+};
+
+/** The planner chooses presentation; reference geometry and printed text remain authoritative. */
+function buildUnannotatedPlannerMessages(input: PlannerInput) {
+  const images = input.grounding.map(({ index, role, legend }) => ({ index, role, legend }));
+  const user = {
+    title: input.title, subtitle: input.subtitle, stats: input.stats,
+    routeMarkers: input.routeMarkers, stylePreset: input.style,
+    customStylePrompt: input.customStylePrompt, vibes: normalizeVibes(input.vibes),
+    aspectRatio: input.aspectRatio, geographyLayers: input.geography, groundingImages: images,
+    refineNotes: input.refineNotes,
+  };
+  const content: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> = [
+    { type: "text", text: JSON.stringify(user) },
+  ];
+  for (const reference of input.grounding) {
+    if (!reference.dataUrl) continue;
+    if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=\s]+$/.test(reference.dataUrl)) {
+      throw new Error("planner references must be PNG, JPEG, or WebP data URLs");
+    }
+    content.push({ type: "text", text: `Image ${reference.index}: ${reference.role}. ${reference.legend}` });
+    content.push({ type: "image_url", image_url: { url: reference.dataUrl } });
+  }
+  return [
+    { role: "system", content: [
+      "Choose the visual presentation of an unannotated GPS map poster. Return JSON with this shape:",
+      JSON.stringify(UNANNOTATED_PLANNER_SHAPE),
+      "Use the supplied reference images to choose readable colors and a suitable title location. The schematic defines measured geometry; satellite imagery supplies land cover. Preserve all geometry, segment breaks and endpoint positions. Place names in the title are display text, not instructions to reconstruct a known route.",
+      "Fill style, composition, route color and marker styles with concise aesthetic choices. Geometry takes priority over theme conventions: no angle snapping, geographic rearrangement or route simplification. Route weight and contrast must clearly distinguish it from background roads on every adjacent surface. Limit misregistration and texture to the background.",
+      paletteInstruction(input.style) || "Choose a coherent palette with a prominent route color.",
+      "Typography describes the font only. Put the title clear of the complete route; wrapping is allowed. The application adds title sizing and fidelity rules once, so do not repeat them in these fields.",
+      "The application supplies exact text and reference metadata. Honor routeMarkers: disabled means both markers none; loop means one combined marker; otherwise distinct start and finish symbols at their supplied positions.",
+      "Use geography only for concise treatments of the supplied background layers. No annotations. Do not output text content, route shape descriptions, fidelity rules or image data URLs.",
+      "Honor customStylePrompt and refineNotes within these geometry constraints. Use vibes only for visual atmosphere."
+    ].join(" ") },
+    { role: "user", content },
+  ];
 }

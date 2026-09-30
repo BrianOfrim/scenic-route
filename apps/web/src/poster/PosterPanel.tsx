@@ -76,7 +76,7 @@ import {
   nearRouteMForKind,
   type FeatureOption,
 } from "./featureCatalog";
-import { planContactSheets, renderContactSheets, type GroundingLayer } from "./grounding/contactSheet";
+import { renderContactSheets, type GroundingLayer } from "./grounding/contactSheet";
 import {
   DEFAULT_ASPECT_RATIO,
   renderSchematicDataUrl,
@@ -875,7 +875,7 @@ export function PosterPanel({
   const [cropStart, setCropStart] = useState(0);
   const [cropEnd, setCropEnd] = useState(1);
   const [showRouteMarkers, setShowRouteMarkers] = useState(seeded?.showRouteMarkers ?? true);
-  const [routeOnly, setRouteOnly] = useState(seeded?.routeOnly ?? true);
+  const routeOnly = true; // Annotations are paused; retain saved annotation data for older posters.
   const [landmarkQuery, setLandmarkQuery] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
   const [landmarkChoices, setLandmarkChoices] = useState<PosterPoi[] | null>(null);
@@ -892,7 +892,7 @@ export function PosterPanel({
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
   const [workflowStep, setWorkflowStep] = useState<PosterWorkflowStep>("crop");
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() => (refineFrom ? "customize" : "launch"));
-  const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>(() => seeded?.specs ?? {});
+  const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>({});
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
   const [promptModel, setPromptModel] = useState<string | null>(() => refineFrom?.promptModel ?? null);
   const [planning, setPlanning] = useState(false);
@@ -985,7 +985,7 @@ export function PosterPanel({
             setCropStart(restored.cropStart);
             setCropEnd(restored.cropEnd);
             setShowRouteMarkers(restored.showRouteMarkers);
-            setRouteOnly(restored.routeOnly);
+
             setTitle(restored.title);
             setStartPlace(restored.startPlace);
             setFinishPlace(restored.finishPlace);
@@ -1015,7 +1015,7 @@ export function PosterPanel({
             }
             setStylePrompt(restored.stylePrompt);
             setVibes(restored.vibes);
-            setSpecs(restored.specs);
+            setSpecs({}); // Replan saved setups with the current reference images and prompt rules.
             setPlanCosts(restored.planCosts);
             setPromptModel(refineFrom.promptModel ?? null);
           } else {
@@ -1775,7 +1775,7 @@ export function PosterPanel({
     setPlanProgress({ done: 0, total: slots.length });
     try {
       const layers = await buildGrounding();
-      const packed = planContactSheets(layers, maxRefs);
+      const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
       const base = {
         activity: {
           name: context.activity.name,
@@ -1806,6 +1806,7 @@ export function PosterPanel({
           index: index + 1,
           role: sheet.role,
           legend: sheet.legend,
+          dataUrl: sheet.dataUrl,
         })),
       };
       const settled = await Promise.all(
@@ -2367,14 +2368,6 @@ export function PosterPanel({
   const launchPaletteId = paletteIdsForStyle(styleById(launchStyleId), paletteIdsByStyle[launchStyleId])[0];
   const launchThemeLabel = planSlotLabel(launchStyleId, launchPaletteId);
 
-  function applyRouteOnly(next: boolean) {
-    if (next === routeOnly) return;
-    setRouteOnly(next);
-    setSpecs({});
-    setPlanCosts({});
-    setPromptModel(null);
-  }
-
   function applyCrop(nextStart: number, nextEnd: number) {
     if (!context) return;
     const radius = snapRadius(context.latlng.length);
@@ -2409,7 +2402,6 @@ export function PosterPanel({
     ];
     if (showOnMapStep) steps.push({ id: "on-map", label: "On map" });
     steps.push(
-      { id: "annotations", label: "Annotations", beta: true },
       { id: "stats", label: "Stats" },
       { id: "themes", label: "Themes" },
     );
@@ -3037,7 +3029,7 @@ export function PosterPanel({
             </PosterSection>
           )}
 
-          <PosterSection
+          {!routeOnly && <PosterSection
             title="Annotations"
             beta
             accordion={!sheetMode}
@@ -3050,7 +3042,7 @@ export function PosterPanel({
               <input
                 type="checkbox"
                 checked={!routeOnly}
-                onChange={(event) => applyRouteOnly(!event.target.checked)}
+                disabled
               />
               Annotations
             </label>
@@ -3233,7 +3225,7 @@ export function PosterPanel({
                 ))}
               </>
             )}
-          </PosterSection>
+          </PosterSection>}
 
           <PosterSection
             title="Stats on image"

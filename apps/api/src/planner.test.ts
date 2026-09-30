@@ -175,30 +175,28 @@ test("repairPlannerOutput does not duplicate vibes the planner already wrote", (
   assert.equal(spec.style.texture, note);
 });
 
-test("buildPlannerMessages in route-only mode drops named features", () => {
-  const messages = buildPlannerMessages({
-    ...input,
-    routeOnly: true,
+test("unannotated planner receives ordered image parts without annotation metadata", () => {
+  const dataUrl = "data:image/png;base64,aGVsbG8=";
+  const messages = buildPlannerMessages({ ...input, routeOnly: true,
+    grounding: [{ index: 1, role: "schematic", legend: "red = GPS", dataUrl },
+      { index: 2, role: "satellite", legend: "same frame", dataUrl }],
   });
   const system = String(messages[0].content);
-  const user = JSON.parse(String(messages[1].content)) as {
-    routeOnly: boolean;
-    landmarks: unknown[];
-    namedTrails: unknown[];
-    namedRegions: unknown[];
-    geographyLayers: unknown[];
-  };
-  assert.equal(user.routeOnly, true);
-  assert.deepEqual(user.landmarks, []);
-  assert.deepEqual(user.namedTrails, []);
-  assert.deepEqual(user.namedRegions, []);
+  const parts = messages[1].content as Array<any>;
+  const user = JSON.parse(parts[0].text);
   assert.deepEqual(user.geographyLayers, input.geography);
-  assert.match(system, /no annotations/);
-  assert.match(system, /landmarks must be empty/);
-  assert.match(system, /geography may describe unlabeled layers/);
-  assert.doesNotMatch(system, /Named trails recolor stretches/);
-  assert.doesNotMatch(system, /Named regions are pale ochre washes/);
-  assert.doesNotMatch(system, /numbered discs as a private index/);
+  assert.equal(user.landmarks, undefined);
+  assert.deepEqual(parts.filter(part => part.type === "image_url").map(part => part.image_url.url), [dataUrl, dataUrl]);
+  assert.match(parts[1].text, /Image 1: schematic/);
+  assert.match(parts[3].text, /Image 2: satellite/);
+  assert.doesNotMatch(parts[0].text, /base64/);
+  assert.doesNotMatch(system, /numbered discs|colored stretches|shapeNotes|finalPrompt/);
+});
+
+test("planner rejects remote reference URLs", () => {
+  assert.throws(() => buildPlannerMessages({ ...input, routeOnly: true,
+    grounding: [{ index: 1, role: "schematic", legend: "", dataUrl: "https://example.com/map.png" }],
+  }), /data URLs/);
 });
 
 test("repairPlannerOutput in route-only mode strips landmarks and named geography", () => {
@@ -232,8 +230,8 @@ test("repairPlannerOutput in route-only mode strips landmarks and named geograph
     [["water", "", "flat blue lakes", undefined]],
   );
   const prompt = specToImagePrompt(spec);
-  assert.match(prompt, /Geography: water/);
-  assert.match(prompt, /unlabeled background map/i);
+  assert.match(prompt, /Background treatments: water/);
+  assert.match(prompt, /No additional place annotations/);
   assert.doesNotMatch(prompt, /route-only poster: only the GPS track/i);
 });
 
@@ -588,4 +586,24 @@ test("repairPlannerOutput does not invent a title when the design has none", () 
 test("planner honors a supplied costume palette", () => {
   const messages = buildPlannerMessages(input);
   assert.match(String(messages[0].content), /Honor stylePreset.palette exactly: off-white, red/);
+});
+
+test("compact planner output is completed with authoritative text, markers and safe reference metadata", () => {
+  const spec = validatePosterSpec(repairPlannerOutput({
+    style: { name: "Swiss", medium: "print", palette: ["red", "white"], typography: "Helvetica", texture: "", references: "" },
+    composition: { titleBlock: "bottom", border: "none", decorations: [] },
+    route: { color: "red", startMarker: "circle", finishMarker: "square" },
+    geography: [{ kind: "water", treatment: "pale fill" }],
+  }, { ...input, routeOnly: true, grounding: [{ ...input.grounding[0], dataUrl: "data:image/png;base64,aGVsbG8=" }] }));
+  assertUsableSpec(spec);
+  assert.equal(spec.text.title, input.title);
+  assert.deepEqual(spec.text.stats, input.stats);
+  assert.equal(spec.composition.aspectRatio, input.aspectRatio);
+  assert.equal(spec.route.startMarker, spec.route.finishMarker);
+  assert.deepEqual(spec.landmarks, []);
+  assert.deepEqual(spec.grounding.images, input.grounding);
+  assert.doesNotMatch(JSON.stringify(spec), /base64/);
+  const prompt = specToImagePrompt(spec);
+  assert.equal(prompt.match(/8%/g)?.length, 1);
+  assert.equal(prompt.match(/12\.4 km/g)?.length, 1);
 });

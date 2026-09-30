@@ -2,7 +2,7 @@
 
 **Decision: Proposal A — One-tap generate** (locked 2026-09-17)
 
-**Intent:** Fewest steps to a good poster. Crop, geography, annotations, and other controls stay available but off the default path.
+**Intent:** Fewest steps to a good poster. Crop, geography, and other controls stay available but off the default path. Annotations are temporarily paused.
 
 ## Default path
 
@@ -23,9 +23,9 @@
 
 ## Advanced (Customize / Edit setup)
 
-Crop, themes, geography layers + distances, annotations, multi-theme, N variants, palettes, planner refs.
+Crop, themes, geography layers + distances, multi-theme, N variants, palettes, planner refs. The planner receives the reference images as well as their metadata.
 
-Preserve: Edit Setup restores generation-time state; desktop ≥900px three-column; route accuracy first; landmarks stay off unless user enables annotations.
+Preserve: Edit Setup restores generation-time state; desktop ≥900px three-column; route accuracy first; new setups keep landmarks, coloured trail annotations and named regions off. Saved setups replan using current rules; existing gallery artwork and annotation records are retained.
 
 ## Build order (mobile-first)
 

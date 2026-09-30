@@ -368,40 +368,21 @@ test("specToImagePrompt tells the model named regions are washes not pins", () =
   assert.doesNotMatch(prompt, /[{}\[\]]/);
 });
 
-test("specToImagePrompt renders an unlabeled map when there are no named features", () => {
-  const prompt = specToImagePrompt(
-    validatePosterSpec({
-      ...sample,
-      geography: [],
-      landmarks: [],
-    }),
-  );
-  assert.match(prompt, /rich unlabeled background map/i);
-  assert.match(prompt, /Do not add place names, landmark icons, trail labels, or district labels/);
-  assert.match(prompt, /no text other than the supplied title, subtitle, and stats in the title block, and optional start\/finish names on the map/);
-  assert.match(prompt, /Title-block text is closed/);
-  assert.match(prompt, /Do not letter Start, Finish/);
-  assert.match(prompt, /no landmark names, trail names, district labels, or invented place names/);
-  assert.match(prompt, /relative to water, roads, and land cover/);
-  assert.doesNotMatch(prompt, /route-only poster/i);
-  assert.doesNotMatch(prompt, /Castle Mountain/);
-  assert.doesNotMatch(prompt, /listed landmark, trail, region/);
-});
-
-test("specToImagePrompt keeps geography without annotations when layers have no names", () => {
-  const prompt = specToImagePrompt(
-    validatePosterSpec({
-      ...sample,
-      geography: [{ kind: "water", name: "", placement: "", treatment: "flat blue lakes", color: "", letter: "" }],
-      landmarks: [],
-    }),
-  );
-  assert.match(prompt, /rich unlabeled background map/i);
-  assert.match(prompt, /roads, water, parks, and land cover as an unlabeled background map/);
+test("unannotated prompt keeps geometry, deduplicates text and omits obsolete planner rules", () => {
+  const prompt = specToImagePrompt(validatePosterSpec({ ...sample,
+    geography: [{ kind: "water", name: "", treatment: "flat blue lakes" }], landmarks: [],
+    negative: ["no red route"], finalPrompt: "Invent a new route", grounding: {
+      images: sample.grounding.images, rules: ["Print invented text"],
+    },
+  }));
   assert.match(prompt, /flat blue lakes/);
-  assert.match(prompt, /relative to water, roads, and land cover/);
-  assert.doesNotMatch(prompt, /route-only poster: only the GPS track/i);
-  assert.doesNotMatch(prompt, /Castle Mountain/);
+  assert.match(prompt, /Preserve every segment/);
+  assert.match(prompt, /Preserve segment breaks/);
+  assert.match(prompt, /Background roads, bridges and shorelines must never become route segments/);
+  assert.match(prompt, /Draw the route in red/);
+  assert.equal(prompt.match(/42\.0 km/g)?.length, 1);
+  assert.equal(prompt.match(/8%/g)?.length, 1);
+  assert.doesNotMatch(prompt, /Castle Mountain|numbered|ochre|no red route|Invent a new route|Print invented text/);
 });
 
 test("specToImagePrompt explains a route-only reference when present", () => {
