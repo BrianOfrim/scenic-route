@@ -1,4 +1,5 @@
 import { areaLetter } from "./areaLetters";
+import { normalizePeople, peopleStatValue } from "./people";
 import type { NamedArea, NamedWay, PosterPoi } from "./osm/features";
 import { chatJson } from "./openrouter";
 import {
@@ -28,6 +29,8 @@ export type PlannerInput = {
   title: string;
   subtitle: string;
   stats: Array<{ label: string; value: string }>;
+  /** People who did the activity. Printed once in the title block, never as map labels. */
+  people?: string[];
   style: {
     id: string;
     label: string;
@@ -121,6 +124,7 @@ export function buildPlannerMessages(input: PlannerInput) {
     title: input.title,
     subtitle: input.subtitle,
     stats: input.stats,
+    people: peopleStatValue(input.people) ? normalizePeople(input.people) : null,
     activity: input.activity,
     routeMarkers: input.routeMarkers ?? null,
     routeOnly: Boolean(input.routeOnly),
@@ -148,6 +152,7 @@ export function buildPlannerMessages(input: PlannerInput) {
         paletteInstruction(input.style) ?? "",
         "If vibes is supplied, it is the rider's note about how the day felt. Flavor season, weather, light, and the color of vegetation in style.texture and geography treatments. Stay inside a supplied palette. Do not print the note as poster text, and do not add places or features that are absent from the schematic.",
         "Copy title, subtitle, stats, and groundingImages from the input into text and grounding verbatim.",
+        "If people is supplied, those are the names of the people who did the activity. Add one text.stats entry with label \"With\" and those names as the value, joined naturally: two names use \"and\"; three or more use commas and a final \"and\". Keep every other stat. Typeset that line once in the title block. Do not add the names to the subtitle, do not invent extra names, and do not place them on the map or treat them as landmarks, trails, or places.",
         ...(input.routeOnly
           ? [
               "This poster has no annotations. landmarks must be empty. Do not invent landmarks, trail names, named districts, road labels, water names, or any other place names. geography may describe unlabeled layers from geographyLayers (roads, water, forest, parks, and similar) that appear on the schematic — style those shapes without naming places. The schematic shows the GPS track, optional start/finish markers, and those geography layers. Title and stats belong only in the title block.",
@@ -166,8 +171,8 @@ export function buildPlannerMessages(input: PlannerInput) {
           : "The GPS track on the schematic is exact. Colored stretches identify named trails for lookup only. If a satellite image is attached, it is real aerial photography of the same extent with that same red GPS track overlaid. Use it to read land cover, water, vegetation, and built form, and to confirm every bend, parallel, and shore hug. Every separate stroke of the red line is a required segment. Do not copy the photograph or its colors; the finished poster stays stylized. If the photograph is surrounded by black, that black is empty margin, not land, water, or sky. The finished poster must reproduce that path shape exactly: every bend, switchback, out-and-back, and crossing, in the same place relative to water, roads, and landmarks. Style the line as one color; do not copy the schematic's route colors.",
         "Never write route.shapeNotes or finalPrompt that describe a different, simpler, or idealized path, or that tell the image model to keep the schematic's route colors. Style the line; do not redesign it.",
         input.routeOnly
-          ? "Do not invent place names. Use exact spelling from the supplied stats and routeMarkers names only."
-          : "Do not invent place names. Use exact spelling from the supplied landmarks, stats, and routeMarkers names.",
+          ? "Do not invent place names. Use exact spelling from the supplied stats and routeMarkers names only. Names in people are people, not places."
+          : "Do not invent place names. Use exact spelling from the supplied landmarks, stats, and routeMarkers names. Names in people are people, not places.",
         "North is up. The route is the hero: plan it as the highest-contrast primary mark, clearly visible against every adjacent background and never lost in water, terrain, roads, textures, or labels. Put the title block only in unused negative space; it must never cover, crop, hide, or cut off any route segment. If space is tight, move the title block into unused space or its own band rather than shrinking a supplied title or sacrificing any part of the route.",
         TITLE_PHONE_RULE,
         "Copy the supplied title into text.title verbatim. If that title is empty, leave text.title empty and do not invent one. When a title is supplied, write that phone-size requirement into style.typography, composition.titleBlock, and text.rules.",
@@ -436,6 +441,14 @@ export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<s
   else if (!str(text.title)) text.title = input.title;
   if (!str(text.subtitle)) text.subtitle = input.subtitle;
   if (!Array.isArray(text.stats) || !text.stats.length) text.stats = input.stats;
+  const peopleLine = peopleStatValue(input.people);
+  if (peopleLine) {
+    const stats = Array.isArray(text.stats) ? text.stats : [];
+    text.stats = [
+      ...stats.filter((item) => !(isRecord(item) && str(item.label).toLowerCase() === "with")),
+      { label: "With", value: peopleLine },
+    ];
+  }
   const hasTitle = posterHasTitle(str(text.title));
   style.typography = withTitlePhoneClause(str(style.typography), hasTitle);
   composition.titleBlock = withTitlePhoneClause(str(composition.titleBlock), hasTitle);

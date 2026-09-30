@@ -188,6 +188,30 @@ test("specToImagePrompt drops labels only when the value already says what it is
   );
 });
 
+test("specToImagePrompt typesets a people credit once and keeps it off the map", () => {
+  const prompt = specToImagePrompt(
+    validatePosterSpec({
+      ...sample,
+      text: {
+        ...sample.text,
+        subtitle: "",
+        stats: [
+          { label: "Distance", value: "12.4 km" },
+          { label: "With", value: "Alex, Jordan, and Sam" },
+        ],
+      },
+    }),
+  );
+  assert.match(prompt, /Stats to typeset, exactly: 12\.4 km\./);
+  assert.match(
+    prompt,
+    /People who did this activity, typeset once in the title block, exactly: "With Alex, Jordan, and Sam"\./,
+  );
+  assert.match(prompt, /These are people, not places\. Do not add them to the map/);
+  assert.match(prompt, /the people credit "With Alex, Jordan, and Sam"/);
+  assert.doesNotMatch(prompt, /With Alex, Jordan, and Sam ·/);
+});
+
 test("specToImagePrompt closes the title block when the only stat is the title", () => {
   const prompt = specToImagePrompt(
     validatePosterSpec({

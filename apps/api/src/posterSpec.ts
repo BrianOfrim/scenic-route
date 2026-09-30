@@ -420,16 +420,34 @@ export function titlePromptLine(title: string) {
 
 const TITLE_STAT = /^title$/i;
 
-function titleBlockClosure(title: string, subtitle: string, stats: string[]) {
+function titleBlockClosure(title: string, subtitle: string, stats: string[], people = "") {
   const pieces: string[] = [];
   if (title) pieces.push(`the title "${title}"`);
   if (subtitle) pieces.push(`the subtitle "${subtitle}"`);
   if (stats.length) pieces.push(`these stats: ${stats.join(" · ")}`);
+  if (people) pieces.push(`the people credit "${people}"`);
   const allowed = pieces.length ? `only ${pieces.join("; ")}` : "no text";
   return `Title-block text is closed. It may contain ${allowed}. Do not add any other word, number, date, distance, duration, elevation, season, sport, or start/finish label. A style note about stats, metadata, or middle-dot separators applies only to stats listed here and is not permission to invent any. Instruction words in this prompt, including start, finish, marker, out-and-back, date, distance, and duration, are not poster text unless they appear inside that closed list.`;
 }
 
 const t = (value?: string) => (value ?? "").trim();
+
+function isPeopleStat(item: { label?: string }) {
+  return /^with$/i.test(t(item.label));
+}
+
+function peopleCreditLine(stats: Array<{ label: string; value: string }>) {
+  const item = stats.find((stat) => isPeopleStat(stat) && t(stat.value));
+  if (!item) return "";
+  return `With ${t(item.value)}`;
+}
+
+/** Title-block credit for the people who did the activity. Not a map label. */
+function peopleCredit(stats: Array<{ label: string; value: string }>) {
+  const line = peopleCreditLine(stats);
+  if (!line) return "";
+  return `People who did this activity, typeset once in the title block, exactly: "${line}". These are people, not places. Do not add them to the map.`;
+}
 
 const DURATION_LABEL = /\b(time|duration)\b/i;
 
@@ -587,9 +605,13 @@ export function specToImagePrompt(spec: PosterSpec): string {
   }
 
   const titled = posterHasTitle(spec.text.title);
+  const peopleLine = peopleCreditLine(spec.text.stats);
+  const people = peopleCredit(spec.text.stats);
   const title = t(spec.text.title);
   const subtitle = t(spec.text.subtitle);
-  const statItems = spec.text.stats.filter((item) => t(item.value) && !TITLE_STAT.test(t(item.label)));
+  const statItems = spec.text.stats.filter(
+    (item) => t(item.value) && !TITLE_STAT.test(t(item.label)) && !isPeopleStat(item),
+  );
   const stats = statItems.map((item) => typesetStat(item, statItems));
   const droppedLabel = statItems.some((item, index) => stats[index] === t(item.value) && t(item.label));
   const hasDistance = statItems.some(
@@ -603,10 +625,11 @@ export function specToImagePrompt(spec: PosterSpec): string {
       stats.length
         ? `Typeset each item once, exactly as written${droppedLabel ? ", with no category word added in front. A distance, date, duration, or speed already says what it is" : ""}.`
         : "",
+      people,
       hasDistance
         ? "Do not repeat a value in the title block: the distance must not appear as both a large display figure and a labeled line."
         : "",
-      titleBlockClosure(title, subtitle, stats),
+      titleBlockClosure(title, subtitle, stats, peopleLine),
       labeled("Text rules", withTitlePhoneRule(spec.text.rules, titled)),
     ]),
   );
