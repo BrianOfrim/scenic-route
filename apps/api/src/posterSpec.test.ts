@@ -472,3 +472,22 @@ test("specToImagePrompt explains a satellite reference when present", () => {
   assert.match(prompt, /Do not copy the photograph/);
   assert.match(prompt, /keep the poster stylized/);
 });
+
+test("location is an exact standalone caption in annotated and unannotated posters", () => {
+  for (const landmarks of [sample.landmarks, []]) {
+    const prompt = specToImagePrompt(validatePosterSpec({
+      ...sample,
+      landmarks,
+      geography: [],
+      text: { ...sample.text, stats: [...sample.text.stats, { label: "Location", value: "Vancouver · British Columbia · Canada" }] },
+    }));
+    assert.equal((prompt.match(/Vancouver · British Columbia · Canada/g) ?? []).length, 1);
+    assert.match(prompt, /Location caption, exactly:/);
+    assert.match(prompt, /bottom margin or footer/);
+    assert.doesNotMatch(prompt, /Location Vancouver/);
+  }
+});
+
+test("no location caption is requested when the location option is absent", () => {
+  assert.doesNotMatch(specToImagePrompt(validatePosterSpec({ ...sample, landmarks: [], geography: [] })), /Location caption, exactly:/);
+});

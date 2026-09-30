@@ -230,6 +230,7 @@ export type PosterEditorSnapshot = {
   showRouteMarkers: boolean;
   routeOnly: boolean;
   title: string;
+  location?: string | null;
   startPlace: string;
   finishPlace: string;
   placesEdited: boolean;
@@ -392,6 +393,10 @@ const loadPosterContext = coalesceRequests(async (url: string): Promise<PosterCo
   performance.measure("schematic.context.body-and-parse", { start: received, end: performance.now() });
   return context;
 });
+
+export async function fetchPosterLocation(activityId: number, start: number, end: number): Promise<{ location: string; resolved: boolean }> {
+  return readJson(await apiFetch(`/api/poster/location/${activityId}?start=${start}&end=${end}`));
+}
 
 export async function fetchPosterContext(
   activityId: number,
