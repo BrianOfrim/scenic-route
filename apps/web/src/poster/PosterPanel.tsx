@@ -77,6 +77,7 @@ import {
   type FeatureOption,
 } from "./featureCatalog";
 import { renderContactSheets, type GroundingLayer } from "./grounding/contactSheet";
+import { selectReferenceLayers } from "./grounding/referenceLayers";
 import {
   DEFAULT_ASPECT_RATIO,
   renderSchematicDataUrl,
@@ -454,6 +455,7 @@ function schematicLegend(
 
 function groundingLayers(
   schematicUrl: string | null,
+  routeReferenceUrl: string | null,
   satelliteUrl: string | null,
   maxRefs: number,
   latlng: [number, number][],
@@ -463,21 +465,25 @@ function groundingLayers(
   satelliteMasked = false,
 ): GroundingLayer[] {
   if (!schematicUrl) return [];
-  const layers: GroundingLayer[] = [
+  const markers = routeMarkerMode(showMarkers, latlng);
+  return selectReferenceLayers(
     {
       role: "schematic",
-      legend: schematicLegend(routeMarkerMode(showMarkers, latlng), annotations, hasGeography),
+      legend: schematicLegend(markers, annotations, hasGeography),
       dataUrl: schematicUrl,
     },
-  ];
-  if (maxRefs >= 2 && satelliteUrl) {
-    layers.push({
+    routeReferenceUrl ? {
+      role: "route-only",
+      legend: `${schematicLegend(markers, false)}; white background; exact GPS geometry, gaps and endpoints; identical frame and scale to the schematic`,
+      dataUrl: routeReferenceUrl,
+    } : null,
+    satelliteUrl ? {
       role: "satellite",
       legend: satelliteMasked ? SATELLITE_MASK_LEGEND : SATELLITE_LEGEND,
       dataUrl: satelliteUrl,
-    });
-  }
-  return layers;
+    } : null,
+    maxRefs,
+  );
 }
 
 function seedDismissed(incoming: string[], selected: string[], dismissed: Set<string>) {
@@ -700,8 +706,8 @@ function sentRefsHint(
   satellitePending: boolean,
   satelliteFailed = false,
 ) {
-  const parts = ["schematic"];
-  if (maxRefs >= 2) {
+  const parts = maxRefs >= 2 ? ["route-only", "schematic"] : ["schematic"];
+  if (maxRefs >= 3) {
     if (hasSatellite) parts.push("satellite");
     else if (satelliteFailed) parts.push("satellite (unavailable)");
     else if (satellitePending) parts.push("satellite (loading)");
@@ -885,10 +891,11 @@ export function PosterPanel({
   const aspectRatio = seeded?.aspectRatio ?? DEFAULT_ASPECT_RATIO;
   const variants = DEFAULT_VARIANTS;
   const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
+  const [routeReferenceUrl, setRouteReferenceUrl] = useState<string | null>(null);
   const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
   const [satelliteFailed, setSatelliteFailed] = useState(false);
   const [satelliteShot, setSatelliteShot] = useState<SatelliteFrame | null>(null);
-  const satelliteShotRef = useRef<SatelliteFrame | null>(null);
+  const satelliteShotRef = useRef<{ frame: SatelliteFrame; key: string } | null>(null);
   const [, setModelRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
@@ -1602,11 +1609,20 @@ export function PosterPanel({
   useEffect(() => {
     if (croppedLatLng.length < 2 || !groundingBbox) {
       setSchematicUrl(null);
+      setRouteReferenceUrl(null);
       setSatelliteUrl(null);
       return;
     }
     const renderStart = performance.now();
     try {
+      setRouteReferenceUrl(renderSchematicDataUrl({
+        latlng: croppedLatLng,
+        routeBreaks: croppedRouteBreaks,
+        bbox: groundingBbox,
+        aspectRatio,
+        silhouette: true,
+        layers: { routeMarkers: routeMarkerMode(showRouteMarkers, croppedLatLng) },
+      }));
       setSchematicUrl(
         renderSchematicDataUrl({
           latlng: croppedLatLng,
@@ -1626,16 +1642,19 @@ export function PosterPanel({
       performance.clearMeasures("schematic.render-and-png");
       performance.measure("schematic.render-and-png", { start: renderStart, end: performance.now() });
     }
-  }, [visibleWays, croppedLatLng, croppedRouteBreaks, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers]);
+  }, [visibleWays, croppedLatLng, croppedRouteBreaks, groundingBbox, posterPois, posterWays, posterAreas, aspectRatio, schematicLayers, showRouteMarkers]);
 
   useEffect(() => {
-    if (croppedLatLng.length < 2 || !satelliteBbox || maxRefs < 2) {
+    if (croppedLatLng.length < 2 || !satelliteBbox || maxRefs < 3) {
       satelliteShotRef.current = null;
       setSatelliteShot(null);
       setSatelliteUrl(null);
       setSatelliteFailed(false);
       return;
     }
+    satelliteShotRef.current = null;
+    setSatelliteShot(null);
+    setSatelliteUrl(null);
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setSatelliteFailed(false);
@@ -1649,7 +1668,7 @@ export function PosterPanel({
       )
         .then((shot) => {
           if (controller.signal.aborted) return;
-          satelliteShotRef.current = shot;
+          satelliteShotRef.current = { frame: shot, key: JSON.stringify([satelliteBbox, aspectRatio]) };
           setSatelliteShot(shot);
           setSatelliteFailed(false);
         })
@@ -1691,6 +1710,7 @@ export function PosterPanel({
   useEffect(() => {
     const layers = groundingLayers(
       schematicUrl,
+      routeReferenceUrl,
       satelliteUrl,
       maxRefs,
       croppedLatLng,
@@ -1712,6 +1732,7 @@ export function PosterPanel({
     };
   }, [
     schematicUrl,
+    routeReferenceUrl,
     satelliteUrl,
     maxRefs,
     aspectRatio,
@@ -1737,16 +1758,18 @@ export function PosterPanel({
   }, [generating, planning]);
 
   async function ensureSatellite(): Promise<string | null> {
-    if (maxRefs < 2 || croppedLatLng.length < 2 || !satelliteBbox) return null;
+    if (maxRefs < 3 || croppedLatLng.length < 2 || !satelliteBbox) return null;
     try {
-      let shot = satelliteShotRef.current;
+      const key = JSON.stringify([satelliteBbox, aspectRatio]);
+      const cached = satelliteShotRef.current;
+      let shot = cached?.key === key ? cached.frame : null;
       if (!shot) {
         shot = await snapshotTiles({
           source: "satellite",
           bbox: satelliteBbox,
           aspectRatio,
         });
-        satelliteShotRef.current = shot;
+        satelliteShotRef.current = { frame: shot, key };
         setSatelliteShot(shot);
       }
       return await renderMaskedSatellite(shot, {
@@ -1764,6 +1787,7 @@ export function PosterPanel({
     const satellite = await ensureSatellite();
     return groundingLayers(
       schematicUrl,
+      routeReferenceUrl,
       satellite,
       maxRefs,
       croppedLatLng,
@@ -3443,12 +3467,19 @@ export function PosterPanel({
             >
               {schematicUrl ? (
                 <div className="preview-grid">
+                  {maxRefs >= 2 && routeReferenceUrl && (
+                    <GroundingThumb
+                      src={routeReferenceUrl}
+                      label="route-only"
+                      onOpen={() => setPreview({ src: routeReferenceUrl, label: "route-only" })}
+                    />
+                  )}
                   <GroundingThumb
                     src={schematicUrl}
                     label="schematic"
                     onOpen={() => setPreview({ src: schematicUrl, label: "schematic" })}
                   />
-                  {maxRefs >= 2 && satelliteUrl && (
+                  {maxRefs >= 3 && satelliteUrl && (
                     <GroundingThumb
                       src={satelliteUrl}
                       label="satellite"
@@ -3461,7 +3492,7 @@ export function PosterPanel({
                 {sentRefsHint(
                   maxRefs,
                   Boolean(satelliteUrl),
-                  maxRefs >= 2 && Boolean(schematicUrl) && !satelliteUrl && !satelliteFailed,
+                  maxRefs >= 3 && Boolean(schematicUrl) && !satelliteUrl && !satelliteFailed,
                   satelliteFailed,
                 )}
               </p>

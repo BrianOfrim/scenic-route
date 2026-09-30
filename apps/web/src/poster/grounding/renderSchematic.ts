@@ -62,6 +62,8 @@ export type RenderSchematicOptions = {
   };
   aspectRatio?: AspectRatio | string;
   silhouette?: boolean;
+  /** Exported references must retain tight turns even on long GPS tracks. */
+  preserveRouteVertices?: boolean;
   /** Lng/lat ring. Background geography outside it is hidden. The route is not clipped. */
   clipPolygon?: [number, number][];
 };
@@ -127,12 +129,13 @@ export function drawRouteEndMarkers(
   dot(ctx, end[0], end[1], "#111111", 8 * scale);
 }
 
-function drawGpsTrack(
+export function drawGpsTrack(
   ctx: CanvasRenderingContext2D,
   points: [number, number][],
   vertexColors: Array<string | null>,
   breaks: readonly number[] = [],
   scale = 1,
+  halo = false,
 ) {
   if (points.length < 2) return;
   ctx.lineJoin = "round";
@@ -145,6 +148,11 @@ function drawGpsTrack(
     const last = runs[runs.length - 1];
     if (last && last.color === color && last.end === i) last.end = i + 1;
     else runs.push({ color, start: i, end: i + 1 });
+  }
+  if (halo) {
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 9 * scale;
+    for (const run of runs) strokePoints(ctx, points.slice(run.start, run.end + 1));
   }
   ctx.lineWidth = 6 * scale;
   for (const run of runs) {
@@ -188,7 +196,7 @@ export function renderSchematic(canvas: HTMLCanvasElement, options: RenderSchema
   if (!ctx) throw new Error("Could not create a 2D canvas context");
   if (!options.bbox) throw new Error("Schematic bbox is required");
   const project = projector(options.bbox, width, height);
-  drawSchematicScene(ctx, options, project, { width, height });
+  drawSchematicScene(ctx, { ...options, preserveRouteVertices: true }, project, { width, height });
   return canvas.toDataURL("image/png");
 }
 
@@ -202,7 +210,7 @@ export function drawSchematicScene(
   const layers = options.layers ?? {};
   const ways = options.ways ?? {};
 
-  ctx.fillStyle = options.silhouette ? "#f4efe4" : "#f7f4ec";
+  ctx.fillStyle = options.silhouette ? "#ffffff" : "#f7f4ec";
   ctx.fillRect(0, 0, view.width, view.height);
 
   if (!options.silhouette) {
@@ -282,11 +290,11 @@ export function drawSchematicScene(
   const sampled = simplifyColored(
     options.latlng,
     options.silhouette || !trails.length ? null : routeVertexColors(options.latlng, trails),
-    2000,
+    options.preserveRouteVertices ? Infinity : 2000,
     options.routeBreaks ?? [],
   );
   const route = sampled.latlng.map(([lat, lng]) => project(lng, lat));
-  const markers = options.silhouette ? false : (layers.routeMarkers ?? "ends");
+  const markers = layers.routeMarkers ?? (options.silhouette ? false : "ends");
   if ((layers.route !== false || options.silhouette) && route.length >= 2) {
     const vertexColors = sampled.colors ?? route.map(() => null);
     drawGpsTrack(ctx, route, vertexColors, sampled.breaks, scale);
