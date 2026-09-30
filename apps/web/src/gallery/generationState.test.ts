@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { generatePoster } from "../api";
 import { getArrivedPosters } from "./arrivedPosters";
-import { beginGeneration, getGenerationState } from "./generationState";
+import { beginGeneration, getGenerationState, trackGeneration } from "./generationState";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -88,4 +88,32 @@ test("prompt and image generation share placeholders without duplicating or clea
   other.finish(new Error("Poster generation failed"));
   assert.equal(getGenerationState().pending.length, 0);
   assert.equal(getGenerationState().error, "Poster generation failed");
+});
+
+
+test("failed cards retry once per request, survive repeated failures, and clear after success", async () => {
+  let attempts = 0;
+  const gate = deferred<void>();
+  const task = beginGeneration({ title: "Retry route", variants: 2, model: "test-model" });
+  const generate = async () => {
+    attempts++;
+    if (attempts < 3) throw new Error("Image generation timed out");
+    await gate.promise;
+  };
+  await assert.rejects(trackGeneration({ title: "Retry route" }, generate, task), /timed out/);
+  let cards = getGenerationState().failed.filter((image) => image.title === "Retry route");
+  assert.equal(cards.length, 2);
+  assert.equal(cards[0].error, "Image generation timed out");
+  await cards[0].retry();
+  cards = getGenerationState().failed.filter((image) => image.title === "Retry route");
+  assert.equal(cards.length, 2, "a failed retry retains the cards without duplicates");
+  const retry = cards[1].retry();
+  await cards[0].retry();
+  assert.equal(attempts, 3, "clicking another variant cannot submit the same request twice");
+  assert.equal(getGenerationState().failed.filter((image) => image.title === "Retry route").length, 0);
+  assert.equal(getGenerationState().pending.filter((image) => image.title === "Retry route").length, 2);
+  gate.resolve();
+  await retry;
+  assert.equal(getGenerationState().pending.filter((image) => image.title === "Retry route").length, 0);
+  assert.equal(getGenerationState().failed.filter((image) => image.title === "Retry route").length, 0);
 });

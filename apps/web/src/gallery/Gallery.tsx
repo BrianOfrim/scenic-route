@@ -457,6 +457,24 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
       {error && <p className="error banner">{error}</p>}
       {generation.error && <p className="error banner">{generation.error}</p>}
       <div className="gallery-runs">
+        {generation.failed.length > 0 && (
+          <section className="gallery-run" aria-label="Failed image requests">
+            <header className="gallery-run-head"><strong>Failed images</strong></header>
+            <div className="gallery-run-row">
+              {generation.failed.map((image) => (
+                <div key={image.id} className="gallery-card gallery-pending">
+                  <div className="gallery-pending-image"><strong>Generation failed</strong></div>
+                  <div className="gallery-pending-caption">
+                    <strong>{image.title}</strong>
+                    <p className="muted">{[image.styleId ? styleLabel(image.styleId) : null, image.model ? shortModelLabel(image.model) : null].filter(Boolean).join(" · ")}</p>
+                    <p role="alert">{image.error}</p>
+                    <button type="button" onClick={() => { void image.retry(); }}>Regenerate</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {generation.pending.length > 0 && (
           <section className="gallery-run" aria-label="Images being generated">
             <header className="gallery-run-head"><strong>Generating images</strong></header>
@@ -528,7 +546,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             <span className="spinner" aria-hidden="true" />
             Loading images…
           </p>
-        ) : !visible.length && !generation.pending.length ? (
+        ) : !visible.length && !generation.pending.length && !generation.failed.length ? (
           <p className="muted">{favoritesOnly ? "No favourited images yet." : "No images yet."}</p>
         ) : null}
       </div>

@@ -1906,7 +1906,7 @@ export function PosterPanel({
         })
     ).flatMap((slot) => {
       const style = styleById(slot.styleId);
-      return activeImageModelIds.map((model) => ({
+      return activeImageModelIds.filter((model) => !tasks || tasks.has(model)).map((model) => ({
         key: `${slot.key}\0${model}`,
         styleId: slot.styleId,
         paletteId: slot.paletteId,
@@ -2076,6 +2076,13 @@ export function PosterPanel({
         variants: variantCount(variants, imageModelFor(model)?.maxImages),
       })])),
     }));
+    submissions.forEach(({ slot, tasks }) => {
+      tasks.forEach((task, model) => task.setRetry(async () => {
+        const planned = await handlePlan([slot], true);
+        if (!planned?.length) throw new Error("Image generation failed");
+        await handleGenerate(planned, new Map([[model, task]]));
+      }));
+    });
     onGenerationStarted?.();
     await Promise.all(submissions.map(async ({ slot, tasks }) => {
       try {
