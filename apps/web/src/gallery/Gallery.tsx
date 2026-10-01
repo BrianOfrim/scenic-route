@@ -244,6 +244,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionAction, setSelectionAction] = useState<"download" | "delete" | null>(null);
+  const [deleteProgress, setDeleteProgress] = useState({ completed: 0, total: 0 });
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const removedIds = useRef(new Set<string>());
   const [activityDates, setActivityDates] = useState<Map<number, string> | null>(null);
@@ -491,16 +492,23 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     if (!selectedImages.length || selectionBusy) return;
     if (!window.confirm(`Delete ${selectedImages.length} selected image${selectedImages.length === 1 ? "" : "s"}? This cannot be undone. Only selected images will be deleted; other versions remain.`)) return;
     setSelectionAction("delete");
+    setDeleteProgress({ completed: 0, total: selectedImages.length });
     setSelectionNotice(null);
     setError(null);
     try {
-      const { deleted, failed } = await deleteGalleryImages(selectedImages, deletePoster);
-      for (const id of deleted) {
-        removedIds.current.add(id);
-        forgetArrivedPoster(id);
-      }
-      setPosters(current => current.filter(image => !removedIds.current.has(image.posterId)));
-      setActive(current => current && removedIds.current.has(current.posterId) ? null : current);
+      const { deleted, failed } = await deleteGalleryImages(selectedImages, deletePoster, result => {
+        setDeleteProgress({ completed: result.completed, total: result.total });
+        if (!result.succeeded) return;
+        removedIds.current.add(result.id);
+        forgetArrivedPoster(result.id);
+        setPosters(current => current.filter(image => image.posterId !== result.id));
+        setActive(current => current?.posterId === result.id ? null : current);
+        setSelectedIds(current => {
+          const next = new Set(current);
+          next.delete(result.id);
+          return next;
+        });
+      });
       setSelectedIds(new Set(failed.map(image => image.id)));
       if (failed.length) setError(`${failed.length} image${failed.length === 1 ? "" : "s"} could not be deleted. ${failed[0].message}`);
       if (deleted.length) setSelectionNotice(`Deleted ${deleted.length} image${deleted.length === 1 ? "" : "s"}.`);
@@ -572,6 +580,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             onClick={() => void handleDownloadSelected()}>{selectionAction === "download" ? "Preparing ZIP…" : "Download selected"}</button>
           <button type="button" className="button" disabled={selectionBusy || !selectedImages.length}
             onClick={() => void handleDeleteSelected()}>{selectionAction === "delete" ? "Deleting…" : "Delete selected"}</button>
+          {selectionAction === "delete" && <span role="status">Processed {deleteProgress.completed} of {deleteProgress.total} images</span>}
         </section>
       )}
       {selectionNotice && <p className="muted banner" role="status">{selectionNotice}</p>}

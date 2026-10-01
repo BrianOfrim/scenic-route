@@ -19,16 +19,30 @@ export async function galleryArchive(
 }
 
 /** Keep successful deletions when another image fails, and allow the failures to be retried. */
-export async function deleteGalleryImages(images: PosterRecord[], remove: (id: string) => Promise<void>) {
-  const deleted: string[] = [];
-  const failed: Array<{ id: string; message: string }> = [];
-  for (const image of images) {
-    try {
-      await remove(image.posterId);
-      deleted.push(image.posterId);
-    } catch (error) {
-      failed.push({ id: image.posterId, message: `${image.title}: ${error instanceof Error ? error.message : "Could not delete image"}` });
+export async function deleteGalleryImages(
+  images: PosterRecord[],
+  remove: (id: string) => Promise<void>,
+  onProgress?: (result: { id: string; succeeded: boolean; completed: number; total: number }) => void,
+) {
+  const results: Array<{ id: string; message?: string }> = new Array(images.length);
+  let next = 0;
+  let completed = 0;
+  async function worker() {
+    while (next < images.length) {
+      const index = next++;
+      const image = images[index];
+      try {
+        await remove(image.posterId);
+        results[index] = { id: image.posterId };
+      } catch (error) {
+        results[index] = { id: image.posterId, message: `${image.title}: ${error instanceof Error ? error.message : "Could not delete image"}` };
+      }
+      onProgress?.({ id: image.posterId, succeeded: results[index].message === undefined, completed: ++completed, total: images.length });
     }
   }
-  return { deleted, failed };
+  await Promise.all(Array.from({ length: Math.min(4, images.length) }, worker));
+  return {
+    deleted: results.filter(result => result.message === undefined).map(result => result.id),
+    failed: results.flatMap(result => result.message === undefined ? [] : [{ id: result.id, message: result.message }]),
+  };
 }
