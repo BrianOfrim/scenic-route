@@ -142,7 +142,7 @@ export function ActivityList({
         <div className="panel-block">
           <div className="eyebrow">Activities</div>
           <p className="muted">
-            Import one or more GPX, FIT, or TCX files, or a complete account export ZIP. Original archives are not retained.
+            Import GPX, FIT, TCX, or account export ZIPs. Original archives are not retained.
           </p>
           <div className="row activity-toolbar">
             <button
@@ -283,7 +283,7 @@ export function ActivityList({
           <p className="muted activity-empty">
             {activities.length
               ? "No matching activities."
-              : "No activities yet. Select one or more GPX, FIT, or TCX files, or a complete account export ZIP."}
+              : "Import activities to get started."}
           </p>
         )}
       </div>
