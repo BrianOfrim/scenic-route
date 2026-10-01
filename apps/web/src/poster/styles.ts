@@ -56,7 +56,7 @@ export const POSTER_STYLES: PosterStyle[] = [
   },
   {
     id: "swiss",
-    label: "Swiss",
+    label: "Minimal",
     prompt:
       `Swiss modernist map poster: hairline roads, a single accent route, generous negative space, no ornament, no texture beyond a faint paper tooth. Make the title the dominant graphic element: huge ultra-bold geometric grotesk sans serif, with tight but readable tracking, a single clean baseline, and a wide, confident wordmark. When the title block does not fill the available width, left-justify the title and any supplied stats; otherwise use the composition's natural balance. ${suppliedStats("in the same sans serif at a smaller regular weight with middle-dot separators")} Preserve ample blank space around the type; crisp lettering only, with no decorative forms, serifs, outlines, shadows, or small timid title.`,
     palette: ["off-white", "grey", "red"],
@@ -211,21 +211,6 @@ export const POSTER_STYLES: PosterStyle[] = [
     ],
   },
   {
-    id: "minimalist",
-    label: "Minimalist",
-    prompt:
-      `Minimalist poster: an unprinted ground with nothing on it except the route and the title block. No roads, water, land cover, frames, compass, texture, or ornament. The route is one thin even line of uniform weight tracing the given path. Set the title in a light geometric grotesque, large, with open tracking and ample space around every letter. ${suppliedStats("in the same face at a smaller regular weight with middle-dot separators")}`,
-    palette: ["off-white", "black"],
-    typography: titleFace("light geometric grotesque with smaller regular same-face supplied stats"),
-    colorMode: "canonical",
-    palettes: [
-      { id: "ink", label: "Ink", colors: ["off-white", "black"] },
-      { id: "stone", label: "Stone", colors: ["warm-grey", "charcoal"] },
-      { id: "fog", label: "Fog", colors: ["pale-blue", "ink"] },
-      { id: "bone", label: "Bone", colors: ["bone", "espresso"] },
-    ],
-  },
-  {
     id: "custom",
     label: "Custom",
     prompt: "",
@@ -250,6 +235,7 @@ export function styleLabel(id: string, fallback?: string): string {
   if (match) return match.label;
   const trimmed = fallback?.trim();
   const retiredLabels: Record<string, string> = {
+    minimalist: "Minimalist",
     transit: "Transit diagram",
     flat: "Flat",
     "star-chart": "Star chart",

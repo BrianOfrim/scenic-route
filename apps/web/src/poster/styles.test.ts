@@ -36,7 +36,6 @@ const COSTUME_CLICHE: Record<string, RegExp> = {
   "art-nouveau": /gold-green|muted-rose/i,
   bauhaus: /\bred\b|\byellow\b|\bblue\b/i,
   modernist: /\bmustard\b|\bterracotta\b|\bturquoise\b|\bolive\b/i,
-  minimalist: /\bblack\b|\bespresso\b|\bpale-blue\b/i,
 };
 
 test("preset typography leaves title sizing to the shared prompt", () => {
@@ -52,13 +51,13 @@ test("preset typography leaves title sizing to the shared prompt", () => {
   }
 });
 
-test("default poster style is Swiss", () => {
+test("default poster style is Minimal", () => {
   assert.equal(DEFAULT_POSTER_STYLE.id, "swiss");
-  assert.equal(DEFAULT_POSTER_STYLE.label, "Swiss");
+  assert.equal(DEFAULT_POSTER_STYLE.label, "Minimal");
 });
 
 test("retired themes are not available as new-poster styles", () => {
-  for (const id of ["linocut", "transit", "flat", "star-chart", "psychedelic", "neobrutalism"]) {
+  for (const id of ["linocut", "transit", "flat", "star-chart", "psychedelic", "neobrutalism", "minimalist"]) {
     assert.equal(POSTER_STYLES.some((style) => style.id === id), false, id);
   }
 });
@@ -69,12 +68,13 @@ test("styleById returns the matching preset", () => {
   assert.equal(styleById("art-nouveau").label, "Art nouveau");
   assert.equal(styleById("bauhaus").label, "Bauhaus");
   assert.equal(styleById("modernist").label, "Modernist");
-  assert.equal(styleById("minimalist").label, "Minimalist");
+  assert.equal(styleById("minimalist").id, DEFAULT_POSTER_STYLE.id);
   assert.equal(styleById("missing").id, DEFAULT_POSTER_STYLE.id);
 });
 
 test("styleLabel prefers the preset, then a fallback name", () => {
-  assert.equal(styleLabel("swiss"), "Swiss");
+  assert.equal(styleLabel("swiss"), "Minimal");
+  assert.equal(styleLabel("minimalist"), "Minimalist");
   assert.equal(styleLabel("made-up", "Ink wash"), "Ink wash");
   assert.equal(styleLabel(""), "Unknown theme");
 });
@@ -85,7 +85,7 @@ test("style presets style supplied stats and do not demand a date, distance, or 
     assert.doesNotMatch(style.typography, /\bmetadata\b/i, style.id);
   }
   assert.match(styleById("swiss").prompt, /If none were supplied, set no stats line/);
-  assert.match(styleById("minimalist").prompt, /Do not add a date, distance, duration/);
+  assert.match(styleById("swiss").prompt, /Do not add a date, distance, duration/);
 });
 
 test("style presets do not require mountains", () => {
@@ -146,16 +146,6 @@ test("Modernist locks mid-century silhouettes and mixed-case sans without lockin
   assert.deepEqual(resolveStyleColor(modernist, "pool").palette, ["turquoise", "sand", "charcoal"]);
 });
 
-test("Minimalist locks its system without locking hues", () => {
-  const minimalist = styleById("minimalist");
-  assert.match(minimalist.prompt, /nothing on it except the route and the title block/i);
-  assert.match(minimalist.prompt, /No roads, water, land cover/i);
-  assert.match(minimalist.prompt, /light geometric grotesque/i);
-  const minimalAuto = resolveStyleColor(minimalist, AUTO_PALETTE_ID);
-  assert.deepEqual(minimalAuto.palette, ["off-white", "black"]);
-  assert.deepEqual(resolveStyleColor(minimalist, "bone").palette, ["bone", "espresso"]);
-});
-
 test("canonical Auto uses the first named palette", () => {
   const swiss = resolveStyleColor(styleById("swiss"), AUTO_PALETTE_ID);
   assert.equal(swiss.openPalette, false);
@@ -213,7 +203,7 @@ test("stylePlanSlots expands each selected palette per style", () => {
     slots.map((slot) => slot.key),
     ["swiss::auto", "swiss::black", "risograph::pink-teal", "blueprint::auto"],
   );
-  assert.equal(planSlotLabel("swiss", "black"), "Swiss · Black");
+  assert.equal(planSlotLabel("swiss", "black"), "Minimal · Black");
   assert.equal(planSlotLabel("blueprint", "auto"), "Blueprint");
   assert.deepEqual(parsePlanSlotKey("swiss::process-blue"), { styleId: "swiss", paletteId: "process-blue" });
   assert.deepEqual(parsePlanSlotKey("swiss"), { styleId: "swiss", paletteId: AUTO_PALETTE_ID });
