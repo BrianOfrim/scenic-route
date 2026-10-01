@@ -10,6 +10,7 @@ import { createImage, listImageModels, maxImageOutputs, maxImageReferences, reso
 import { isSafePosterId } from "./paths";
 import { DEFAULT_ASPECT_RATIO, imageAspectRatio, specToImagePrompt, validatePosterSpec, withSingleRouteRule, type PosterSpec } from "./posterSpec";
 import { posterStore } from "./storage";
+import { resolveReferences } from "./referenceUploads";
 import { encodePosterThumb } from "./thumb";
 
 export class PosterError extends Error {
@@ -150,7 +151,8 @@ function uniqueQualities(values: ImageQuality[]) {
 export type GeneratePosterBody = {
   activityId: number;
   spec: unknown;
-  references: string[];
+  references?: string[];
+  referenceBatchId?: string;
   /** When set, skip assembling a prompt from the spec. */
   prompt?: string;
   /** Grounding images to persist as ref-N.png. Defaults to `references`. */
@@ -212,6 +214,12 @@ export function variantImageReferences(groundingUrls: string[], maxRefs: number)
   return groundingUrls.filter((item) => item.trim()).slice(0, limit);
 }
 
+async function savedReferenceLinks(userId: string, posterId: string, grounding: string[]) {
+  const store = posterStore();
+  if (!store.signedUrl) return grounding;
+  return Promise.all(grounding.map((_, index) => store.signedUrl!(userId, `${posterId}.ref-${index + 1}.png`, 86400)));
+}
+
 export async function readPosterGroundingUrls(
   userId: string,
   posterId: string,
@@ -256,7 +264,8 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
   const batchId = sanitizeBatchId(body.batchId) ?? (count > 1 ? newBatchId() : undefined);
   const aspectRatio = imageAspectRatio(body.aspectRatio || spec.composition.aspectRatio || DEFAULT_ASPECT_RATIO);
   spec.composition.aspectRatio = aspectRatio;
-  const incoming = dataUrls(body.references);
+  const hosted = body.referenceBatchId ? await resolveReferences(userId, body.referenceBatchId, true) : null;
+  const incoming = hosted ? hosted.map(ref => ref.url) : dataUrls(body.references);
   if (!incoming.length) throw new PosterError("at least one grounding image is required");
 
   const maxRefs = await maxImageReferences(model);
@@ -264,7 +273,9 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
   const persist = dataUrls(body.persistReferences);
   const stored = persist.length ? persist : references;
 
-  const decoded = stored.map(decodeDataUrl);
+  const decoded = persist.length || !hosted
+    ? stored.map(decodeDataUrl)
+    : hosted.slice(0, maxRefs).map(ref => ({ bytes: ref.bytes!, mime: ref.mime }));
   const prompt = resolveImagePrompt(spec, body.prompt);
   const startedAt = Date.now();
   const result = await createImage({
@@ -341,9 +352,14 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
   const source = await readPosterRecord(userId, body.posterId);
   if (!source) throw new PosterError("image not found", 404);
   if (!source.spec || source.prompt == null) throw new PosterError("image is missing prompt data", 502);
-  const previousUrl = pngDataUrl(await readPosterPng(userId, source.posterId));
+  const previousBytes = await readPosterPng(userId, source.posterId);
+  const store = posterStore();
+  const previousUrl = store.signedUrl
+    ? await store.signedUrl(userId, `${source.posterId}.png`, 86400)
+    : pngDataUrl(previousBytes);
   const grounding = await readPosterGroundingUrls(userId, source.posterId, source.referenceCount);
   if (!grounding.length) throw new PosterError("previous image is missing grounding images");
+  const groundingLinks = await savedReferenceLinks(userId, source.posterId, grounding);
 
   const revised = await revisePosterPrompt({
     imageUrl: previousUrl,
@@ -357,7 +373,7 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
     activityId: source.activityId,
     spec,
     prompt: revised.prompt,
-    references: modifyImageReferences(previousUrl, grounding, await maxImageReferences(model)),
+    references: modifyImageReferences(previousUrl, groundingLinks, await maxImageReferences(model)),
     persistReferences: grounding,
     previousPosterId: source.posterId,
     refineNotes: request,
@@ -385,13 +401,14 @@ export async function variantPoster(userId: string, body: VariantPosterBody): Pr
   if (!source.spec || !source.prompt?.trim()) throw new PosterError("image is missing prompt data", 502);
   const grounding = await readPosterGroundingUrls(userId, source.posterId, source.referenceCount);
   if (!grounding.length) throw new PosterError("image is missing grounding images");
+  const groundingLinks = await savedReferenceLinks(userId, source.posterId, grounding);
 
   const model = resolveImageModel(body.model ?? source.model);
   return generatePoster(userId, {
     activityId: source.activityId,
     spec: source.spec,
     prompt: source.prompt,
-    references: variantImageReferences(grounding, await maxImageReferences(model)),
+    references: variantImageReferences(groundingLinks, await maxImageReferences(model)),
     persistReferences: grounding,
     featureIds: source.featureIds,
     labels: source.labels,

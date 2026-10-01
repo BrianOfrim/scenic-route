@@ -1,5 +1,5 @@
 import { forgetArrivedPoster, getArrivedEpoch, getArrivedPosters, useArrivedEpoch } from "./arrivedPosters";
-import { clearFailedImage, useGenerationState } from "./generationState";
+import { clearFailedImage, generationPhaseLabels, useGenerationState } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { deletePoster, fetchActivities, fetchPoster, fetchPosterImage, fetchPosters, setPosterFavorite, variantPoster, type PosterRecord } from "../api";
 import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
@@ -244,6 +244,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionAction, setSelectionAction] = useState<"download" | "delete" | null>(null);
+  const [deleteProgress, setDeleteProgress] = useState({ completed: 0, total: 0 });
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const removedIds = useRef(new Set<string>());
   const [activityDates, setActivityDates] = useState<Map<number, string> | null>(null);
@@ -491,16 +492,23 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     if (!selectedImages.length || selectionBusy) return;
     if (!window.confirm(`Delete ${selectedImages.length} selected image${selectedImages.length === 1 ? "" : "s"}? This cannot be undone. Only selected images will be deleted; other versions remain.`)) return;
     setSelectionAction("delete");
+    setDeleteProgress({ completed: 0, total: selectedImages.length });
     setSelectionNotice(null);
     setError(null);
     try {
-      const { deleted, failed } = await deleteGalleryImages(selectedImages, deletePoster);
-      for (const id of deleted) {
-        removedIds.current.add(id);
-        forgetArrivedPoster(id);
-      }
-      setPosters(current => current.filter(image => !removedIds.current.has(image.posterId)));
-      setActive(current => current && removedIds.current.has(current.posterId) ? null : current);
+      const { deleted, failed } = await deleteGalleryImages(selectedImages, deletePoster, result => {
+        setDeleteProgress({ completed: result.completed, total: result.total });
+        if (!result.succeeded) return;
+        removedIds.current.add(result.id);
+        forgetArrivedPoster(result.id);
+        setPosters(current => current.filter(image => image.posterId !== result.id));
+        setActive(current => current?.posterId === result.id ? null : current);
+        setSelectedIds(current => {
+          const next = new Set(current);
+          next.delete(result.id);
+          return next;
+        });
+      });
       setSelectedIds(new Set(failed.map(image => image.id)));
       if (failed.length) setError(`${failed.length} image${failed.length === 1 ? "" : "s"} could not be deleted. ${failed[0].message}`);
       if (deleted.length) setSelectionNotice(`Deleted ${deleted.length} image${deleted.length === 1 ? "" : "s"}.`);
@@ -572,6 +580,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             onClick={() => void handleDownloadSelected()}>{selectionAction === "download" ? "Preparing ZIP…" : "Download selected"}</button>
           <button type="button" className="button" disabled={selectionBusy || !selectedImages.length}
             onClick={() => void handleDeleteSelected()}>{selectionAction === "delete" ? "Deleting…" : "Delete selected"}</button>
+          {selectionAction === "delete" && <span role="status">Processed {deleteProgress.completed} of {deleteProgress.total} images</span>}
         </section>
       )}
       {selectionNotice && <p className="muted banner" role="status">{selectionNotice}</p>}
@@ -601,13 +610,13 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         )}
         {generation.pending.length > 0 && (
           <section className="gallery-run" aria-label="Images being generated">
-            <header className="gallery-run-head"><strong>Generating images</strong></header>
+            <header className="gallery-run-head"><strong>Images in progress</strong></header>
             <div className="gallery-run-row">
               {generation.pending.map((image) => (
-                <div key={image.id} className="gallery-card gallery-pending" role="status" aria-label={`${image.title}: Generating image`}>
+                <div key={image.id} className="gallery-card gallery-pending" role="status" aria-label={`${image.title}: ${generationPhaseLabels[image.phase]} image`}>
                   <div className="gallery-pending-image" aria-busy="true">
                     <i className="spinner" aria-hidden="true" />
-                    <strong>Generating…</strong>
+                    <strong>{generationPhaseLabels[image.phase]}…</strong>
                   </div>
                   <div className="gallery-pending-caption">
                     <strong>{image.title}</strong>

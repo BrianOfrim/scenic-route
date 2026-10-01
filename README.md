@@ -51,6 +51,10 @@ Open [http://localhost:5174](http://localhost:5174). Sign-in emails a magic link
 
 Imported tracks are stored per account in Postgres (`DATABASE_URL`, default `scenic_route`). An existing `data/scenic-route.sqlite` is imported once if the database is empty. Images are written under `data/` unless R2 is configured (`R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`).
 
+Planning and generation require R2 for new reference batches. The browser uploads the packed reference images once via `/api/poster/references`; plans, models, variants, and retries reuse the returned account-scoped batch ID. The API normally sends private, signed HTTPS GET URLs to OpenRouter. If planning receives `media_url_not_fetchable`, it reads the stored references through R2 and retries with inline images. Links are renewed for each request and last 24 hours; upload IDs last seven days. Saved poster references remain available for later edits and variants. Signed URL credentials are redacted from LLM traces.
+
+Configure an R2 lifecycle rule to delete objects under `references/` after seven days (leave `posters/` intact). Batch expiry is enforced by the API, but physical cleanup requires this bucket rule. R2 credentials need object read and write access; the bucket does not need public access or browser CORS because uploads pass through the API.
+
 ## Layout
 
 | Path | Role |
@@ -78,6 +82,17 @@ To inspect performance:
 - Browser User Timing entries retain the latest `schematic.context.fetch`, `schematic.context.body-and-parse`, and `schematic.render-and-png` measurements. Inspect them with `performance.getEntriesByType("measure").filter(entry => entry.name.startsWith("schematic."))` in DevTools.
 - Start the API with `OSM_TIMING=1` for cache hit/miss/in-flight events, successful request durations and bytes, and per-query fetch/conversion durations. These logs omit coordinates, query strings, and activity IDs. Fetch time includes disk-cache access or endpoint retries; query groups can overlap, so their durations should not be summed as total request latency.
 
+Image generation allows ten minutes per image by default. Set `OPENROUTER_IMAGE_TIMEOUT_MS` to a positive integer in milliseconds to change the per-image deadline; multi-image requests multiply it by the requested image count. Restart the API after changing the environment setting.
+
+Image and planner requests automatically write JSON traces to `data/llm-traces/`. Each request logs its trace ID at start and completion. A trace left with `lifecycle: "running"` indicates no completion was recorded (for example, an API restart); it does not prove the provider failed. Finished traces include each HTTP attempt's phase, status, response headers, request/response byte counts, provider error metadata, nested network error causes, concurrent request counts in this API process, deadline timing, and heartbeat delays. Header logging uses an allowlist for request IDs, `Retry-After`, `X-RateLimit-*`, and timing/content metadata; it excludes authentication and cookies. Image bytes are summarized in traces as before.
+
+For a failure, inspect `diagnostics.attempts`: `waiting-for-headers` means no HTTP response was received; `reading-body` means headers arrived but the body failed or stalled. `providerError.metadata` and rate-limit headers can distinguish OpenRouter limits from upstream provider errors. `timeoutTimerDelayMs` and `maxHeartbeatDelayMs` show delayed local execution, which can result from event-loop blocking or machine sleep; they cannot distinguish those causes by themselves. These traces describe what the app observed, and cannot determine a provider's internal cause when no response arrives. Failed gallery cards and their Regenerate callbacks currently live only in browser memory and disappear on reload.
+
 ## Production
 
 The Fly.io app is `scenic-route` (`scenic-route.fly.dev` is the fallback host). Production Postgres is Neon, and images are stored in R2. Hostname-sensitive config is env-only (`WEB_ORIGIN`, `BETTER_AUTH_URL`, `RESEND_FROM`, `DATABASE_URL`). Local defaults in `.env.example` stay on `localhost`.
+
+
+OpenRouter calls use separate process-local FIFO queues for planning and images (three active calls each, configurable with `OPENROUTER_PLAN_CONCURRENCY` and `OPENROUTER_IMAGE_CONCURRENCY`). Each queue allows up to 100 waiting calls. Planning has a four-minute total budget including queue waiting and backoff, with up to three outbound calls shared across transient retries, schema fallback, and inline-reference fallback. Each active planning call has at most three minutes. Known network interruptions and HTTP 429/500/502/503/504 receive jittered backoff; `Retry-After` is honored when it fits the remaining budget. Deadline aborts, malformed responses, and other HTTP failures stop immediately. Slots are released before backoff. Image calls wait at most their generation deadline plus one minute for a slot and are never automatically retried. The local Vite proxy has no independent timeout; the API enforces the deadlines.
+
+This initial queue is in memory, runs independently in each API process, and retains long-lived browser requests. It does not provide durable jobs, cancellation, global limits across replicas, or recovery after reload/restart. Gallery phase labels describe the browser's current stage; backend queue waiting and retry attempts are available in traces rather than live gallery status. Ambiguous image failures still require care with manual Regenerate because the provider may already have completed and charged for the generation.

@@ -36,6 +36,8 @@ import { reverseLocation } from "./osm/location";
 import { lookupLandmark } from "./osm/landmark";
 import { OpenRouterError, imageModel, listImageModels, maxImageReferences } from "./openrouter";
 import { planPoster } from "./planner";
+import { RequestQueueError } from "./requestQueue";
+import { ReferenceUploadError, uploadReferences } from "./referenceUploads";
 import {
   PosterError,
   deletePoster,
@@ -213,6 +215,15 @@ app.post("/api/poster/landmark", async (c) => {
   }
 });
 
+app.post("/api/poster/references", async (c) => {
+  try {
+    const body = await c.req.json();
+    return c.json(await uploadReferences(currentUserId(c), body.references));
+  } catch (error) {
+    return fail(c, error);
+  }
+});
+
 app.post("/api/poster/plan", async (c) => {
   try {
     const body = await c.req.json();
@@ -384,7 +395,7 @@ function webp(bytes: Buffer) {
 }
 
 function fail(c: Context, error: unknown) {
-  if (error instanceof PosterError || error instanceof OpenRouterError) {
+  if (error instanceof PosterError || error instanceof OpenRouterError || error instanceof ReferenceUploadError || error instanceof RequestQueueError) {
     return c.json({ error: error.message }, error.status);
   }
   const message = error instanceof Error ? error.message : "request failed";

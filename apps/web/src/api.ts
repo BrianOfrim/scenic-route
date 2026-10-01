@@ -441,6 +441,14 @@ export async function lookupPosterLandmark(body: {
   );
 }
 
+export async function uploadPosterReferences(references: string[]): Promise<{ referenceBatchId: string; expiresAt: number }> {
+  return readJson(await apiFetch("/api/poster/references", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ references }),
+  }));
+}
+
 export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cost: number | null; model: string }> {
   return readJson(
     await apiFetch("/api/poster/plan", {
@@ -454,15 +462,17 @@ export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cos
 export async function generatePoster(
   body: unknown,
   pendingCount?: number,
-  prepareReferences?: () => Promise<string[]>,
+  prepareReferences?: () => Promise<string[] | { referenceBatchId: string }>,
   task?: GenerationTask,
 ): Promise<PosterRecord[]> {
   const details = body as { spec?: PosterSpec; model?: string; styleId?: string; paletteId?: string; variants?: number };
-  return trackGeneration({ ...details, variants: pendingCount ?? details.variants, title: details.spec?.text.title || "New image" }, async () => {
+  return trackGeneration({ ...details, variants: pendingCount ?? details.variants, title: details.spec?.text.title || "New image" }, async (generationTask) => {
     // Register placeholders before preparing references; preparation also runs in the background.
-    const requestBody = prepareReferences
-      ? { ...details, references: await prepareReferences() }
+    const prepared = prepareReferences ? await prepareReferences() : undefined;
+    const requestBody = prepared
+      ? { ...details, ...(Array.isArray(prepared) ? { references: prepared } : { referenceBatchId: prepared.referenceBatchId }) }
       : body;
+    generationTask.setPhase("generating");
     const payload = await readJson<{ posters?: PosterRecord[] } & Partial<PosterRecord>>(
       await apiFetch("/api/poster/generate", {
         method: "POST",
@@ -478,7 +488,7 @@ export async function generatePoster(
     if (!records.length) throw new Error("Image generation returned no images");
     noteArrivedPosters(records);
     return records;
-  }, task);
+  }, task, null);
 }
 
 export async function variantPoster(body: {

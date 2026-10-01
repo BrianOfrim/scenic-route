@@ -106,3 +106,43 @@ test("mergePosterList keeps an inline thumb across a list refresh", () => {
   assert.equal(mergePosterList([arrived], [listed])[0].thumbDataUrl, "data:image/webp;base64,abc");
   assert.equal(mergePosterList([arrived], [listed])[0].url, listed.url);
 });
+
+test("batch deletions bound concurrency and report each result before the batch finishes", async () => {
+  const images = Array.from({ length: 6 }, (_, index) => item({ posterId: `p${index}` }));
+  const pending = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+  const events: Array<{ id: string; succeeded: boolean; completed: number; total: number }> = [];
+  let running = 0;
+  let maxRunning = 0;
+  const batch = deleteGalleryImages(images, id => new Promise<void>((resolve, reject) => {
+    running++;
+    maxRunning = Math.max(maxRunning, running);
+    pending.set(id, {
+      resolve: () => { running--; pending.delete(id); resolve(); },
+      reject: error => { running--; pending.delete(id); reject(error); },
+    });
+  }), result => events.push(result));
+
+  assert.equal(pending.size, 4);
+  pending.get("p2")!.resolve();
+  await Promise.resolve();
+  assert.deepEqual(events, [{ id: "p2", succeeded: true, completed: 1, total: 6 }]);
+  assert.ok(pending.has("p4"), "a completion starts another deletion without waiting for the other workers");
+  assert.equal(pending.size, 4);
+
+  pending.get("p0")!.reject(new Error("offline"));
+  await Promise.resolve();
+  assert.deepEqual(events[1], { id: "p0", succeeded: false, completed: 2, total: 6 });
+  assert.ok(pending.has("p5"), "one failure must not stop the remaining deletions");
+  for (const request of [...pending.values()]) request.resolve();
+  const result = await batch;
+  assert.equal(maxRunning, 4);
+  assert.equal(events.length, 6);
+  assert.deepEqual(events.map(event => event.completed), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(result.deleted, ["p1", "p2", "p3", "p4", "p5"]);
+  assert.deepEqual(result.failed, [{ id: "p0", message: "Ride: offline" }]);
+});
+
+test("empty batch deletion makes no requests or progress callbacks", async () => {
+  const result = await deleteGalleryImages([], async () => { assert.fail("unexpected deletion"); }, () => { assert.fail("unexpected progress"); });
+  assert.deepEqual(result, { deleted: [], failed: [] });
+});

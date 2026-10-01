@@ -1,6 +1,10 @@
 import { useSyncExternalStore } from "react";
 
-type PendingImage = { id: string; title: string; model: string; styleId?: string; paletteId?: string };
+export type GenerationPhase = "queued" | "planning" | "generating";
+export const generationPhaseLabels: Record<GenerationPhase, string> = {
+  queued: "Queued", planning: "Planning", generating: "Generating",
+};
+type PendingImage = { id: string; title: string; model: string; styleId?: string; paletteId?: string; phase: GenerationPhase };
 type FailedImage = PendingImage & { error: string; retry: () => Promise<void> };
 let snapshot: { failed: FailedImage[]; pending: PendingImage[]; revision: number; error: string | null } = {
   failed: [], pending: [], revision: 0, error: null,
@@ -12,14 +16,14 @@ function publish(next: typeof snapshot) {
 }
 
 export type GenerationDetails = { title: string; model?: string; styleId?: string; paletteId?: string; variants?: number };
-export type GenerationTask = { finish: (error?: unknown) => void; setRetry: (retry: () => Promise<unknown>) => void };
+export type GenerationTask = { finish: (error?: unknown) => void; setRetry: (retry: () => Promise<unknown>) => void; setPhase: (phase: GenerationPhase) => void };
 
 /** Reserve placeholders synchronously, before any prompt or image work starts. */
 export function beginGeneration(details: GenerationDetails): GenerationTask {
   const requestId = crypto.randomUUID();
   const count = Math.max(1, Math.min(8, Math.floor(details.variants || 1)));
   const images = Array.from({ length: count }, (_, index) => ({
-    id: `${requestId}:${index}`, title: details.title, model: details.model ?? "", styleId: details.styleId, paletteId: details.paletteId,
+    id: `${requestId}:${index}`, title: details.title, model: details.model ?? "", styleId: details.styleId, paletteId: details.paletteId, phase: "queued" as const,
   }));
   publish({ ...snapshot, pending: [...snapshot.pending, ...images], error: null });
   let finished = false;
@@ -36,6 +40,11 @@ export function beginGeneration(details: GenerationDetails): GenerationTask {
     }
   };
   const task: GenerationTask = {
+    setPhase(phase) {
+      if (finished) return;
+      publish({ ...snapshot, pending: snapshot.pending.map(image =>
+        image.id.startsWith(`${requestId}:`) ? { ...image, phase } : image) });
+    },
     setRetry(work) { retryWork = work; },
     finish(error) {
       if (finished) return;
@@ -55,12 +64,17 @@ export function beginGeneration(details: GenerationDetails): GenerationTask {
 /** Reuse a task across prompt preparation and the image request. */
 export async function trackGeneration<T>(
   details: GenerationDetails,
-  generate: () => Promise<T>,
+  generate: (task: GenerationTask) => Promise<T>,
   task = beginGeneration(details),
+  initialPhase: GenerationPhase | null = "generating",
 ): Promise<T> {
-  task.setRetry(generate);
+  task.setRetry(() => {
+    if (initialPhase) task.setPhase(initialPhase);
+    return generate(task);
+  });
   try {
-    const result = await generate();
+    if (initialPhase) task.setPhase(initialPhase);
+    const result = await generate(task);
     task.finish();
     return result;
   } catch (cause) {

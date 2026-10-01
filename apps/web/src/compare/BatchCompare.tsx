@@ -177,8 +177,7 @@ export function BatchCompare({ images, leftId, rightId, focus, onFocus, onSelect
         </div>
       )}
       <p className="muted compare-hint">
-        Click a side, then a thumbnail, to place any two images from this run — including the schematic.
-        Double-click an image or use Full screen to view it larger. Esc leaves full screen first.
+        Choose a side, then a thumbnail. Double-click to enlarge; Esc to close.
       </p>
       {expanded &&
         createPortal(
