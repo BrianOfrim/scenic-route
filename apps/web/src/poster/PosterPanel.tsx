@@ -56,14 +56,14 @@ function formatDataSize(bytes: number): string {
 }
 
 const GEO_SCOPES: { id: GeoScope; label: string; hint: string }[] = [
-  { id: "all", label: "All", hint: "Everything in the route's map box. The satellite photograph is cut to that same box." },
-  { id: "corridor", label: "Corridor", hint: "Roads, water, and landcover within this distance of the route." },
-  { id: "ends", label: "Wider ends", hint: "A tighter band along the route, with more context around the start and finish." },
-  { id: "box", label: "Rotated box", hint: "A rectangle turned to match the route, so the empty corners of a diagonal ride drop out." },
-  { id: "hull", label: "Convex hull", hint: "The smallest convex outline around the route, with a little padding." },
-  { id: "loop", label: "Inside loop", hint: "Geography inside a closed route, plus a thin band outside it." },
+  { id: "all", label: "All", hint: "Full map area." },
+  { id: "corridor", label: "Corridor", hint: "A band around the route." },
+  { id: "ends", label: "Wider ends", hint: "A narrow band with more space at the start and finish." },
+  { id: "box", label: "Rotated box", hint: "A rectangle aligned with the route." },
+  { id: "hull", label: "Convex hull", hint: "A padded outline around the route." },
+  { id: "loop", label: "Inside loop", hint: "Inside a closed route, with a small outer margin." },
   { id: "rectangle", label: "Rectangle", hint: "Click two corners on the map. Drag a corner to resize." },
-  { id: "polygon", label: "Polygon", hint: "Click the map to add a corner. Drag a corner to move it. Right-click a corner to remove it." },
+  { id: "polygon", label: "Polygon", hint: "Click to add corners, drag to move, right-click to remove." },
 ];
 
 import { clampCrop, isClosedLoop, isNearCroppedRoute, paddedBbox, schematicBbox, shiftRouteSpans, sliceTrack, sliceTrackBreaks, snapIndex, snapRadius, trackDistanceM } from "./crop";
@@ -713,8 +713,8 @@ function sentRefsHint(
     else if (satelliteFailed) parts.push("satellite (unavailable)");
     else if (satellitePending) parts.push("satellite (loading)");
   }
-  if (parts.length === 1) return "1 schematic reference will be sent. Click the preview to enlarge.";
-  return `${parts.length} references will be sent: ${parts.join(" + ")}. Click a preview to enlarge.`;
+  if (parts.length === 1) return "Reference: schematic. Click to enlarge.";
+  return `References: ${parts.join(" + ")}. Click to enlarge.`;
 }
 
 type ModelRef = { role: string; legend?: string; dataUrl: string };
@@ -1381,9 +1381,9 @@ export function PosterPanel({
       void fetchPosterLocation(activityId, cropStart, cropEnd).then(result => {
         if (cancelled) return;
         setSuggestedLocation(result.location);
-        setLocationStatus(result.resolved ? "Suggested from the route coordinates." : "Place lookup unavailable. Coordinates are shown; enter a location below.");
+        setLocationStatus(result.resolved ? "" : "Place lookup unavailable. Enter a location.");
       }).catch(() => {
-        if (!cancelled) setLocationStatus("Could not look up this location. Enter a location below.");
+        if (!cancelled) setLocationStatus("Location lookup failed. Enter a location.");
       });
     }, 500);
     return () => { cancelled = true; window.clearTimeout(timer); };
@@ -2650,7 +2650,7 @@ export function PosterPanel({
         <div className="panel-block poster-launch sheet-from-half">
           <fieldset className="poster-editor-fieldset" disabled={busy}>
             <p className="muted poster-launch-summary">
-              Create an image of this route to share on social media. {formatKm(croppedKm)} · annotations off
+              {formatKm(croppedKm)} · annotations off
             </p>
             <div className="poster-option-row">
               <label className="poster-field">
@@ -2717,8 +2717,7 @@ export function PosterPanel({
           {refineFrom ? (
             <div className="panel-block sheet-from-half">
               <p className="muted">
-                Setup restored from gallery. Adjust crop, landmarks, or themes, then generate again. View
-                generated images in the gallery.
+                Setup restored. Adjust and generate a new image.
               </p>
             </div>
           ) : null}
@@ -2817,14 +2816,11 @@ export function PosterPanel({
                 </>
               )}
             </div>
-            <p className="muted">
-              {showRouteMarkers
-                ? isClosedLoop(croppedLatLng, croppedRouteBreaks)
-                  ? "Start and finish are the same place — one combined marker. "
-                  : "Green start · black finish. "
-                : ""}
-              The finished image writes this name at the start/finish marker.
-            </p>
+            {showRouteMarkers && <p className="muted">
+              {isClosedLoop(croppedLatLng, croppedRouteBreaks)
+                ? "One shared start / finish marker."
+                : "Green start · black finish."}
+            </p>}
           </PosterSection>
 
           <PosterSection
@@ -2835,10 +2831,10 @@ export function PosterPanel({
             hint={featuresRefreshing ? <FeatureQueryHint label="Preparing map detail…" /> : undefined}
           >
             <p className="muted">{geographyMode === "auto" ? <>
-              Map detail adjusts automatically to the area shown on your poster.
+              Map detail adapts to the poster scale.
               {geographyScene && <> Scale: <strong>{geographyScene.profile.charAt(0).toUpperCase() + geographyScene.profile.slice(1)}</strong>.</>}
-            </> : "Choose which available layers appear on your poster."}</p>
-            {geographyScene?.source === "natural-earth" && <p className="muted">A generalized map shows major roads, water and urban footprints. Small local features may be absent.</p>}
+            </> : "Choose map layers."}</p>
+            {geographyScene?.source === "natural-earth" && <p className="muted">Overview map: small local features may be missing.</p>}
             {geographyPending && <p role="status" className="muted">Preparing map detail…</p>}
             {geographyError && <p role="alert">{geographyError} <button type="button" className="text-btn" onClick={() => setGeographyRetry(n => n + 1)}>Retry</button></p>}
             {geographyScene?.warnings.length ? <p role="status" className="muted">
@@ -2861,7 +2857,7 @@ export function PosterPanel({
               {geographyMode === "manual" && <button type="button" className="text-btn" onClick={() => setGeographyMode("auto")}>Reset to automatic</button>}
               {geographyMode === "auto" ? (
                 <>
-                  <p className="muted">Map detail follows the poster scale. Wide maps use generalized bundled data. The Extent setting below controls how far geography is drawn.</p>
+                  <p className="muted">Wide maps use simplified detail. Extent sets the map boundary.</p>
                   {geographyAllowance && <p className="muted" role="status">
                     This filter allows: {geographyAllowance.categories.join(", ")}. {geographyAllowance.detail}
                   </p>}
@@ -2906,14 +2902,14 @@ export function PosterPanel({
             </label>
             <p className="muted">
               {geoScope === "loop" && croppedLatLng.length >= 2 && !shapeRing
-                ? "This route doesn't close, so there is no interior to keep."
+                ? "Requires a closed route."
                 : GEO_SCOPES.find((item) => item.id === geoScope)?.hint}
             </p>
             {geoScope !== "all" &&
               croppedLatLng.length >= 2 &&
               (geoScope === "corridor" || geoScope === "ends" || (shapeRing?.length ?? 0) >= 3) && (
               <p className="muted">
-                Features that meet this scope continue until {formatCorridorM(outerExpandM(croppedLatLng))} past it, then stop. The photograph is cut there.
+                Map and satellite extend {formatCorridorM(outerExpandM(croppedLatLng))} beyond this boundary.
               </p>
             )}
             {(geoScope === "corridor" || geoScope === "ends") && context?.corridor && corridorMeters != null && (
@@ -3154,7 +3150,7 @@ export function PosterPanel({
                     );
                   })}
                 <p className="muted">
-                  Auto-added if within this many metres of the route.
+                  Auto-add landmarks within this distance.
                 </p>
                 {!sheetMode && (
                   <div className="chip-row">
@@ -3249,13 +3245,7 @@ export function PosterPanel({
                 )}
                 {(selectedPois.length > 0 || selectedNamedWays.length > 0 || selectedNamedAreas.length > 0) && (
                   <p className="muted">
-                    Neighbourhoods, campuses, and large named parks are ochre washes with a letter,
-                    not pins. The wash is the exact area to label on the image. Letters and trail
-                    colors are a private index — look up the name, then discard the letter and the
-                    schematic colors. Parks stay green; other districts should not be brown just
-                    because the schematic wash is ochre. Numbered discs are a location index. The
-                    image should show the names, not the letters, numbers, schematic colors, or a
-                    legend.
+                    The image uses place names; preview letters, numbers, and colors are guides only.
                   </p>
                 )}
                 {selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length > MAX_LABELS && (
@@ -3277,9 +3267,7 @@ export function PosterPanel({
                   </button>
                 </form>
                 <p className="muted">
-                  Places and trail stretches that are not on OpenStreetMap are labeled on
-                  the schematic: Place landmark or Name stretch. Drag a numbered landmark to move it.
-                  Click a landmark or named-stretch chip to rename it.
+                  Use the map’s label tools to add places or trail stretches. Drag landmarks to move; click names to rename.
                 </p>
                 {landmarkHint && <p className="muted">{landmarkHint}</p>}
                 {landmarkChoices?.map((poi) => (
@@ -3336,11 +3324,10 @@ export function PosterPanel({
                 onChange={event => setLocationOverride(event.target.value)}
               />
             </label>
-            <p className="muted">Optional. Printed once in a footer, clear map space, or the title block to suit the theme.</p>
-            <p className="muted">{locationOverride === null ? locationStatus : "Using your custom location."}</p>
+            {locationOverride === null && locationStatus && <p className="muted">{locationStatus}</p>}
             {locationOverride !== null && <button type="button" className="chip" onClick={() => setLocationOverride(null)}>Use suggested location</button>}
             <label className="poster-field">
-              People
+              People (optional)
               <textarea
                 rows={2}
                 value={people}
@@ -3351,7 +3338,6 @@ export function PosterPanel({
                 onChange={(event) => setPeople(event.target.value)}
               />
             </label>
-            <p className="muted">Optional. Names of the people who did this activity, printed on the image.</p>
             <p className="muted">{[subtitle, peopleCredit].filter(Boolean).join(" · ") || "No stats selected"}</p>
           </PosterSection>
 
@@ -3410,13 +3396,11 @@ export function PosterPanel({
                     </button>
                   ))}
                 </div>
-                <p className="muted">
+                {(!styleIds.length || planSlots.length > 1) && <p className="muted">
                   {!styleIds.length
                     ? "Select a theme to generate"
-                    : planSlots.length > 1
-                      ? `${planSlots.length} images — one per selected theme and palette`
-                      : "Select more themes or palettes to compare"}
-                </p>
+                    : `${planSlots.length} images — one per theme and palette`}
+                </p>}
                 {paletteStyles.map((style) => {
                   const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
                   return (
@@ -3443,9 +3427,6 @@ export function PosterPanel({
                           </button>
                         ))}
                       </div>
-                      {selected.length > 1 && (
-                        <p className="muted">{selected.length} palettes will each get their own prompt</p>
-                      )}
                     </div>
                   );
                 })}
@@ -3464,17 +3445,17 @@ export function PosterPanel({
               <p className="muted">Custom uses this prompt; other themes use their presets.</p>
             )}
             <label className="poster-field">
-              Vibes
+              Vibes (optional)
               <textarea
                 rows={3}
                 value={vibes}
                 maxLength={500}
                 disabled={busy}
-                placeholder="A nice, crisp fall day. Leaves were beautiful colours!"
+                placeholder="Crisp fall day, golden leaves…"
                 onChange={(event) => setVibes(event.target.value)}
               />
             </label>
-            <p className="muted">Optional. Flavors the image prompt with how the day felt.</p>
+            <p className="muted">Set the mood of the image.</p>
             {sheetMode && !styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
             {sheetMode && (
               <div className="poster-actions poster-plan-row">
