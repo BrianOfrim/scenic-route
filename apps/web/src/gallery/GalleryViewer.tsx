@@ -173,7 +173,7 @@ export function GalleryViewer({
           >
             <ReadyImage
               src={expanded.src}
-              previewSrc={expanded.previewSrc}
+              previewSrc={expanded.previewSrc || expanded.thumbSrc}
               alt={expanded.label}
               onClick={(event) => event.stopPropagation()}
             />
@@ -227,17 +227,20 @@ export function ReadyImage({
   alt: string;
   onClick?: (event: MouseEvent<HTMLImageElement>) => void;
 }) {
-  const [showFull, setShowFull] = useState(!previewSrc || previewSrc === src);
+  const [readySrc, setReadySrc] = useState<string | null>(null);
+  const showFull = !previewSrc || previewSrc === src || readySrc === src;
   useEffect(() => {
-    if (!previewSrc || previewSrc === src) {
-      setShowFull(true);
-      return;
-    }
-    setShowFull(false);
+    if (!previewSrc || previewSrc === src) return;
     const loader = new Image();
     let active = true;
-    loader.onload = () => {
-      if (active) setShowFull(true);
+    loader.onload = async () => {
+      // Keep the thumbnail visible until the full image is ready to paint.
+      try {
+        await loader.decode();
+      } catch {
+        // A successful load can still be displayed if decoding is unavailable.
+      }
+      if (active) setReadySrc(src);
     };
     loader.src = src;
     return () => {
@@ -251,7 +254,7 @@ function ViewerPane({ image, onExpand }: { image: GalleryImage; onExpand: () => 
   return (
     <div className="compare-pane">
       <div className="compare-pane-hit">
-        <ReadyImage src={image.src} previewSrc={image.previewSrc} alt={image.label} />
+        <ReadyImage src={image.src} previewSrc={image.previewSrc || image.thumbSrc} alt={image.label} />
         <span className="compare-caption">{image.label}</span>
       </div>
       <button
