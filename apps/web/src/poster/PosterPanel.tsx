@@ -1,6 +1,6 @@
 import type { GeographyScene } from "../../../api/src/osm/geographyPolicy";
 import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, automaticGeographyAllowance, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
-import { beginGeneration, type GenerationTask } from "../gallery/generationState";
+import { beginGeneration } from "../gallery/generationState";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   fetchPosterCapabilities,
@@ -8,9 +8,8 @@ import {
   fetchPosterLocation,
   fetchPosterGeography,
   formatKm,
-  generatePoster,
   lookupPosterLandmark,
-  planPoster,
+  submitPosterBatch,
   uploadPosterReferences,
   type FormattedStat,
   type ImageModelOption,
@@ -113,10 +112,7 @@ import { nearestPlaceName } from "./places";
 import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import {
-  formatDurationMs,
   minMaxReferences,
-  shortModelLabel,
-  sumCosts,
   uiImageModelFromCapabilities,
   variantCount,
 } from "./imageModels";
@@ -138,19 +134,7 @@ import {
   stylePlanSlots,
 } from "./styles";
 
-type GenerationRun = {
-  key: string;
-  styleId: string;
-  paletteId: string;
-  styleLabel: string;
-  model: string;
-  label: string;
-  startedAt: number;
-  finishedAt?: number;
-  promptCost?: number | null;
-  imageCost?: number | null;
-  error?: string;
-};
+
 
 
 const DEFAULT_VARIANTS = 1;
@@ -911,12 +895,7 @@ export function PosterPanel({
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() => (refineFrom ? "customize" : "launch"));
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>({});
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
-  const [promptModel, setPromptModel] = useState<string | null>(() => refineFrom?.promptModel ?? null);
-  const [planning, setPlanning] = useState(false);
-  const [planProgress, setPlanProgress] = useState({ done: 0, total: 0 });
   const [generating, setGenerating] = useState(false);
-  const [generateProgress, setGenerateProgress] = useState({ done: 0, total: 0 });
-  const [modelRuns, setModelRuns] = useState<GenerationRun[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [preview, setPreview] = useState<{ src: string; label: string } | null>(null);
   const cropActivityId = useRef<number | null>(null);
@@ -1036,7 +1015,6 @@ export function PosterPanel({
             setPeople(restored.people);
             setSpecs({}); // Replan saved setups with the current reference images and prompt rules.
             setPlanCosts(restored.planCosts);
-            setPromptModel(refineFrom.promptModel ?? null);
           } else {
             dismissedAutoNames.current.pois.clear();
             dismissedAutoNames.current.trails.clear();
@@ -1059,7 +1037,6 @@ export function PosterPanel({
             setCustomPois([]);
             setCustomWays([]);
             setTrailAliases({});
-            setPromptModel(null);
           }
         } else {
           const last = Math.max(1, next.latlng.length - 1);
@@ -1772,18 +1749,14 @@ export function PosterPanel({
   ]);
 
   useEffect(() => {
-    setModelRuns([]);
-  }, [activityId]);
-
-  useEffect(() => {
-    if (!generating && !planning) {
+    if (!generating) {
       setElapsed(0);
       return;
     }
     const started = Date.now();
     const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 250);
     return () => window.clearInterval(timer);
-  }, [generating, planning]);
+  }, [generating]);
 
   async function ensureSatellite(): Promise<string | null> {
     if (maxRefs < 3 || croppedLatLng.length < 2 || !satelliteBbox) return null;
@@ -1826,359 +1799,147 @@ export function PosterPanel({
     );
   }
 
-  async function handlePlan(
-    slots = stylePlanSlots(styleIds, paletteIdsByStyle),
-    background = false,
-    prepareGrounding = buildGrounding,
-    onPlanStarted?: () => void,
-  ): Promise<
-    { key: string; styleId: string; paletteId: string; spec: PosterSpec; cost: number | null }[] | null
-  > {
-    if (!context || !geographyScene) return null;
-    if (!slots.length) return null;
-    setPlanning(true);
-    setError(null);
-    setPlanProgress({ done: 0, total: slots.length });
-    try {
-      const layers = await prepareGrounding();
-      const packed = await renderContactSheets(layers, maxRefs, aspectRatio);
-      const uploaded = await referenceUpload.current(packed.map(sheet => sheet.dataUrl));
-      const base = {
-        referenceBatchId: uploaded.referenceBatchId,
-        activity: {
-          name: context.activity.name,
-          sportType: context.activity.sportType,
-          isLoop: isClosedLoop(croppedLatLng, croppedRouteBreaks),
-        },
-        routeMarkers: {
-          enabled: showRouteMarkers,
-          mode: isClosedLoop(croppedLatLng, croppedRouteBreaks) ? "loop" as const : "start-finish" as const,
-          startName: startPlace.trim() || undefined,
-          finishName: (samePlace ? startPlace : finishPlace).trim() || undefined,
-        },
-        title,
-        subtitle,
-        stats: posterStats,
-        people: peopleNames,
-        aspectRatio,
-        geography: catalog
-          .filter(
-            (item) =>
-              (item.group === "geography" || item.id === "cemeteries") && resolvedFeatureIds.includes(item.id),
-          )
-          .map((item) => ({ id: item.id, label: item.label })),
-        pois: posterPois,
-        namedWays: posterWays,
-        namedAreas: posterAreas,
-        routeOnly,
-        grounding: packed.map((sheet, index) => ({
-          index: index + 1,
-          role: sheet.role,
-          legend: sheet.legend,
-        })),
-      };
-      const settled = await Promise.all(
-        slots.map(async (slot) => {
-          const style = styleById(slot.styleId);
-          try {
-            onPlanStarted?.();
-            const planned = await planPoster({
-              ...base,
-              style: styleForPlan(style, slot.paletteId),
-              customStylePrompt: style.id === "custom" ? stylePrompt : undefined,
-              vibes: vibes.trim() || undefined,
-              previousSpec:
-                specForSlot(specs, slot.styleId, slot.paletteId) ??
-                (refineFrom && refineFrom.styleId === slot.styleId ? refineFrom.spec : undefined),
-            });
-            return { ...slot, spec: planned.spec, cost: planned.cost, model: planned.model };
-          } catch (err) {
-            return {
-              ...slot,
-              error: err instanceof Error ? err.message : "Planner failed",
-              cost: null,
-              model: null as string | null,
-            };
-          } finally {
-            setPlanProgress((current) => ({ ...current, done: current.done + 1 }));
-          }
-        }),
-      );
-      const planned = settled.flatMap((item) =>
-        "spec" in item && item.spec
-          ? [
-              {
-                key: item.key,
-                styleId: item.styleId,
-                paletteId: item.paletteId,
-                spec: item.spec,
-                cost: item.cost,
-                model: item.model,
-              },
-            ]
-          : [],
-      );
-      const failures = settled.flatMap((item) =>
-        "error" in item && item.error ? [`${planSlotLabel(item.styleId, item.paletteId)}: ${item.error}`] : [],
-      );
-      if (!planned.length) throw new Error(failures.join(" · ") || "Planner failed");
-      setSpecs((current) => {
-        const next = { ...current };
-        for (const item of planned) next[item.key] = item.spec;
-        return next;
-      });
-      setPlanCosts((current) => {
-        const next = { ...current };
-        for (const item of planned) next[item.key] = item.cost ?? null;
-        return next;
-      });
-      const plannedModel = planned.find((item) => item.model)?.model ?? null;
-      if (plannedModel) setPromptModel(plannedModel);
-      if (!planned.some((item) => item.key === activePlanKey)) {
-        setActivePlanKey(planned[0].key);
-        setActiveStyleId(planned[0].styleId);
-      }
-      if (failures.length) {
-        setError(`${failures.length} theme${failures.length === 1 ? "" : "s"} failed to plan. ${failures.join(" · ")}`);
-      }
-      return planned;
-    } catch (err) {
-      if (background) throw err;
-      setError(err instanceof Error ? err.message : "Planner failed");
-      return null;
-    } finally {
-      setPlanning(false);
-    }
+  function plannerRequest(packed: Awaited<ReturnType<typeof renderContactSheets>>, referenceBatchId: string, slot: { styleId: string; paletteId: string }) {
+    const style = styleById(slot.styleId);
+    const base = {
+      referenceBatchId,
+      activity: {
+        name: context!.activity.name,
+        sportType: context!.activity.sportType,
+        isLoop: isClosedLoop(croppedLatLng, croppedRouteBreaks),
+      },
+      routeMarkers: {
+        enabled: showRouteMarkers,
+        mode: isClosedLoop(croppedLatLng, croppedRouteBreaks) ? "loop" as const : "start-finish" as const,
+        startName: startPlace.trim() || undefined,
+        finishName: (samePlace ? startPlace : finishPlace).trim() || undefined,
+      },
+      title,
+      subtitle,
+      stats: posterStats,
+      people: peopleNames,
+      aspectRatio,
+      geography: catalog
+        .filter(
+          (item) =>
+            (item.group === "geography" || item.id === "cemeteries") && resolvedFeatureIds.includes(item.id),
+        )
+        .map((item) => ({ id: item.id, label: item.label })),
+      pois: posterPois,
+      namedWays: posterWays,
+      namedAreas: posterAreas,
+      routeOnly,
+      grounding: packed.map((sheet, index) => ({
+        index: index + 1,
+        role: sheet.role,
+        legend: sheet.legend,
+      })),
+    };
+    return {
+      ...base,
+      style: styleForPlan(style, slot.paletteId),
+      customStylePrompt: style.id === "custom" ? stylePrompt : undefined,
+      vibes: vibes.trim() || undefined,
+      previousSpec:
+        specForSlot(specs, slot.styleId, slot.paletteId) ??
+        (refineFrom && refineFrom.styleId === slot.styleId ? refineFrom.spec : undefined),
+    };
   }
 
-  async function handleGenerate(
-    plannedSlots?: {
-      key: string;
-      styleId: string;
-      paletteId: string;
-      spec: PosterSpec;
-      cost: number | null;
-      model?: string | null;
-    }[],
-    tasks?: Map<string, GenerationTask>,
-    prepareGrounding = buildGrounding,
-  ) {
-    if (!context || !geographyScene) return;
-    if (!activeImageModelIds.length) {
-      setError("Image model capabilities are unavailable. Check the API configuration and try again.");
-      return;
-    }
-    const jobs = (plannedSlots?.length
-      ? plannedSlots
-      : stylePlanSlots(styleIds, paletteIdsByStyle).flatMap((slot) => {
-          const planned = specForSlot(specs, slot.styleId, slot.paletteId);
-          if (!planned) return [];
-          return [{ ...slot, spec: planned, cost: planCosts[slot.key] ?? null, model: promptModel }];
-        })
-    ).flatMap((slot) => {
-      const style = styleById(slot.styleId);
-      return activeImageModelIds.filter((model) => !tasks || tasks.has(model)).map((model) => ({
-        key: `${slot.key}\0${model}`,
-        styleId: slot.styleId,
-        paletteId: slot.paletteId,
-        style,
-        spec: slot.spec,
-        model,
-        slotKey: slot.key,
-        promptCost: slot.cost ?? planCosts[slot.key] ?? null,
-        promptModel: slot.model || promptModel,
-      }));
-    });
-    if (!jobs.length) return;
-    setGenerating(true);
-    setError(null);
-    try {
-      let packedReferences: Promise<string[]> | undefined;
-      const prepareReferences = () => {
-        packedReferences ??= prepareGrounding()
-          .then((layers) => renderContactSheets(layers, maxRefs, aspectRatio))
-          .then((packed) => packed.map((item) => item.dataUrl))
-          .catch(error => { packedReferences = undefined; throw error; });
-        return packedReferences.then(images => referenceUpload.current(images));
-      };
-      // Edit-setup regenerations share the source batch so they stay in the same gallery
-      // row, but omit previousPosterId so they do not stack like image refinements.
-      const batchId = refineFrom
-        ? refineFrom.batchId || refineFrom.posterId
-        : crypto.randomUUID();
-      setGenerateProgress({ done: 0, total: jobs.length });
-      const startedAt = Date.now();
-      setModelRuns(
-        jobs.map((job) => ({
-          key: job.key,
-          styleId: job.slotKey,
-          paletteId: job.paletteId,
-          styleLabel: planSlotLabel(job.styleId, job.paletteId),
-          model: job.model,
-          label: shortModelLabel(job.model, imageModelFor(job.model)?.name),
-          startedAt,
-          promptCost: job.promptCost,
-        })),
-      );
-      const requests = jobs.map(async (job) => {
-        try {
-          const records = await generatePoster({
-            activityId,
-            spec: { ...job.spec, text: { ...job.spec.text, title, subtitle, stats: posterStats } },
-            featureIds,
-            labels: posterPois.map((poi) => poi.name),
-            stats: posterStats,
-            styleId: job.styleId,
-            paletteId: job.paletteId,
-            stylePrompt:
-              job.style.id === "custom"
-                ? stylePrompt
-                : resolveStyleColor(job.style, job.paletteId).prompt,
-            aspectRatio,
-            batchId,
-            model: job.model,
-            variants,
-            promptCost: job.promptCost,
-            promptModel: job.promptModel || undefined,
-            editor: captureEditorSnapshot({
-              geographyMode,
-              routeDetail: false,
-              detailScope: "none",
-              geographyPolicyVersion: geographyScene?.policyVersion,
-              geographySceneId: geographyScene?.sceneId,
-              geographyFrameKey,
-              featureIds,
-              landmarkNearM,
-              labels,
-              trailNames,
-              trailAliases,
-              areaNames,
-              customPois,
-              customWays,
-              cropStart,
-              cropEnd,
-              showRouteMarkers,
-              routeOnly,
-              title,
-              location: locationOverride,
-              startPlace,
-              finishPlace,
-              placesEdited,
-              statIds,
-              statUnits,
-              people,
-              aspectRatio,
-              styleIds,
-              stylePrompt,
-              vibes,
-              paletteIdsByStyle,
-              imageModelIds: activeImageModelIds,
-              variants,
-              specs: plannedSlots?.length
-                ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.spec]))
-                : specs,
-              planCosts: plannedSlots?.length
-                ? Object.fromEntries(plannedSlots.map((item) => [item.key, item.cost]))
-                : planCosts,
-            }),
-          }, variantCount(variants, imageModelFor(job.model)?.maxImages), prepareReferences, tasks?.get(job.model));
-          setModelRuns((current) =>
-            current.map((run) =>
-              run.key === job.key
-                ? { ...run, finishedAt: Date.now(), imageCost: sumCosts(records.map((item) => item.cost)) }
-                : run,
-            ),
-          );
-          return {
-            key: job.key,
-            styleId: job.styleId,
-            paletteId: job.paletteId,
-            model: job.model,
-            records,
-          };
-        } catch (err) {
-          tasks?.get(job.model)?.finish(err);
-          const error = err instanceof Error ? err.message : "Image generation failed";
-          setModelRuns((current) =>
-            current.map((run) =>
-              run.key === job.key ? { ...run, finishedAt: Date.now(), error } : run,
-            ),
-          );
-          return {
-            key: job.key,
-            styleId: job.styleId,
-            paletteId: job.paletteId,
-            model: job.model,
-            error,
-          };
-        } finally {
-          setGenerateProgress((current) => ({ ...current, done: current.done + 1 }));
-        }
-      });
-      if (!tasks) onGenerationStarted?.();
-      const settled = await Promise.all(requests);
-      const records = settled.flatMap((item) => item.records ?? []);
-      const failures = settled.flatMap((item) => {
-        if (!item.error) return [];
-        const theme = planSlotLabel(item.styleId, item.paletteId ?? AUTO_PALETTE_ID);
-        const model = shortModelLabel(item.model);
-        return [
-          `${stylePlanSlots(styleIds, paletteIdsByStyle).length > 1 ? `${theme} · ` : ""}${model}: ${item.error}`,
-        ];
-      });
-      if (!records.length) throw new Error(failures.join(" · ") || "Image generation failed");
-      setActiveStyleId(records[0].styleId || activeStyleId);
-      if (failures.length) {
-        setError(`${failures.length} image${failures.length === 1 ? "" : "s"} failed. ${failures.join(" · ")}`);
-      }
-    } catch (err) {
-      if (tasks) throw err;
-      setError(err instanceof Error ? err.message : "Image generation failed");
-    } finally {
-      setGenerating(false);
-    }
+  function generationRequest(slot: { key: string; styleId: string; paletteId: string }, model: string, batchId: string) {
+    const job = { ...slot, model, style: styleById(slot.styleId) };
+    return {
+      activityId,
+      featureIds,
+      labels: posterPois.map((poi) => poi.name),
+      stats: posterStats,
+      styleId: job.styleId,
+      paletteId: job.paletteId,
+      stylePrompt:
+        job.style.id === "custom"
+          ? stylePrompt
+          : resolveStyleColor(job.style, job.paletteId).prompt,
+      aspectRatio,
+      batchId,
+      model: job.model,
+      variants,
+      editor: captureEditorSnapshot({
+        geographyMode,
+        routeDetail: false,
+        detailScope: "none",
+        geographyPolicyVersion: geographyScene?.policyVersion,
+        geographySceneId: geographyScene?.sceneId,
+        geographyFrameKey,
+        featureIds,
+        landmarkNearM,
+        labels,
+        trailNames,
+        trailAliases,
+        areaNames,
+        customPois,
+        customWays,
+        cropStart,
+        cropEnd,
+        showRouteMarkers,
+        routeOnly,
+        title,
+        location: locationOverride,
+        startPlace,
+        finishPlace,
+        placesEdited,
+        statIds,
+        statUnits,
+        people,
+        aspectRatio,
+        styleIds,
+        stylePrompt,
+        vibes,
+        paletteIdsByStyle,
+        imageModelIds: activeImageModelIds,
+        variants,
+        specs,
+        planCosts,
+      }),
+    };
   }
 
   async function handlePlanAndGenerate() {
-    if (!geographyScene) return;
-    if (!context || !activeImageModelIds.length) return;
+    if (!geographyScene || !context || !activeImageModelIds.length) return;
     const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
     if (!slots.length) return;
-    // Freeze one set of references for the whole batch, including its retries.
-    let grounding: Promise<GroundingLayer[]> | undefined;
-    const prepareGrounding = () => grounding ??= buildGrounding().catch(error => {
-      grounding = undefined;
-      throw error;
-    });
-    // Reserve every output before yielding; the editor can now be reset safely.
-    const submissions = slots.map((slot) => ({
-      slot,
-      tasks: new Map(activeImageModelIds.map((model) => [model, beginGeneration({
-        title: title.trim() || "New image",
-        styleId: slot.styleId,
-        paletteId: slot.paletteId,
-        model,
-        variants: variantCount(variants, imageModelFor(model)?.maxImages),
-      })])),
-    }));
-    submissions.forEach(({ slot, tasks }) => {
-      tasks.forEach((task, model) => task.setRetry(async () => {
-        const planned = await handlePlan([slot], true, prepareGrounding, () => task.setPhase("planning"));
-        if (!planned?.length) throw new Error("Image generation failed");
-        await handleGenerate(planned, new Map([[model, task]]), prepareGrounding);
-      }));
-    });
-    onGenerationStarted?.();
-    await Promise.all(submissions.map(async ({ slot, tasks }) => {
-      try {
-        const planned = await handlePlan([slot], true, prepareGrounding, () => tasks.forEach(task => task.setPhase("planning")));
-        if (!planned?.length) throw new Error("Image generation failed");
-        await handleGenerate(planned, tasks, prepareGrounding);
-        tasks.forEach((task) => task.finish());
-      } catch (error) {
-        tasks.forEach((task) => task.finish(error));
-      }
-    }));
+    const tasks = slots.flatMap(slot => activeImageModelIds.map(model => beginGeneration({
+      title: title.trim() || "New image", styleId: slot.styleId, paletteId: slot.paletteId,
+      model, variants: variantCount(variants, imageModelFor(model)?.maxImages),
+    })));
+    const submissionId = crypto.randomUUID();
+    const batchId = refineFrom ? refineFrom.batchId || refineFrom.posterId : submissionId;
+    // The upload is the only preparation that needs an open browser. The backend owns all provider work.
+    let payload: Promise<Parameters<typeof submitPosterBatch>[0]> | undefined;
+    const submit = async () => {
+      payload ??= (async () => {
+        const packed = await renderContactSheets(await buildGrounding(), maxRefs, aspectRatio);
+        const uploaded = await referenceUpload.current(packed.map(sheet => sheet.dataUrl));
+        return { submissionId, jobs: slots.flatMap(slot => activeImageModelIds.map(model => {
+          const plan = plannerRequest(packed, uploaded.referenceBatchId, slot);
+          const generate = generationRequest(slot, model, batchId);
+          return { plan, generate: { ...generate, referenceBatchId: uploaded.referenceBatchId } };
+        })) };
+      })().catch(error => { payload = undefined; throw error; });
+      await submitPosterBatch(await payload);
+    };
+    let retrying: Promise<void> | undefined;
+    tasks.forEach(task => task.setRetry(() => retrying ??= submit()
+      .then(() => { tasks.forEach(task => task.dismiss()); })
+      .finally(() => { retrying = undefined; })));
+    setGenerating(true);
+    try {
+      await submit();
+      tasks.forEach(task => task.finish());
+      onGenerationStarted?.();
+    } catch (error) {
+      tasks.forEach(task => task.finish(error));
+      setError(error instanceof Error ? error.message : "Batch submission failed");
+    } finally { setGenerating(false); }
   }
 
   function openCustomize() {
@@ -2427,11 +2188,9 @@ export function PosterPanel({
   const featuresRefreshing = (loading || geographyPending) && showEditor;
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
   const croppedKm = trackDistanceM(croppedLatLng, croppedRouteBreaks);
-  const busy = planning || generating;
-  const planDisabledHint = geographyError ? "Map detail could not load. Open Geography to retry." : !geographyScene ? "Preparing map detail…" : planning
-    ? null
-    : generating
-      ? "Wait until generation finishes."
+  const busy = generating;
+  const planDisabledHint = geographyError ? "Map detail could not load. Open Geography to retry." : !geographyScene ? "Preparing map detail…" : generating
+      ? "Uploading references and submitting the batch…"
       : !styleIds.length && !title.trim()
         ? "Select a theme and add a title in Stats before generating."
         : !styleIds.length
@@ -2499,10 +2258,8 @@ export function PosterPanel({
     loading && !showEditor
       ? "Loading activity…"
       : generating
-        ? `Generating… ${elapsed}s`
-        : planning
-          ? `Planning… ${elapsed}s`
-          : launchMode
+        ? `Submitting… ${elapsed}s`
+        : launchMode
             ? `${launchThemeLabel} · full track`
             : showEditor
                 ? `${formatKm(croppedKm)}${!routeOnly && labelCount ? ` · ${labelCount} label${labelCount === 1 ? "" : "s"}` : ""}`
@@ -2714,10 +2471,8 @@ export function PosterPanel({
               disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
               onClick={() => void handlePlanAndGenerate()}
             >
-              {planning
-                ? `Planning… ${elapsed}s`
-                : generating
-                  ? `Generating… ${elapsed}s`
+              {generating
+                  ? `Submitting… ${elapsed}s`
                   : "Create image"}
             </button>
             <button
@@ -3485,13 +3240,7 @@ export function PosterPanel({
                   disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
                   onClick={() => void handlePlanAndGenerate()}
                 >
-                  {planning
-                    ? `Planning… ${elapsed}s`
-                    : generating
-                      ? generateProgress.total > 1
-                        ? `Generating ${generateProgress.done}/${generateProgress.total}… ${elapsed}s`
-                        : `Generating… ${elapsed}s`
-                      : "Generate image"}
+                  {generating ? `Submitting… ${elapsed}s` : "Generate image"}
                 </button>
                 {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
               </div>
@@ -3544,17 +3293,9 @@ export function PosterPanel({
                   disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
                   onClick={() => void handlePlanAndGenerate()}
                 >
-                  {planning
-                    ? planProgress.total > 1
-                      ? `Planning ${planProgress.done}/${planProgress.total}… ${elapsed}s`
-                      : `Planning… ${elapsed}s`
-                    : generating
-                      ? generateProgress.total > 1
-                        ? `Generating ${generateProgress.done}/${generateProgress.total}… ${elapsed}s`
-                        : generateCount > 1
-                          ? `Generating ${generateCount} variants… ${elapsed}s`
-                          : `Generating… ${elapsed}s`
-                      : generateCount > 1
+                  {generating
+                    ? `Submitting… ${elapsed}s`
+                    : generateCount > 1
                         ? planSlots.length > 1
                           ? `Generate ${planSlots.length} images (${generateCount} variants)`
                           : `Generate ${generateCount} variants`
@@ -3562,31 +3303,7 @@ export function PosterPanel({
                 </button>
                 {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
               </div>
-              {modelRuns.length > 0 && (
-                <ul className="model-times">
-                  {modelRuns.map((run) => {
-                    const ms = (run.finishedAt ?? Date.now()) - run.startedAt;
-                    const time = formatDurationMs(ms);
-                    const status = run.error ? "failed" : run.finishedAt ? "done" : "running";
-                    const showStyle = planSlots.length > 1;
-                    const showModel = activeImageModelIds.length > 1 || !showStyle;
-                    return (
-                      <li key={run.key} className={`model-time ${status}`}>
-                        <span>
-                          {[showStyle ? run.styleLabel : null, showModel ? run.label : null]
-                            .filter(Boolean)
-                            .join(" · ") || "Generating"}
-                        </span>
-                        <span>
-                          {time}
-                          {run.finishedAt ? "" : "…"}
-                          {run.error ? " · failed" : ""}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+
             </PosterSection>
           )}
         </fieldset>

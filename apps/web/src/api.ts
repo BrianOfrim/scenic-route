@@ -1,6 +1,6 @@
 import type { GeographyScene } from "../../api/src/osm/geographyPolicy";
 import { noteArrivedPosters } from "./gallery/arrivedPosters";
-import { trackGeneration, type GenerationTask } from "./gallery/generationState";
+import { trackGeneration, setServerGenerationJobs, mergeServerGenerationJobs, type ServerGenerationJob, type GenerationTask } from "./gallery/generationState";
 import type { FeatureCollection, LineString } from "geojson";
 import { coalesceRequests, shareRecentRequests } from "./inFlight";
 
@@ -638,4 +638,32 @@ export function formatDate(iso: string) {
     month: "short",
     day: "numeric",
   });
+}
+
+
+async function dismissPosterJob(id: string) {
+  await readJson(await apiFetch(`/api/poster/jobs/${encodeURIComponent(id)}`, { method: "DELETE" }));
+}
+async function retryPosterJob(id: string) {
+  const { jobs } = await readJson<{ jobs: ServerGenerationJob[] }>(await apiFetch(`/api/poster/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" }));
+  mergeServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
+}
+export async function submitPosterBatch(body: { submissionId: string; jobs: { plan: unknown; generate: unknown }[] }) {
+  const { jobs } = await readJson<{ jobs: ServerGenerationJob[] }>(await apiFetch("/api/poster/jobs", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  }));
+  mergeServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
+}
+export function pollPosterJobs(onError: (error: unknown) => void) {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const poll = async () => {
+    try {
+      const { jobs } = await readJson<{ jobs: ServerGenerationJob[] }>(await apiFetch("/api/poster/jobs"));
+      if (!stopped) setServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
+    } catch (error) { if (!stopped) onError(error); }
+    finally { if (!stopped) timer = setTimeout(poll, 3000); }
+  };
+  void poll();
+  return () => { stopped = true; clearTimeout(timer); };
 }

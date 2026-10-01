@@ -1,3 +1,4 @@
+import { pollPosterJobs } from "../api";
 import { forgetArrivedPoster, getArrivedEpoch, getArrivedPosters, useArrivedEpoch } from "./arrivedPosters";
 import { clearFailedImage, generationPhaseLabels, useGenerationState } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -231,6 +232,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const isMobile = useMediaQuery(MOBILE_QUERY);
   const generation = useGenerationState();
   const arrivedEpoch = useArrivedEpoch();
+  useEffect(() => pollPosterJobs(error => console.warn("Could not refresh generation jobs", error)), []);
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const postersRef = useRef(posters);

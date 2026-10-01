@@ -162,3 +162,38 @@ test("clearing failed images preserves other failures and pending work without r
   assert.equal(getGenerationState(), cleared, "repeated clearing is harmless");
   pending.finish();
 });
+
+test("server jobs restore stages and failed retries after reload and refresh completion", async () => {
+  const { setServerGenerationJobs } = await import("./generationState");
+  const jobs = ["queued","planning","ready","generating","failed"].map((state,index) => ({
+    id: `durable-${index}`, state, title: "Persisted", model: "model", variants: 2, error: state === "failed" ? "Check before retry" : null,
+  })) as import("./generationState").ServerGenerationJob[];
+  let retried = "";
+  const retry = async (id: string) => { retried = id; };
+  const dismiss = async () => {};
+  setServerGenerationJobs(jobs,retry,dismiss);
+  assert.deepEqual(getGenerationState().pending.map(image => image.phase),["queued","queued","planning","planning","queued","queued","generating","generating"]);
+  const failed = getGenerationState().failed.filter(image => image.id.startsWith("server:"));
+  assert.equal(failed.length,2);
+  assert.equal(failed[0].error,"Check before retry");
+  await failed[0].retry();
+  assert.equal(retried,"durable-4");
+  const snapshot = getGenerationState();
+  setServerGenerationJobs(jobs,retry,dismiss);
+  assert.equal(getGenerationState(),snapshot,"unchanged polling does not reload the gallery");
+  setServerGenerationJobs([],retry,dismiss);
+  assert.equal(getGenerationState().pending.length,0);
+  assert.equal(getGenerationState().failed.filter(image => image.id.startsWith("server:")).length,0);
+  assert.ok(getGenerationState().revision>snapshot.revision);
+});
+
+test("resubmitting a batch dismisses every local failed placeholder", async () => {
+  for (const image of getGenerationState().failed) clearFailedImage(image.id);
+  const tasks = [beginGeneration({ title: "Batch A" }),beginGeneration({ title: "Batch B" })];
+  tasks.forEach(task => task.setRetry(async () => { tasks.forEach(task => task.dismiss()); }));
+  tasks.forEach(task => task.finish(new Error("Submission connection lost")));
+  await getGenerationState().failed.find(image => image.title === "Batch A")!.retry();
+  assert.equal(getGenerationState().failed.length,0);
+  assert.equal(getGenerationState().pending.length,0);
+  assert.equal(getGenerationState().error,null);
+});
