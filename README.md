@@ -10,7 +10,7 @@ Production: [https://scenic-route.ca](https://scenic-route.ca)
 
 1. Sign in with an emailed magic link.
 2. Import one or more tracks, then select an activity. The map can show streets, satellite, or the schematic.
-3. **Create image** uses the defaults: the full track, annotations off, every geography layer on, the Swiss theme, one variant, and a 4:5 frame. On a phone this is the launch sheet; **Customize** opens the rest of the editor. On a wider screen the composer is the full editor, and the button reads **Generate image**.
+3. **Create image** uses the defaults: the full track, annotations off, every geography layer on, the Minimal theme, one variant, and a 4:5 frame. On a phone this is the launch sheet; **Customize** opens the rest of the editor. On a wider screen the composer is the full editor, and the button reads **Generate image**.
 4. While an image is generating it appears in **Gallery** as a pending card. Open a finished image to download it, share it, favourite it, read its details, **Refine image** with a follow-up prompt, or **Edit setup** and generate again from the same crop, geography, and theme.
 
 ## Customize
@@ -21,7 +21,7 @@ These controls stay off the default path. **Edit setup** restores them from the 
 - **Geography** draws OpenStreetMap context: major roads, residential streets, paths and trails, railways, lakes, rivers, forest, parks, farmland, wetlands, grassland, beaches, coastline, rock, cliffs, and glaciers. Visibility is local; changing a checkbox does not refetch the map. The extent can be the whole map box, a corridor along the route, a tighter band with wider ends, whole areas the route touches, a rotated box, a convex hull, the inside of a loop, or a rectangle or polygon drawn on the map.
 - **Annotations** are temporarily paused. New setups use a single red GPS track without landmark discs, coloured trail stretches or lettered regions. Existing gallery images and their saved annotation data remain available.
 - **Stats** default to title, date, distance, and moving time. Sport, elapsed time, elevation gain, and average speed can be added when the activity has them. An optional people list prints the names of who did the activity in the title block.
-- **Themes** are Middle-earth, Vintage topo, Swiss, Blueprint, WPA park, Watercolour journal, Art deco, 16-bit RPG, Risograph, Linen postcard, Art nouveau, Bauhaus, Modernist, and Minimalist. Several themes offer palettes, including Auto. The desktop composer can plan more than one theme at once; the phone editor keeps a single theme.
+- **Themes** are Middle-earth, Vintage topo, Minimal, Blueprint, WPA park, Watercolour journal, Art deco, 16-bit RPG, Risograph, Linen postcard, Art nouveau, Bauhaus, and Modernist. Several themes offer palettes, including Auto. The desktop composer can plan more than one theme at once; the phone editor keeps a single theme.
 
 Named trails come from named OpenStreetMap paths and trail-route relations, or from stretches named in the editor. A Strava account export supplies activity names and stats, not trail geometry.
 
