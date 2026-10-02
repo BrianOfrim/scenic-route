@@ -37,24 +37,6 @@ export type PosterStyle = {
 
 export const POSTER_STYLES: PosterStyle[] = [
   {
-    id: "middle-earth",
-    label: "Middle-earth",
-    prompt:
-      "Hand-inked map on aged parchment in the style of a Tolkien journey map. Tree-cluster forests, calligraphic labels, an ornate compass rose, and a decorative cartouche for the title. The route is an unbroken oxblood ink line preserving all supplied segment breaks. Warm tea-stain paper, sepia ink, no modern cartography.",
-    palette: ["tea-stain", "sepia", "oxblood"],
-    typography: titleFace("calligraphic uncials"),
-    colorMode: "identity",
-  },
-  {
-    id: "vintage-topo",
-    label: "Vintage topo",
-    prompt:
-      "Vintage USGS topographic map: dense brown contour lines, tan and sage hypsometric tints, serif labels, neatline and grid ticks, a bold red route overprinted on the sheet. Slightly yellowed paper, lithographic print texture.",
-    palette: ["tan", "sage", "sienna", "red"],
-    typography: titleFace("engraved serif"),
-    colorMode: "identity",
-  },
-  {
     id: "swiss",
     label: "Minimal",
     prompt:
@@ -70,12 +52,44 @@ export const POSTER_STYLES: PosterStyle[] = [
     ],
   },
   {
-    id: "blueprint",
-    label: "Blueprint",
+    id: "modernist",
+    label: "Modernist",
     prompt:
-      "Cyanotype architectural blueprint: deep cyan paper, white technical linework, dimension ticks and a stamped title block. The route is a heavier white line. Drafting-room precision, no color besides cyan and white.",
-    palette: ["cyan", "white"],
-    typography: titleFace("stamped technical sans"),
+      `Mid-century modern graphic poster, 1950s–60s, in the manner of Paul Rand and Saul Bass: surrounding land and water as flat silhouettes preserving their supplied outlines and positions on an open paper ground. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a bold geometric sans at display size, mixed case, with open tracking. ${suppliedStats("in the same face at a smaller weight with middle-dot separators")} Flat ink only; no serifs, outlines, shadows, or hand lettering.`,
+    palette: ["mustard", "charcoal", "cream", "terracotta"],
+    typography: titleFace("bold mixed-case geometric sans display title with smaller same-face supplied stats"),
+    colorMode: "canonical",
+    palettes: [
+      { id: "studio", label: "Studio", colors: ["mustard", "charcoal", "cream", "terracotta"] },
+      { id: "pool", label: "Pool", colors: ["turquoise", "sand", "charcoal"] },
+      { id: "gallery", label: "Gallery", colors: ["black", "off-white", "orange"] },
+      { id: "olive", label: "Olive", colors: ["olive", "cream", "rust"] },
+    ],
+  },
+  {
+    id: "risograph",
+    label: "Risograph",
+    prompt:
+      "Two-ink risograph print: slight misregistration in background texture only, coarse halftone dots, cheap paper grain. Keep the route geometry and edges exact. The route is the louder ink. Handmade zine energy.",
+    palette: [],
+    typography: titleFace("zine sans"),
+    colorMode: "open",
+    openHint: "Pick any two Riso inks.",
+    palettes: [
+      { id: "pink-teal", label: "Fluorescent pink + teal", colors: ["fluorescent-pink", "teal"] },
+      { id: "blue-sunflower", label: "Federal blue + sunflower", colors: ["federal-blue", "sunflower"] },
+      { id: "black-red", label: "Black + bright red", colors: ["black", "bright-red"] },
+      { id: "orange-teal", label: "Fluorescent orange + teal", colors: ["fluorescent-orange", "teal"] },
+      { id: "kelly-cornflower", label: "Kelly + cornflower", colors: ["kelly", "cornflower"] },
+    ],
+  },
+  {
+    id: "vintage-topo",
+    label: "Vintage topo",
+    prompt:
+      "Vintage USGS topographic map: dense brown contour lines, tan and sage hypsometric tints, serif labels, neatline and grid ticks, a bold red route overprinted on the sheet. Slightly yellowed paper, lithographic print texture.",
+    palette: ["tan", "sage", "sienna", "red"],
+    typography: titleFace("engraved serif"),
     colorMode: "identity",
   },
   {
@@ -95,7 +109,7 @@ export const POSTER_STYLES: PosterStyle[] = [
   },
   {
     id: "watercolour",
-    label: "Watercolour journal",
+    label: "Watercolor",
     prompt:
       "Travel journal watercolour: loose wet-on-wet washes, fine ink outlines, handwritten labels, visible paper texture and paint blooms. Soft, personal, not a printed atlas.",
     palette: [],
@@ -116,38 +130,6 @@ export const POSTER_STYLES: PosterStyle[] = [
       { id: "black-gold", label: "Black and gold", colors: ["black", "gold", "ivory"] },
       { id: "ocean-liner", label: "Ocean liner", colors: ["silver", "navy", "cream"] },
       { id: "jazz-club", label: "Jazz club", colors: ["coral", "black", "cream"] },
-    ],
-  },
-  {
-    id: "rpg",
-    label: "16-bit RPG",
-    prompt:
-      "16-bit RPG overworld map: chunky pixel tiles, sprite-like landmarks, solid path for the route preserving all supplied segment breaks, limited NES-era palette, no anti-aliasing. Looks like a pause-screen map from a 1990s SNES game.",
-    palette: ["nes-green", "nes-blue", "nes-tan"],
-    typography: titleFace("pixel caps"),
-    colorMode: "canonical",
-    palettes: [
-      { id: "overworld", label: "Overworld", colors: ["nes-green", "nes-blue", "nes-tan"] },
-      { id: "dungeon", label: "Dungeon", colors: ["slate", "purple", "gold"] },
-      { id: "winter", label: "Winter", colors: ["ice", "grey", "navy"] },
-      { id: "desert", label: "Desert", colors: ["tan", "orange", "brown"] },
-    ],
-  },
-  {
-    id: "risograph",
-    label: "Risograph",
-    prompt:
-      "Two-ink risograph print: slight misregistration in background texture only, coarse halftone dots, cheap paper grain. Keep the route geometry and edges exact. The route is the louder ink. Handmade zine energy.",
-    palette: [],
-    typography: titleFace("zine sans"),
-    colorMode: "open",
-    openHint: "Pick any two Riso inks.",
-    palettes: [
-      { id: "pink-teal", label: "Fluorescent pink + teal", colors: ["fluorescent-pink", "teal"] },
-      { id: "blue-sunflower", label: "Federal blue + sunflower", colors: ["federal-blue", "sunflower"] },
-      { id: "black-red", label: "Black + bright red", colors: ["black", "bright-red"] },
-      { id: "orange-teal", label: "Fluorescent orange + teal", colors: ["fluorescent-orange", "teal"] },
-      { id: "kelly-cornflower", label: "Kelly + cornflower", colors: ["kelly", "cornflower"] },
     ],
   },
   {
@@ -196,18 +178,36 @@ export const POSTER_STYLES: PosterStyle[] = [
     ],
   },
   {
-    id: "modernist",
-    label: "Modernist",
+    id: "middle-earth",
+    label: "Middle-earth",
     prompt:
-      `Mid-century modern graphic poster, 1950s–60s, in the manner of Paul Rand and Saul Bass: surrounding land and water as flat silhouettes preserving their supplied outlines and positions on an open paper ground. The route is one even graphic stroke of uniform weight tracing the given path. No shading, gradients, texture, ornament, or pictorial landscape. Set the title in a bold geometric sans at display size, mixed case, with open tracking. ${suppliedStats("in the same face at a smaller weight with middle-dot separators")} Flat ink only; no serifs, outlines, shadows, or hand lettering.`,
-    palette: ["mustard", "charcoal", "cream", "terracotta"],
-    typography: titleFace("bold mixed-case geometric sans display title with smaller same-face supplied stats"),
+      "Hand-inked map on aged parchment in the style of a Tolkien journey map. Tree-cluster forests, calligraphic labels, an ornate compass rose, and a decorative cartouche for the title. The route is an unbroken oxblood ink line preserving all supplied segment breaks. Warm tea-stain paper, sepia ink, no modern cartography.",
+    palette: ["tea-stain", "sepia", "oxblood"],
+    typography: titleFace("calligraphic uncials"),
+    colorMode: "identity",
+  },
+  {
+    id: "blueprint",
+    label: "Blueprint",
+    prompt:
+      "Cyanotype architectural blueprint: deep cyan paper, white technical linework, dimension ticks and a stamped title block. The route is a heavier white line. Drafting-room precision, no color besides cyan and white.",
+    palette: ["cyan", "white"],
+    typography: titleFace("stamped technical sans"),
+    colorMode: "identity",
+  },
+  {
+    id: "rpg",
+    label: "16-bit RPG",
+    prompt:
+      "16-bit RPG overworld map: chunky pixel tiles, sprite-like landmarks, solid path for the route preserving all supplied segment breaks, limited NES-era palette, no anti-aliasing. Looks like a pause-screen map from a 1990s SNES game.",
+    palette: ["nes-green", "nes-blue", "nes-tan"],
+    typography: titleFace("pixel caps"),
     colorMode: "canonical",
     palettes: [
-      { id: "studio", label: "Studio", colors: ["mustard", "charcoal", "cream", "terracotta"] },
-      { id: "pool", label: "Pool", colors: ["turquoise", "sand", "charcoal"] },
-      { id: "gallery", label: "Gallery", colors: ["black", "off-white", "orange"] },
-      { id: "olive", label: "Olive", colors: ["olive", "cream", "rust"] },
+      { id: "overworld", label: "Overworld", colors: ["nes-green", "nes-blue", "nes-tan"] },
+      { id: "dungeon", label: "Dungeon", colors: ["slate", "purple", "gold"] },
+      { id: "winter", label: "Winter", colors: ["ice", "grey", "navy"] },
+      { id: "desert", label: "Desert", colors: ["tan", "orange", "brown"] },
     ],
   },
   {

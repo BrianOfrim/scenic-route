@@ -53,7 +53,15 @@ export function ThemeExamples({ single, disabled, selectedStyleIds, onToggleThem
   const variants = detail ? examplesForTheme(detail.styleId, examples) : [];
 
   return <>
-    <button ref={trigger} type="button" className="chip theme-examples-trigger" disabled={disabled} onClick={() => setOpen(true)}>Browse examples</button>
+    <button ref={trigger} type="button" className="theme-examples-trigger" disabled={disabled} aria-haspopup="dialog" onClick={() => setOpen(true)}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <circle cx="8" cy="8" r="1.5" />
+        <path d="m3 17 5-5 4 4 4-6 5 7" />
+      </svg>
+      <span>Browse examples</span>
+      <span aria-hidden="true">→</span>
+    </button>
     {open && createPortal(
       <dialog ref={dialog} className="theme-examples-dialog" aria-labelledby="theme-examples-title" aria-describedby="theme-examples-description"
         onKeyDown={(event) => event.stopPropagation()}

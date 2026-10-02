@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyStatUnits, formatDistance, formatElevation, formatSpeed, statUnitsFrom } from "./statUnits";
+import { applyStatUnits, distanceToMeters, formatDistance, formatElevation, formatSpeed, statUnitsFrom } from "./statUnits";
+
+test("edited distance converts between units without losing the stored precision", () => {
+  assert.equal(distanceToMeters(10, "metric"), 10000);
+  assert.equal(formatDistance(distanceToMeters(10, "metric"), "imperial"), "6.2 mi");
+  assert.equal(distanceToMeters(10, "imperial"), 16093.44);
+  assert.equal(formatDistance(distanceToMeters(10, "imperial"), "metric"), "16.1 km");
+  assert.equal(distanceToMeters(0, "metric"), 0);
+  assert.equal(distanceToMeters(-1, "metric"), null);
+  assert.equal(distanceToMeters(NaN, "metric"), null);
+});
 
 test("stat units default to metric", () => {
   assert.equal(statUnitsFrom(undefined), "metric");

@@ -106,10 +106,10 @@ import {
   styleIdFromRecord,
 } from "./editorSnapshot";
 import { formatPeople, parsePeople, PEOPLE_INPUT_MAX } from "./people";
-import { applyStatUnits, DEFAULT_STAT_IDS, type StatUnits } from "./statUnits";
+import { applyStatUnits, DEFAULT_STAT_IDS, distanceToMeters, formatDistance, type StatUnits } from "./statUnits";
 import { addedFeatureIds, forgetDismissedForLayers, takeFreshNames } from "./autoNames";
 import { MAX_LABELS, prioritizeLabels } from "./labels";
-import { nearestPlaceName } from "./places";
+import { cropCoordinates, nearestPlaceName, shareEndpointPlace } from "./places";
 import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import {
@@ -406,25 +406,6 @@ function TrailChip({
   );
 }
 
-function GroundingThumb({
-  src,
-  label,
-  onOpen,
-}: {
-  src: string;
-  label: string;
-  onOpen: () => void;
-}) {
-  return (
-    <figure className="poster-ref-card">
-      <button type="button" className="poster-ref-open" onClick={onOpen} aria-label={`Enlarge ${label}`}>
-        <img className="poster-ref" src={src} alt={`${label} grounding`} />
-      </button>
-      <figcaption>{label}</figcaption>
-    </figure>
-  );
-}
-
 function routeMarkerMode(show: boolean, latlng: [number, number][]): false | "ends" | "loop" {
   if (!show) return false;
   return isClosedLoop(latlng) ? "loop" : "ends";
@@ -688,22 +669,6 @@ function PosterSection({
   );
 }
 
-function sentRefsHint(
-  maxRefs: number,
-  hasSatellite: boolean,
-  satellitePending: boolean,
-  satelliteFailed = false,
-) {
-  const parts = maxRefs >= 2 ? ["route-only", "schematic"] : ["schematic"];
-  if (maxRefs >= 3) {
-    if (hasSatellite) parts.push("satellite");
-    else if (satelliteFailed) parts.push("satellite (unavailable)");
-    else if (satellitePending) parts.push("satellite (loading)");
-  }
-  if (parts.length === 1) return "Reference: schematic. Click to enlarge.";
-  return `References: ${parts.join(" + ")}. Click to enlarge.`;
-}
-
 type ModelRef = { role: string; legend?: string; dataUrl: string };
 
 export type PosterSheetSnap = "peek" | "half" | "full";
@@ -726,6 +691,7 @@ const MAP_WORKFLOW_STEPS = new Set<PosterWorkflowStep>(["crop", "on-map"]);
 
 type Props = {
   activityId: number;
+  defaultPeople?: string;
   activityLabel?: string;
   features: FeatureOption[];
   onClose: () => void;
@@ -770,6 +736,7 @@ type Props = {
 
 export function PosterPanel({
   activityId,
+  defaultPeople = "",
   activityLabel,
   features,
   onClose,
@@ -838,7 +805,8 @@ export function PosterPanel({
   });
   const [stylePrompt, setStylePrompt] = useState(seeded?.stylePrompt || DEFAULT_POSTER_STYLE.prompt);
   const [vibes, setVibes] = useState(seeded?.vibes ?? "");
-  const [people, setPeople] = useState(seeded?.people ?? "");
+  const [people, setPeople] = useState(seeded?.people ?? defaultPeople);
+  const [peopleEnabled, setPeopleEnabled] = useState(seeded?.peopleEnabled ?? false);
   const [paletteIdsByStyle, setPaletteIdsByStyle] = useState<Record<string, string[]>>(
     () => seeded?.paletteIdsByStyle ?? {},
   );
@@ -853,12 +821,18 @@ export function PosterPanel({
   });
   const [title, setTitle] = useState(seeded?.title ?? "");
   const [locationOverride, setLocationOverride] = useState<string | null>(seeded?.location ?? null);
+  const [locationMode, setLocationMode] = useState<"place" | "coordinates">(seeded?.locationMode ?? "place");
   const [suggestedLocation, setSuggestedLocation] = useState("");
   const [locationStatus, setLocationStatus] = useState("");
-  const location = locationOverride ?? suggestedLocation;
+  const placeLocation = locationOverride ?? suggestedLocation;
+  const [dateOverride, setDateOverride] = useState<string | null>(seeded?.dateOverride ?? null);
+  const [sportOverride, setSportOverride] = useState<string | null>(seeded?.sportOverride ?? null);
+  const [distanceOverrideMeters, setDistanceOverrideMeters] = useState<number | null>(seeded?.distanceOverrideMeters ?? null);
+  const [distanceDraft, setDistanceDraft] = useState<string | null>(null);
   const [startPlace, setStartPlace] = useState("");
   const [finishPlace, setFinishPlace] = useState("");
   const [placesEdited, setPlacesEdited] = useState(false);
+  const [sharedPlace, setSharedPlace] = useState<boolean | null>(null);
   const [statIds, setStatIds] = useState<string[]>(DEFAULT_STAT_IDS);
   const [statUnits, setStatUnits] = useState<StatUnits>("metric");
   const [labels, setLabels] = useState<string[]>(() => seeded?.labels ?? []);
@@ -874,6 +848,7 @@ export function PosterPanel({
   const [customWays, setCustomWays] = useState<NamedWay[]>([]);
   const [cropStart, setCropStart] = useState(0);
   const [cropEnd, setCropEnd] = useState(1);
+  const location = locationMode === "coordinates" ? cropCoordinates(context?.latlng ?? [], cropStart, cropEnd) : placeLocation;
   const [showRouteMarkers, setShowRouteMarkers] = useState(seeded?.showRouteMarkers ?? true);
   const routeOnly = true; // Annotations are paused; retain saved annotation data for older posters.
   const [landmarkQuery, setLandmarkQuery] = useState("");
@@ -885,7 +860,6 @@ export function PosterPanel({
   const [schematicUrl, setSchematicUrl] = useState<string | null>(null);
   const [routeReferenceUrl, setRouteReferenceUrl] = useState<string | null>(null);
   const [satelliteUrl, setSatelliteUrl] = useState<string | null>(null);
-  const [satelliteFailed, setSatelliteFailed] = useState(false);
   const [satelliteShot, setSatelliteShot] = useState<SatelliteFrame | null>(null);
   const satelliteShotRef = useRef<{ frame: SatelliteFrame; key: string } | null>(null);
   const referenceUpload = useRef(createReferenceUploadCache(uploadPosterReferences));
@@ -898,7 +872,6 @@ export function PosterPanel({
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
   const [generating, setGenerating] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [preview, setPreview] = useState<{ src: string; label: string } | null>(null);
   const cropActivityId = useRef<number | null>(null);
 
   useEffect(() => {
@@ -985,9 +958,14 @@ export function PosterPanel({
 
             setTitle(restored.title);
             setLocationOverride(restored.location ?? null);
+            setLocationMode(restored.locationMode);
+            setDateOverride(restored.dateOverride);
+            setSportOverride(restored.sportOverride);
+            setDistanceOverrideMeters(restored.distanceOverrideMeters);
             setStartPlace(restored.startPlace);
             setFinishPlace(restored.finishPlace);
             setPlacesEdited(restored.placesEdited);
+            setSharedPlace(restored.sharedPlace ?? null);
             setStatIds(restored.statIds);
             setStatUnits(restored.statUnits);
             if (sheetSnap != null) {
@@ -1014,6 +992,7 @@ export function PosterPanel({
             setStylePrompt(restored.stylePrompt);
             setVibes(restored.vibes);
             setPeople(restored.people);
+            setPeopleEnabled(restored.peopleEnabled);
             setSpecs({}); // Replan saved setups with the current reference images and prompt rules.
             setPlanCosts(restored.planCosts);
           } else {
@@ -1026,13 +1005,19 @@ export function PosterPanel({
             setAreaNames(incomingAreas);
             setTitle(next.activity.name || "Ride");
             setLocationOverride(null);
+            setLocationMode("place");
+            setDateOverride(null);
+            setSportOverride(null);
+            setDistanceOverrideMeters(null);
             setSuggestedLocation("");
             setCropStart(0);
             setCropEnd(Math.max(1, next.latlng.length - 1));
             setPlacesEdited(false);
+            setSharedPlace(null);
             setStatIds(DEFAULT_STAT_IDS);
             setStatUnits("metric");
-            setPeople("");
+            setPeople(defaultPeople);
+            setPeopleEnabled(false);
             setStartPlace("");
             setFinishPlace("");
             setCustomPois([]);
@@ -1349,9 +1334,7 @@ export function PosterPanel({
     setFinishPlace(loopRide ? suggestedPlaces.start : suggestedPlaces.finish);
   }, [suggestedPlaces, loopRide, placesEdited]);
 
-  const samePlace =
-    loopRide ||
-    (Boolean(startPlace.trim()) && startPlace.trim().toLowerCase() === finishPlace.trim().toLowerCase());
+  const samePlace = shareEndpointPlace(startPlace, finishPlace, loopRide, sharedPlace);
 
   useEffect(() => {
     if (!context || cropActivityId.current !== activityId) return;
@@ -1376,8 +1359,9 @@ export function PosterPanel({
       context?.activity,
       statUnits,
     );
-    return [{ id: "title", label: "Title", value: title }, ...available, { id: "location", label: "Location", value: location.trim() }];
-  }, [context, title, statUnits, location]);
+    const edited = available.map(stat => ({ ...stat, value: stat.id === "date" ? dateOverride ?? stat.value : stat.id === "sport" ? sportOverride ?? stat.value : stat.id === "distance" && distanceOverrideMeters !== null ? formatDistance(distanceOverrideMeters, statUnits) : stat.value }));
+    return [{ id: "title", label: "Title", value: title }, ...edited, { id: "location", label: "Location", value: location.trim() }];
+  }, [context, title, statUnits, location, dateOverride, sportOverride, distanceOverrideMeters]);
 
   const selectedStats = useMemo(() => {
     return listedStats.filter((item) => statIds.includes(item.id) && (item.id === "title" || item.value));
@@ -1390,8 +1374,7 @@ export function PosterPanel({
       .join(" · ");
   }, [selectedStats]);
 
-  const peopleNames = useMemo(() => parsePeople(people), [people]);
-  const peopleCredit = peopleNames.length ? `With ${formatPeople(peopleNames)}` : "";
+  const peopleNames = useMemo(() => parsePeople(people, peopleEnabled), [people, peopleEnabled]);
   const posterStats = useMemo(() => {
     const stats = selectedStats.map((item) => ({ label: item.label, value: item.value }));
     if (peopleNames.length) stats.push({ label: "With", value: formatPeople(peopleNames) });
@@ -1655,7 +1638,6 @@ export function PosterPanel({
       satelliteShotRef.current = null;
       setSatelliteShot(null);
       setSatelliteUrl(null);
-      setSatelliteFailed(false);
       return;
     }
     satelliteShotRef.current = null;
@@ -1663,7 +1645,6 @@ export function PosterPanel({
     setSatelliteUrl(null);
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      setSatelliteFailed(false);
       void snapshotTiles(
         {
           source: "satellite",
@@ -1676,14 +1657,12 @@ export function PosterPanel({
           if (controller.signal.aborted) return;
           satelliteShotRef.current = { frame: shot, key: JSON.stringify([satelliteBbox, aspectRatio]) };
           setSatelliteShot(shot);
-          setSatelliteFailed(false);
         })
         .catch((err: unknown) => {
           if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
           satelliteShotRef.current = null;
           setSatelliteShot(null);
           setSatelliteUrl(null);
-          setSatelliteFailed(true);
         });
     }, SATELLITE_SNAPSHOT_DELAY_MS);
     return () => {
@@ -1885,12 +1864,18 @@ export function PosterPanel({
         routeOnly,
         title,
         location: locationOverride,
+        locationMode,
+        dateOverride,
+        sportOverride,
+        distanceOverrideMeters,
         startPlace,
         finishPlace,
         placesEdited,
+        sharedPlace,
         statIds,
         statUnits,
         people,
+        peopleEnabled,
         aspectRatio,
         styleIds,
         stylePrompt,
@@ -2236,16 +2221,6 @@ export function PosterPanel({
     setCropEnd(end);
   }
 
-  useEffect(() => {
-    if (!preview) return;
-    function onKey(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      setPreview(null);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [preview]);
-
   const launchMode = sheetMode && mobileSurface === "launch";
   const themeExamples = <ThemeExamples single={sheetMode} disabled={busy} selectedStyleIds={styleIds}
     onToggleTheme={toggleStyle} onSelectTheme={selectStyle} onApplyPalette={applyExamplePalette} />;
@@ -2578,6 +2553,7 @@ export function PosterPanel({
                 <input
                   className="search"
                   value={startPlace}
+                  aria-label="Start / finish location"
                   placeholder="Start / finish location"
                   onChange={(event) => {
                     const value = event.target.value;
@@ -2591,6 +2567,7 @@ export function PosterPanel({
                   <input
                     className="search"
                     value={startPlace}
+                    aria-label="Start location"
                     placeholder="Start location"
                     onChange={(event) => {
                       setPlacesEdited(true);
@@ -2600,6 +2577,7 @@ export function PosterPanel({
                   <input
                     className="search"
                     value={finishPlace}
+                    aria-label="Finish location"
                     placeholder="Finish location"
                     onChange={(event) => {
                       setPlacesEdited(true);
@@ -2609,6 +2587,21 @@ export function PosterPanel({
                 </>
               )}
             </div>
+            <button
+              type="button"
+              className="text-btn"
+              onClick={() => {
+                setSharedPlace(!samePlace);
+                if (!samePlace) {
+                  const value = startPlace.trim() ? startPlace : finishPlace;
+                  setStartPlace(value);
+                  setFinishPlace(value);
+                  setPlacesEdited(true);
+                }
+              }}
+            >
+              {samePlace ? "Use separate locations" : "Use one start / finish location"}
+            </button>
             {showRouteMarkers && <p className="muted">
               {isClosedLoop(croppedLatLng, croppedRouteBreaks)
                 ? "One shared start / finish marker."
@@ -3078,18 +3071,49 @@ export function PosterPanel({
             showTitle={!sheetMode}
             className={workflowPane("stats")}
           >
-            <label className="poster-field">
-              Units
-              <select
-                aria-label="Stat units"
-                value={statUnits}
-                onChange={(event) => setStatUnits(event.target.value === "imperial" ? "imperial" : "metric")}
-              >
-                <option value="metric">Metric</option>
-                <option value="imperial">Imperial</option>
-              </select>
-            </label>
-            {listedStats.map((stat) => (
+            <div className="poster-unit-toggle" role="group" aria-label="Units">
+              <span className="poster-unit-label">Units</span>
+              <div className="poster-unit-options">
+                <label className="check">
+                  <input type="radio" name="poster-stat-units" value="metric" disabled={busy} checked={statUnits === "metric"} onChange={() => { setStatUnits("metric"); setDistanceDraft(null); }} />
+                  Metric
+                </label>
+                <label className="check">
+                  <input type="radio" name="poster-stat-units" value="imperial" disabled={busy} checked={statUnits === "imperial"} onChange={() => { setStatUnits("imperial"); setDistanceDraft(null); }} />
+                  Imperial
+                </label>
+              </div>
+            </div>
+            {listedStats.map((stat) => stat.id === "distance" ? (
+              <div key={stat.id} className="poster-stat-edit-row">
+                <label className="check">
+                  <input type="checkbox" checked={statIds.includes(stat.id)} disabled={busy} onChange={(event) => setStatIds(current => event.target.checked ? [...current, stat.id] : current.filter(id => id !== stat.id))} />
+                  Distance
+                </label>
+                <input className="search" type="number" min="0" step="any" aria-label="Display distance" disabled={busy}
+                  value={distanceDraft ?? String(Number.parseFloat(stat.value))}
+                  onChange={(event) => {
+                    setDistanceDraft(event.target.value);
+                    const meters = distanceToMeters(event.target.valueAsNumber, statUnits);
+                    if (meters !== null) setDistanceOverrideMeters(meters);
+                  }}
+                  onBlur={() => setDistanceDraft(null)} />
+                <span>{statUnits === "imperial" ? "mi" : "km"}</span>
+                {distanceOverrideMeters !== null && <button type="button" className="chip" aria-label="Use recorded distance" title="Use recorded distance" disabled={busy} onClick={() => { setDistanceOverrideMeters(null); setDistanceDraft(null); }}>↺</button>}
+              </div>
+            ) : stat.id === "title" || stat.id === "date" || stat.id === "sport" || stat.id === "location" ? (
+              <div key={stat.id} className="poster-stat-edit-row">
+                <label className="check">
+                  <input type="checkbox" checked={statIds.includes(stat.id)} disabled={busy} onChange={(event) => setStatIds(current => event.target.checked ? [...current, stat.id] : current.filter(id => id !== stat.id))} />
+                  {stat.label}
+                </label>
+                <input className="search" aria-label={stat.id === "location" && locationMode === "coordinates" ? "Display coordinates" : `Display ${stat.id}`}
+                  value={stat.value} maxLength={stat.id === "location" ? 200 : stat.id === "title" ? undefined : 80} disabled={busy}
+                  readOnly={stat.id === "location" && locationMode === "coordinates"}
+                  placeholder={stat.id === "location" ? locationMode === "coordinates" ? "Coordinates unavailable" : "City · Region · Country" : undefined}
+                  onChange={(event) => stat.id === "title" ? setTitle(event.target.value) : stat.id === "date" ? setDateOverride(event.target.value) : stat.id === "sport" ? setSportOverride(event.target.value) : setLocationOverride(event.target.value)} />
+              </div>
+            ) : (
               <label key={stat.id} className="check">
                 <input
                   type="checkbox"
@@ -3106,32 +3130,33 @@ export function PosterPanel({
                 {stat.value ? ` — ${stat.value}` : ""}
               </label>
             ))}
-            <input className="search" value={title} onChange={(event) => setTitle(event.target.value)} />
-            <label className="poster-field">
-              Display location
-              <input
-                className="search"
-                value={location}
-                maxLength={200}
-                placeholder="City · Region · Country"
-                onChange={event => setLocationOverride(event.target.value)}
-              />
+            <div className="chip-row" role="group" aria-label="Location format">
+              <button type="button" className={`chip ${locationMode === "place" ? "on" : ""}`} aria-pressed={locationMode === "place"} disabled={busy} onClick={() => setLocationMode("place")}>Place name</button>
+              <button type="button" className={`chip ${locationMode === "coordinates" ? "on" : ""}`} aria-pressed={locationMode === "coordinates"} disabled={busy} onClick={() => setLocationMode("coordinates")}>Coordinates</button>
+            </div>
+            {locationMode === "coordinates" && <p className="muted">Coordinates of the selected route’s midpoint.</p>}
+            {locationMode === "place" && locationOverride === null && locationStatus && <p className="muted">{locationStatus}</p>}
+            {locationMode === "place" && locationOverride !== null && <button type="button" className="chip" onClick={() => setLocationOverride(null)}>Use suggested location</button>}
+            <label className="check">
+              <input type="checkbox" checked={peopleEnabled} disabled={busy} onChange={(event) => setPeopleEnabled(event.target.checked)} />
+              Include people on image
             </label>
-            {locationOverride === null && locationStatus && <p className="muted">{locationStatus}</p>}
-            {locationOverride !== null && <button type="button" className="chip" onClick={() => setLocationOverride(null)}>Use suggested location</button>}
             <label className="poster-field">
               People (optional)
               <textarea
                 rows={2}
                 value={people}
                 maxLength={PEOPLE_INPUT_MAX}
-                disabled={busy}
+                disabled={busy || !peopleEnabled}
                 placeholder="Alex, Jordan, Sam"
                 aria-label="People who did this activity"
+                aria-describedby="poster-people-help"
                 onChange={(event) => setPeople(event.target.value)}
               />
             </label>
-            <p className="muted">{[subtitle, peopleCredit].filter(Boolean).join(" · ") || "No stats selected"}</p>
+            <p id="poster-people-help" className="muted">Enter a comma-separated list of names.</p>
+            {peopleEnabled && people && <button type="button" className="text-btn" disabled={busy} onClick={() => setPeople("")}>Clear people</button>}
+            <p className="muted" aria-label="Current stats">{posterStats.map(stat => stat.label === "With" ? `With ${stat.value}` : stat.value).filter(Boolean).join(" · ") || "No stats selected"}</p>
           </PosterSection>
 
           <PosterSection
@@ -3270,40 +3295,9 @@ export function PosterPanel({
             <PosterSection
               title="Output"
               accordion={false}
-              showTitle
+              showTitle={false}
               className={workflowPane("output")}
             >
-              {schematicUrl ? (
-                <div className="preview-grid">
-                  {maxRefs >= 2 && routeReferenceUrl && (
-                    <GroundingThumb
-                      src={routeReferenceUrl}
-                      label="route-only"
-                      onOpen={() => setPreview({ src: routeReferenceUrl, label: "route-only" })}
-                    />
-                  )}
-                  <GroundingThumb
-                    src={schematicUrl}
-                    label="schematic"
-                    onOpen={() => setPreview({ src: schematicUrl, label: "schematic" })}
-                  />
-                  {maxRefs >= 3 && satelliteUrl && (
-                    <GroundingThumb
-                      src={satelliteUrl}
-                      label="satellite"
-                      onOpen={() => setPreview({ src: satelliteUrl, label: "satellite" })}
-                    />
-                  )}
-                </div>
-              ) : null}
-              <p className="muted">
-                {sentRefsHint(
-                  maxRefs,
-                  Boolean(satelliteUrl),
-                  maxRefs >= 3 && Boolean(schematicUrl) && !satelliteUrl && !satelliteFailed,
-                  satelliteFailed,
-                )}
-              </p>
               {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
               <div className="poster-actions poster-plan-row">
                 <button
@@ -3328,21 +3322,6 @@ export function PosterPanel({
         </fieldset>
       )}
     </aside>
-    {preview && (
-      <div className="lightbox" onClick={() => setPreview(null)}>
-        <div className="lightbox-inner lightbox-preview" onClick={(event) => event.stopPropagation()}>
-          <img className="lightbox-preview-img" src={preview.src} alt={preview.label} />
-          <div className="lightbox-bar">
-            <strong>{preview.label}</strong>
-            <div className="poster-actions">
-              <button type="button" className="text-btn" onClick={() => setPreview(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )}
     </>
   );
 }

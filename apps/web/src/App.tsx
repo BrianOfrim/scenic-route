@@ -27,6 +27,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { SignIn } from "./SignIn";
 import { MapView, type Basemap, type LandmarkHighlight } from "./MapView";
 import { PosterPanel, type PosterSheetSnap } from "./poster/PosterPanel";
+import { defaultPeopleForUser } from "./poster/people";
 import type { GeoMask } from "./poster/grounding/geoMask";
 import type { SchematicLayers } from "./poster/grounding/renderSchematic";
 import type { GeoEdit } from "./poster/polygonEdit";
@@ -458,7 +459,9 @@ export function App() {
   }
 
   const profileMenu = (
-    <ProfileMenu email={session.email} onSignOut={() => void handleSignOut()} />
+    <ProfileMenu email={session.email} name={session.name}
+      onNameSaved={(name) => setSession((current) => current ? { ...current, name } : current)}
+      onSignOut={() => void handleSignOut()} />
   );
 
   const selectTab = (tab: AppTab) => {
@@ -594,6 +597,7 @@ export function App() {
             <PosterPanel
               key={selectedId}
               activityId={selectedId}
+              defaultPeople={defaultPeopleForUser(session)}
               activityLabel={activities.find((item) => item.id === selectedId)?.name}
               features={features}
               refineFrom={refineFrom}

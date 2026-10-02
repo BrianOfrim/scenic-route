@@ -231,9 +231,14 @@ export type PosterEditorSnapshot = {
   routeOnly: boolean;
   title: string;
   location?: string | null;
+  locationMode?: "place" | "coordinates";
+  dateOverride?: string | null;
+  sportOverride?: string | null;
+  distanceOverrideMeters?: number | null;
   startPlace: string;
   finishPlace: string;
   placesEdited: boolean;
+  sharedPlace?: boolean | null;
   statIds: string[];
   statUnits?: "metric" | "imperial";
   aspectRatio: string;
@@ -242,6 +247,7 @@ export type PosterEditorSnapshot = {
   vibes?: string;
   /** Optional names of the people who did the activity, printed on the image. */
   people?: string;
+  peopleEnabled?: boolean;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
@@ -290,6 +296,19 @@ export async function requestMagicLink(email: string) {
       body: JSON.stringify({ email, callbackURL: "/" }),
     }),
   );
+}
+
+export async function updateAccountName(name: string): Promise<string> {
+  const normalized = name.replace(/\s+/g, " ").trim();
+  if (normalized.length > 40) throw new Error("Name must be 40 characters or fewer.");
+  await readJson<{ status: boolean }>(
+    await apiFetch("/api/auth/update-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: normalized }),
+    }),
+  );
+  return normalized;
 }
 
 export async function signOut() {

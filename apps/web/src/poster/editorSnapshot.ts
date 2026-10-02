@@ -44,9 +44,14 @@ export type PosterEditorSnapshot = {
   routeOnly: boolean;
   title: string;
   location?: string | null;
+  locationMode?: "place" | "coordinates";
+  dateOverride?: string | null;
+  sportOverride?: string | null;
+  distanceOverrideMeters?: number | null;
   startPlace: string;
   finishPlace: string;
   placesEdited: boolean;
+  sharedPlace?: boolean | null;
   statIds: string[];
   statUnits?: StatUnits;
   aspectRatio: AspectRatio;
@@ -54,6 +59,7 @@ export type PosterEditorSnapshot = {
   stylePrompt: string;
   vibes?: string;
   people?: string;
+  peopleEnabled?: boolean;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
@@ -84,9 +90,14 @@ export type EditorCapture = {
   routeOnly?: boolean;
   title: string;
   location?: string | null;
+  locationMode?: "place" | "coordinates";
+  dateOverride?: string | null;
+  sportOverride?: string | null;
+  distanceOverrideMeters?: number | null;
   startPlace: string;
   finishPlace: string;
   placesEdited: boolean;
+  sharedPlace?: boolean | null;
   statIds: string[];
   statUnits?: StatUnits;
   aspectRatio: AspectRatio;
@@ -94,6 +105,7 @@ export type EditorCapture = {
   stylePrompt: string;
   vibes?: string;
   people?: string;
+  peopleEnabled?: boolean;
   paletteId?: string;
   paletteIdsByStyle?: Record<string, string[]>;
   imageModelIds: string[];
@@ -156,9 +168,14 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
     routeOnly: Boolean(input.routeOnly),
     title: input.title,
     location: input.location ?? null,
+    locationMode: input.locationMode ?? "place",
+    dateOverride: input.dateOverride ?? null,
+    sportOverride: input.sportOverride ?? null,
+    distanceOverrideMeters: input.distanceOverrideMeters ?? null,
     startPlace: input.startPlace,
     finishPlace: input.finishPlace,
     placesEdited: input.placesEdited,
+    sharedPlace: input.sharedPlace ?? null,
     statIds: [...input.statIds],
     statUnits: statUnitsFrom(input.statUnits),
     aspectRatio: input.aspectRatio,
@@ -166,6 +183,7 @@ export function captureEditorSnapshot(input: EditorCapture): PosterEditorSnapsho
     stylePrompt: input.stylePrompt,
     vibes: input.vibes?.trim() ?? "",
     people: input.people?.replace(/\s+/g, " ").trim().slice(0, 300) ?? "",
+    peopleEnabled: input.peopleEnabled ?? Boolean(input.people?.trim()),
     paletteIdsByStyle,
     paletteId: firstPaletteId(input.styleIds, paletteIdsByStyle),
     imageModelIds: [...input.imageModelIds],
@@ -197,9 +215,14 @@ export type RestoredEditor = {
   routeOnly: boolean;
   title: string;
   location?: string | null;
+  locationMode: "place" | "coordinates";
+  dateOverride: string | null;
+  sportOverride: string | null;
+  distanceOverrideMeters: number | null;
   startPlace: string;
   finishPlace: string;
   placesEdited: boolean;
+  sharedPlace?: boolean | null;
   statIds: string[];
   statUnits: StatUnits;
   aspectRatio: AspectRatio;
@@ -207,6 +230,7 @@ export type RestoredEditor = {
   stylePrompt: string;
   vibes: string;
   people: string;
+  peopleEnabled: boolean;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[] | null;
@@ -413,11 +437,16 @@ export function editorSeed(record?: PosterRecord | null) {
     stylePrompt: restored.stylePrompt,
     vibes: restored.vibes,
     people: restored.people,
+    peopleEnabled: restored.peopleEnabled,
     paletteId: restored.paletteId,
     paletteIdsByStyle: restored.paletteIdsByStyle,
     aspectRatio: restored.aspectRatio,
     title: restored.title,
     location: restored.location,
+    locationMode: restored.locationMode,
+    dateOverride: restored.dateOverride,
+    sportOverride: restored.sportOverride,
+    distanceOverrideMeters: restored.distanceOverrideMeters,
     showRouteMarkers: restored.showRouteMarkers,
     routeOnly: restored.routeOnly,
     imageModelIds: restored.imageModelIds,
@@ -436,6 +465,9 @@ export function restoreEditor(
 ): RestoredEditor {
   const editor = snapshotOf(record);
   const places = savedStartFinish(record);
+  const people = editor?.people?.replace(/\s+/g, " ").trim().slice(0, 300)
+    ?? record.stats?.find((item) => /^with$/i.test(item.label))?.value?.trim()
+    ?? "";
   const styleId = styleIdFromRecord(record);
   const availableStyleIds = editor?.styleIds?.filter((id) => POSTER_STYLES.some((style) => style.id === id));
   const styleIds = availableStyleIds?.length ? availableStyleIds : [styleId];
@@ -473,9 +505,14 @@ export function restoreEditor(
     routeOnly: editor?.routeOnly === true,
     title: editor?.title || record.title || defaults.title,
     location: editor?.location !== undefined ? editor.location : record.stats?.find(item => /^location$/i.test(item.label))?.value ?? null,
+    locationMode: editor?.locationMode === "coordinates" ? "coordinates" : "place",
+    dateOverride: editor?.dateOverride ?? null,
+    sportOverride: editor?.sportOverride ?? null,
+    distanceOverrideMeters: typeof editor?.distanceOverrideMeters === "number" && Number.isFinite(editor.distanceOverrideMeters) && editor.distanceOverrideMeters >= 0 ? editor.distanceOverrideMeters : null,
     startPlace,
     finishPlace,
     placesEdited: editor?.placesEdited ?? Boolean(startPlace || finishPlace),
+    sharedPlace: editor?.sharedPlace ?? null,
     statIds: editor?.statIds?.length
       ? editor.statIds
       : record.stats?.length
@@ -488,9 +525,8 @@ export function restoreEditor(
     styleIds,
     stylePrompt: editor?.stylePrompt || record.stylePrompt || DEFAULT_POSTER_STYLE.prompt,
     vibes: editor?.vibes?.trim() ?? "",
-    people: editor?.people?.replace(/\s+/g, " ").trim().slice(0, 300)
-      || record.stats?.find((item) => /^with$/i.test(item.label))?.value?.trim()
-      || "",
+    people,
+    peopleEnabled: editor?.peopleEnabled ?? Boolean(people),
     paletteIdsByStyle: snapshotPalettes(
       styleIds,
       editor?.paletteIdsByStyle,
