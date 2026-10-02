@@ -26,6 +26,7 @@ test("background requests keep independent placeholders through preparation, com
   assert.equal(getGenerationState().pending.length, 3);
   assert.equal(new Set(getGenerationState().pending.map((image) => image.id)).size, 3);
   assert.equal(bodies.length, 0, "placeholders appear before reference preparation finishes");
+  assert.ok(getGenerationState().pending.every(image => image.phase === "queued"));
 
   second.resolve(["second reference"]);
   await b;
@@ -79,6 +80,7 @@ test("prompt and image generation share placeholders without duplicating or clea
   prompt.resolve();
   await Promise.resolve();
   assert.deepEqual(getGenerationState().pending.map((item) => item.id), ids, "same placeholders persist into image generation");
+  assert.ok(getGenerationState().pending.filter(item => item.title === "Full poster").every(item => item.phase === "generating"));
   image.resolve(new Response(JSON.stringify({ posters: [{ posterId: "completed" }] })));
   await work;
   assert.deepEqual(getGenerationState().pending.map((item) => item.title), ["Another poster"]);
@@ -88,6 +90,26 @@ test("prompt and image generation share placeholders without duplicating or clea
   other.finish(new Error("Poster generation failed"));
   assert.equal(getGenerationState().pending.length, 0);
   assert.equal(getGenerationState().error, "Poster generation failed");
+});
+
+test("phases update all variants of one task, reset on retry, and ignore finished tasks", async () => {
+  const task = beginGeneration({ title: "Phase route", variants: 2 });
+  const other = beginGeneration({ title: "Queued route" });
+  task.setPhase("planning");
+  assert.deepEqual(getGenerationState().pending.map(image => image.phase), ["planning", "planning", "queued"]);
+  task.setPhase("generating");
+  task.setRetry(async () => {
+    const images = getGenerationState().pending.filter(image => image.title === "Phase route");
+    assert.deepEqual(images.map(image => image.phase), ["queued", "queued"]);
+    task.setPhase("planning");
+  });
+  task.finish(new Error("Retry this phase"));
+  const snapshot = getGenerationState();
+  task.setPhase("planning");
+  assert.equal(getGenerationState(), snapshot, "finished work cannot change active tasks");
+  await snapshot.failed.find(image => image.title === "Phase route")!.retry();
+  assert.deepEqual(getGenerationState().pending.map(image => image.phase), ["queued"]);
+  other.finish();
 });
 
 
@@ -139,4 +161,55 @@ test("clearing failed images preserves other failures and pending work without r
   clearFailedImage(a.id);
   assert.equal(getGenerationState(), cleared, "repeated clearing is harmless");
   pending.finish();
+});
+
+test("server jobs restore stages and failed retries after reload and refresh completion", async () => {
+  const { setServerGenerationJobs } = await import("./generationState");
+  const jobs = ["queued","planning","ready","generating","failed"].map((state,index) => ({
+    id: `durable-${index}`, state, title: "Persisted", model: "model", variants: 2, error: state === "failed" ? "Check before retry" : null,
+  })) as import("./generationState").ServerGenerationJob[];
+  let retried = "";
+  const retry = async (id: string) => { retried = id; };
+  const dismiss = async () => {};
+  setServerGenerationJobs(jobs,retry,dismiss);
+  assert.deepEqual(getGenerationState().pending.map(image => image.phase),["queued","queued","planning","planning","queued","queued","generating","generating"]);
+  const failed = getGenerationState().failed.filter(image => image.id.startsWith("server:"));
+  assert.equal(failed.length,2);
+  assert.equal(failed[0].error,"Check before retry");
+  await failed[0].retry();
+  assert.equal(retried,"durable-4");
+  const snapshot = getGenerationState();
+  setServerGenerationJobs(jobs,retry,dismiss);
+  assert.equal(getGenerationState(),snapshot,"unchanged polling does not reload the gallery");
+  setServerGenerationJobs([],retry,dismiss);
+  assert.equal(getGenerationState().pending.length,0);
+  assert.equal(getGenerationState().failed.filter(image => image.id.startsWith("server:")).length,0);
+  assert.ok(getGenerationState().revision>snapshot.revision);
+});
+
+test("resubmitting a batch dismisses every local failed placeholder", async () => {
+  for (const image of getGenerationState().failed) clearFailedImage(image.id);
+  const tasks = [beginGeneration({ title: "Batch A" }),beginGeneration({ title: "Batch B" })];
+  tasks.forEach(task => task.setRetry(async () => { tasks.forEach(task => task.dismiss()); }));
+  tasks.forEach(task => task.finish(new Error("Submission connection lost")));
+  await getGenerationState().failed.find(image => image.title === "Batch A")!.retry();
+  assert.equal(getGenerationState().failed.length,0);
+  assert.equal(getGenerationState().pending.length,0);
+  assert.equal(getGenerationState().error,null);
+});
+
+
+test("server retry attempts appear while queued and generating", async () => {
+  const { setServerGenerationJobs } = await import("./generationState");
+  const retry = async () => {};
+  const job = { id: "retry-attempt", state: "ready" as const, title: "Retry", model: "model", variants: 1, error: null, imageAttempt: 1 };
+  setServerGenerationJobs([job], retry, retry);
+  let image = getGenerationState().pending.find(image => image.id.startsWith("server:"))!;
+  assert.equal(image.phase, "queued");
+  assert.equal(image.imageAttempt, 2);
+  setServerGenerationJobs([{ ...job, state: "generating", imageAttempt: 2 }], retry, retry);
+  image = getGenerationState().pending.find(image => image.id.startsWith("server:"))!;
+  assert.equal(image.phase, "generating");
+  assert.equal(image.imageAttempt, 2);
+  setServerGenerationJobs([], retry, retry);
 });

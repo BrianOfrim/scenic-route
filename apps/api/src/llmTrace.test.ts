@@ -1,6 +1,44 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatLlmTrace, formatLlmTraceConsole, sanitizeForTrace, type LlmTrace } from "./llmTrace";
+import fs from "node:fs";
+import path from "node:path";
+import { LLM_TRACES_DIR } from "./paths";
+import { describeError, formatLlmTrace, formatLlmTraceConsole, sanitizeForTrace, withLlmTrace, type LlmTrace } from "./llmTrace";
+
+test("trace persists unfinished work before sending and finishes with diagnostics and causes", async (t) => {
+  let file = "";
+  t.mock.method(console, "log", (message: string) => {
+    const id = message.match(/started (\S+)/)?.[1];
+    if (id) file = path.join(LLM_TRACES_DIR, `${id}-diagnostic-test.json`);
+  });
+  try {
+    await assert.rejects(withLlmTrace({ kind: "image", label: "diagnostic-test", model: "test/model",
+      url: "https://example.invalid", request: { reference: "data:image/png;base64,aaaa" },
+    }, async capture => {
+      const started = JSON.parse(fs.readFileSync(file, "utf8"));
+      assert.equal(started.lifecycle, "running");
+      assert.match(started.request.reference, /^\[data-url/);
+      capture({ status: 200, diagnostics: { phase: "reading-body", requestId: "provider-id" } });
+      throw new Error("fetch failed", { cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }) });
+    }), /fetch failed/);
+    const finished = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(finished.lifecycle, "finished");
+    assert.equal(finished.status, 200);
+    assert.equal(finished.diagnostics.requestId, "provider-id");
+    assert.equal(finished.errorDetails.cause.code, "ECONNRESET");
+  } finally { if (file) fs.rmSync(file, { force: true }); }
+});
+
+test("error diagnostics retain aggregate connection causes and exclude unrelated properties", () => {
+  const socket = Object.assign(new Error("connect failed"), { code: "ETIMEDOUT", authorization: "secret" });
+  const outer = new Error("fetch failed", { cause: new AggregateError([socket], "all connections failed") });
+  const result = describeError(outer) as any;
+  assert.equal(result.cause.errors[0].code, "ETIMEDOUT");
+  assert.equal(result.cause.errors[0].authorization, undefined);
+  const circular = new Error("loop");
+  circular.cause = circular;
+  assert.doesNotThrow(() => JSON.stringify(describeError(circular)));
+});
 
 test("sanitizeForTrace leaves planner messages intact", () => {
   const messages = [

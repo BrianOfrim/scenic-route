@@ -20,13 +20,31 @@ export type LlmTrace = {
   response: unknown;
   error: string | null;
   file: string | null;
+  lifecycle?: "running" | "finished";
+  diagnostics?: Record<string, unknown>;
+  errorDetails?: unknown;
 };
 
 export type LlmTraceCapture = (info: {
   status?: number | null;
   response?: unknown;
   cost?: number | null;
+  diagnostics?: Record<string, unknown>;
 }) => void;
+
+/** Keep transport causes (including AggregateError) without copying arbitrary error properties. */
+export function describeError(value: unknown, depth = 0): unknown {
+  if (depth > 4) return "[cause depth limit]";
+  if (!value || typeof value !== "object") return String(value);
+  const error = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const key of ["name", "message", "code", "errno", "syscall", "address", "port", "status", "upstreamStatus", "providerCode", "retryAfterMs"]) {
+    if (typeof error[key] === "string" || typeof error[key] === "number") result[key] = error[key];
+  }
+  if (error.cause !== undefined) result.cause = describeError(error.cause, depth + 1);
+  if (Array.isArray(error.errors)) result.errors = error.errors.slice(0, 8).map(item => describeError(item, depth + 1));
+  return result;
+}
 
 const DATA_URL_RE = /^data:([^;,]+);base64,([\s\S]+)$/;
 const B64_KEYS = /^(b64|b64_json)$/i;
@@ -40,6 +58,10 @@ export function sanitizeForTrace(value: unknown, key?: string): unknown {
   if (typeof value === "string") {
     const dataUrl = summarizeDataUrl(value);
     if (dataUrl) return dataUrl;
+    if (/^https?:\/\//.test(value) && /[?&]X-Amz-Signature=/i.test(value)) {
+      // Signed reference URLs grant access to private objects. Keep only the object path.
+      return `${value.split("?")[0]}?[signed-url redacted]`;
+    }
     if (key && B64_KEYS.test(key) && value.length > 80) {
       return `[base64 ${value.length} chars]`;
     }
@@ -72,6 +94,8 @@ export function formatLlmTraceConsole(trace: LlmTrace): string {
     `[llm:${trace.label}] ${trace.kind} ${trace.model} ${status} ${trace.durationMs}ms cost=${cost}`,
   ];
   if (trace.error) lines.push(`[llm:${trace.label}] error ${trace.error}`);
+  if (!trace.ok && trace.diagnostics) lines.push(`[llm:${trace.label}] diagnostics ${JSON.stringify(trace.diagnostics)}`);
+  if (trace.errorDetails) lines.push(`[llm:${trace.label}] cause ${JSON.stringify(trace.errorDetails)}`);
   if (trace.file) lines.push(`[llm:${trace.label}] wrote ${trace.file}`);
   return lines.join("\n");
 }
@@ -105,10 +129,17 @@ export async function withLlmTrace<T>(
   let response: unknown = null;
   let cost: number | null = null;
   let error: string | null = null;
+  let errorDetails: unknown;
+  let diagnostics: Record<string, unknown> = {};
+  // Persist before sending, so a process exit leaves evidence of unfinished work.
+  persistAndPrint({ ...meta, id, startedAt: startedAt.toISOString(), durationMs: 0,
+    ok: false, status, response, cost, error, file: null, lifecycle: "running",
+    request: sanitizeForTrace(meta.request), diagnostics });
   const capture: LlmTraceCapture = (info) => {
     if (info.status !== undefined) status = info.status;
     if (info.response !== undefined) response = info.response;
     if (info.cost !== undefined) cost = info.cost;
+    if (info.diagnostics) diagnostics = { ...diagnostics, ...info.diagnostics };
   };
   try {
     const value = await run(capture);
@@ -116,6 +147,7 @@ export async function withLlmTrace<T>(
     return value;
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
+    errorDetails = describeError(err);
     throw err;
   } finally {
     persistAndPrint({
@@ -133,6 +165,9 @@ export async function withLlmTrace<T>(
       response: sanitizeForTrace(response),
       error,
       file: null,
+      lifecycle: "finished",
+      diagnostics: sanitizeForTrace(diagnostics) as Record<string, unknown>,
+      errorDetails,
     });
   }
 }
@@ -143,7 +178,9 @@ function persistAndPrint(trace: LlmTrace) {
     const file = path.join(LLM_TRACES_DIR, `${trace.id}-${safeLabel(trace.label)}.json`);
     const written: LlmTrace = { ...trace, file };
     fs.writeFileSync(file, `${stringify(written)}\n`);
-    console.log(formatLlmTraceConsole(written));
+    console.log(trace.lifecycle === "running"
+      ? `[llm:${trace.label}] started ${trace.id} ${trace.kind} ${trace.model} wrote ${file}`
+      : formatLlmTraceConsole(written));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[llm:${trace.label}] failed to write trace: ${message}`);

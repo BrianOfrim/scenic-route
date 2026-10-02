@@ -2,9 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { POSTERS_DIR } from "./paths";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export type ObjectStore = {
   kind: "local" | "r2";
+  signedUrl?(userId: string, name: string, expiresIn: number): Promise<string>;
   put(userId: string, name: string, body: Buffer, contentType: string): Promise<void>;
   get(userId: string, name: string): Promise<Buffer | null>;
   listJsonNames(userId: string): Promise<string[]>;
@@ -123,7 +125,7 @@ export function createLocalStore(root = POSTERS_DIR): ObjectStore {
   };
 }
 
-export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>): ObjectStore {
+export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>, prefix = "posters/"): ObjectStore {
   const client = new S3Client({
     region: "auto",
     endpoint: config.endpoint,
@@ -133,7 +135,6 @@ export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>):
       secretAccessKey: config.secretAccessKey,
     },
   });
-  const prefix = "posters/";
 
   async function listNames(startsWith = "") {
     const names: string[] = [];
@@ -201,6 +202,12 @@ export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>):
 
   return {
     kind: "r2",
+    async signedUrl(userId, name, expiresIn) {
+      return getSignedUrl(client, new GetObjectCommand({
+        Bucket: config.bucket,
+        Key: `${prefix}${scopedName(userId, name)}`,
+      }), { expiresIn });
+    },
     async put(userId, name, body, contentType) {
       await putRaw(scopedName(userId, name), body, contentType);
     },

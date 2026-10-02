@@ -1,21 +1,65 @@
 import { alignDataUrlMime } from "./imageMime";
 import { withLlmTrace } from "./llmTrace";
+import { openRouterTransport } from "./openrouterTransport";
+import { providerQueue, RequestQueueError } from "./requestQueue";
 
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
 export const KEY_HINT =
   "Set OPENROUTER_API_KEY in .env.local, then restart the API.";
 
-const GENERATE_TIMEOUT_MS = 120_000;
+const DEFAULT_GENERATE_TIMEOUT_MS = 600_000;
 const PLAN_TIMEOUT_MS = 180_000;
+const PLAN_QUEUE_WAIT_MS = 240_000;
+const PLAN_BUDGET_MS = 240_000;
+
+/** Allow slower image providers; scale the deadline for multi-image requests. */
+export function imageGenerationTimeoutMs(n = 1) {
+  const perImage = Number(process.env.OPENROUTER_IMAGE_TIMEOUT_MS?.trim() || DEFAULT_GENERATE_TIMEOUT_MS);
+  const total = perImage * clampImageCount(n);
+  if (!Number.isSafeInteger(perImage) || perImage <= 0 || total > 2_147_483_647) {
+    throw new OpenRouterError("OPENROUTER_IMAGE_TIMEOUT_MS must be a positive integer in milliseconds within the timer limit for this image count", 400);
+  }
+  return total;
+}
 
 export class OpenRouterError extends Error {
   readonly status: 400 | 401 | 502 | 504;
-  constructor(message: string, status: 400 | 401 | 502 | 504 = 502) {
-    super(message);
+  upstreamStatus?: number;
+  providerCode?: string;
+  retryAfterMs?: number;
+  constructor(message: string, status: 400 | 401 | 502 | 504 = 502, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
     this.name = "OpenRouterError";
     this.status = status;
   }
+}
+
+export function retryAfterMs(value: string | null, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - now;
+  return Number.isFinite(delay) && delay >= 0 ? delay : undefined;
+}
+
+function upstreamError(response: Response, parsed: unknown) {
+  const error = new OpenRouterError(errorMessage(parsed, `OpenRouter ${response.status}`), response.status === 401 ? 401 : 502);
+  error.upstreamStatus = response.status;
+  // Providers sometimes embed their native JSON error inside metadata.raw.
+  const raw = JSON.stringify(asRecord(parsed)?.error ?? {});
+  error.providerCode = raw.includes("media_url_not_fetchable") ? "media_url_not_fetchable" : undefined;
+  error.retryAfterMs = retryAfterMs(response.headers.get("retry-after"));
+  return error;
+}
+
+export function isRetryablePlanningError(error: unknown): boolean {
+  if (error instanceof OpenRouterError) {
+    return error.upstreamStatus !== undefined && [429, 500, 502, 503, 504].includes(error.upstreamStatus);
+  }
+  // Only known network failures; don't retry JSON parsing or programming errors.
+  const item = error as { code?: string; cause?: unknown } | null;
+  return Boolean(item && (["ECONNRESET", "ETIMEDOUT", "EPIPE", "EAI_AGAIN", "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "ERR_HTTP2_STREAM_ERROR"].includes(item.code ?? "")
+    || (item.cause && isRetryablePlanningError(item.cause))));
 }
 
 export function requireKey(): string {
@@ -114,6 +158,7 @@ export function openRouterUser(userId?: string | null) {
 
 export async function chatJson<T>(options: {
   messages: unknown[];
+  inlineMessages?: () => Promise<unknown[]>;
   schemaName?: string;
   schema?: unknown;
   label?: string;
@@ -144,49 +189,71 @@ export async function chatJson<T>(options: {
       request,
     },
     async (capture) => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), PLAN_TIMEOUT_MS);
-      const send = () =>
-        fetch(OPENROUTER_CHAT_URL, {
-          method: "POST",
-          headers: headers(key),
-          body: JSON.stringify(request),
-          signal: controller.signal,
-        });
+      // Initial admission has its own limit; subsequent waits share the planning budget.
+      let deadline: number | undefined;
+      const attempts: Record<string, unknown>[] = [];
+      let usedInline = false;
       try {
-        let response = await send();
-        let parsed = await readJson(response);
-        if (!response.ok && strict.type === "json_schema" && isSchemaRejection(response.status, parsed)) {
-          // The provider does not honor strict schemas for this model; fall back to
-          // plain JSON mode and rely on the repair pass downstream. The trace keeps
-          // the request object by reference, so it records the format actually used.
-          console.warn(`[llm:${options.label ?? "chat"}] ${model} rejected json_schema; retrying with json_object`);
-          request.response_format = { type: "json_object" };
-          response = await send();
-          parsed = await readJson(response);
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          let result;
+          const queuedAt = Date.now();
+          try {
+            result = await providerQueue("chat").run(async () => {
+              deadline ??= Date.now() + PLAN_BUDGET_MS;
+              const remaining = deadline - Date.now();
+              if (remaining <= 0) throw new OpenRouterError("Planner retry deadline exceeded", 504);
+              const queueWaitMs = Date.now() - queuedAt;
+              const transport = openRouterTransport("chat", Math.min(PLAN_TIMEOUT_MS, remaining), info => {
+                if (info.diagnostics) {
+                  attempts[attempt - 1] = { ...info.diagnostics, queueWaitMs };
+                  capture({ ...info, diagnostics: { ...info.diagnostics, planningAttempts: attempts } });
+                } else capture(info);
+              });
+              try {
+                return await transport.send(OPENROUTER_CHAT_URL, {
+                  method: "POST", headers: headers(key), body: JSON.stringify(request),
+                });
+              } finally { transport.close(); }
+            }, deadline === undefined ? PLAN_QUEUE_WAIT_MS : Math.max(1, deadline - Date.now()));
+          } catch (error) {
+            if (attempt === 3 || !isRetryablePlanningError(error)) throw error;
+            const delay = attempt === 1 ? 2000 + Math.random() * 2000 : 8000 + Math.random() * 4000;
+            if (deadline === undefined || Date.now() + delay >= deadline) throw error;
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          const { response, parsed } = result;
+          const record = asRecord(parsed);
+          capture({ status: response.status, response: parsed, cost: usageCost(record) });
+          if (!response.ok || record?.error) {
+            const error = upstreamError(response, parsed);
+            if (attempt === 3) throw error;
+            if (error.providerCode === "media_url_not_fetchable" && options.inlineMessages && !usedInline) {
+              usedInline = true;
+              request.messages = await options.inlineMessages();
+              continue;
+            }
+            if (strict.type === "json_schema" && request.response_format.type === "json_schema" && isSchemaRejection(response.status, parsed)) {
+              request.response_format = { type: "json_object" };
+              continue;
+            }
+            if (!isRetryablePlanningError(error)) throw error;
+            const delay = error.retryAfterMs ?? (attempt === 1 ? 2000 + Math.random() * 2000 : 8000 + Math.random() * 4000);
+            if (deadline === undefined || Date.now() + delay >= deadline) throw error;
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          const choices = Array.isArray(record?.choices) ? record.choices : [];
+          const content = extractContent(asRecord(asRecord(choices[0])?.message)?.content);
+          if (!content) throw new OpenRouterError("OpenRouter returned an empty planner response", 502);
+          const value = JSON.parse(extractJson(content)) as T;
+          return { value, cost: usageCost(record), model };
         }
-        const record = asRecord(parsed);
-        capture({ status: response.status, response: parsed, cost: usageCost(record) });
-        if (!response.ok) {
-          throw new OpenRouterError(errorMessage(parsed, `OpenRouter ${response.status}`), response.status === 401 ? 401 : 502);
-        }
-        const choices = Array.isArray(record?.choices) ? record.choices : [];
-        const first = asRecord(choices[0]);
-        const message = asRecord(first?.message);
-        const content = extractContent(message?.content);
-        if (!content) throw new OpenRouterError("OpenRouter returned an empty planner response", 502);
-        const value = JSON.parse(extractJson(content)) as T;
-        const cost = usageCost(record);
-        capture({ cost });
-        return { value, cost, model };
+        throw new OpenRouterError("Planner attempt budget exhausted");
       } catch (error) {
-        if (error instanceof OpenRouterError) throw error;
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new OpenRouterError("Planner timed out", 504);
-        }
-        throw new OpenRouterError(error instanceof Error ? error.message : "Planner failed", 502);
-      } finally {
-        clearTimeout(timer);
+        if (error instanceof OpenRouterError || error instanceof RequestQueueError) throw error;
+        if (error instanceof Error && error.name === "AbortError") throw new OpenRouterError("Planner timed out", 504, error);
+        throw new OpenRouterError(error instanceof Error ? error.message : "Planner failed", 502, error);
       }
     },
   );
@@ -229,36 +296,36 @@ export async function createImage(options: {
       request,
     },
     async (capture) => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), GENERATE_TIMEOUT_MS * n);
-      try {
-        const response = await fetch(OPENROUTER_IMAGES_URL, {
-          method: "POST",
-          headers: headers(key),
-          body: JSON.stringify(request),
-          signal: controller.signal,
-        });
-        const parsed = await readJson(response);
-        const record = asRecord(parsed);
-        capture({ status: response.status, response: parsed, cost: usageCost(record) });
-        if (!response.ok) {
-          throw new OpenRouterError(
-            errorMessage(parsed, `OpenRouter image request failed (${response.status})`),
-            response.status === 401 ? 401 : 502,
-          );
+      const queuedAt = Date.now();
+      return providerQueue("image").run(async () => {
+        const queueWaitMs = Date.now() - queuedAt;
+        const transport = openRouterTransport("image", imageGenerationTimeoutMs(n), info => capture({
+          ...info, ...(info.diagnostics ? { diagnostics: { ...info.diagnostics, queueWaitMs } } : {}),
+        }));
+        try {
+          const { response, parsed } = await transport.send(OPENROUTER_IMAGES_URL, {
+            method: "POST",
+            headers: headers(key),
+            body: JSON.stringify(request),
+          });
+          const record = asRecord(parsed);
+          capture({ status: response.status, response: parsed, cost: usageCost(record) });
+          if (!response.ok || record?.error) {
+            throw upstreamError(response, parsed);
+          }
+          const image = parseImageResponse(parsed);
+          capture({ cost: image.cost });
+          return image;
+        } catch (error) {
+          if (error instanceof OpenRouterError || error instanceof RequestQueueError) throw error;
+          if (error instanceof Error && error.name === "AbortError") {
+            throw new OpenRouterError("Image generation timed out", 504, error);
+          }
+          throw new OpenRouterError(error instanceof Error ? error.message : "Image generation failed", 502, error);
+        } finally {
+          transport.close();
         }
-        const image = parseImageResponse(parsed);
-        capture({ cost: image.cost });
-        return image;
-      } catch (error) {
-        if (error instanceof OpenRouterError) throw error;
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new OpenRouterError("Image generation timed out", 504);
-        }
-        throw new OpenRouterError(error instanceof Error ? error.message : "Image generation failed", 502);
-      } finally {
-        clearTimeout(timer);
-      }
+      }, imageGenerationTimeoutMs(n) + 60_000);
     },
   );
 }
@@ -471,14 +538,6 @@ function listedMaxImages(model: string): number | null {
   return listed && listed > 0 ? listed : null;
 }
 
-async function readJson(response: Response): Promise<unknown> {
-  const text = await response.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { error: { message: text || `OpenRouter ${response.status}` } };
-  }
-}
 
 function errorMessage(parsed: unknown, fallback: string) {
   const record = asRecord(parsed);

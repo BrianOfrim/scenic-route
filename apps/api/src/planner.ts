@@ -2,6 +2,7 @@ import { areaLetter } from "./areaLetters";
 import { normalizePeople, peopleStatValue } from "./people";
 import type { NamedArea, NamedWay, PosterPoi } from "./osm/features";
 import { chatJson } from "./openrouter";
+import { resolveReferences } from "./referenceUploads";
 import {
   DEFAULT_ASPECT_RATIO,
   POSTER_SPEC_SCHEMA,
@@ -47,7 +48,8 @@ export type PlannerInput = {
   pois: PosterPoi[];
   namedWays?: NamedWay[];
   namedAreas?: NamedArea[];
-  grounding: Array<{ index: number; role: string; legend: string; dataUrl?: string }>;
+  referenceBatchId?: string;
+  grounding: Array<{ index: number; role: string; legend: string; dataUrl?: string; url?: string }>;
   refineNotes?: string;
   previousSpec?: PosterSpec;
   /** No landmarks, trail names, or named districts — geography layers may still be included. */
@@ -507,8 +509,24 @@ export async function planPoster(
   input: PlannerInput,
 ): Promise<{ spec: PosterSpec; cost: number | null; model: string }> {
   input = { ...input, routeOnly: true, pois: [], namedWays: [], namedAreas: [] };
+  if (input.referenceBatchId) {
+    const references = await resolveReferences(userId, input.referenceBatchId);
+    if (references.length !== input.grounding.length) throw new Error("reference metadata must match the uploaded images");
+    input = { ...input, grounding: input.grounding.map((ref, index) => ({
+      index: ref.index, role: ref.role, legend: ref.legend, url: references[index].url,
+    })) };
+  } else if (input.grounding.some(ref => ref.url)) {
+    throw new Error("a reference batch id is required for hosted images");
+  }
   const { value, cost, model } = await chatJson<unknown>({
     messages: buildPlannerMessages(input),
+    inlineMessages: input.referenceBatchId ? async () => {
+      const refs = await resolveReferences(userId, input.referenceBatchId!, true);
+      return buildPlannerMessages({ ...input, grounding: input.grounding.map((ref, index) => ({
+        index: ref.index, role: ref.role, legend: ref.legend,
+        dataUrl: `data:${refs[index].mime};base64,${refs[index].bytes!.toString("base64")}`,
+      })) });
+    } : undefined,
     schemaName: "poster_spec",
     schema: UNANNOTATED_PLANNER_SCHEMA,
     label: "plan",
@@ -557,12 +575,13 @@ function buildUnannotatedPlannerMessages(input: PlannerInput) {
     { type: "text", text: JSON.stringify(user) },
   ];
   for (const reference of input.grounding) {
-    if (!reference.dataUrl) continue;
-    if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=\s]+$/.test(reference.dataUrl)) {
+    const imageUrl = reference.url || reference.dataUrl;
+    if (!imageUrl) continue;
+    if (!reference.url && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=\s]+$/.test(imageUrl)) {
       throw new Error("planner references must be PNG, JPEG, or WebP data URLs");
     }
     content.push({ type: "text", text: `Image ${reference.index}: ${reference.role}. ${reference.legend}` });
-    content.push({ type: "image_url", image_url: { url: reference.dataUrl } });
+    content.push({ type: "image_url", image_url: { url: imageUrl } });
   }
   return [
     { role: "system", content: [

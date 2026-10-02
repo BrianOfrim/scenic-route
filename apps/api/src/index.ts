@@ -1,3 +1,4 @@
+import { startGenerationWorker, submitGenerationJobs, listGenerationJobs, retryGenerationJob, dismissGenerationJob } from "./generationJobs";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "dotenv";
@@ -36,6 +37,8 @@ import { reverseLocation } from "./osm/location";
 import { lookupLandmark } from "./osm/landmark";
 import { OpenRouterError, imageModel, listImageModels, maxImageReferences } from "./openrouter";
 import { planPoster } from "./planner";
+import { RequestQueueError } from "./requestQueue";
+import { ReferenceUploadError, uploadReferences } from "./referenceUploads";
 import {
   PosterError,
   deletePoster,
@@ -213,6 +216,32 @@ app.post("/api/poster/landmark", async (c) => {
   }
 });
 
+app.post("/api/poster/references", async (c) => {
+  try {
+    const body = await c.req.json();
+    return c.json(await uploadReferences(currentUserId(c), body.references));
+  } catch (error) {
+    return fail(c, error);
+  }
+});
+
+app.post("/api/poster/jobs", async c => {
+  try { return c.json({ jobs: await submitGenerationJobs(currentUserId(c), await c.req.json()) }); }
+  catch (error) { return fail(c,error); }
+});
+app.get("/api/poster/jobs", async c => {
+  try { return c.json({ jobs: await listGenerationJobs(currentUserId(c)) }); }
+  catch (error) { return fail(c,error); }
+});
+app.post("/api/poster/jobs/:id/retry", async c => {
+  try { return c.json({ jobs: await retryGenerationJob(currentUserId(c),c.req.param("id")) }); }
+  catch (error) { return fail(c,error); }
+});
+app.delete("/api/poster/jobs/:id", async c => {
+  try { await dismissGenerationJob(currentUserId(c),c.req.param("id")); return c.json({ ok: true }); }
+  catch (error) { return fail(c,error); }
+});
+
 app.post("/api/poster/plan", async (c) => {
   try {
     const body = await c.req.json();
@@ -384,7 +413,7 @@ function webp(bytes: Buffer) {
 }
 
 function fail(c: Context, error: unknown) {
-  if (error instanceof PosterError || error instanceof OpenRouterError) {
+  if (error instanceof PosterError || error instanceof OpenRouterError || error instanceof ReferenceUploadError || error instanceof RequestQueueError) {
     return c.json({ error: error.message }, error.status);
   }
   const message = error instanceof Error ? error.message : "request failed";
@@ -405,6 +434,8 @@ try {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 }
+
+startGenerationWorker();
 
 serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" }, (info) => {
   console.log(`scenic-route api http://${info.address}:${info.port}`);

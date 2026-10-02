@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
+import { providerQueue, RequestQueueError } from "./requestQueue";
 import {
   OpenRouterError,
   chatModel,
@@ -172,4 +173,164 @@ test("imageModel requires OPENROUTER_IMAGE_MODEL", () => {
     if (previous == null) delete process.env.OPENROUTER_IMAGE_MODEL;
     else process.env.OPENROUTER_IMAGE_MODEL = previous;
   }
+});
+
+const plannerSuccess = () => new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }));
+
+function planningClock(t: TestContext) {
+  const oldKey = process.env.OPENROUTER_API_KEY, oldModel = process.env.OPENROUTER_MODEL;
+  process.env.OPENROUTER_API_KEY = "test";
+  process.env.OPENROUTER_MODEL = "test/planner";
+  t.after(() => {
+    if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = oldKey;
+    if (oldModel === undefined) delete process.env.OPENROUTER_MODEL; else process.env.OPENROUTER_MODEL = oldModel;
+  });
+  const clock = { now: Date.now() };
+  t.mock.method(Date, "now", () => clock.now);
+  return clock;
+}
+
+test("initial queue waiting preserves the full planning budget for retries", async (t) => {
+  const { chatJson } = await import("./openrouter");
+  const clock = planningClock(t);
+  const waits: number[] = [];
+  t.mock.method(providerQueue("chat"), "run", async (work: () => Promise<unknown>, waitMs: number) => {
+    waits.push(waitMs);
+    if (waits.length === 1) clock.now += 230_000;
+    return work();
+  });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    if (++calls === 1) {
+      clock.now += 30_000;
+      return new Response(JSON.stringify({ error: { message: "busy" } }), { status: 429, headers: { "retry-after": "0" } });
+    }
+    return plannerSuccess();
+  });
+  assert.deepEqual((await chatJson({ messages: [] })).value, { ok: true });
+  assert.equal(calls, 2);
+  assert.deepEqual(waits, [240_000, 210_000]);
+});
+
+test("retry queue waiting consumes the original planning budget without resetting it", async (t) => {
+  const { chatJson } = await import("./openrouter");
+  const clock = planningClock(t);
+  const waits: number[] = [];
+  t.mock.method(providerQueue("chat"), "run", async (work: () => Promise<unknown>, waitMs: number) => {
+    waits.push(waitMs);
+    if (waits.length === 2) clock.now += 210_000;
+    return work();
+  });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    clock.now += 30_000;
+    return new Response(JSON.stringify({ error: { message: "busy" } }), { status: 429, headers: { "retry-after": "0" } });
+  });
+  await assert.rejects(chatJson({ messages: [] }), (e: any) => e.status === 504 && /deadline exceeded/.test(e.message));
+  assert.equal(calls, 1);
+  assert.deepEqual(waits, [240_000, 210_000]);
+});
+
+test("initial queue expiry fails without sending or retrying a planning request", async (t) => {
+  const { chatJson } = await import("./openrouter");
+  planningClock(t);
+  const admission = t.mock.method(providerQueue("chat"), "run", async (_work: unknown, waitMs: number) => {
+    assert.equal(waitMs, 240_000);
+    throw new RequestQueueError("Request queue wait timed out; try again later");
+  });
+  const fetch = t.mock.method(globalThis, "fetch", async () => assert.fail("expired work ran"));
+  await assert.rejects(chatJson({ messages: [] }), RequestQueueError);
+  assert.equal(admission.mock.callCount(), 1);
+  assert.equal(fetch.mock.callCount(), 0);
+});
+
+test("planning refuses retry backoff that would exceed the budget after admission", async (t) => {
+  const { chatJson } = await import("./openrouter");
+  const clock = planningClock(t);
+  t.mock.method(providerQueue("chat"), "run", async (work: () => Promise<unknown>) => {
+    clock.now += 230_000;
+    return work();
+  });
+  const fetch = t.mock.method(globalThis, "fetch", async () => {
+    clock.now += 239_000;
+    return new Response(JSON.stringify({ error: { message: "busy" } }), { status: 429, headers: { "retry-after": "2" } });
+  });
+  await assert.rejects(chatJson({ messages: [] }), (e: any) => e.upstreamStatus === 429);
+  assert.equal(fetch.mock.callCount(), 1);
+});
+
+test("planning recovery shares a three-call budget across inline and schema fallbacks", async (t) => {
+  const { chatJson } = await import("./openrouter");
+  const oldKey = process.env.OPENROUTER_API_KEY, oldModel = process.env.OPENROUTER_MODEL;
+  process.env.OPENROUTER_API_KEY = "test"; process.env.OPENROUTER_MODEL = "test/planner";
+  t.after(() => {
+    if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = oldKey;
+    if (oldModel === undefined) delete process.env.OPENROUTER_MODEL; else process.env.OPENROUTER_MODEL = oldModel;
+  });
+  const requests: any[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: string, init: RequestInit) => {
+    requests.push(JSON.parse(init.body as string));
+    if (requests.length === 1) return new Response(JSON.stringify({ error: { metadata: { raw: '{"code":"media_url_not_fetchable"}' } } }), { status: 400 });
+    if (requests.length === 2) return new Response(JSON.stringify({ error: { message: "json_schema unsupported" } }), { status: 400 });
+    return plannerSuccess();
+  });
+  const result = await chatJson({ messages: ["url"], inlineMessages: async () => ["inline"], schemaName: "test", schema: {} });
+  assert.deepEqual(result.value, { ok: true });
+  assert.equal(requests.length, 3);
+  assert.deepEqual(requests[1].messages, ["inline"]);
+  assert.equal(requests[2].response_format.type, "json_object");
+});
+
+test("429 honors Retry-After and stops after three calls; 400 stops immediately", async (t) => {
+  const { chatJson } = await import("./openrouter");
+  const oldKey = process.env.OPENROUTER_API_KEY, oldModel = process.env.OPENROUTER_MODEL;
+  process.env.OPENROUTER_API_KEY = "test"; process.env.OPENROUTER_MODEL = "test/planner";
+  t.after(() => {
+    if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = oldKey;
+    if (oldModel === undefined) delete process.env.OPENROUTER_MODEL; else process.env.OPENROUTER_MODEL = oldModel;
+  });
+  let calls = 0, status = 429;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    return new Response(JSON.stringify({ error: { message: "rejected" } }), { status, headers: { "retry-after": "0" } });
+  });
+  await assert.rejects(chatJson({ messages: [] }), (e: any) => e.upstreamStatus === 429 && e.retryAfterMs === 0);
+  assert.equal(calls, 3);
+  calls = 0; status = 400;
+  await assert.rejects(chatJson({ messages: [] }), (e: any) => e.upstreamStatus === 400);
+  assert.equal(calls, 1);
+});
+
+test("retry classification only permits temporary statuses and known network causes", async () => {
+  const { isRetryablePlanningError, retryAfterMs } = await import("./openrouter");
+  assert.equal(isRetryablePlanningError(new SyntaxError("bad json")), false);
+  assert.equal(isRetryablePlanningError(new TypeError("fetch failed", { cause: { code: "ETIMEDOUT" } })), true);
+  assert.equal(isRetryablePlanningError(new DOMException("timeout", "AbortError")), false);
+  assert.equal(retryAfterMs("10"), 10_000);
+  assert.equal(retryAfterMs("Thu, 01 Oct 2026 00:00:10 GMT", Date.parse("2026-10-01T00:00:00Z")), 10_000);
+});
+
+test("a network interruption retries planning; image failures never retry", async (t) => {
+  const { chatJson, createImage } = await import("./openrouter");
+  const oldKey = process.env.OPENROUTER_API_KEY, oldModel = process.env.OPENROUTER_MODEL;
+  process.env.OPENROUTER_API_KEY = "test"; process.env.OPENROUTER_MODEL = "test/planner";
+  t.after(() => {
+    if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = oldKey;
+    if (oldModel === undefined) delete process.env.OPENROUTER_MODEL; else process.env.OPENROUTER_MODEL = oldModel;
+  });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    if (++calls === 1) throw new TypeError("fetch failed", { cause: { code: "ETIMEDOUT" } });
+    return plannerSuccess();
+  });
+  assert.deepEqual((await chatJson({ messages: [] })).value, { ok: true });
+  assert.equal(calls, 2);
+  calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    return new Response(JSON.stringify({ error: { message: "provider failed" } }), { status: 503 });
+  });
+  await assert.rejects(createImage({ model: "test/image", prompt: "test", references: [], aspectRatio: "1:1" }));
+  assert.equal(calls, 1);
 });

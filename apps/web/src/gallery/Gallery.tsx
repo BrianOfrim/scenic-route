@@ -1,5 +1,6 @@
+import { pollPosterJobs } from "../api";
 import { forgetArrivedPoster, getArrivedEpoch, getArrivedPosters, useArrivedEpoch } from "./arrivedPosters";
-import { clearFailedImage, useGenerationState } from "./generationState";
+import { clearFailedImage, generationPhaseLabels, useGenerationState } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { deletePoster, fetchActivities, fetchPoster, fetchPosterImage, fetchPosters, setPosterFavorite, variantPoster, type PosterRecord } from "../api";
 import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
@@ -231,6 +232,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const isMobile = useMediaQuery(MOBILE_QUERY);
   const generation = useGenerationState();
   const arrivedEpoch = useArrivedEpoch();
+  useEffect(() => pollPosterJobs(error => console.warn("Could not refresh generation jobs", error)), []);
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const postersRef = useRef(posters);
@@ -610,13 +612,14 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         )}
         {generation.pending.length > 0 && (
           <section className="gallery-run" aria-label="Images being generated">
-            <header className="gallery-run-head"><strong>Generating images</strong></header>
+            <header className="gallery-run-head"><strong>Images in progress</strong></header>
             <div className="gallery-run-row">
               {generation.pending.map((image) => (
-                <div key={image.id} className="gallery-card gallery-pending" role="status" aria-label={`${image.title}: Generating image`}>
+                <div key={image.id} className="gallery-card gallery-pending" role="status" aria-label={`${image.title}: ${generationPhaseLabels[image.phase]} image`}>
                   <div className="gallery-pending-image" aria-busy="true">
                     <i className="spinner" aria-hidden="true" />
-                    <strong>Generating…</strong>
+                    <strong>{generationPhaseLabels[image.phase]}…</strong>
+                    {!!image.imageAttempt && image.imageAttempt > 1 && <span>Attempt {image.imageAttempt} of 3</span>}
                   </div>
                   <div className="gallery-pending-caption">
                     <strong>{image.title}</strong>
