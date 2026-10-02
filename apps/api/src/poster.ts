@@ -83,9 +83,14 @@ export type PosterEditorSnapshot = {
   routeOnly: boolean;
   title: string;
   location?: string | null;
+  locationMode?: "place" | "coordinates";
+  dateOverride?: string | null;
+  sportOverride?: string | null;
+  distanceOverrideMeters?: number | null;
   startPlace: string;
   finishPlace: string;
   placesEdited: boolean;
+  sharedPlace?: boolean | null;
   statIds: string[];
   statUnits: "metric" | "imperial";
   aspectRatio: string;
@@ -95,6 +100,7 @@ export type PosterEditorSnapshot = {
   vibes?: string;
   /** Optional names of the people who did the activity, printed on the image. */
   people?: string;
+  peopleEnabled?: boolean;
   paletteId: string;
   paletteIdsByStyle: Record<string, string[]>;
   imageModelIds: string[];
@@ -677,9 +683,15 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     showRouteMarkers: raw.showRouteMarkers !== false,
     routeOnly: raw.routeOnly === true,
     title: typeof raw.title === "string" ? raw.title : "",
+    location: typeof raw.location === "string" ? raw.location.slice(0, 200) : raw.location === null ? null : undefined,
+    locationMode: raw.locationMode === "coordinates" ? "coordinates" : "place",
+    dateOverride: typeof raw.dateOverride === "string" ? raw.dateOverride.slice(0, 80) : null,
+    sportOverride: typeof raw.sportOverride === "string" ? raw.sportOverride.slice(0, 80) : null,
+    distanceOverrideMeters: typeof raw.distanceOverrideMeters === "number" && Number.isFinite(raw.distanceOverrideMeters) && raw.distanceOverrideMeters >= 0 ? raw.distanceOverrideMeters : null,
     startPlace: typeof raw.startPlace === "string" ? raw.startPlace : "",
     finishPlace: typeof raw.finishPlace === "string" ? raw.finishPlace : "",
     placesEdited: raw.placesEdited === true,
+    sharedPlace: typeof raw.sharedPlace === "boolean" ? raw.sharedPlace : null,
     statIds: stringList(raw.statIds),
     statUnits: raw.statUnits === "imperial" ? "imperial" : "metric",
     aspectRatio: imageAspectRatio(typeof raw.aspectRatio === "string" ? raw.aspectRatio : DEFAULT_ASPECT_RATIO),
@@ -687,6 +699,7 @@ export function sanitizePosterEditor(value: unknown): PosterEditorSnapshot | und
     stylePrompt: typeof raw.stylePrompt === "string" ? raw.stylePrompt : "",
     vibes: normalizeStoredVibes(raw.vibes),
     people: normalizeStoredPeople(raw.people),
+    peopleEnabled: typeof raw.peopleEnabled === "boolean" ? raw.peopleEnabled : Boolean(normalizeStoredPeople(raw.people)),
     paletteId: typeof raw.paletteId === "string" && raw.paletteId.trim() ? raw.paletteId.trim() : "auto",
     paletteIdsByStyle: stringListMap(raw.paletteIdsByStyle),
     imageModelIds: stringList(raw.imageModelIds),

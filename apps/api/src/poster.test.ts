@@ -89,6 +89,26 @@ test("sanitizePosterEditor defaults paletteId to auto", () => {
   assert.deepEqual(editor?.paletteIdsByStyle, {});
 });
 
+test("editor sanitization preserves disabled people drafts and editable display stats", () => {
+  const editor = sanitizePosterEditor({ people: "Brian", peopleEnabled: false, location: "", locationMode: "coordinates", dateOverride: "", sportOverride: "Cycling" });
+  assert.equal(editor?.people, "Brian");
+  assert.equal(editor?.peopleEnabled, false);
+  assert.equal(editor?.location, "");
+  assert.equal(editor?.locationMode, "coordinates");
+  assert.equal(editor?.dateOverride, "");
+  assert.equal(editor?.sportOverride, "Cycling");
+  assert.equal(sanitizePosterEditor({ people: "Brian" })?.peopleEnabled, true);
+});
+
+test("editor sanitization preserves valid distance edits and rejects invalid values", () => {
+  for (const distanceOverrideMeters of [0, 10000, 16093.44]) {
+    assert.equal(sanitizePosterEditor({ distanceOverrideMeters })?.distanceOverrideMeters, distanceOverrideMeters);
+  }
+  for (const distanceOverrideMeters of [-1, Infinity, NaN, "10000"]) {
+    assert.equal(sanitizePosterEditor({ distanceOverrideMeters })?.distanceOverrideMeters, null);
+  }
+});
+
 test("saved geography mode and scene identity are validated", () => {
   const editor = sanitizePosterEditor({ geographyMode: "auto", routeDetail: false, geographyPolicyVersion: 1,
     geographySceneId: "a".repeat(64), geographyFrameKey: "frame", featureIds: [] });
@@ -116,6 +136,13 @@ test("sanitizePosterEditor keeps per-style palette lists", () => {
     swiss: ["process-blue", "black"],
     risograph: ["pink-teal"],
   });
+});
+
+test("sanitizePosterEditor preserves shared endpoint choices", () => {
+  assert.equal(sanitizePosterEditor({ sharedPlace: true })?.sharedPlace, true);
+  assert.equal(sanitizePosterEditor({ sharedPlace: false })?.sharedPlace, false);
+  assert.equal(sanitizePosterEditor({ sharedPlace: "false" })?.sharedPlace, null);
+  assert.equal(sanitizePosterEditor({})?.sharedPlace, null);
 });
 
 test("sanitizePosterEditor ignores missing or invalid payloads", () => {

@@ -86,6 +86,15 @@ const defaults = {
   areaNames: ["Banff"],
 };
 
+test("shared endpoint field choice survives saving, including separate blank fields", () => {
+  const restored = restoreEditor(record(), 10, defaults);
+  for (const sharedPlace of [null, true, false]) {
+    const editor = captureEditorSnapshot({ ...restored, startPlace: "", finishPlace: "", sharedPlace,
+      imageModelIds: [], variants: 1, qualities: undefined });
+    assert.equal(restoreEditor(record({ editor }), 10, defaults).sharedPlace, sharedPlace);
+  }
+});
+
 test("legacy geography stays manual; automatic scene identity and explicit empty selections restore", () => {
   const legacy = restoreEditor(record({ spec: undefined, prompt: "", labels: [], featureIds: [] }), 10, defaults);
   assert.equal(legacy.geographyMode, "manual");
@@ -205,6 +214,29 @@ test("restoreEditor reapplies a full snapshot including crop and annotations", (
   assert.deepEqual(restored.paletteIdsByStyle, { "middle-earth": ["auto"], blueprint: ["auto"] });
   assert.deepEqual(restored.imageModelIds, ["google/gemini-test"]);
   assert.equal(restored.variants, 2);
+});
+
+test("people drafts and their disabled state survive saving and restoring", () => {
+  const initial = restoreEditor(record(), 20, { title: "Ride", labels: [], trailNames: [], areaNames: [] });
+  for (const peopleEnabled of [false, true]) {
+    const editor = captureEditorSnapshot({ ...initial, people: "Brian, Alex", peopleEnabled, imageModelIds: [], variants: 1, qualities: undefined });
+    const restored = restoreEditor(record({ editor }), 20, { title: "Ride", labels: [], trailNames: [], areaNames: [] });
+    assert.equal(restored.people, "Brian, Alex");
+    assert.equal(restored.peopleEnabled, peopleEnabled);
+  }
+});
+
+test("location format and inline date and sport edits survive restoring, including empty edits", () => {
+  const initial = restoreEditor(record(), 20, defaults);
+  for (const dateOverride of ["Oct 1, 2026", ""]) {
+    const editor = captureEditorSnapshot({ ...initial, locationMode: "coordinates", location: "Winnipeg", dateOverride, sportOverride: "Cycling", distanceOverrideMeters: 10000, imageModelIds: [], variants: 1, qualities: undefined });
+    const restored = restoreEditor(record({ editor }), 20, defaults);
+    assert.equal(restored.locationMode, "coordinates");
+    assert.equal(restored.location, "Winnipeg");
+    assert.equal(restored.dateOverride, dateOverride);
+    assert.equal(restored.sportOverride, "Cycling");
+    assert.equal(restored.distanceOverrideMeters, 10000);
+  }
 });
 
 test("restoreEditor reads a people credit from saved stats when the snapshot has none", () => {

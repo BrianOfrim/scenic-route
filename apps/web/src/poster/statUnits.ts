@@ -8,6 +8,11 @@ const METERS_PER_MILE = 1609.344;
 const FEET_PER_METER = 3.280839895;
 const MPH_PER_MPS = 2.2369362921;
 
+export function distanceToMeters(value: number, units: StatUnits): number | null {
+  if (!Number.isFinite(value) || value < 0) return null;
+  return value * (units === "imperial" ? METERS_PER_MILE : 1000);
+}
+
 export function statUnitsFrom(value: unknown): StatUnits {
   return value === "imperial" ? "imperial" : "metric";
 }
