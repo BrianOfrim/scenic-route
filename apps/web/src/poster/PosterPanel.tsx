@@ -1,6 +1,7 @@
 import type { GeographyScene } from "../../../api/src/osm/geographyPolicy";
 import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, automaticGeographyAllowance, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
 import { beginGeneration } from "../gallery/generationState";
+import { ThemeExamples } from "./ThemeExamples";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   fetchPosterCapabilities,
@@ -2184,6 +2185,20 @@ export function PosterPanel({
     });
   }
 
+  function applyExamplePalette(styleId: string, paletteId: string) {
+    const nextPalette = normalizePaletteId(styleById(styleId), paletteId);
+    for (const id of styleIds) {
+      if (id !== styleId && !sheetMode) continue;
+      for (const previous of paletteIdsForStyle(styleById(id), paletteIdsByStyle[id])) {
+        if (id !== styleId || previous !== nextPalette) dropSlot(id, previous);
+      }
+    }
+    setStyleIds((current) => sheetMode ? [styleId] : current.includes(styleId) ? current : [...current, styleId]);
+    setPaletteIdsByStyle((current) => sheetMode ? { [styleId]: [nextPalette] } : { ...current, [styleId]: [nextPalette] });
+    setActiveStyleId(styleId);
+    setActivePlanKey(planSlotKey(styleId, nextPalette));
+  }
+
   const showEditor = context != null && cropActivityId.current === activityId;
   const featuresRefreshing = (loading || geographyPending) && showEditor;
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
@@ -2232,6 +2247,8 @@ export function PosterPanel({
   }, [preview]);
 
   const launchMode = sheetMode && mobileSurface === "launch";
+  const themeExamples = <ThemeExamples single={sheetMode} disabled={busy} selectedStyleIds={styleIds}
+    onToggleTheme={toggleStyle} onSelectTheme={selectStyle} onApplyPalette={applyExamplePalette} />;
   const labelCount = selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length;
   const showOnMapStep =
     sheetMode &&
@@ -2429,6 +2446,7 @@ export function PosterPanel({
             <p className="muted poster-launch-summary">
               {formatKm(croppedKm)} · annotations off
             </p>
+            {themeExamples}
             <div className="poster-option-row">
               <label className="poster-field">
                 Theme
@@ -3122,6 +3140,7 @@ export function PosterPanel({
             showTitle={!sheetMode}
             className={workflowPane("themes")}
           >
+            {themeExamples}
             {sheetMode ? (
               <div className="poster-option-row">
                 <label className="poster-field">

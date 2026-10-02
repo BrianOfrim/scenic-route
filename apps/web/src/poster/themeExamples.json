@@ -1,0 +1,302 @@
+[
+  {
+    "styleId": "art-deco",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/art-deco-auto.webp",
+    "thumbnail": "/theme-examples/beltline/art-deco-auto-thumb.webp"
+  },
+  {
+    "styleId": "art-deco",
+    "paletteId": "black-gold",
+    "image": "/theme-examples/beltline/art-deco-black-gold.webp",
+    "thumbnail": "/theme-examples/beltline/art-deco-black-gold-thumb.webp"
+  },
+  {
+    "styleId": "art-deco",
+    "paletteId": "jazz-club",
+    "image": "/theme-examples/beltline/art-deco-jazz-club.webp",
+    "thumbnail": "/theme-examples/beltline/art-deco-jazz-club-thumb.webp"
+  },
+  {
+    "styleId": "art-deco",
+    "paletteId": "luxury-line",
+    "image": "/theme-examples/beltline/art-deco-luxury-line.webp",
+    "thumbnail": "/theme-examples/beltline/art-deco-luxury-line-thumb.webp"
+  },
+  {
+    "styleId": "art-deco",
+    "paletteId": "ocean-liner",
+    "image": "/theme-examples/beltline/art-deco-ocean-liner.webp",
+    "thumbnail": "/theme-examples/beltline/art-deco-ocean-liner-thumb.webp"
+  },
+  {
+    "styleId": "art-nouveau",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/art-nouveau-auto.webp",
+    "thumbnail": "/theme-examples/beltline/art-nouveau-auto-thumb.webp"
+  },
+  {
+    "styleId": "art-nouveau",
+    "paletteId": "autumn",
+    "image": "/theme-examples/beltline/art-nouveau-autumn.webp",
+    "thumbnail": "/theme-examples/beltline/art-nouveau-autumn-thumb.webp"
+  },
+  {
+    "styleId": "art-nouveau",
+    "paletteId": "mucha-spring",
+    "image": "/theme-examples/beltline/art-nouveau-mucha-spring.webp",
+    "thumbnail": "/theme-examples/beltline/art-nouveau-mucha-spring-thumb.webp"
+  },
+  {
+    "styleId": "art-nouveau",
+    "paletteId": "peacock",
+    "image": "/theme-examples/beltline/art-nouveau-peacock.webp",
+    "thumbnail": "/theme-examples/beltline/art-nouveau-peacock-thumb.webp"
+  },
+  {
+    "styleId": "art-nouveau",
+    "paletteId": "twilight",
+    "image": "/theme-examples/beltline/art-nouveau-twilight.webp",
+    "thumbnail": "/theme-examples/beltline/art-nouveau-twilight-thumb.webp"
+  },
+  {
+    "styleId": "bauhaus",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/bauhaus-auto.webp",
+    "thumbnail": "/theme-examples/beltline/bauhaus-auto-thumb.webp"
+  },
+  {
+    "styleId": "bauhaus",
+    "paletteId": "dessau",
+    "image": "/theme-examples/beltline/bauhaus-dessau.webp",
+    "thumbnail": "/theme-examples/beltline/bauhaus-dessau-thumb.webp"
+  },
+  {
+    "styleId": "bauhaus",
+    "paletteId": "exhibition",
+    "image": "/theme-examples/beltline/bauhaus-exhibition.webp",
+    "thumbnail": "/theme-examples/beltline/bauhaus-exhibition-thumb.webp"
+  },
+  {
+    "styleId": "bauhaus",
+    "paletteId": "primary",
+    "image": "/theme-examples/beltline/bauhaus-primary.webp",
+    "thumbnail": "/theme-examples/beltline/bauhaus-primary-thumb.webp"
+  },
+  {
+    "styleId": "bauhaus",
+    "paletteId": "red-circle",
+    "image": "/theme-examples/beltline/bauhaus-red-circle.webp",
+    "thumbnail": "/theme-examples/beltline/bauhaus-red-circle-thumb.webp"
+  },
+  {
+    "styleId": "blueprint",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/blueprint-auto.webp",
+    "thumbnail": "/theme-examples/beltline/blueprint-auto-thumb.webp"
+  },
+  {
+    "styleId": "linen-postcard",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/linen-postcard-auto.webp",
+    "thumbnail": "/theme-examples/beltline/linen-postcard-auto-thumb.webp"
+  },
+  {
+    "styleId": "linen-postcard",
+    "paletteId": "chrome",
+    "image": "/theme-examples/beltline/linen-postcard-chrome.webp",
+    "thumbnail": "/theme-examples/beltline/linen-postcard-chrome-thumb.webp"
+  },
+  {
+    "styleId": "linen-postcard",
+    "paletteId": "civic",
+    "image": "/theme-examples/beltline/linen-postcard-civic.webp",
+    "thumbnail": "/theme-examples/beltline/linen-postcard-civic-thumb.webp"
+  },
+  {
+    "styleId": "linen-postcard",
+    "paletteId": "desert",
+    "image": "/theme-examples/beltline/linen-postcard-desert.webp",
+    "thumbnail": "/theme-examples/beltline/linen-postcard-desert-thumb.webp"
+  },
+  {
+    "styleId": "linen-postcard",
+    "paletteId": "sunset",
+    "image": "/theme-examples/beltline/linen-postcard-sunset.webp",
+    "thumbnail": "/theme-examples/beltline/linen-postcard-sunset-thumb.webp"
+  },
+  {
+    "styleId": "middle-earth",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/middle-earth-auto.webp",
+    "thumbnail": "/theme-examples/beltline/middle-earth-auto-thumb.webp"
+  },
+  {
+    "styleId": "modernist",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/modernist-auto.webp",
+    "thumbnail": "/theme-examples/beltline/modernist-auto-thumb.webp"
+  },
+  {
+    "styleId": "modernist",
+    "paletteId": "gallery",
+    "image": "/theme-examples/beltline/modernist-gallery.webp",
+    "thumbnail": "/theme-examples/beltline/modernist-gallery-thumb.webp"
+  },
+  {
+    "styleId": "modernist",
+    "paletteId": "olive",
+    "image": "/theme-examples/beltline/modernist-olive.webp",
+    "thumbnail": "/theme-examples/beltline/modernist-olive-thumb.webp"
+  },
+  {
+    "styleId": "modernist",
+    "paletteId": "pool",
+    "image": "/theme-examples/beltline/modernist-pool.webp",
+    "thumbnail": "/theme-examples/beltline/modernist-pool-thumb.webp"
+  },
+  {
+    "styleId": "modernist",
+    "paletteId": "studio",
+    "image": "/theme-examples/beltline/modernist-studio.webp",
+    "thumbnail": "/theme-examples/beltline/modernist-studio-thumb.webp"
+  },
+  {
+    "styleId": "risograph",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/risograph-auto.webp",
+    "thumbnail": "/theme-examples/beltline/risograph-auto-thumb.webp"
+  },
+  {
+    "styleId": "risograph",
+    "paletteId": "black-red",
+    "image": "/theme-examples/beltline/risograph-black-red.webp",
+    "thumbnail": "/theme-examples/beltline/risograph-black-red-thumb.webp"
+  },
+  {
+    "styleId": "risograph",
+    "paletteId": "blue-sunflower",
+    "image": "/theme-examples/beltline/risograph-blue-sunflower.webp",
+    "thumbnail": "/theme-examples/beltline/risograph-blue-sunflower-thumb.webp"
+  },
+  {
+    "styleId": "risograph",
+    "paletteId": "kelly-cornflower",
+    "image": "/theme-examples/beltline/risograph-kelly-cornflower.webp",
+    "thumbnail": "/theme-examples/beltline/risograph-kelly-cornflower-thumb.webp"
+  },
+  {
+    "styleId": "risograph",
+    "paletteId": "orange-teal",
+    "image": "/theme-examples/beltline/risograph-orange-teal.webp",
+    "thumbnail": "/theme-examples/beltline/risograph-orange-teal-thumb.webp"
+  },
+  {
+    "styleId": "risograph",
+    "paletteId": "pink-teal",
+    "image": "/theme-examples/beltline/risograph-pink-teal.webp",
+    "thumbnail": "/theme-examples/beltline/risograph-pink-teal-thumb.webp"
+  },
+  {
+    "styleId": "rpg",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/rpg-auto.webp",
+    "thumbnail": "/theme-examples/beltline/rpg-auto-thumb.webp"
+  },
+  {
+    "styleId": "rpg",
+    "paletteId": "desert",
+    "image": "/theme-examples/beltline/rpg-desert.webp",
+    "thumbnail": "/theme-examples/beltline/rpg-desert-thumb.webp"
+  },
+  {
+    "styleId": "rpg",
+    "paletteId": "dungeon",
+    "image": "/theme-examples/beltline/rpg-dungeon.webp",
+    "thumbnail": "/theme-examples/beltline/rpg-dungeon-thumb.webp"
+  },
+  {
+    "styleId": "rpg",
+    "paletteId": "overworld",
+    "image": "/theme-examples/beltline/rpg-overworld.webp",
+    "thumbnail": "/theme-examples/beltline/rpg-overworld-thumb.webp"
+  },
+  {
+    "styleId": "rpg",
+    "paletteId": "winter",
+    "image": "/theme-examples/beltline/rpg-winter.webp",
+    "thumbnail": "/theme-examples/beltline/rpg-winter-thumb.webp"
+  },
+  {
+    "styleId": "swiss",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/swiss-auto.webp",
+    "thumbnail": "/theme-examples/beltline/swiss-auto-thumb.webp"
+  },
+  {
+    "styleId": "swiss",
+    "paletteId": "black",
+    "image": "/theme-examples/beltline/swiss-black.webp",
+    "thumbnail": "/theme-examples/beltline/swiss-black-thumb.webp"
+  },
+  {
+    "styleId": "swiss",
+    "paletteId": "process-blue",
+    "image": "/theme-examples/beltline/swiss-process-blue.webp",
+    "thumbnail": "/theme-examples/beltline/swiss-process-blue-thumb.webp"
+  },
+  {
+    "styleId": "swiss",
+    "paletteId": "red",
+    "image": "/theme-examples/beltline/swiss-red.webp",
+    "thumbnail": "/theme-examples/beltline/swiss-red-thumb.webp"
+  },
+  {
+    "styleId": "swiss",
+    "paletteId": "signal-yellow",
+    "image": "/theme-examples/beltline/swiss-signal-yellow.webp",
+    "thumbnail": "/theme-examples/beltline/swiss-signal-yellow-thumb.webp"
+  },
+  {
+    "styleId": "vintage-topo",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/vintage-topo-auto.webp",
+    "thumbnail": "/theme-examples/beltline/vintage-topo-auto-thumb.webp"
+  },
+  {
+    "styleId": "watercolour",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/watercolour-auto.webp",
+    "thumbnail": "/theme-examples/beltline/watercolour-auto-thumb.webp"
+  },
+  {
+    "styleId": "wpa",
+    "paletteId": "alpine",
+    "image": "/theme-examples/beltline/wpa-alpine.webp",
+    "thumbnail": "/theme-examples/beltline/wpa-alpine-thumb.webp"
+  },
+  {
+    "styleId": "wpa",
+    "paletteId": "auto",
+    "image": "/theme-examples/beltline/wpa-auto.webp",
+    "thumbnail": "/theme-examples/beltline/wpa-auto-thumb.webp"
+  },
+  {
+    "styleId": "wpa",
+    "paletteId": "coast",
+    "image": "/theme-examples/beltline/wpa-coast.webp",
+    "thumbnail": "/theme-examples/beltline/wpa-coast-thumb.webp"
+  },
+  {
+    "styleId": "wpa",
+    "paletteId": "desert",
+    "image": "/theme-examples/beltline/wpa-desert.webp",
+    "thumbnail": "/theme-examples/beltline/wpa-desert-thumb.webp"
+  },
+  {
+    "styleId": "wpa",
+    "paletteId": "park",
+    "image": "/theme-examples/beltline/wpa-park.webp",
+    "thumbnail": "/theme-examples/beltline/wpa-park-thumb.webp"
+  }
+]
