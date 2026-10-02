@@ -5,6 +5,7 @@ import {
   type ActivitySummary,
 } from "./api";
 import type { ImportNotice } from "./importNotice";
+import { TrackImportHelp } from "./TrackImportHelp";
 
 type Props = {
   activities: ActivitySummary[];
@@ -32,11 +33,12 @@ export function ActivityList({
   const [query, setQuery] = useState("");
   const [sport, setSport] = useState("all");
   const [dragOver, setDragOver] = useState(false);
-  const [selecting, setSelecting] = useState(false);
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [removing, setRemoving] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const importHelpDialog = useRef<HTMLDialogElement>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
+  const selectionMenuRef = useRef<HTMLDetailsElement>(null);
   const sports = useMemo(
     () => Array.from(new Set(activities.map((item) => item.sportType))).sort(),
     [activities],
@@ -51,7 +53,8 @@ export function ActivityList({
   }, [activities, query, sport]);
   const filteredIds = useMemo(() => filtered.map((item) => item.id), [filtered]);
   const selectedFiltered = filtered.filter((item) => checked.has(item.id));
-  const removable = selectedFiltered;
+  const removable = activities.filter((item) => checked.has(item.id));
+  const hiddenCheckedCount = removable.length - selectedFiltered.length;
   const allFilteredChecked = filtered.length > 0 && selectedFiltered.length === filtered.length;
   const someFilteredChecked = selectedFiltered.length > 0 && !allFilteredChecked;
   const locked = importing || removing;
@@ -68,6 +71,31 @@ export function ActivityList({
     if (selectAllRef.current) selectAllRef.current.indeterminate = someFilteredChecked;
   }, [someFilteredChecked]);
 
+  useEffect(() => {
+    function closeOnOutsidePointer(event: PointerEvent) {
+      const menu = selectionMenuRef.current;
+      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) {
+        menu.open = false;
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      const menu = selectionMenuRef.current;
+      if (event.key === "Escape" && menu?.open) {
+        event.preventDefault();
+        menu.open = false;
+        menu.querySelector("summary")?.focus();
+      }
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
+
   function takeFiles(list: FileList | File[] | null) {
     const files = list ? Array.from(list) : [];
     if (files.length) onImport(files);
@@ -83,9 +111,16 @@ export function ActivityList({
     });
   }
 
-  function setSelectMode(on: boolean) {
-    setSelecting(on);
-    if (!on) setChecked(new Set());
+  function selectActivities(action: "all" | "none") {
+    setChecked((current) => {
+      if (action === "none") return new Set();
+      const next = new Set(current);
+      for (const id of filteredIds) {
+        next.add(id);
+      }
+      return next;
+    });
+    if (selectionMenuRef.current) selectionMenuRef.current.open = false;
   }
 
   function toggleSelectAll() {
@@ -117,7 +152,7 @@ export function ActivityList({
 
   return (
     <aside
-      className={`panel activity-panel${dragOver ? " drop-target" : ""}${selecting ? " selecting" : ""}`}
+      className={`panel activity-panel${dragOver ? " drop-target" : ""}`}
       onDragEnter={(event) => {
         if (!event.dataTransfer.types.includes("Files")) return;
         event.preventDefault();
@@ -141,29 +176,28 @@ export function ActivityList({
       <div className="activity-header">
         <div className="panel-block">
           <div className="eyebrow">Activities</div>
-          <p className="muted">
-            Import GPX, FIT, TCX, or account export ZIPs. Original archives are not retained.
-          </p>
           <div className="row activity-toolbar">
-            <button
-              type="button"
-              className="text-btn activity-upload"
-              onClick={() => fileInput.current?.click()}
-              disabled={locked}
-              title="Choose one or more GPX, FIT, or TCX files"
-            >
-              {importing ? "Importing…" : "Import activities"}
-            </button>
-            {activities.length > 0 && (
+            <div className="activity-import-actions">
               <button
                 type="button"
-                className={`text-btn${selecting ? " on" : ""}`}
-                onClick={() => setSelectMode(!selecting)}
+                className="text-btn activity-upload"
+                onClick={() => fileInput.current?.click()}
                 disabled={locked}
+                title="Choose one or more GPX, FIT, or TCX files"
               >
-                {selecting ? "Done" : "Select"}
+                {importing ? "Importing…" : "Import activities"}
               </button>
-            )}
+              <button
+                type="button"
+                className="text-btn track-import-help-button"
+                aria-label="Help exporting GPS tracks"
+                aria-haspopup="dialog"
+                title="How to export GPS tracks from your activity app"
+                onClick={() => importHelpDialog.current?.showModal()}
+              >
+                ?
+              </button>
+            </div>
             <input
               ref={fileInput}
               className="file-input"
@@ -195,32 +229,44 @@ export function ActivityList({
             </select>
           </label>
         </div>
-        {selecting && filtered.length > 0 && (
+        {activities.length > 0 && (
           <div className="panel-block activity-select-bar">
-            <label className="activity-select-all">
-              <input
-                ref={selectAllRef}
-                type="checkbox"
-                checked={allFilteredChecked}
-                onChange={toggleSelectAll}
-                disabled={locked}
-              />
-              Select all
-            </label>
-            {selectedFiltered.length > 0 && (
+            <div className="activity-selection-control">
+              <label className="activity-select-all" title="Select all shown activities">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  checked={allFilteredChecked}
+                  aria-label="Select all shown activities"
+                  onChange={toggleSelectAll}
+                  disabled={locked || !filtered.length}
+                />
+              </label>
+              <details className="activity-selection-menu" ref={selectionMenuRef}>
+                <summary aria-label="Activity selection options" title="Selection options">▾</summary>
+                <div className="activity-selection-options">
+                  <button type="button" disabled={locked || !filtered.length} onClick={() => selectActivities("all")}>All</button>
+                  <button type="button" disabled={locked || !checked.size} onClick={() => selectActivities("none")}>None</button>
+                </div>
+              </details>
+            </div>
+            {removable.length > 0 ? (
               <div className="row activity-actions">
-                <span className="muted">
-                  {selectedFiltered.length} selected
+                <span className="muted" role="status">
+                  {removable.length} selected
+                  {hiddenCheckedCount > 0 && ` (${hiddenCheckedCount} hidden by filters)`}
                 </span>
                 <button
                   type="button"
                   className="text-btn"
                   onClick={() => void handleRemove()}
-                  disabled={locked || !removable.length}
+                  disabled={locked}
                 >
                   {removing ? "Removing…" : "Remove"}
                 </button>
               </div>
+            ) : (
+              <span className="muted">Select activities</span>
             )}
           </div>
         )}
@@ -256,18 +302,16 @@ export function ActivityList({
           </div>
         )}
         {filtered.map((item) => (
-          <div key={item.id} className={`activity-row${item.id === selectedId ? " on" : ""}`}>
-            {selecting && (
-              <label className="activity-check">
-                <input
-                  type="checkbox"
-                  checked={checked.has(item.id)}
-                  onChange={(event) => toggleChecked(item.id, event.target.checked)}
-                  disabled={locked}
-                  aria-label={`Select ${item.name}`}
-                />
-              </label>
-            )}
+          <div key={item.id} className={`activity-row${item.id === selectedId ? " on" : ""}${checked.has(item.id) ? " checked" : ""}`}>
+            <label className="activity-check">
+              <input
+                type="checkbox"
+                checked={checked.has(item.id)}
+                onChange={(event) => toggleChecked(item.id, event.target.checked)}
+                disabled={locked}
+                aria-label={`Select ${item.name}`}
+              />
+            </label>
             <button type="button" className="activity" onClick={() => onSelect(item.id)}>
               <strong>{item.name}</strong>
               <span>
@@ -279,14 +323,45 @@ export function ActivityList({
             </button>
           </div>
         ))}
-        {!loading && !filtered.length && (
-          <p className="muted activity-empty">
-            {activities.length
-              ? "No matching activities."
-              : "Import activities to get started."}
-          </p>
-        )}
+        {!loading && !filtered.length && (activities.length ? (
+          <p className="muted activity-empty">No matching activities.</p>
+        ) : (
+          <section className="activity-empty track-import-empty" aria-labelledby="track-import-empty-title">
+            <h2 id="track-import-empty-title">Bring your adventures here</h2>
+            <TrackImportHelp />
+          </section>
+        ))}
       </div>
+      <dialog
+        ref={importHelpDialog}
+        className="track-import-help-dialog"
+        aria-labelledby="track-import-help-title"
+        onClick={(event) => {
+          if (event.target !== event.currentTarget) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          if (
+            event.clientX < bounds.left || event.clientX > bounds.right ||
+            event.clientY < bounds.top || event.clientY > bounds.bottom
+          ) {
+            event.currentTarget.close();
+          }
+        }}
+      >
+        <div className="track-import-help-header">
+          <h2 id="track-import-help-title">Export your GPS tracks</h2>
+          <button
+            type="button"
+            className="text-btn"
+            onClick={() => importHelpDialog.current?.close()}
+          >
+            Close
+          </button>
+        </div>
+        <p className="muted">
+          Import GPX, FIT, TCX, or account export ZIPs. Original archives are not retained.
+        </p>
+        <TrackImportHelp />
+      </dialog>
     </aside>
   );
 }
