@@ -10,6 +10,8 @@ export const KEY_HINT =
 
 const DEFAULT_GENERATE_TIMEOUT_MS = 600_000;
 const PLAN_TIMEOUT_MS = 180_000;
+const PLAN_QUEUE_WAIT_MS = 240_000;
+const PLAN_BUDGET_MS = 240_000;
 
 /** Allow slower image providers; scale the deadline for multi-image requests. */
 export function imageGenerationTimeoutMs(n = 1) {
@@ -187,7 +189,8 @@ export async function chatJson<T>(options: {
       request,
     },
     async (capture) => {
-      const deadline = Date.now() + 240_000;
+      // Initial admission has its own limit; subsequent waits share the planning budget.
+      let deadline: number | undefined;
       const attempts: Record<string, unknown>[] = [];
       let usedInline = false;
       try {
@@ -196,6 +199,7 @@ export async function chatJson<T>(options: {
           const queuedAt = Date.now();
           try {
             result = await providerQueue("chat").run(async () => {
+              deadline ??= Date.now() + PLAN_BUDGET_MS;
               const remaining = deadline - Date.now();
               if (remaining <= 0) throw new OpenRouterError("Planner retry deadline exceeded", 504);
               const queueWaitMs = Date.now() - queuedAt;
@@ -210,11 +214,11 @@ export async function chatJson<T>(options: {
                   method: "POST", headers: headers(key), body: JSON.stringify(request),
                 });
               } finally { transport.close(); }
-            }, Math.max(1, deadline - Date.now()));
+            }, deadline === undefined ? PLAN_QUEUE_WAIT_MS : Math.max(1, deadline - Date.now()));
           } catch (error) {
             if (attempt === 3 || !isRetryablePlanningError(error)) throw error;
             const delay = attempt === 1 ? 2000 + Math.random() * 2000 : 8000 + Math.random() * 4000;
-            if (Date.now() + delay >= deadline) throw error;
+            if (deadline === undefined || Date.now() + delay >= deadline) throw error;
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
           }
@@ -235,7 +239,7 @@ export async function chatJson<T>(options: {
             }
             if (!isRetryablePlanningError(error)) throw error;
             const delay = error.retryAfterMs ?? (attempt === 1 ? 2000 + Math.random() * 2000 : 8000 + Math.random() * 4000);
-            if (Date.now() + delay >= deadline) throw error;
+            if (deadline === undefined || Date.now() + delay >= deadline) throw error;
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
           }

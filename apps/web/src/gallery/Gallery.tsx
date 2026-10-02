@@ -619,6 +619,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                   <div className="gallery-pending-image" aria-busy="true">
                     <i className="spinner" aria-hidden="true" />
                     <strong>{generationPhaseLabels[image.phase]}…</strong>
+                    {!!image.imageAttempt && image.imageAttempt > 1 && <span>Attempt {image.imageAttempt} of 3</span>}
                   </div>
                   <div className="gallery-pending-caption">
                     <strong>{image.title}</strong>

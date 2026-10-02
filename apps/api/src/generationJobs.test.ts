@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { GenerationJobQueue } from "./generationJobs";
+import { OpenRouterError } from "./openrouter";
 import type { PlannerInput } from "./planner";
 import type { PosterSpec } from "./posterSpec";
 
@@ -32,11 +33,11 @@ test("55-job batches deduplicate simultaneous submission and limit stage concurr
   assert.ok(first.every(job => job.variants === 1), "counts match the provider's output limit");
   assert.deepEqual(queue.list("other"), []);
   const claims = Array.from({ length: 10 }, () => queue.claim("planning")).filter(job => !!job);
-  assert.equal(claims.length, Number(process.env.OPENROUTER_PLAN_CONCURRENCY || 3));
+  assert.equal(claims.length, Number(process.env.OPENROUTER_PLAN_CONCURRENCY || 4));
   assert.equal(new Set(claims.map(job => job.id)).size, claims.length);
   await Promise.all(claims.map(job => queue.run(job)));
   const images = Array.from({ length: 10 }, () => queue.claim("generating")).filter(job => !!job);
-  assert.equal(images.length, Math.min(claims.length, Number(process.env.OPENROUTER_IMAGE_CONCURRENCY || 3)));
+  assert.equal(images.length, Math.min(claims.length, Number(process.env.OPENROUTER_IMAGE_CONCURRENCY || 4)));
   await Promise.all(images.map(job => queue.run(job)));
   assert.equal(queue.list("owner").length, 55 - images.length);
   assert.equal((await queue.submit("owner", body)).length, 55, "completed jobs still prevent duplicate submission");
@@ -107,4 +108,96 @@ test("finished and failed jobs expire after 24 hours while queued work remains",
   assert.deepEqual(queue.list("owner").map(job => job.id), [queued.id]);
   assert.equal((await queue.submit("owner", { submissionId: "queued", jobs: [input] }))[0].id, queued.id,
     "active batches remain deduplicated even after the retention period");
+});
+
+for (const status of [502, 503, 504]) {
+  test(`upstream HTTP ${status} retries reuse the plan and release slots during backoff`, async t => {
+    const { queue, input, work } = setup();
+    let now = Date.now();
+    t.mock.method(Date, "now", () => now);
+    t.mock.method(Math, "random", () => 0.5);
+    let plans = 0;
+    let images = 0;
+    const originalPlan = work.plan;
+    work.plan = async (...args) => { plans++; return originalPlan(...args); };
+    const originalGenerate = work.generate;
+    work.generate = async (...args) => {
+      images++;
+      if (images === 1) {
+        const error = new OpenRouterError("Provider failed");
+        error.upstreamStatus = status;
+        throw error;
+      }
+      return originalGenerate(...args);
+    };
+    await queue.submit("owner", { submissionId: "retry", jobs: [input] });
+    await queue.run(queue.claim("planning")!);
+    await queue.run(queue.claim("generating")!);
+    assert.equal(queue.list("owner")[0].state, "ready");
+    assert.equal(queue.list("owner")[0].error, null);
+    assert.equal(queue.claim("generating"), undefined);
+    await queue.submit("owner", { submissionId: "other", jobs: [input] });
+    await queue.run(queue.claim("planning")!);
+    await queue.run(queue.claim("generating")!);
+    assert.equal(images, 2, "another image can run while the first backs off");
+    now += 5999;
+    assert.equal(queue.claim("generating"), undefined);
+    now++;
+    const retry = queue.claim("generating")!;
+    assert.equal(queue.list("owner")[0].imageAttempt, 2);
+    await queue.run(retry);
+    assert.equal(images, 3);
+    assert.equal(plans, 2, "each job planned once despite the image retry");
+    assert.deepEqual(queue.list("owner"), []);
+  });
+}
+
+test("repeated upstream failures stop after three attempts and allow manual retry", async t => {
+  const { queue, input, work } = setup();
+  let now = Date.now();
+  t.mock.method(Date, "now", () => now);
+  t.mock.method(Math, "random", () => 0);
+  let images = 0;
+  work.generate = async () => {
+    images++;
+    const error = new OpenRouterError("Still unavailable");
+    error.upstreamStatus = 502;
+    throw error;
+  };
+  const [job] = await queue.submit("owner", { submissionId: "exhaust", jobs: [input] });
+  await queue.run(queue.claim("planning")!);
+  await queue.run(queue.claim("generating")!);
+  now += 5000;
+  await queue.run(queue.claim("generating")!);
+  now += 14999;
+  assert.equal(queue.claim("generating"), undefined);
+  now++;
+  await queue.run(queue.claim("generating")!);
+  assert.equal(images, 3);
+  assert.equal(queue.list("owner")[0].state, "failed");
+  assert.equal(queue.list("owner")[0].error, "Still unavailable");
+  assert.equal(queue.claim("generating"), undefined);
+  assert.equal(queue.retry("owner", job.id)[0].imageAttempt, 0);
+  await queue.run(queue.claim("generating")!);
+  assert.equal(images, 4);
+  assert.equal(queue.list("owner")[0].state, "ready");
+});
+
+test("ambiguous transport failures, invalid payloads, and other HTTP errors do not retry", async () => {
+  for (const status of [undefined, 200, 400, 401, 429, 500]) {
+    const { queue, input, work } = setup();
+    let images = 0;
+    work.generate = async () => {
+      images++;
+      const error = new OpenRouterError("Failed", status === undefined ? 504 : 502);
+      error.upstreamStatus = status;
+      throw error;
+    };
+    await queue.submit("owner", { submissionId: "no-retry", jobs: [input] });
+    await queue.run(queue.claim("planning")!);
+    await queue.run(queue.claim("generating")!);
+    assert.equal(queue.list("owner")[0].state, "failed");
+    assert.equal(images, 1);
+    assert.equal(queue.claim("generating"), undefined);
+  }
 });

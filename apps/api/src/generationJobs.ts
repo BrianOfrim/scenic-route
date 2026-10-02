@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getActivity } from "./activities";
 import { planPoster, type PlannerInput } from "./planner";
 import { generatePoster, type GeneratePosterBody } from "./poster";
-import { maxImageOutputs } from "./openrouter";
+import { maxImageOutputs, OpenRouterError } from "./openrouter";
 import { resolveReferences } from "./referenceUploads";
 
 export type JobInput = { plan: PlannerInput; generate: Omit<GeneratePosterBody, "spec"> };
@@ -14,6 +14,8 @@ type GenerationJob = {
   input: JobInput;
   planned?: Awaited<ReturnType<typeof planPoster>>;
   error: string | null;
+  imageAttempt: number;
+  retryAt?: number;
   updatedAt: number;
 };
 const services = { getActivity, resolveReferences, maxImageOutputs, plan: planPoster, generate: generatePoster };
@@ -24,11 +26,11 @@ function publicJobs(jobs: GenerationJob[]) {
     id: job.id, state: job.state, title: job.input.plan.title,
     model: job.input.generate.model || "", styleId: job.input.generate.styleId,
     paletteId: job.input.generate.paletteId, variants: job.input.generate.variants || 1,
-    error: job.error,
+    error: job.error, imageAttempt: job.imageAttempt,
   }));
 }
 function concurrency(stage: Stage) {
-  const value = Number(process.env[stage === "planning" ? "OPENROUTER_PLAN_CONCURRENCY" : "OPENROUTER_IMAGE_CONCURRENCY"] || 3);
+  const value = Number(process.env[stage === "planning" ? "OPENROUTER_PLAN_CONCURRENCY" : "OPENROUTER_IMAGE_CONCURRENCY"] || 4);
   if (!Number.isInteger(value) || value < 1) throw new Error("request concurrency must be a positive integer");
   return value;
 }
@@ -84,7 +86,7 @@ export class GenerationJobQueue {
     }
     // Admit the entire batch synchronously after validation, before yielding again.
     return inputs.map(input => {
-      const job: GenerationJob = { id: randomUUID(), userId, input, state: "queued", error: null, updatedAt: Date.now() };
+      const job: GenerationJob = { id: randomUUID(), userId, input, state: "queued", error: null, imageAttempt: 0, updatedAt: Date.now() };
       this.jobs.set(job.id, job);
       return job.id;
     });
@@ -100,6 +102,8 @@ export class GenerationJobQueue {
     if (!job || job.userId !== userId || job.state !== "failed") throw new Error("failed job not found");
     job.state = job.planned ? "ready" : "queued";
     job.error = null;
+    job.imageAttempt = 0;
+    job.retryAt = undefined;
     job.updatedAt = Date.now();
     return publicJobs([job]);
   }
@@ -112,14 +116,18 @@ export class GenerationJobQueue {
   claim(stage: Stage) {
     const jobs = [...this.jobs.values()];
     if (jobs.filter(job => job.state === stage).length >= concurrency(stage)) return;
-    const job = jobs.find(job => job.state === (stage === "planning" ? "queued" : "ready"));
-    if (job) { job.state = stage; job.updatedAt = Date.now(); }
+    const job = jobs.find(job => job.state === (stage === "planning" ? "queued" : "ready") && (!job.retryAt || job.retryAt <= Date.now()));
+    if (job) {
+      job.state = stage; job.updatedAt = Date.now(); job.retryAt = undefined;
+      if (stage === "generating") job.imageAttempt++;
+    }
     return job;
   }
 
   async run(job: GenerationJob) {
     if (this.jobs.get(job.id) !== job || this.running.has(job.id) || !["planning", "generating"].includes(job.state)) return;
     this.running.add(job.id);
+    const stage = job.state;
     try {
       if (job.state === "planning") {
         job.planned = await this.work.plan(job.userId, job.input.plan);
@@ -140,8 +148,16 @@ export class GenerationJobQueue {
         job.state = "completed";
       }
     } catch (error) {
-      job.state = "failed";
-      job.error = error instanceof Error ? error.message : "Generation failed";
+      // Only a completed upstream HTTP error is eligible. Local 502/504
+      // wrappers can represent an ambiguous timeout after a paid generation.
+      if (stage === "generating" && job.imageAttempt < 3 && error instanceof OpenRouterError
+        && [502, 503, 504].includes(error.upstreamStatus ?? 0)) {
+        job.state = "ready";
+        job.retryAt = Date.now() + (job.imageAttempt === 1 ? 5000 : 15000) + Math.random() * 2000;
+      } else {
+        job.state = "failed";
+        job.error = error instanceof Error ? error.message : "Generation failed";
+      }
     } finally {
       job.updatedAt = Date.now();
       this.running.delete(job.id);

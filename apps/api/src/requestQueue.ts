@@ -35,7 +35,7 @@ export function providerQueue(kind: "chat" | "image") {
   let queue = queues.get(kind);
   if (!queue) {
     const name = kind === "chat" ? "OPENROUTER_PLAN_CONCURRENCY" : "OPENROUTER_IMAGE_CONCURRENCY";
-    queue = new RequestQueue(Number(process.env[name] || 3));
+    queue = new RequestQueue(Number(process.env[name] || 4));
     queues.set(kind, queue);
   }
   return queue;

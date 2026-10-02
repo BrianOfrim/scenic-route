@@ -197,3 +197,19 @@ test("resubmitting a batch dismisses every local failed placeholder", async () =
   assert.equal(getGenerationState().pending.length,0);
   assert.equal(getGenerationState().error,null);
 });
+
+
+test("server retry attempts appear while queued and generating", async () => {
+  const { setServerGenerationJobs } = await import("./generationState");
+  const retry = async () => {};
+  const job = { id: "retry-attempt", state: "ready" as const, title: "Retry", model: "model", variants: 1, error: null, imageAttempt: 1 };
+  setServerGenerationJobs([job], retry, retry);
+  let image = getGenerationState().pending.find(image => image.id.startsWith("server:"))!;
+  assert.equal(image.phase, "queued");
+  assert.equal(image.imageAttempt, 2);
+  setServerGenerationJobs([{ ...job, state: "generating", imageAttempt: 2 }], retry, retry);
+  image = getGenerationState().pending.find(image => image.id.startsWith("server:"))!;
+  assert.equal(image.phase, "generating");
+  assert.equal(image.imageAttempt, 2);
+  setServerGenerationJobs([], retry, retry);
+});
