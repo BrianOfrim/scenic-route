@@ -400,6 +400,72 @@ h1 {
   padding: 14px 16px;
 }
 
+.activity-import-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.activity-toolbar .activity-import-actions .track-import-help-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
+
+.activity-toolbar .track-import-help-button:hover { color: var(--ink); }
+
+.track-import-empty h2 { margin: 0 0 10px; }
+.track-import-help > p { margin: 0 0 18px; }
+.track-export-guides {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 18px;
+}
+.track-export-guides a {
+  font-weight: 600;
+  text-underline-offset: 3px;
+}
+.track-export-guides p { margin: 6px 0 0; }
+.track-guide-external { white-space: nowrap; }
+.track-import-help-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: 85dvh;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  overflow: auto;
+}
+.track-import-help-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+.track-import-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.track-import-help-header h2 { margin: 0; }
+.track-import-help-header button { min-height: 44px; }
+.track-import-help-button:focus-visible,
+.track-export-guides a:focus-visible,
+.track-import-help-header button:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 3px;
+}
+
 .activity-loading {
   display: flex;
   align-items: center;
@@ -611,6 +677,7 @@ textarea:disabled {
 
 .activity-toolbar {
   row-gap: 10px;
+  margin-top: 10px;
 }
 
 .filter select {
@@ -626,10 +693,46 @@ textarea:disabled {
 .activity-select-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 14px;
+  gap: 8px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
 }
+
+.activity-selection-control { display: flex; align-items: center; gap: 2px; }
+.activity-selection-control .activity-select-all { padding: 8px 0; }
+.activity-selection-menu { position: relative; }
+.activity-selection-menu summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 6px;
+  color: var(--muted);
+}
+.activity-selection-menu summary::-webkit-details-marker { display: none; }
+.activity-selection-options {
+  position: absolute;
+  top: 100%;
+  left: -24px;
+  z-index: 10;
+  min-width: 140px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.activity-selection-options button {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  cursor: pointer;
+}
+.activity-selection-options button:hover:not(:disabled) { background: var(--line); }
+.activity-selection-options button:disabled { opacity: 0.5; cursor: default; }
+.activity-selection-menu summary:focus-visible,
+.activity-selection-options button:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
 
 .activity-select-all,
 .activity-check {
@@ -651,7 +754,8 @@ textarea:disabled {
   border-bottom: 1px solid var(--line);
 }
 
-.activity-row.on {
+.activity-row.on,
+.activity-row.checked {
   background: #24301c;
 }
 
@@ -662,6 +766,10 @@ textarea:disabled {
 .activity-check input,
 .activity-select-all input {
   accent-color: var(--accent-2);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
 }
 
 .activity {
@@ -677,8 +785,9 @@ textarea:disabled {
   text-align: left;
 }
 
-.activity-panel.selecting .activity {
+.activity-row .activity {
   padding-left: 8px;
+  min-width: 0;
 }
 
 .activity span {
