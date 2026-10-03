@@ -7,6 +7,18 @@
   },
   {
     "styleId": "art-deco",
+    "paletteId": "burgundy",
+    "image": "/theme-examples/beltline/art-deco-burgundy.webp",
+    "thumbnail": "/theme-examples/beltline/art-deco-burgundy-thumb.webp"
+  },
+  {
+    "styleId": "art-deco",
+    "paletteId": "emerald",
+    "image": "/theme-examples/beltline/art-deco-emerald.webp",
+    "thumbnail": "/theme-examples/beltline/art-deco-emerald-thumb.webp"
+  },
+  {
+    "styleId": "art-deco",
     "paletteId": "jazz-club",
     "image": "/theme-examples/beltline/art-deco-jazz-club.webp",
     "thumbnail": "/theme-examples/beltline/art-deco-jazz-club-thumb.webp"
@@ -109,6 +121,12 @@
   },
   {
     "styleId": "modernist",
+    "paletteId": "cobalt",
+    "image": "/theme-examples/beltline/modernist-cobalt.webp",
+    "thumbnail": "/theme-examples/beltline/modernist-cobalt-thumb.webp"
+  },
+  {
+    "styleId": "modernist",
     "paletteId": "gallery",
     "image": "/theme-examples/beltline/modernist-gallery.webp",
     "thumbnail": "/theme-examples/beltline/modernist-gallery-thumb.webp"
@@ -127,15 +145,15 @@
   },
   {
     "styleId": "modernist",
+    "paletteId": "rose",
+    "image": "/theme-examples/beltline/modernist-rose.webp",
+    "thumbnail": "/theme-examples/beltline/modernist-rose-thumb.webp"
+  },
+  {
+    "styleId": "modernist",
     "paletteId": "studio",
     "image": "/theme-examples/beltline/modernist-studio.webp",
     "thumbnail": "/theme-examples/beltline/modernist-studio-thumb.webp"
-  },
-  {
-    "styleId": "risograph",
-    "paletteId": "auto",
-    "image": "/theme-examples/beltline/risograph-auto.webp",
-    "thumbnail": "/theme-examples/beltline/risograph-auto-thumb.webp"
   },
   {
     "styleId": "risograph",
@@ -148,6 +166,12 @@
     "paletteId": "blue-sunflower",
     "image": "/theme-examples/beltline/risograph-blue-sunflower.webp",
     "thumbnail": "/theme-examples/beltline/risograph-blue-sunflower-thumb.webp"
+  },
+  {
+    "styleId": "risograph",
+    "paletteId": "burgundy-sky",
+    "image": "/theme-examples/beltline/risograph-burgundy-sky.webp",
+    "thumbnail": "/theme-examples/beltline/risograph-burgundy-sky-thumb.webp"
   },
   {
     "styleId": "risograph",
@@ -166,6 +190,12 @@
     "paletteId": "pink-teal",
     "image": "/theme-examples/beltline/risograph-pink-teal.webp",
     "thumbnail": "/theme-examples/beltline/risograph-pink-teal-thumb.webp"
+  },
+  {
+    "styleId": "risograph",
+    "paletteId": "purple-sunflower",
+    "image": "/theme-examples/beltline/risograph-purple-sunflower.webp",
+    "thumbnail": "/theme-examples/beltline/risograph-purple-sunflower-thumb.webp"
   },
   {
     "styleId": "rpg",
@@ -196,6 +226,24 @@
     "paletteId": "black",
     "image": "/theme-examples/beltline/swiss-black.webp",
     "thumbnail": "/theme-examples/beltline/swiss-black-thumb.webp"
+  },
+  {
+    "styleId": "swiss",
+    "paletteId": "burnt-orange",
+    "image": "/theme-examples/beltline/swiss-burnt-orange.webp",
+    "thumbnail": "/theme-examples/beltline/swiss-burnt-orange-thumb.webp"
+  },
+  {
+    "styleId": "swiss",
+    "paletteId": "forest-green",
+    "image": "/theme-examples/beltline/swiss-forest-green.webp",
+    "thumbnail": "/theme-examples/beltline/swiss-forest-green-thumb.webp"
+  },
+  {
+    "styleId": "swiss",
+    "paletteId": "plum",
+    "image": "/theme-examples/beltline/swiss-plum.webp",
+    "thumbnail": "/theme-examples/beltline/swiss-plum-thumb.webp"
   },
   {
     "styleId": "swiss",
@@ -235,6 +283,12 @@
   },
   {
     "styleId": "wpa",
+    "paletteId": "autumn",
+    "image": "/theme-examples/beltline/wpa-autumn.webp",
+    "thumbnail": "/theme-examples/beltline/wpa-autumn-thumb.webp"
+  },
+  {
+    "styleId": "wpa",
     "paletteId": "coast",
     "image": "/theme-examples/beltline/wpa-coast.webp",
     "thumbnail": "/theme-examples/beltline/wpa-coast-thumb.webp"
@@ -244,6 +298,12 @@
     "paletteId": "desert",
     "image": "/theme-examples/beltline/wpa-desert.webp",
     "thumbnail": "/theme-examples/beltline/wpa-desert-thumb.webp"
+  },
+  {
+    "styleId": "wpa",
+    "paletteId": "dusk",
+    "image": "/theme-examples/beltline/wpa-dusk.webp",
+    "thumbnail": "/theme-examples/beltline/wpa-dusk-thumb.webp"
   },
   {
     "styleId": "wpa",

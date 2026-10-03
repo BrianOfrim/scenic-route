@@ -49,6 +49,9 @@ export const POSTER_STYLES: PosterStyle[] = [
       { id: "black", label: "Black", colors: ["off-white", "grey", "black"] },
       { id: "process-blue", label: "Process blue", colors: ["off-white", "grey", "process-blue"] },
       { id: "signal-yellow", label: "Signal yellow", colors: ["off-white", "grey", "signal-yellow"] },
+      { id: "forest-green", label: "Forest green", colors: ["off-white", "grey", "forest-green"] },
+      { id: "burnt-orange", label: "Burnt orange", colors: ["off-white", "grey", "burnt-orange"] },
+      { id: "plum", label: "Plum", colors: ["off-white", "grey", "plum"] },
     ],
   },
   {
@@ -64,6 +67,8 @@ export const POSTER_STYLES: PosterStyle[] = [
       { id: "pool", label: "Pool", colors: ["turquoise", "sand", "charcoal"] },
       { id: "gallery", label: "Gallery", colors: ["black", "off-white", "orange"] },
       { id: "olive", label: "Olive", colors: ["olive", "cream", "rust"] },
+      { id: "cobalt", label: "Cobalt", colors: ["cobalt", "cream", "vermilion"] },
+      { id: "rose", label: "Rose", colors: ["dusty-pink", "burgundy", "cream"] },
     ],
   },
   {
@@ -71,16 +76,17 @@ export const POSTER_STYLES: PosterStyle[] = [
     label: "Risograph",
     prompt:
       "Two-ink risograph print: slight misregistration in background texture only, coarse halftone dots, cheap paper grain. Keep the route geometry and edges exact. The route is the louder ink. Handmade zine energy.",
-    palette: [],
+    palette: ["fluorescent-pink", "teal"],
     typography: titleFace("zine sans"),
-    colorMode: "open",
-    openHint: "Pick any two Riso inks.",
+    colorMode: "canonical",
     palettes: [
       { id: "pink-teal", label: "Fluorescent pink + teal", colors: ["fluorescent-pink", "teal"] },
       { id: "blue-sunflower", label: "Federal blue + sunflower", colors: ["federal-blue", "sunflower"] },
       { id: "black-red", label: "Black + bright red", colors: ["black", "bright-red"] },
       { id: "orange-teal", label: "Fluorescent orange + teal", colors: ["fluorescent-orange", "teal"] },
       { id: "kelly-cornflower", label: "Kelly + cornflower", colors: ["kelly", "cornflower"] },
+      { id: "purple-sunflower", label: "Purple + sunflower", colors: ["purple", "sunflower"] },
+      { id: "burgundy-sky", label: "Burgundy + sky blue", colors: ["burgundy", "sky-blue"] },
     ],
   },
   {
@@ -105,6 +111,8 @@ export const POSTER_STYLES: PosterStyle[] = [
       { id: "desert", label: "Desert", colors: ["terracotta", "turquoise", "sand"] },
       { id: "alpine", label: "Alpine", colors: ["navy", "cream", "scarlet"] },
       { id: "coast", label: "Coast", colors: ["sea-blue", "cream", "coral"] },
+      { id: "autumn", label: "Autumn", colors: ["ochre", "rust", "deep-green"] },
+      { id: "dusk", label: "Dusk", colors: ["indigo", "muted-peach", "cream"] },
     ],
   },
   {
@@ -122,14 +130,16 @@ export const POSTER_STYLES: PosterStyle[] = [
     label: "Art deco",
     prompt:
       "Art deco travel poster: geometric forms, sunburst behind the title, stylized typography, stepped frames, simplified landforms. Elegant 1920s luxury-line advertisement.",
-    palette: ["gold", "teal", "cream"],
+    palette: ["black", "gold", "ivory"],
     typography: titleFace("geometric deco"),
     colorMode: "canonical",
     palettes: [
-      { id: "luxury-line", label: "Luxury line", colors: ["gold", "teal", "cream"] },
       { id: "black-gold", label: "Black and gold", colors: ["black", "gold", "ivory"] },
+      { id: "luxury-line", label: "Luxury line", colors: ["gold", "teal", "cream"] },
       { id: "ocean-liner", label: "Ocean liner", colors: ["silver", "navy", "cream"] },
       { id: "jazz-club", label: "Jazz club", colors: ["coral", "black", "cream"] },
+      { id: "emerald", label: "Emerald", colors: ["emerald", "gold", "ivory"] },
+      { id: "burgundy", label: "Burgundy", colors: ["burgundy", "champagne", "charcoal"] },
     ],
   },
   {

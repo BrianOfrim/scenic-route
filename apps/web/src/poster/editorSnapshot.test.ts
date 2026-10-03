@@ -349,7 +349,7 @@ test("restoreEditor migrates legacy Auto and deduplicates its named default", ()
   });
   const restored = restoreEditor(record({ editor: snapshot }), 20, defaults);
   assert.equal(restored.paletteId, "red");
-  assert.deepEqual(restored.paletteIdsByStyle, { swiss: ["red"], risograph: ["auto"] });
+  assert.deepEqual(restored.paletteIdsByStyle, { swiss: ["red"], risograph: ["pink-teal"] });
 });
 
 test("restoreEditor keeps per-style palettes and multiple palettes on one style", () => {

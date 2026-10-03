@@ -13,6 +13,8 @@ test("theme browsing orders the default first and filters redundant Auto and inv
   assert.deepEqual(examplesForTheme("swiss", samples).map((s) => s.paletteId), ["red", "black"]);
   assert.deepEqual(examplesForTheme("custom", [sample("custom", "auto")]), []);
   assert.deepEqual(examplesForTheme("unknown", [sample("unknown", "auto")]), []);
+  assert.deepEqual(examplesForTheme("risograph", [sample("risograph", "auto"), sample("risograph", "purple-sunflower"), sample("risograph", "pink-teal")]).map((s) => s.paletteId), ["pink-teal", "purple-sunflower"]);
+  assert.deepEqual(examplesForTheme("art-deco", [sample("art-deco", "luxury-line"), sample("art-deco", "black-gold")]).map((s) => s.paletteId), ["black-gold", "luxury-line"]);
 });
 
 test("the installed collection covers every available theme and palette with valid WebP files", () => {
