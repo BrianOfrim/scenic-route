@@ -8,6 +8,8 @@ import {
   isCostumeStyle,
   normalizePaletteId,
   paletteIdsForStyle,
+  paletteChoices,
+  defaultPaletteId,
   parsePlanSlotKey,
   planSlotKey,
   planSlotLabel,
@@ -146,9 +148,10 @@ test("Modernist locks mid-century silhouettes and mixed-case sans without lockin
   assert.deepEqual(resolveStyleColor(modernist, "pool").palette, ["turquoise", "sand", "charcoal"]);
 });
 
-test("canonical Auto uses the first named palette", () => {
+test("legacy canonical Auto resolves to the default named palette", () => {
   const swiss = resolveStyleColor(styleById("swiss"), AUTO_PALETTE_ID);
   assert.equal(swiss.openPalette, false);
+  assert.equal(swiss.paletteId, "red");
   assert.deepEqual(swiss.palette, ["off-white", "grey", "red"]);
   assert.doesNotMatch(swiss.prompt, /\bred\b/i);
   const locked = resolveStyleColor(styleById("swiss"), "process-blue");
@@ -176,19 +179,22 @@ test("open presets lock drums without changing the process prompt", () => {
   assert.equal(normalizePaletteId(styleById("risograph"), "nope"), AUTO_PALETTE_ID);
 });
 
-test("every costume style with palettes has Auto plus named presets", () => {
+test("canonical palettes omit Auto while open palettes retain it", () => {
   const costume = POSTER_STYLES.filter((item) => isCostumeStyle(item) && showsPalettePicker(item));
   assert.ok(costume.length >= 8);
   for (const style of costume) {
     assert.ok((style.palettes?.length ?? 0) >= 3, style.id);
+    assert.equal(paletteChoices(style).some((item) => item.id === AUTO_PALETTE_ID), style.colorMode === "open", style.id);
+    assert.equal(defaultPaletteId(style), style.colorMode === "open" ? AUTO_PALETTE_ID : style.palettes![0].id, style.id);
+    assert.deepEqual(paletteIdsForStyle(style, ["auto", defaultPaletteId(style)]), [defaultPaletteId(style)], style.id);
   }
 });
 
-test("paletteIdsForStyle keeps Auto when empty and drops unknown ids", () => {
-  assert.deepEqual(paletteIdsForStyle(styleById("swiss")), [AUTO_PALETTE_ID]);
+test("paletteIdsForStyle defaults missing and unknown ids to the named default", () => {
+  assert.deepEqual(paletteIdsForStyle(styleById("swiss")), ["red"]);
   assert.deepEqual(paletteIdsForStyle(styleById("swiss"), ["process-blue", "nope", "black"]), [
     "process-blue",
-    AUTO_PALETTE_ID,
+    "red",
     "black",
   ]);
   assert.deepEqual(paletteIdsForStyle(styleById("blueprint"), ["red"]), [AUTO_PALETTE_ID]);
@@ -201,20 +207,24 @@ test("stylePlanSlots expands each selected palette per style", () => {
   });
   assert.deepEqual(
     slots.map((slot) => slot.key),
-    ["swiss::auto", "swiss::black", "risograph::pink-teal", "blueprint::auto"],
+    ["swiss::red", "swiss::black", "risograph::pink-teal", "blueprint::auto"],
   );
   assert.equal(planSlotLabel("swiss", "black"), "Minimal · Black");
+  assert.equal(planSlotLabel("swiss", "auto"), "Minimal · Red");
   assert.equal(planSlotLabel("blueprint", "auto"), "Blueprint");
   assert.deepEqual(parsePlanSlotKey("swiss::process-blue"), { styleId: "swiss", paletteId: "process-blue" });
   assert.deepEqual(parsePlanSlotKey("swiss"), { styleId: "swiss", paletteId: AUTO_PALETTE_ID });
   assert.equal(planSlotKey("swiss", "black"), "swiss::black");
 });
 
-test("specForSlot prefers a slot key and falls back to a legacy style key for Auto", () => {
+test("specForSlot preserves legacy Auto plans for the named default", () => {
   const specs = { swiss: "legacy", "swiss::black": "named" };
   assert.equal(specForSlot(specs, "swiss", "black"), "named");
   assert.equal(specForSlot(specs, "swiss", AUTO_PALETTE_ID), "legacy");
   assert.equal(specForSlot({ "swiss::auto": "slot" }, "swiss", AUTO_PALETTE_ID), "slot");
+  assert.equal(specForSlot({ "swiss::auto": "slot" }, "swiss", "red"), "slot");
+  assert.equal(specForSlot({ "swiss::auto": "slot", "swiss::red": "named" }, "swiss", "red"), "named");
+  assert.equal(specForSlot({ "swiss::auto": "slot" }, "swiss", "black"), undefined);
 });
 
 

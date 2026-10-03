@@ -122,7 +122,9 @@ import {
   AUTO_PALETTE_ID,
   DEFAULT_POSTER_STYLE,
   POSTER_STYLES,
+  defaultPaletteId,
   normalizePaletteId,
+  paletteChoices,
   paletteIdsForStyle,
   parsePlanSlotKey,
   planSlotKey,
@@ -131,7 +133,6 @@ import {
   showsPalettePicker,
   specForSlot,
   styleById,
-  stylePalettes,
   stylePlanSlots,
 } from "./styles";
 
@@ -816,7 +817,7 @@ export function PosterPanel({
   const [activePlanKey, setActivePlanKey] = useState(() => {
     const id = seeded?.styleIds[0] ?? (refineFrom ? styleIdFromRecord(refineFrom) : DEFAULT_POSTER_STYLE.id);
     if (!id) return "";
-    const paletteId = seeded?.paletteIdsByStyle?.[id]?.[0] ?? AUTO_PALETTE_ID;
+    const paletteId = paletteIdsForStyle(styleById(id), seeded?.paletteIdsByStyle?.[id])[0];
     return planSlotKey(id, paletteId);
   });
   const [title, setTitle] = useState(seeded?.title ?? "");
@@ -2044,18 +2045,26 @@ export function PosterPanel({
 
   function dropSlot(styleId: string, paletteId: string) {
     const key = planSlotKey(styleId, paletteId);
+    const isDefault = paletteId === defaultPaletteId(styleById(styleId));
+    const legacyKey = planSlotKey(styleId, AUTO_PALETTE_ID);
     setSpecs((current) => {
-      if (!current[key] && !current[styleId]) return current;
+      if (!current[key] && !(isDefault && (current[legacyKey] || current[styleId]))) return current;
       const next = { ...current };
       delete next[key];
-      if (paletteId === AUTO_PALETTE_ID) delete next[styleId];
+      if (isDefault) {
+        delete next[styleId];
+        delete next[legacyKey];
+      }
       return next;
     });
     setPlanCosts((current) => {
-      if (!(key in current) && !(styleId in current)) return current;
+      if (!(key in current) && !(isDefault && (legacyKey in current || styleId in current))) return current;
       const next = { ...current };
       delete next[key];
-      if (paletteId === AUTO_PALETTE_ID) delete next[styleId];
+      if (isDefault) {
+        delete next[styleId];
+        delete next[legacyKey];
+      }
       return next;
     });
   }
@@ -2069,7 +2078,7 @@ export function PosterPanel({
       : current.includes(paletteId)
         ? current.filter((item) => item !== paletteId)
         : [...current, paletteId];
-    const next = selected.length ? selected : [AUTO_PALETTE_ID];
+    const next = paletteIdsForStyle(style, selected);
     if (next.length === current.length && next.every((id, index) => id === current[index])) return;
     setPaletteIdsByStyle((map) => ({ ...map, [styleId]: next }));
     for (const id of current) {
@@ -2446,8 +2455,7 @@ export function PosterPanel({
                     disabled={busy}
                     onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
                   >
-                    <option value={AUTO_PALETTE_ID}>Auto</option>
-                    {stylePalettes(paletteStyles[0]).map((item) => (
+                    {paletteChoices(paletteStyles[0]).map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.label}
                       </option>
@@ -3191,8 +3199,7 @@ export function PosterPanel({
                       disabled={busy}
                       onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
                     >
-                      <option value={AUTO_PALETTE_ID}>Auto</option>
-                      {stylePalettes(paletteStyles[0]).map((item) => (
+                      {paletteChoices(paletteStyles[0]).map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.label}
                         </option>
@@ -3228,14 +3235,7 @@ export function PosterPanel({
                         {paletteStyles.length > 1 ? `${style.label} palette` : "Palette"}
                       </div>
                       <div className="chip-row">
-                        <button
-                          type="button"
-                          className={`chip ${selected.includes(AUTO_PALETTE_ID) ? "on" : ""}`}
-                          onClick={() => togglePalette(style.id, AUTO_PALETTE_ID)}
-                        >
-                          Auto
-                        </button>
-                        {stylePalettes(style).map((item) => (
+                        {paletteChoices(style).map((item) => (
                           <button
                             key={item.id}
                             type="button"
