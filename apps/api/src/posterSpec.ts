@@ -543,6 +543,9 @@ export function withSingleRouteRule(prompt: string): string {
   return text.includes(SINGLE_ROUTE_RULE) ? text : `${SINGLE_ROUTE_RULE}\n\n${text}`;
 }
 
+export const TITLE_BLOCK_LAYOUT_RULE =
+  '“Title block” refers to the grouping of title, subtitle, and stats. It does not necessarily require a box, panel, or separate band; the text may sit naturally within the map’s negative space.';
+
 /**
  * Render a spec as plain prose for the image model. Blank fields and empty
  * arrays are omitted entirely so the model never sees `"palette": []`.
@@ -580,6 +583,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
       labeled("Aspect ratio", spec.composition.aspectRatio),
       labeled("Route placement", spec.composition.routePlacement),
       labeled("Title block", withTitlePhoneClause(spec.composition.titleBlock, posterHasTitle(spec.text.title))),
+      TITLE_BLOCK_LAYOUT_RULE,
       labeled("Border", spec.composition.border),
       decorations.length ? `Decorations: ${decorations.join(", ")}.` : "",
       "Do not draw a scale bar, graphic scale, or distance ruler — they will not be accurate. Do not invent a distance. A distance appears in the title block only when it is one of the supplied stats.",
@@ -888,6 +892,7 @@ function unannotatedImagePrompt(spec: PosterSpec): string {
       labeled("Texture", spec.style.texture),
       labeled("Style inspiration", spec.style.references),
       labeled("Title placement", stripTitlePhoneLanguage(spec.composition.titleBlock)),
+      TITLE_BLOCK_LAYOUT_RULE,
       labeled("Border", spec.composition.border),
       labeled("Decorations", spec.composition.decorations.join(", ")),
     ]),

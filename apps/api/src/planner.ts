@@ -6,6 +6,7 @@ import { resolveReferences } from "./referenceUploads";
 import {
   DEFAULT_ASPECT_RATIO,
   POSTER_SPEC_SCHEMA,
+  TITLE_BLOCK_LAYOUT_RULE,
   TITLE_PHONE_RULE,
   posterHasTitle,
   validatePosterSpec,
@@ -152,6 +153,7 @@ export function buildPlannerMessages(input: PlannerInput) {
         "Reply with a single JSON object using keys style, composition, route, geography, landmarks, text, grounding, negative, and optional finalPrompt.",
         `Every value must follow this exact shape (nested objects and arrays, never a prose string in place of an object): ${JSON.stringify(POSTER_SPEC_SHAPE)}`,
         "Fill style.name, style.medium, style.palette, style.typography, composition.routePlacement, composition.titleBlock, route.treatment, and route.color with concrete choices; do not leave them blank.",
+        TITLE_BLOCK_LAYOUT_RULE,
         paletteInstruction(input.style) ?? "",
         "If vibes is supplied, it is the rider's note about how the day felt. Flavor season, weather, light, and the color of vegetation in style.texture and geography treatments. Stay inside a supplied palette. Do not print the note as poster text, and do not add places or features that are absent from the schematic.",
         "A supplied Location stat is a place caption: print its value once without a Location prefix in a footer, bottom margin, clear map space, or the title block as suits the theme. Keep it off the route and never treat it as a map pin.",
@@ -592,6 +594,7 @@ function buildUnannotatedPlannerMessages(input: PlannerInput) {
       paletteInstruction(input.style) || "Choose a coherent palette with a prominent route color.",
       "A stat labeled Location is an exact place caption. Plan to print it once without the Location prefix, preferably as spaced lettering in a footer or bottom margin, or in clear map space or the title block when the theme suits it. Never cover the route or treat this text as a map pin. Do not add words or repeat it in the subtitle.",
       "Typography describes the font only. Put the title clear of the complete route; wrapping is allowed. The application adds title sizing and fidelity rules once, so do not repeat them in these fields.",
+      TITLE_BLOCK_LAYOUT_RULE,
       "The application supplies exact text and reference metadata. Honor routeMarkers: disabled means both markers none; loop means one combined marker; otherwise distinct start and finish symbols at their supplied positions.",
       "Names in people, and any stat labeled With, are the people who did the activity. They belong in the title block only. Do not treat them as places or add them to the map.",
       "Use geography only for concise treatments of the supplied background layers. No annotations. Do not output text content, route shape descriptions, fidelity rules or image data URLs.",
