@@ -109,7 +109,7 @@ import { formatPeople, parsePeople, PEOPLE_INPUT_MAX } from "./people";
 import { applyStatUnits, DEFAULT_STAT_IDS, distanceToMeters, formatDistance, type StatUnits } from "./statUnits";
 import { addedFeatureIds, forgetDismissedForLayers, takeFreshNames } from "./autoNames";
 import { MAX_LABELS, prioritizeLabels } from "./labels";
-import { cropCoordinates, nearestPlaceName, shareEndpointPlace } from "./places";
+import { cropCoordinates, nearestPlaceName } from "./places";
 import { assignAreaLetters } from "./areaLetters";
 import { assignTrailColors } from "./trailColors";
 import {
@@ -121,7 +121,7 @@ import {
 import {
   AUTO_PALETTE_ID,
   DEFAULT_POSTER_STYLE,
-  POSTER_STYLES,
+  THEME_GROUPS,
   defaultPaletteId,
   normalizePaletteId,
   paletteChoices,
@@ -833,7 +833,6 @@ export function PosterPanel({
   const [startPlace, setStartPlace] = useState("");
   const [finishPlace, setFinishPlace] = useState("");
   const [placesEdited, setPlacesEdited] = useState(false);
-  const [sharedPlace, setSharedPlace] = useState<boolean | null>(null);
   const [statIds, setStatIds] = useState<string[]>(DEFAULT_STAT_IDS);
   const [statUnits, setStatUnits] = useState<StatUnits>("metric");
   const [labels, setLabels] = useState<string[]>(() => seeded?.labels ?? []);
@@ -966,7 +965,6 @@ export function PosterPanel({
             setStartPlace(restored.startPlace);
             setFinishPlace(restored.finishPlace);
             setPlacesEdited(restored.placesEdited);
-            setSharedPlace(restored.sharedPlace ?? null);
             setStatIds(restored.statIds);
             setStatUnits(restored.statUnits);
             if (sheetSnap != null) {
@@ -1014,7 +1012,6 @@ export function PosterPanel({
             setCropStart(0);
             setCropEnd(Math.max(1, next.latlng.length - 1));
             setPlacesEdited(false);
-            setSharedPlace(null);
             setStatIds(DEFAULT_STAT_IDS);
             setStatUnits("metric");
             setPeople(defaultPeople);
@@ -1319,7 +1316,7 @@ export function PosterPanel({
   }, [satelliteMask, onGeoMaskChange]);
   const satelliteBbox = groundingBbox;
 
-  const nearbyEndpoints = useMemo(() => shareEndpointPlace(croppedLatLng), [croppedLatLng]);
+  const nearbyEndpoints = useMemo(() => isClosedLoop(croppedLatLng), [croppedLatLng]);
 
   const suggestedPlaces = useMemo(() => {
     if (croppedLatLng.length < 2) return { start: "", finish: "" };
@@ -1335,7 +1332,7 @@ export function PosterPanel({
     setFinishPlace(nearbyEndpoints ? suggestedPlaces.start : suggestedPlaces.finish);
   }, [suggestedPlaces, nearbyEndpoints, placesEdited]);
 
-  const samePlace = shareEndpointPlace(croppedLatLng, sharedPlace);
+  const samePlace = nearbyEndpoints;
 
   useEffect(() => {
     if (!context || cropActivityId.current !== activityId) return;
@@ -1872,7 +1869,7 @@ export function PosterPanel({
         startPlace,
         finishPlace,
         placesEdited,
-        sharedPlace,
+        sharedPlace: null,
         statIds,
         statUnits,
         people,
@@ -2078,6 +2075,10 @@ export function PosterPanel({
       : current.includes(paletteId)
         ? current.filter((item) => item !== paletteId)
         : [...current, paletteId];
+    if (!selected.length) {
+      toggleStyle(styleId);
+      return;
+    }
     const next = paletteIdsForStyle(style, selected);
     if (next.length === current.length && next.every((id, index) => id === current[index])) return;
     setPaletteIdsByStyle((map) => ({ ...map, [styleId]: next }));
@@ -2232,7 +2233,10 @@ export function PosterPanel({
 
   const launchMode = sheetMode && mobileSurface === "launch";
   const themeExamples = <ThemeExamples single={sheetMode} disabled={busy} selectedStyleIds={styleIds}
-    onToggleTheme={toggleStyle} onSelectTheme={selectStyle} onApplyPalette={applyExamplePalette} />;
+    paletteIdsByStyle={paletteIdsByStyle} onTogglePalette={(id, paletteId) => {
+      if (!styleIds.includes(id)) applyExamplePalette(id, paletteId);
+      else togglePalette(id, paletteId);
+    }} onToggleTheme={toggleStyle} onSelectTheme={selectStyle} onApplyPalette={applyExamplePalette} />;
   const labelCount = selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length;
   const showOnMapStep =
     sheetMode &&
@@ -2440,10 +2444,12 @@ export function PosterPanel({
                   onChange={(event) => selectStyle(event.target.value)}
                 >
                   <option value="">Select a theme</option>
-                  {POSTER_STYLES.filter((style) => style.id !== "custom").map((style) => (
-                    <option key={style.id} value={style.id}>
-                      {style.label}
-                    </option>
+                  {THEME_GROUPS.map((group) => (
+                    <optgroup key={group.id} label={group.label}>
+                      {group.styles.map((style) => (
+                        <option key={style.id} value={style.id}>{style.label}</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </label>
@@ -2489,6 +2495,7 @@ export function PosterPanel({
         </div>
       )}
       {showEditor && context && !launchMode && (
+        <>
         <fieldset className="poster-body poster-editor-fieldset" disabled={busy}>
           {refineFrom ? (
             <div className="panel-block sheet-from-half">
@@ -2499,7 +2506,8 @@ export function PosterPanel({
           ) : null}
           <PosterSection
             title="Crop track"
-            accordion={false}
+            accordion={!sheetMode}
+            open
             showTitle={!sheetMode}
             className={workflowPane("crop")}
           >
@@ -2595,21 +2603,6 @@ export function PosterPanel({
                 </>
               )}
             </div>
-            <button
-              type="button"
-              className="text-btn"
-              onClick={() => {
-                setSharedPlace(!samePlace);
-                if (!samePlace) {
-                  const value = startPlace.trim() ? startPlace : finishPlace;
-                  setStartPlace(value);
-                  setFinishPlace(value);
-                  setPlacesEdited(true);
-                }
-              }}
-            >
-              {samePlace ? "Use separate locations" : "Use one start / finish location"}
-            </button>
             {showRouteMarkers && <p className="muted">
               {isClosedLoop(croppedLatLng, croppedRouteBreaks)
                 ? "One shared start / finish marker."
@@ -2787,8 +2780,9 @@ export function PosterPanel({
           {showOnMapStep && (
             <PosterSection
               title="On map"
-              accordion={false}
-              showTitle={false}
+              accordion={!sheetMode}
+              open
+              showTitle={!sheetMode}
               className={workflowPane("on-map")}
             >
               <div className="chip-row">
@@ -2887,6 +2881,7 @@ export function PosterPanel({
             title="Annotations"
             beta
             accordion={!sheetMode}
+            open
             showTitle={!sheetMode}
             className={workflowPane("annotations")}
             busy={featuresRefreshing}
@@ -3075,7 +3070,8 @@ export function PosterPanel({
 
           <PosterSection
             title="Stats on image"
-            accordion={false}
+            accordion={!sheetMode}
+            open
             showTitle={!sheetMode}
             className={workflowPane("stats")}
           >
@@ -3169,11 +3165,13 @@ export function PosterPanel({
 
           <PosterSection
             title="Themes"
-            accordion={false}
+            accordion={!sheetMode}
+            open
             showTitle={!sheetMode}
             className={workflowPane("themes")}
+            hint={!sheetMode ? themeExamples : undefined}
           >
-            {themeExamples}
+            {sheetMode && themeExamples}
             {sheetMode ? (
               <div className="poster-option-row">
                 <label className="poster-field">
@@ -3184,10 +3182,12 @@ export function PosterPanel({
                     onChange={(event) => selectStyle(event.target.value)}
                   >
                     <option value="">Select a theme</option>
-                    {POSTER_STYLES.filter((style) => style.id !== "custom").map((style) => (
-                      <option key={style.id} value={style.id}>
-                        {style.label}
-                      </option>
+                    {THEME_GROUPS.map((group) => (
+                      <optgroup key={group.id} label={group.label}>
+                        {group.styles.map((style) => (
+                          <option key={style.id} value={style.id}>{style.label}</option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                 </label>
@@ -3210,45 +3210,52 @@ export function PosterPanel({
               </div>
             ) : (
               <>
-                <div className="chip-row">
-                  {POSTER_STYLES.filter((style) => style.id !== "custom").map((style) => (
-                    <button
-                      key={style.id}
-                      type="button"
-                      className={`chip ${styleIds.includes(style.id) ? "on" : ""}`}
-                      onClick={() => toggleStyle(style.id)}
-                    >
-                      {style.label}
-                    </button>
-                  ))}
-                </div>
-                {(!styleIds.length || planSlots.length > 1) && <p className="muted">
-                  {!styleIds.length
-                    ? "Select a theme to generate"
-                    : `${planSlots.length} images — one per theme and palette`}
-                </p>}
-                {paletteStyles.map((style) => {
-                  const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
-                  return (
-                    <div key={style.id} className="palette-group">
-                      <div className="eyebrow">
-                        {paletteStyles.length > 1 ? `${style.label} palette` : "Palette"}
-                      </div>
-                      <div className="chip-row">
-                        {paletteChoices(style).map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={`chip ${selected.includes(item.id) ? "on" : ""}`}
-                            onClick={() => togglePalette(style.id, item.id)}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
+                <div className="theme-selection-groups">
+                  {THEME_GROUPS.map((group) => (
+                    <div key={group.id} role="group" aria-labelledby={`theme-group-${group.id}`}>
+                      <div id={`theme-group-${group.id}`} className="subheading">{group.label}</div>
+                      <div className="theme-card-grid">
+                        {group.styles.map((style) => {
+                          const active = styleIds.includes(style.id);
+                          const hasPalettes = showsPalettePicker(style);
+                          const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
+                          return <div key={style.id} className={`theme-choice-card${active ? " is-selected" : ""}${active && hasPalettes ? " is-expanded" : ""}`}>
+                            <button
+                              type="button"
+                              className="theme-choice-card-header"
+                              aria-pressed={active}
+                              aria-expanded={hasPalettes ? active : undefined}
+                              aria-controls={hasPalettes && active ? `theme-card-palettes-${style.id}` : undefined}
+                              onClick={() => toggleStyle(style.id)}
+                            >
+                              <span>{style.label}</span>
+                              <span aria-hidden="true">{active ? "✓" : "+"}</span>
+                            </button>
+                            {active && hasPalettes && <div id={`theme-card-palettes-${style.id}`} className="theme-choice-card-body">
+                              <div className="subheading">Palette</div>
+                              <div className="selected-theme-palettes" role="group" aria-label={`${style.label} palettes`}>
+                                {paletteChoices(style).map((item) => (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    className={`chip ${selected.includes(item.id) ? "on" : ""}`}
+                                    aria-pressed={selected.includes(item.id)}
+                                    onClick={() => togglePalette(style.id, item.id)}
+                                  >
+                                    {item.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>}
+                          </div>;
+                        })}
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+                {planSlots.length > 1 && <p className="muted">
+                  {`${planSlots.length} images — one per theme and palette`}
+                </p>}
               </>
             )}
             {!sheetMode && editingCustom && (
@@ -3274,7 +3281,6 @@ export function PosterPanel({
                 onChange={(event) => setVibes(event.target.value)}
               />
             </label>
-            <p className="muted">Set the mood of the image.</p>
             {sheetMode && !styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
             {sheetMode && (
               <div className="poster-actions poster-plan-row">
@@ -3291,13 +3297,9 @@ export function PosterPanel({
             )}
           </PosterSection>
 
+        </fieldset>
           {!sheetMode && (
-            <PosterSection
-              title="Output"
-              accordion={false}
-              showTitle={false}
-              className={workflowPane("output")}
-            >
+            <footer className="poster-footer" aria-label="Generate image">
               {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
               <div className="poster-actions poster-plan-row">
                 <button
@@ -3317,9 +3319,9 @@ export function PosterPanel({
                 {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
               </div>
 
-            </PosterSection>
+            </footer>
           )}
-        </fieldset>
+        </>
       )}
     </aside>
     </>

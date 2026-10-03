@@ -2,9 +2,15 @@
 
 The Themes step and mobile quick-create screen have a **Browse examples** modal.
 Desktop selections apply immediately and preserve multiple themes; mobile **Use this
-theme** selects one theme. Viewing images never changes a selection. In a theme's
-detail view, **Use theme + palette** selects that theme and replaces only its palette
-selection. Other desktop theme selections remain selected.
+theme** selects one theme. Viewing images never changes a selection. Desktop palette checkboxes select multiple
+palettes per theme and immediately sync with the composer; selecting a palette also
+selects its theme. Deselecting the final palette deselects the theme. On mobile, **Use theme + palette** selects the theme and its single palette.
+Desktop checkbox changes preserve other themes and their palettes.
+
+Both the theme selection UI and the example gallery use the same four groups:
+Modern (Minimal, Modernist, Bauhaus, Risograph), Classic (WPA park, Linen postcard,
+Art deco, Art nouveau), Technical (Vintage topo, Blueprint), and Whimsical
+(Watercolor, Middle-earth, 16-bit RPG). Custom is outside these preset groups.
 
 Samples are stable WebP files, separate from account-scoped poster storage. The
 manifest contains only theme IDs, palette IDs, and static image paths. No user IDs,

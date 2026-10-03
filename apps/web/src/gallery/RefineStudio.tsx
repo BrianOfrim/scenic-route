@@ -142,7 +142,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
             <ShareButton url={selected.url} filename={`${selected.posterId}.png`} />
           </div>
         </form>
-        <div className="eyebrow">Versions</div>
+        <div className="subheading">Versions</div>
         <div className="refine-studio-grid">
           {family.map((poster) => (
             <button

@@ -230,6 +230,17 @@ export const POSTER_STYLES: PosterStyle[] = [
   },
 ];
 
+/** Shared browsing order for theme pickers and the example gallery. */
+export const THEME_GROUPS = [
+  { id: "modern", label: "Modern", styleIds: ["swiss", "modernist", "bauhaus", "risograph"] },
+  { id: "classic", label: "Classic", styleIds: ["wpa", "linen-postcard", "art-deco", "art-nouveau"] },
+  { id: "technical", label: "Technical", styleIds: ["vintage-topo", "blueprint"] },
+  { id: "whimsical", label: "Whimsical", styleIds: ["watercolour", "middle-earth", "rpg"] },
+].map(({ styleIds, ...group }) => ({
+  ...group,
+  styles: styleIds.map((id) => POSTER_STYLES.find((style) => style.id === id)!),
+}));
+
 /** Product default for new poster setups (one-tap generate). */
 export const DEFAULT_STYLE_ID = "swiss";
 
