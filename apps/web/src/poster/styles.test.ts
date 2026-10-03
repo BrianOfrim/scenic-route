@@ -158,25 +158,39 @@ test("legacy canonical Auto resolves to the default named palette", () => {
   assert.deepEqual(locked.palette, ["off-white", "grey", "process-blue"]);
 });
 
-test("open Auto omits colors and does not reintroduce the cliché pair", () => {
+test("Risograph defaults to fluorescent pink and teal and migrates legacy Auto", () => {
   const riso = resolveStyleColor(styleById("risograph"), AUTO_PALETTE_ID);
-  assert.equal(riso.openPalette, true);
-  assert.deepEqual(riso.palette, []);
+  assert.equal(riso.openPalette, false);
+  assert.equal(riso.paletteId, "pink-teal");
+  assert.deepEqual(riso.palette, ["fluorescent-pink", "teal"]);
   assert.doesNotMatch(styleById("risograph").prompt, /fluorescent pink|\bpink\b/i);
-  assert.doesNotMatch(riso.prompt, /fluorescent pink|\bteal\b/i);
-  assert.match(riso.prompt, /Pick any two Riso inks/i);
+  assert.equal(paletteChoices(styleById("risograph")).some((p) => p.id === AUTO_PALETTE_ID), false);
+  assert.deepEqual(paletteIdsForStyle(styleById("risograph"), ["auto", "pink-teal"]), ["pink-teal"]);
+  assert.equal(specForSlot({ "risograph::auto": "legacy" }, "risograph", "pink-teal"), "legacy");
+});
+
+test("Watercolor remains free to choose washes from the geography", () => {
   const watercolour = resolveStyleColor(styleById("watercolour"), AUTO_PALETTE_ID);
   assert.equal(watercolour.openPalette, true);
   assert.deepEqual(watercolour.palette, []);
   assert.equal(showsPalettePicker(styleById("watercolour")), false);
 });
 
-test("open presets lock drums without changing the process prompt", () => {
+test("Risograph presets lock drums without changing the process prompt", () => {
   const riso = resolveStyleColor(styleById("risograph"), "pink-teal");
   assert.equal(riso.openPalette, false);
   assert.deepEqual(riso.palette, ["fluorescent-pink", "teal"]);
   assert.equal(riso.prompt, styleById("risograph").prompt);
-  assert.equal(normalizePaletteId(styleById("risograph"), "nope"), AUTO_PALETTE_ID);
+  assert.equal(normalizePaletteId(styleById("risograph"), "nope"), "pink-teal");
+});
+
+test("themes default to their signature palettes", () => {
+  const defaults = { swiss: "red", modernist: "studio", risograph: "pink-teal", wpa: "park", "art-deco": "black-gold", "linen-postcard": "chrome", "art-nouveau": "mucha-spring", bauhaus: "primary", rpg: "overworld" };
+  for (const [id, paletteId] of Object.entries(defaults)) {
+    const style = styleById(id);
+    assert.equal(defaultPaletteId(style), paletteId, id);
+    assert.deepEqual(resolveStyleColor(style).palette, style.palette, id);
+  }
 });
 
 test("canonical palettes omit Auto while open palettes retain it", () => {
