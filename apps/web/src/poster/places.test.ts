@@ -28,12 +28,20 @@ test("nearestPlaceName returns empty when nothing is a place", () => {
   );
 });
 
-test("shared endpoint field handles matching names, blank labels, and explicit choices", () => {
-  assert.equal(shareEndpointPlace(" Winnipeg ", "winnipeg", false), true);
-  assert.equal(shareEndpointPlace("", "", false), true);
-  assert.equal(shareEndpointPlace("Banff", "Lake Louise", false), false);
-  assert.equal(shareEndpointPlace("Banff", "", false), false);
-  assert.equal(shareEndpointPlace("", "", true), true);
-  assert.equal(shareEndpointPlace("", "", true, false), false);
-  assert.equal(shareEndpointPlace("Banff", "Lake Louise", false, true), true);
+test("shared endpoint fields depend on geographic proximity", () => {
+  assert.equal(shareEndpointPlace([[49.9, -97.1], [49.9, -97.1]]), true);
+  assert.equal(shareEndpointPlace([[49.9, -97.1], [49.901, -97.1]]), true);
+  assert.equal(shareEndpointPlace([[49.9, -97.1], [49.902, -97.1]]), false);
+  assert.equal(shareEndpointPlace([[49.9, -97.1], [50, -97.1]]), false);
+  assert.equal(shareEndpointPlace([]), false);
+  assert.equal(shareEndpointPlace([[49.9, -97.1]]), false);
+});
+
+test("long routes still require geographically close endpoints", () => {
+  assert.equal(shareEndpointPlace([[49.9, -97.1], [51, -97.1], [49.91, -97.1]]), false);
+});
+
+test("explicit shared endpoint choices override the geographic default", () => {
+  assert.equal(shareEndpointPlace([[49.9, -97.1], [49.901, -97.1]], false), false);
+  assert.equal(shareEndpointPlace([[49.9, -97.1], [50, -97.1]], true), true);
 });

@@ -1,3 +1,5 @@
+import { distToTrackM } from "./crop";
+
 const PLACE_KINDS = new Set([
   "city",
   "town",
@@ -42,7 +44,9 @@ export function nearestPlaceName(
   return best.name;
 }
 
-/** Keep matching or unnamed endpoints together unless the user chooses separate labels. */
-export function shareEndpointPlace(start: string, finish: string, loop: boolean, override: boolean | null = null): boolean {
-  return override ?? (loop || start.trim().toLowerCase() === finish.trim().toLowerCase());
+/** Share labels for endpoints within 150 metres unless the user chooses otherwise. */
+export function shareEndpointPlace(track: [number, number][], override: boolean | null = null): boolean {
+  if (override !== null) return override;
+  if (track.length < 2) return false;
+  return distToTrackM(track[0], [track[track.length - 1]]) <= 150;
 }

@@ -1318,7 +1318,7 @@ export function PosterPanel({
   }, [satelliteMask, onGeoMaskChange]);
   const satelliteBbox = groundingBbox;
 
-  const loopRide = useMemo(() => isClosedLoop(croppedLatLng, croppedRouteBreaks), [croppedLatLng, croppedRouteBreaks]);
+  const nearbyEndpoints = useMemo(() => shareEndpointPlace(croppedLatLng), [croppedLatLng]);
 
   const suggestedPlaces = useMemo(() => {
     if (croppedLatLng.length < 2) return { start: "", finish: "" };
@@ -1331,10 +1331,10 @@ export function PosterPanel({
   useEffect(() => {
     if (placesEdited) return;
     setStartPlace(suggestedPlaces.start);
-    setFinishPlace(loopRide ? suggestedPlaces.start : suggestedPlaces.finish);
-  }, [suggestedPlaces, loopRide, placesEdited]);
+    setFinishPlace(nearbyEndpoints ? suggestedPlaces.start : suggestedPlaces.finish);
+  }, [suggestedPlaces, nearbyEndpoints, placesEdited]);
 
-  const samePlace = shareEndpointPlace(startPlace, finishPlace, loopRide, sharedPlace);
+  const samePlace = shareEndpointPlace(croppedLatLng, sharedPlace);
 
   useEffect(() => {
     if (!context || cropActivityId.current !== activityId) return;
@@ -3090,8 +3090,8 @@ export function PosterPanel({
                   <input type="checkbox" checked={statIds.includes(stat.id)} disabled={busy} onChange={(event) => setStatIds(current => event.target.checked ? [...current, stat.id] : current.filter(id => id !== stat.id))} />
                   Distance
                 </label>
-                <input className="search" type="number" min="0" step="any" aria-label="Display distance" disabled={busy}
-                  value={distanceDraft ?? String(Number.parseFloat(stat.value))}
+                <input className="search" type="number" min="0" step="0.1" aria-label="Display distance" disabled={busy}
+                  value={distanceDraft ?? Number.parseFloat(stat.value).toFixed(1)}
                   onChange={(event) => {
                     setDistanceDraft(event.target.value);
                     const meters = distanceToMeters(event.target.valueAsNumber, statUnits);
