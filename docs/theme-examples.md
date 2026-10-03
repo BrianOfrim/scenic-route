@@ -10,8 +10,9 @@ Samples are stable WebP files, separate from account-scoped poster storage. The
 manifest contains only theme IDs, palette IDs, and static image paths. No user IDs,
 private storage keys, prompts, or generation metadata are included.
 
-The initial collection contains 50 Beltline Trail samples covering all 13 themes,
-Auto, and every named palette. The samples use Meta Muse Image and a 3:4 poster
+The initial collection contains 42 Beltline Trail samples covering all 13 themes
+and every available palette. Themes with fixed presets default to their first named
+palette; Risograph retains Auto to choose inks dynamically. The samples use Meta Muse Image and a 3:4 poster
 ratio. To replace the set, prepare a reviewed folder with `manifest.json` and its
 WebP files, then run:
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AUTO_PALETTE_ID, POSTER_STYLES, paletteChoiceLabel, showsPalettePicker, styleById, stylePalettes } from "./styles";
+import { AUTO_PALETTE_ID, POSTER_STYLES, paletteChoiceLabel, showsPalettePicker, styleById } from "./styles";
 import { THEME_EXAMPLES, examplesForTheme, type ThemeExample } from "./themeExampleCatalog";
 
 type Props = {
@@ -84,7 +84,7 @@ export function ThemeExamples({ single, disabled, selectedStyleIds, onToggleThem
                 <div className="theme-example-options">
                   <h3 ref={detailHeading} tabIndex={-1}>{style.label}</h3>
                   <p className="muted">{paletteChoiceLabel(style, detail.paletteId)}{detail.paletteId === AUTO_PALETTE_ID && showsPalettePicker(style)
-                    ? style.colorMode === "canonical" ? ` · Uses ${stylePalettes(style)[0].label} colours` : " · One example of automatic colours"
+                    ? " · One example of automatic colours"
                     : ""}</p>
                   {single ? <button type="button" className="button" disabled={disabled} onClick={() => select(style.id)}>Use this theme</button> :
                     <label className="theme-example-selection"><input type="checkbox" checked={selectedStyleIds.includes(style.id)} disabled={disabled} onChange={() => onToggleTheme(style.id)} />Select {style.label}</label>}

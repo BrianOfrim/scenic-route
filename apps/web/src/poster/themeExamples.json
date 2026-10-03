@@ -1,12 +1,6 @@
 [
   {
     "styleId": "art-deco",
-    "paletteId": "auto",
-    "image": "/theme-examples/beltline/art-deco-auto.webp",
-    "thumbnail": "/theme-examples/beltline/art-deco-auto-thumb.webp"
-  },
-  {
-    "styleId": "art-deco",
     "paletteId": "black-gold",
     "image": "/theme-examples/beltline/art-deco-black-gold.webp",
     "thumbnail": "/theme-examples/beltline/art-deco-black-gold-thumb.webp"
@@ -31,12 +25,6 @@
   },
   {
     "styleId": "art-nouveau",
-    "paletteId": "auto",
-    "image": "/theme-examples/beltline/art-nouveau-auto.webp",
-    "thumbnail": "/theme-examples/beltline/art-nouveau-auto-thumb.webp"
-  },
-  {
-    "styleId": "art-nouveau",
     "paletteId": "autumn",
     "image": "/theme-examples/beltline/art-nouveau-autumn.webp",
     "thumbnail": "/theme-examples/beltline/art-nouveau-autumn-thumb.webp"
@@ -58,12 +46,6 @@
     "paletteId": "twilight",
     "image": "/theme-examples/beltline/art-nouveau-twilight.webp",
     "thumbnail": "/theme-examples/beltline/art-nouveau-twilight-thumb.webp"
-  },
-  {
-    "styleId": "bauhaus",
-    "paletteId": "auto",
-    "image": "/theme-examples/beltline/bauhaus-auto.webp",
-    "thumbnail": "/theme-examples/beltline/bauhaus-auto-thumb.webp"
   },
   {
     "styleId": "bauhaus",
@@ -97,12 +79,6 @@
   },
   {
     "styleId": "linen-postcard",
-    "paletteId": "auto",
-    "image": "/theme-examples/beltline/linen-postcard-auto.webp",
-    "thumbnail": "/theme-examples/beltline/linen-postcard-auto-thumb.webp"
-  },
-  {
-    "styleId": "linen-postcard",
     "paletteId": "chrome",
     "image": "/theme-examples/beltline/linen-postcard-chrome.webp",
     "thumbnail": "/theme-examples/beltline/linen-postcard-chrome-thumb.webp"
@@ -130,12 +106,6 @@
     "paletteId": "auto",
     "image": "/theme-examples/beltline/middle-earth-auto.webp",
     "thumbnail": "/theme-examples/beltline/middle-earth-auto-thumb.webp"
-  },
-  {
-    "styleId": "modernist",
-    "paletteId": "auto",
-    "image": "/theme-examples/beltline/modernist-auto.webp",
-    "thumbnail": "/theme-examples/beltline/modernist-auto-thumb.webp"
   },
   {
     "styleId": "modernist",
@@ -199,12 +169,6 @@
   },
   {
     "styleId": "rpg",
-    "paletteId": "auto",
-    "image": "/theme-examples/beltline/rpg-auto.webp",
-    "thumbnail": "/theme-examples/beltline/rpg-auto-thumb.webp"
-  },
-  {
-    "styleId": "rpg",
     "paletteId": "desert",
     "image": "/theme-examples/beltline/rpg-desert.webp",
     "thumbnail": "/theme-examples/beltline/rpg-desert-thumb.webp"
@@ -226,12 +190,6 @@
     "paletteId": "winter",
     "image": "/theme-examples/beltline/rpg-winter.webp",
     "thumbnail": "/theme-examples/beltline/rpg-winter-thumb.webp"
-  },
-  {
-    "styleId": "swiss",
-    "paletteId": "auto",
-    "image": "/theme-examples/beltline/swiss-auto.webp",
-    "thumbnail": "/theme-examples/beltline/swiss-auto-thumb.webp"
   },
   {
     "styleId": "swiss",
@@ -274,12 +232,6 @@
     "paletteId": "alpine",
     "image": "/theme-examples/beltline/wpa-alpine.webp",
     "thumbnail": "/theme-examples/beltline/wpa-alpine-thumb.webp"
-  },
-  {
-    "styleId": "wpa",
-    "paletteId": "auto",
-    "image": "/theme-examples/beltline/wpa-auto.webp",
-    "thumbnail": "/theme-examples/beltline/wpa-auto-thumb.webp"
   },
   {
     "styleId": "wpa",

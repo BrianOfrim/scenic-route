@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
-import { POSTER_STYLES, stylePalettes } from "./styles";
+import { POSTER_STYLES, paletteChoices } from "./styles";
 import { THEME_EXAMPLES, examplesForTheme, type ThemeExample } from "./themeExampleCatalog";
 
 const sample = (styleId: string, paletteId: string): ThemeExample => ({
   styleId, paletteId, thumbnail: `/samples/${styleId}-${paletteId}-thumb.webp`, image: `/samples/${styleId}-${paletteId}.webp`,
 });
 
-test("theme browsing orders Auto first and filters unrelated, retired, and invalid palette samples", () => {
+test("theme browsing orders the default first and filters redundant Auto and invalid samples", () => {
   const samples = [sample("swiss", "black"), sample("blueprint", "auto"), sample("swiss", "auto"), sample("swiss", "invalid"), sample("swiss", "red")];
-  assert.deepEqual(examplesForTheme("swiss", samples).map((s) => s.paletteId), ["auto", "red", "black"]);
+  assert.deepEqual(examplesForTheme("swiss", samples).map((s) => s.paletteId), ["red", "black"]);
   assert.deepEqual(examplesForTheme("custom", [sample("custom", "auto")]), []);
   assert.deepEqual(examplesForTheme("unknown", [sample("unknown", "auto")]), []);
 });
@@ -18,7 +18,7 @@ test("theme browsing orders Auto first and filters unrelated, retired, and inval
 test("the installed collection covers every available theme and palette with valid WebP files", () => {
   for (const style of POSTER_STYLES.filter((s) => s.id !== "custom")) {
     const examples = examplesForTheme(style.id);
-    assert.deepEqual(examples.map((s) => s.paletteId), ["auto", ...stylePalettes(style).map((p) => p.id)], style.id);
+    assert.deepEqual(examples.map((s) => s.paletteId), paletteChoices(style).map((p) => p.id), style.id);
   }
   const seen = new Set<string>();
   for (const example of THEME_EXAMPLES) {

@@ -258,16 +258,29 @@ export function showsPalettePicker(style: PosterStyle): boolean {
   return isCostumeStyle(style) && stylePalettes(style).length > 0;
 }
 
+/** Auto is a choice only when the renderer actually chooses colors. */
+export function paletteChoices(style: PosterStyle): StylePalette[] {
+  const palettes = stylePalettes(style);
+  return style.colorMode === "canonical" && palettes.length
+    ? palettes
+    : [{ id: AUTO_PALETTE_ID, label: "Auto", colors: [] }, ...palettes];
+}
+
+export function defaultPaletteId(style: PosterStyle): string {
+  return paletteChoices(style)[0].id;
+}
+
 export function normalizePaletteId(style: PosterStyle, paletteId?: string | null): string {
   if (!showsPalettePicker(style)) return AUTO_PALETTE_ID;
-  if (!paletteId || paletteId === AUTO_PALETTE_ID) return AUTO_PALETTE_ID;
-  return stylePalettes(style).some((item) => item.id === paletteId) ? paletteId : AUTO_PALETTE_ID;
+  const defaultId = defaultPaletteId(style);
+  if (!paletteId || paletteId === AUTO_PALETTE_ID) return defaultId;
+  return stylePalettes(style).some((item) => item.id === paletteId) ? paletteId : defaultId;
 }
 
 export function paletteIdsForStyle(style: PosterStyle, selected?: string[] | null): string[] {
   if (!showsPalettePicker(style)) return [AUTO_PALETTE_ID];
   const ids = [...new Set((selected ?? []).map((id) => normalizePaletteId(style, id)))];
-  return ids.length ? ids : [AUTO_PALETTE_ID];
+  return ids.length ? ids : [defaultPaletteId(style)];
 }
 
 export function planSlotKey(styleId: string, paletteId: string) {
@@ -295,8 +308,8 @@ export function stylePlanSlots(
 }
 
 export function paletteChoiceLabel(style: PosterStyle, paletteId: string) {
-  if (paletteId === AUTO_PALETTE_ID) return "Auto";
-  return stylePalettes(style).find((item) => item.id === paletteId)?.label ?? paletteId;
+  const id = normalizePaletteId(style, paletteId);
+  return paletteChoices(style).find((item) => item.id === id)?.label ?? id;
 }
 
 export function planSlotLabel(styleId: string, paletteId: string, fallback?: string) {
@@ -310,7 +323,10 @@ export function specForSlot<T>(
   styleId: string,
   paletteId: string,
 ): T | undefined {
-  return specs[planSlotKey(styleId, paletteId)] ?? (paletteId === AUTO_PALETTE_ID ? specs[styleId] : undefined);
+  const defaultId = defaultPaletteId(styleById(styleId));
+  const id = normalizePaletteId(styleById(styleId), paletteId);
+  return specs[planSlotKey(styleId, id)] ??
+    (id === defaultId ? specs[planSlotKey(styleId, AUTO_PALETTE_ID)] ?? specs[styleId] : undefined);
 }
 
 export function snapshotPaletteIds(

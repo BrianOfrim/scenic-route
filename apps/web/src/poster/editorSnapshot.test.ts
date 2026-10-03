@@ -321,6 +321,37 @@ test("restoreEditor keeps a costume palette on a single theme", () => {
   assert.deepEqual(restored.paletteIdsByStyle, { swiss: ["process-blue"] });
 });
 
+test("restoreEditor migrates legacy Auto and deduplicates its named default", () => {
+  const snapshot = captureEditorSnapshot({
+    featureIds: ["lakes"],
+    labels: [],
+    trailNames: [],
+    trailAliases: {},
+    areaNames: [],
+    customPois: [],
+    customWays: [],
+    cropStart: 0,
+    cropEnd: 10,
+    showRouteMarkers: true,
+    title: "Ride",
+    startPlace: "",
+    finishPlace: "",
+    placesEdited: false,
+    statIds: ["title"],
+    aspectRatio: "2:3",
+    styleIds: ["swiss", "risograph"],
+    stylePrompt: "",
+    paletteIdsByStyle: { swiss: ["auto", "red"], risograph: ["auto"] },
+    imageModelIds: [],
+    variants: 4,
+    specs: {},
+    planCosts: {},
+  });
+  const restored = restoreEditor(record({ editor: snapshot }), 20, defaults);
+  assert.equal(restored.paletteId, "red");
+  assert.deepEqual(restored.paletteIdsByStyle, { swiss: ["red"], risograph: ["auto"] });
+});
+
 test("restoreEditor keeps per-style palettes and multiple palettes on one style", () => {
   const snapshot = captureEditorSnapshot({
     featureIds: ["lakes"],

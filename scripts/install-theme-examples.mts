@@ -2,7 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { POSTER_STYLES, AUTO_PALETTE_ID, stylePalettes } from "../apps/web/src/poster/styles";
+import { POSTER_STYLES, paletteChoices } from "../apps/web/src/poster/styles";
 import type { ThemeExample } from "../apps/web/src/poster/themeExampleCatalog";
 
 const source = process.argv[2];
@@ -14,7 +14,7 @@ const seen = new Set<string>();
 const files: string[] = [];
 for (const sample of samples) {
   const style = POSTER_STYLES.find((item) => item.id === sample.styleId && item.id !== "custom");
-  if (!style || ![AUTO_PALETTE_ID, ...stylePalettes(style).map((p) => p.id)].includes(sample.paletteId)) {
+  if (!style || !paletteChoices(style).map((p) => p.id).includes(sample.paletteId)) {
     throw new Error(`Unknown theme or palette: ${sample.styleId}/${sample.paletteId}`);
   }
   const key = `${sample.styleId}-${sample.paletteId}`;
@@ -30,7 +30,7 @@ for (const sample of samples) {
   }
 }
 for (const style of POSTER_STYLES.filter((s) => s.id !== "custom")) {
-  for (const paletteId of [AUTO_PALETTE_ID, ...stylePalettes(style).map((p) => p.id)]) {
+  for (const paletteId of paletteChoices(style).map((p) => p.id)) {
     if (!seen.has(`${style.id}-${paletteId}`)) throw new Error(`Missing sample: ${style.id}/${paletteId}`);
   }
 }
