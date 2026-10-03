@@ -101,3 +101,9 @@ test("cropped distance and loop detection respect route breaks", () => {
   assert.ok(trackDistanceM(points) > 100_000);
   assert.equal(isClosedLoop([[49, -124], [49.001, -124], [49, -124]], [2]), false);
 });
+
+test("loop detection combines endpoints beyond 150 metres on a long route", () => {
+  const track: [number, number][] = [[49.9, -97.1], [50.02, -97.1], [49.902, -97.1]];
+  assert.equal(isClosedLoop(track), true);
+  assert.equal(isClosedLoop([[49.9, -97.1], [49.902, -97.1]]), false);
+});

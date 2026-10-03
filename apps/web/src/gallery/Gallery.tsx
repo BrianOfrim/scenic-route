@@ -799,7 +799,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                 </p>
                 {active.referenceCount > 0 && (
                   <section aria-label="References for this image">
-                    <h3>Image references</h3>
+                    <h3 className="subheading">Image references</h3>
                     <div className="preview-grid">
                       {Array.from({ length: active.referenceCount }, (_, i) => {
                         const reference = active.spec?.grounding?.images.find((image) => image.index === i + 1);
