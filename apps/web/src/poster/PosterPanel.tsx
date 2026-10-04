@@ -871,7 +871,6 @@ export function PosterPanel({
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>({});
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
   const [generating, setGenerating] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
   const cropActivityId = useRef<number | null>(null);
 
   useEffect(() => {
@@ -1726,15 +1725,6 @@ export function PosterPanel({
     satelliteMask,
   ]);
 
-  useEffect(() => {
-    if (!generating) {
-      setElapsed(0);
-      return;
-    }
-    const started = Date.now();
-    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 250);
-    return () => window.clearInterval(timer);
-  }, [generating]);
 
   async function ensureSatellite(): Promise<string | null> {
     if (maxRefs < 3 || croppedLatLng.length < 2 || !satelliteBbox) return null;
@@ -2263,7 +2253,7 @@ export function PosterPanel({
     loading && !showEditor
       ? "Loading activity…"
       : generating
-        ? `Submitting… ${elapsed}s`
+        ? "Submitting…"
         : launchMode
             ? `${launchThemeLabel} · full track`
             : showEditor
@@ -2479,7 +2469,7 @@ export function PosterPanel({
               onClick={() => void handlePlanAndGenerate()}
             >
               {generating
-                  ? `Submitting… ${elapsed}s`
+                  ? "Submitting…"
                   : "Create image"}
             </button>
             <button
@@ -3290,7 +3280,7 @@ export function PosterPanel({
                   disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
                   onClick={() => void handlePlanAndGenerate()}
                 >
-                  {generating ? `Submitting… ${elapsed}s` : "Generate image"}
+                  {generating ? "Submitting…" : "Generate image"}
                 </button>
                 {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
               </div>
@@ -3309,7 +3299,7 @@ export function PosterPanel({
                   onClick={() => void handlePlanAndGenerate()}
                 >
                   {generating
-                    ? `Submitting… ${elapsed}s`
+                    ? "Submitting…"
                     : generateCount > 1
                         ? planSlots.length > 1
                           ? `Generate ${planSlots.length} images (${generateCount} variants)`

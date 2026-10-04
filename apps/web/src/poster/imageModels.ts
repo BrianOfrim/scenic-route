@@ -122,13 +122,6 @@ export function formatBatchCost(items: CostItem[]) {
   return `total ${formatUsd(total)}`;
 }
 
-export function shortModelLabel(id: string, name?: string | null) {
-  const trimmed = name?.trim();
-  if (trimmed && trimmed !== id) return trimmed;
-  const slash = id.lastIndexOf("/");
-  return slash >= 0 ? id.slice(slash + 1) : id || "Unknown model";
-}
-
 export const IMAGE_QUALITIES = ["auto", "low", "medium", "high", "xhigh", "max"] as const;
 export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
 export const DEFAULT_IMAGE_QUALITY: ImageQuality = "auto";
@@ -204,18 +197,27 @@ export function variantCount(requested: number, maxImages?: number) {
   return Math.min(clampVariants(requested), allowed);
 }
 
-export function posterVariantLabel(
-  item: { posterId: string; model?: string; styleId?: string; quality?: string; variant?: number },
-  group: Array<{ posterId: string; model?: string; styleId?: string; quality?: string; variant?: number }>,
-) {
-  const peers = group.filter(
-    (row) =>
-      row.model === item.model &&
-      row.styleId === item.styleId &&
-      (row.quality ?? "") === (item.quality ?? ""),
+type VariantRecord = {
+  posterId: string;
+  batchId?: string;
+  model?: string;
+  styleId?: string;
+  paletteId?: string;
+  quality?: string;
+  variant?: number;
+};
+
+export function posterVariantLabel(item: VariantRecord, group: VariantRecord[]) {
+  if (!item.batchId || !item.variant || item.variant < 1) return null;
+  // A batch can contain multiple themes/palettes, each with its own variant sequence.
+  // Refinements can reuse a variant number, so count the sequence, not records.
+  const peers = group.filter((row) =>
+    row.batchId === item.batchId &&
+    row.model === item.model &&
+    row.styleId === item.styleId &&
+    (row.paletteId ?? "") === (item.paletteId ?? "") &&
+    (row.quality ?? "") === (item.quality ?? ""),
   );
-  if (peers.length <= 1) return null;
-  if (item.variant != null) return String(item.variant);
-  const index = peers.findIndex((row) => row.posterId === item.posterId);
-  return index >= 0 ? String(index + 1) : null;
+  const total = Math.max(item.variant, ...peers.map((row) => row.variant ?? 0));
+  return total > 1 ? `${item.variant}/${total}` : null;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type ReactNode, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 export type GalleryImage = {
   id: string;
@@ -7,12 +7,15 @@ export type GalleryImage = {
   /** Inline preview that can paint before `src` is fetched. */
   previewSrc?: string;
   label: string;
+  favorited: boolean;
 };
 
 type Props = {
   stacks: GalleryImage[][];
   selectedId: string;
   onSelectPoster: (id: string) => void;
+  onClose: () => void;
+  renderActions: (image: GalleryImage) => ReactNode;
 };
 
 const STACK_PEEK_PX = 52;
@@ -22,6 +25,8 @@ export function GalleryViewer({
   stacks,
   selectedId,
   onSelectPoster,
+  onClose,
+  renderActions,
 }: Props) {
   const images = stacks.flat();
   const [expanded, setExpanded] = useState<GalleryImage | null>(null);
@@ -81,6 +86,14 @@ export function GalleryViewer({
         <div className="compare-stage single">
           <ViewerPane image={selected} onExpand={() => expand(selected)} />
         </div>
+        <ViewerControls
+          onClose={onClose}
+          onNavigate={images.length > 1 ? (direction) => {
+            const index = images.findIndex((item) => item.id === selected.id);
+            onSelectPoster(images[(index + direction + images.length) % images.length].id);
+          } : undefined}
+        />
+        {renderActions(selected)}
       </div>
       <div className="lightbox-thumbs">
         <div className="lightbox-thumbs-posters">
@@ -135,30 +148,6 @@ export function GalleryViewer({
           })}
         </div>
       </div>
-      {images.length > 1 && (
-        <div className="compare-nav">
-          <button
-            type="button"
-            className="text-btn"
-            onClick={() => {
-              const index = images.findIndex((item) => item.id === selected.id);
-              onSelectPoster(images[(index - 1 + images.length) % images.length].id);
-            }}
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            className="text-btn"
-            onClick={() => {
-              const index = images.findIndex((item) => item.id === selected.id);
-              onSelectPoster(images[(index + 1) % images.length].id);
-            }}
-          >
-            Next
-          </button>
-        </div>
-      )}
       {expanded &&
         createPortal(
           <div
@@ -171,43 +160,23 @@ export function GalleryViewer({
             aria-modal="true"
             aria-label={expanded.label}
           >
-            <ReadyImage
-              src={expanded.src}
-              previewSrc={expanded.previewSrc || expanded.thumbSrc}
-              alt={expanded.label}
-              onClick={(event) => event.stopPropagation()}
-            />
+            <div className="compare-stage-wrap">
+              <ReadyImage
+                src={expanded.src}
+                previewSrc={expanded.previewSrc || expanded.thumbSrc}
+                alt={expanded.label}
+                onClick={(event) => event.stopPropagation()}
+              />
+              <ViewerControls
+                onClose={() => setExpanded(null)}
+                onNavigate={images.length > 1 ? (direction) => {
+                  const index = images.findIndex((item) => item.id === expanded.id);
+                  setExpanded(images[(index + direction + images.length) % images.length]);
+                } : undefined}
+              />
+            </div>
             <div className="compare-fullscreen-bar" onClick={(event) => event.stopPropagation()}>
               <strong>{expanded.label}</strong>
-              <div className="compare-nav">
-                {images.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      className="text-btn"
-                      onClick={() => {
-                        const index = images.findIndex((item) => item.id === expanded.id);
-                        setExpanded(images[(index - 1 + images.length) % images.length]);
-                      }}
-                    >
-                      Previous
-                    </button>
-                    <button
-                      type="button"
-                      className="text-btn"
-                      onClick={() => {
-                        const index = images.findIndex((item) => item.id === expanded.id);
-                        setExpanded(images[(index + 1) % images.length]);
-                      }}
-                    >
-                      Next
-                    </button>
-                  </>
-                )}
-                <button type="button" className="text-btn" onClick={() => setExpanded(null)}>
-                  Close
-                </button>
-              </div>
             </div>
           </div>,
           document.body,
@@ -255,7 +224,6 @@ function ViewerPane({ image, onExpand }: { image: GalleryImage; onExpand: () => 
     <div className="compare-pane">
       <div className="compare-pane-hit">
         <ReadyImage src={image.src} previewSrc={image.previewSrc || image.thumbSrc} alt={image.label} />
-        <span className="compare-caption">{image.label}</span>
       </div>
       <button
         type="button"
@@ -267,5 +235,28 @@ function ViewerPane({ image, onExpand }: { image: GalleryImage; onExpand: () => 
         Full screen
       </button>
     </div>
+  );
+}
+
+function ViewerControls({ onClose, onNavigate }: {
+  onClose: () => void;
+  onNavigate?: (direction: number) => void;
+}) {
+  return (
+    <>
+      <button type="button" className="viewer-control viewer-close" aria-label="Close image viewer" title="Close" onClick={onClose}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
+      </button>
+      {onNavigate && (
+        <>
+          <button type="button" className="viewer-control viewer-previous" aria-label="Previous image" title="Previous image" onClick={() => onNavigate(-1)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7" /></svg>
+          </button>
+          <button type="button" className="viewer-control viewer-next" aria-label="Next image" title="Next image" onClick={() => onNavigate(1)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 5 7 7-7 7" /></svg>
+          </button>
+        </>
+      )}
+    </>
   );
 }

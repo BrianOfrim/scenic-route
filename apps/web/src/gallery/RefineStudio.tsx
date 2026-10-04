@@ -31,7 +31,6 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
   const selected = family.find((item) => item.posterId === selectedId) ?? original ?? source;
   const [request, setRequest] = useState("");
   const [busy, setBusy] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,15 +38,6 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
     setSelectedId(family[0]?.posterId ?? source.posterId);
   }, [family, selectedId, source.posterId]);
 
-  useEffect(() => {
-    if (!busy) {
-      setElapsed(0);
-      return;
-    }
-    const started = Date.now();
-    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 250);
-    return () => window.clearInterval(timer);
-  }, [busy]);
 
   async function handleApply() {
     const text = request.trim();
@@ -134,7 +124,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
           </label>
           <div className="poster-actions">
             <button className="button" type="submit" disabled={busy || !request.trim()}>
-              {busy ? `Applying change… ${elapsed}s` : "Apply change"}
+              {busy ? "Applying change…" : "Apply change"}
             </button>
             <a className="text-btn" href={selected.url} download={`${selected.posterId}.png`}>
               Download selected

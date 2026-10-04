@@ -98,7 +98,7 @@ test("gallerySections keeps each activity in its own row, newest image first", (
   );
 });
 
-test("runHeadline shares title, mixed labels and count without costs", () => {
+test("runHeadline shows themes and count without model names or costs", () => {
   const headline = runHeadline([
     {
       title: "Bow Valley",
@@ -120,7 +120,7 @@ test("runHeadline shares title, mixed labels and count without costs", () => {
 
   assert.equal(headline.title, "Bow Valley");
   assert.match(headline.detail, /Middle-earth \/ Vintage topo/);
-  assert.match(headline.detail, /Gemini test \/ flux-test/);
+  assert.doesNotMatch(headline.detail, /Gemini|flux|google|black-forest|model/i);
   assert.match(headline.detail, /2 images/);
   assert.doesNotMatch(headline.detail, /\$|cost/i);
 });
@@ -389,7 +389,7 @@ test("edit-setup regenerations share an activity without stacking", () => {
   );
 });
 
-test("runHeadline collapses long theme and model lists", () => {
+test("runHeadline collapses long theme lists and omits model counts", () => {
   const headline = runHeadline(
     ["middle-earth", "vintage-topo", "wpa", "art-deco"].map((styleId, index) => ({
       title: "Bow Valley",
@@ -400,7 +400,7 @@ test("runHeadline collapses long theme and model lists", () => {
     })),
   );
   assert.match(headline.detail, /4 themes/);
-  assert.match(headline.detail, /4 models/);
+  assert.doesNotMatch(headline.detail, /model|vendor/);
   assert.doesNotMatch(headline.detail, /Middle-earth/);
 });
 

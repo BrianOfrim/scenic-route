@@ -11,7 +11,6 @@ import {
   posterVariantLabel,
   qualitiesForModel,
   resolveConfiguredImageModel,
-  shortModelLabel,
   shortQualityLabel,
   sumCosts,
   uiImageModelFromCapabilities,
@@ -48,13 +47,6 @@ test("formatBatchCost totals a batch and counts each style's prompt once", () =>
   assert.equal(formatBatchCost(items), "total $0.147 · prompt $0.017 · image $0.130");
   assert.equal(formatBatchCost([{ cost: 0.16 }, { cost: 0.04 }]), "total $0.200");
   assert.equal(formatBatchCost([]), "");
-});
-
-test("shortModelLabel prefers a distinct display name", () => {
-  assert.equal(shortModelLabel("google/gemini-2.5-flash-image", "Gemini 2.5 Flash Image"), "Gemini 2.5 Flash Image");
-  assert.equal(shortModelLabel("google/gemini-2.5-flash-image"), "gemini-2.5-flash-image");
-  assert.equal(shortModelLabel("local-model", "local-model"), "local-model");
-  assert.equal(shortModelLabel(""), "Unknown model");
 });
 
 test("normalizeImageQualities defaults to auto and qualitiesForModel respects support", () => {
@@ -136,14 +128,18 @@ test("variantCount is the request or the model's max", () => {
   assert.equal(variantCount(4, undefined), 1);
 });
 
-test("posterVariantLabel numbers siblings of the same model, theme, and quality", () => {
-  const group = [
-    { posterId: "a", model: "one", styleId: "ink", quality: "high", variant: 1 },
-    { posterId: "b", model: "one", styleId: "ink", quality: "high", variant: 2 },
-    { posterId: "c", model: "one", styleId: "ink", quality: "low", variant: 1 },
-    { posterId: "d", model: "two", styleId: "ink", quality: "high", variant: 1 },
-  ];
-  assert.equal(posterVariantLabel(group[0], group), "1");
-  assert.equal(posterVariantLabel(group[2], group), null);
-  assert.equal(posterVariantLabel(group[3], group), null);
+test("posterVariantLabel shows x/n only for multiple variants of the same batch and palette", () => {
+  const first = { posterId: "a", batchId: "batch", model: "one", styleId: "ink", paletteId: "red", variant: 1 };
+  const second = { ...first, posterId: "b", variant: 2 };
+  const otherBatch = { ...first, posterId: "c", batchId: "other" };
+  const otherPalette = { ...first, posterId: "d", paletteId: "blue" };
+  const refinement = { ...first, posterId: "refined" };
+  const group = [first, second, otherBatch, otherPalette, refinement];
+  assert.equal(posterVariantLabel(first, group), "1/2");
+  assert.equal(posterVariantLabel(second, group), "2/2");
+  assert.equal(posterVariantLabel(refinement, group), "1/2");
+  assert.equal(posterVariantLabel(otherBatch, group), null);
+  assert.equal(posterVariantLabel(otherPalette, group), null);
+  assert.equal(posterVariantLabel(first, [first, refinement]), null);
+  assert.equal(posterVariantLabel({ ...first, batchId: undefined }, group), null);
 });
