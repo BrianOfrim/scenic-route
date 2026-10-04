@@ -34,6 +34,7 @@ export function ActivityList({
   const [sport, setSport] = useState("all");
   const [dragOver, setDragOver] = useState(false);
   const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [removalMode, setRemovalMode] = useState(false);
   const [removing, setRemoving] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const importHelpDialog = useRef<HTMLDialogElement>(null);
@@ -69,7 +70,7 @@ export function ActivityList({
 
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someFilteredChecked;
-  }, [someFilteredChecked]);
+  }, [someFilteredChecked, removalMode]);
 
   useEffect(() => {
     function closeOnOutsidePointer(event: PointerEvent) {
@@ -109,6 +110,11 @@ export function ActivityList({
       else next.delete(id);
       return next;
     });
+  }
+
+  function cancelRemoval() {
+    setChecked(new Set());
+    setRemovalMode(false);
   }
 
   function selectActivities(action: "all" | "none") {
@@ -185,7 +191,7 @@ export function ActivityList({
                 disabled={locked}
                 title="Choose one or more GPX, FIT, or TCX files"
               >
-                {importing ? "Importing…" : "Import activities"}
+                {importing ? "Importing…" : "Import"}
               </button>
               <button
                 type="button"
@@ -198,6 +204,16 @@ export function ActivityList({
                 ?
               </button>
             </div>
+            {activities.length > 0 && !removalMode && (
+              <button
+                type="button"
+                className="text-btn activity-remove-mode"
+                onClick={() => setRemovalMode(true)}
+                disabled={locked}
+              >
+                Remove
+              </button>
+            )}
             <input
               ref={fileInput}
               className="file-input"
@@ -210,7 +226,7 @@ export function ActivityList({
             />
           </div>
         </div>
-        <div className="panel-block">
+        <div className="panel-block activity-filters">
           <input
             className="search"
             placeholder="Search rides"
@@ -229,45 +245,45 @@ export function ActivityList({
             </select>
           </label>
         </div>
-        {activities.length > 0 && (
+        {activities.length > 0 && removalMode && (
           <div className="panel-block activity-select-bar">
             <div className="activity-selection-control">
-              <label className="activity-select-all" title="Select all shown activities">
+              <label className="activity-select-all" title="Mark all shown activities for removal">
                 <input
                   ref={selectAllRef}
                   type="checkbox"
                   checked={allFilteredChecked}
-                  aria-label="Select all shown activities"
+                  aria-label="Mark all shown activities for removal"
                   onChange={toggleSelectAll}
                   disabled={locked || !filtered.length}
                 />
+                <span>All shown</span>
               </label>
               <details className="activity-selection-menu" ref={selectionMenuRef}>
-                <summary aria-label="Activity selection options" title="Selection options">▾</summary>
+                <summary aria-label="Removal selection options" title="Selection options">▾</summary>
                 <div className="activity-selection-options">
                   <button type="button" disabled={locked || !filtered.length} onClick={() => selectActivities("all")}>All</button>
                   <button type="button" disabled={locked || !checked.size} onClick={() => selectActivities("none")}>None</button>
                 </div>
               </details>
             </div>
-            {removable.length > 0 ? (
-              <div className="row activity-actions">
-                <span className="muted" role="status">
-                  {removable.length} selected
-                  {hiddenCheckedCount > 0 && ` (${hiddenCheckedCount} hidden by filters)`}
-                </span>
-                <button
-                  type="button"
-                  className="text-btn"
-                  onClick={() => void handleRemove()}
-                  disabled={locked}
-                >
-                  {removing ? "Removing…" : "Remove"}
-                </button>
-              </div>
-            ) : (
-              <span className="muted">Select activities</span>
-            )}
+            <button type="button" className="text-btn activity-removal-cancel" onClick={cancelRemoval} disabled={removing}>
+              Cancel
+            </button>
+            <div className="row activity-actions activity-removal-actions">
+              <span className="muted" role="status">
+                {removable.length ? `${removable.length} marked for removal` : "Choose activities to remove"}
+                {hiddenCheckedCount > 0 && ` (${hiddenCheckedCount} hidden by filters)`}
+              </span>
+              <button
+                type="button"
+                className="text-btn"
+                onClick={() => void handleRemove()}
+                disabled={locked || !removable.length}
+              >
+                {removing ? "Removing…" : `Remove (${removable.length})`}
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -302,18 +318,23 @@ export function ActivityList({
           </div>
         )}
         {filtered.map((item) => (
-          <div key={item.id} className={`activity-row${item.id === selectedId ? " on" : ""}${checked.has(item.id) ? " checked" : ""}`}>
-            <label className="activity-check">
-              <input
-                type="checkbox"
-                checked={checked.has(item.id)}
-                onChange={(event) => toggleChecked(item.id, event.target.checked)}
-                disabled={locked}
-                aria-label={`Select ${item.name}`}
-              />
-            </label>
-            <button type="button" className="activity" onClick={() => onSelect(item.id)}>
-              <strong>{item.name}</strong>
+          <div key={item.id} className={`activity-row${item.id === selectedId ? " on" : ""}`}>
+            {removalMode && (
+              <label className="activity-check">
+                <input
+                  type="checkbox"
+                  checked={checked.has(item.id)}
+                  onChange={(event) => toggleChecked(item.id, event.target.checked)}
+                  disabled={locked}
+                  aria-label={`Mark ${item.name} for removal`}
+                />
+              </label>
+            )}
+            <button type="button" className="activity" onClick={() => onSelect(item.id)} aria-current={item.id === selectedId ? "true" : undefined}>
+              <div className="activity-title">
+                <strong>{item.name}</strong>
+                {item.id === selectedId && <span className="activity-on-map">On map</span>}
+              </div>
               <span>
                 {formatDate(item.startDate)} · {item.sportType}
                 {` · ${item.format.toUpperCase()}`}
