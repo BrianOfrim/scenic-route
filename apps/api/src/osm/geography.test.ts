@@ -264,6 +264,35 @@ test("regional OSM scenes use explicit land and ocean beneath detailed features"
   assert.ok(scene.ways.coastline.features.length > 0);
 });
 
+test("Galloping Goose fills the ocean when an incomplete OSM shoreline prevents inference", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geography-test-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const bbox: BBox = [-123.7542607, 48.3421533, -123.3567553, 48.5104607];
+  const coast: Feature = { type: "Feature", properties: { tags: { natural: "coastline" } },
+    geometry: { type: "LineString", coordinates: [[-123.65, 48.36], [-123.6, 48.37]] } };
+  const scene = await loadGeography(bbox, "3:4", "auto", undefined, { sceneDir: dir,
+    query: async () => collection([coast]) });
+  assert.equal(scene.profile, "district");
+  assert.equal(scene.source, "overpass");
+  assert.equal(scene.ways.coastline.features.length, 1);
+  assert.ok(scene.ways.ocean.features.length > 0);
+  const inRing = (ring: number[][], x: number, y: number) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+  const oceanAt = (x: number, y: number) => scene.ways.ocean.features.some(feature => {
+    const polygons = feature.geometry.type === "Polygon" ? [feature.geometry.coordinates]
+      : feature.geometry.type === "MultiPolygon" ? feature.geometry.coordinates : [];
+    return polygons.some(rings => inRing(rings[0], x, y) && !rings.slice(1).some(ring => inRing(ring, x, y)));
+  });
+  assert.equal(oceanAt(-123.55, 48.3), true, "the strait is filled");
+  assert.equal(oceanAt(-123.55, 48.5), false, "Vancouver Island stays on land");
+});
+
 test("manual mode requests Overpass even for a wide frame and does not generalize its features", async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "geography-test-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
