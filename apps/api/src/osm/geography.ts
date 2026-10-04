@@ -170,12 +170,21 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
   if (regionalOsmBase) ways = { ...ways, ...await naturalEarth(bbox, zoom, ["land", "ocean"]) };
   // Full polygon clipping preserves lakes containing the entire frame.
   const clipped = clipWaysToQueryFrame(ways, bbox, 0, source === "overpass" && policy.metersPerPixel < 50) as GeographyWays;
-  const separated = separateOceanAreas(separateRiverAreas(clipped));
+  let separated = separateOceanAreas(separateRiverAreas(clipped));
+  // Incomplete OSM shores cannot safely establish a water side. Keep the
+  // detailed shoreline, but supply an explicit ocean polygon instead of
+  // leaving coastal scenes (such as Galloping Goose) without any ocean fill.
+  const coastalFallback = source === "overpass" && !regionalOsmBase
+    && Boolean(separated.coastline?.features.length) && !separated.ocean?.features.length;
+  if (coastalFallback) {
+    const base = await naturalEarth(bbox, zoom, ["ocean"]);
+    separated = { ...separated, ...clipWaysToQueryFrame(base, bbox, 0, false) };
+  }
   const resolved = mode === "auto" ? resolveGeographyScene(separated, policy, options.route, detailScope) : separated;
   const scene: GeographyScene = { bbox, ways: resolved, featureIds: visibleGeographyIds(resolved, Object.keys(GEOGRAPHY_BUCKETS)),
     policyVersion: policy.version, profile: policy.profile, metersPerPixel: policy.metersPerPixel,
     source, sourceVersion: source === "natural-earth" ? "scenic-ne-2"
-      : regionalOsmBase ? "osm-query-cache-7d+scenic-ne-2-base" : "osm-query-cache-7d",
+      : regionalOsmBase || coastalFallback ? "osm-query-cache-7d+scenic-ne-2-base" : "osm-query-cache-7d",
     completeness, warnings, ...(omittedElements.length ? { omittedElements } : {}), ...(queryStats.responseBytes > 0 ? { queryResponseBytes: queryStats.responseBytes } : {}) };
   const encoded = JSON.stringify({ requestKey, scene });
   const sceneId = createHash("sha256").update(encoded).digest("hex");

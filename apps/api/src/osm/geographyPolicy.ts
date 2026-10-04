@@ -3,7 +3,7 @@ import { mercX, mercY, type BBox } from "../geo";
 import { waterClass } from "./waterClasses";
 import type { OmittedOverpassElement } from "./overpass";
 
-export const GEOGRAPHY_VERSION = 11;
+export const GEOGRAPHY_VERSION = 12;
 export type GeographyMode = "auto" | "manual";
 export type GeographyDetailScope = "none" | "route" | "all";
 export type GeographyProfile = "close-up" | "local" | "town" | "district" | "regional" | "wide";
