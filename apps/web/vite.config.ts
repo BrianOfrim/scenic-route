@@ -2,10 +2,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { devApiProxy } from "./devApiProxy";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+const api = devApiProxy();
 
 export default defineConfig({
+  customLogger: api.logger,
   plugins: [react()],
   optimizeDeps: {
     include: ["maplibre-gl"],
@@ -14,12 +17,7 @@ export default defineConfig({
     host: true,
     port: 5174,
     proxy: {
-      "/api": {
-        target: "http://127.0.0.1:8790",
-        changeOrigin: true,
-        timeout: 0,
-        proxyTimeout: 0,
-      },
+      "/api": api.proxy,
     },
   },
   preview: {
