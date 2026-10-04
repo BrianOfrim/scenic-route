@@ -1875,7 +1875,7 @@ button.map-schematic-tip-name:focus-visible {
 }
 
 .result-compare-card span,
-.gallery-model {
+.gallery-image-meta {
   display: block;
   margin-top: 6px;
   font-size: var(--text-badge);
@@ -2214,7 +2214,7 @@ button.map-schematic-tip-name:focus-visible {
   font-size: var(--text-caption);
 }
 
-.gallery-card .gallery-model {
+.gallery-card .gallery-image-meta {
   margin-top: 0;
   font-size: var(--text-caption);
 }
@@ -2253,6 +2253,46 @@ button.map-schematic-tip-name:focus-visible {
   flex: 1 1 auto;
   min-height: 0;
 }
+
+.viewer-control {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgba(6, 8, 5, 0.82);
+  color: var(--ink);
+}
+
+.viewer-control:hover {
+  background: var(--panel);
+  border-color: var(--accent-2);
+}
+
+.viewer-control:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 3px;
+}
+
+.viewer-control svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+
+.viewer-close { top: 8px; right: 8px; }
+.viewer-previous { top: 50%; left: 8px; transform: translateY(-50%); }
+.viewer-next { top: 50%; right: 8px; transform: translateY(-50%); }
 
 .compare-stage {
   display: grid;
@@ -2303,7 +2343,7 @@ button.map-schematic-tip-name:focus-visible {
 .compare-expand {
   position: absolute;
   top: 8px;
-  right: 8px;
+  right: 60px;
   z-index: 1;
   margin: 0;
   padding: 2px 7px;
@@ -2343,17 +2383,6 @@ button.map-schematic-tip-name:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: var(--accent-2);
-}
-
-.compare-caption {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(6, 8, 5, 0.72);
-  font-size: var(--text-badge);
   color: var(--accent-2);
 }
 
@@ -2547,59 +2576,53 @@ button.map-schematic-tip-name:focus-visible {
   min-width: 0;
 }
 
-.lightbox-inner.with-meta {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.75fr);
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 0 16px;
-}
-
-.lightbox-inner.with-meta .batch-compare {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.lightbox-inner.with-meta .lightbox-bar {
-  grid-column: 1;
-  grid-row: 2;
-}
-
-.meta-drawer {
+.gallery-action-bar {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-  overflow: auto;
-  padding: 0 4px 4px 12px;
-  border-left: 1px solid var(--line);
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100% - 24px);
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(22, 27, 23, 0.88);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.2);
 }
 
-.lightbox-inner.with-meta .meta-drawer {
-  grid-column: 2;
-  grid-row: 1 / -1;
+.gallery-icon-action {
+  display: grid;
+  place-items: center;
+  flex: 0 1 44px;
+  width: 44px;
+  min-width: 32px;
+  height: 44px;
+  padding: 9px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: none;
 }
 
-.meta-drawer .eyebrow {
-  margin-top: 0;
+.gallery-icon-action svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.meta-drawer p {
-  margin: 0;
-}
-
-.meta-drawer pre {
-  margin: 0;
-  white-space: pre-wrap;
-  font-size: var(--text-badge);
-  background: #0e120c;
-  padding: 10px;
-  border-radius: 8px;
-  overflow: auto;
-}
-
-.meta-drawer .preview-grid {
-  margin-top: 0;
-}
+.gallery-icon-action:hover { background: rgba(255, 255, 255, 0.1); }
+.gallery-icon-action.on { color: var(--accent-2); }
+.gallery-icon-action:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.gallery-action-divider { width: 1px; height: 22px; background: rgba(255, 255, 255, 0.16); margin: 0 3px; }
 
 @media (max-width: 899px) {
   .app,
@@ -3188,29 +3211,6 @@ button.map-schematic-tip-name:focus-visible {
     height: 100dvh;
     border-radius: 0;
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
-  }
-
-  .lightbox-inner.with-meta {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) auto auto;
-  }
-
-  .lightbox-inner.with-meta .batch-compare,
-  .lightbox-inner.with-meta .lightbox-bar {
-    grid-column: 1;
-  }
-
-  .lightbox-inner.with-meta .lightbox-bar {
-    grid-row: 2;
-  }
-
-  .lightbox-inner.with-meta .meta-drawer {
-    grid-column: 1;
-    grid-row: 3;
-    max-height: 32vh;
-    padding: 10px 4px 0;
-    border-left: 0;
-    border-top: 1px solid var(--line);
   }
 
   .lightbox-thumbs-schematic {

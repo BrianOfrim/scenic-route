@@ -1,16 +1,17 @@
+import { FavoriteMark } from "./FavoriteMark";
 import { pollPosterJobs } from "../api";
 import { forgetArrivedPoster, getArrivedEpoch, getArrivedPosters, useArrivedEpoch } from "./arrivedPosters";
 import { clearFailedImage, generationPhaseLabels, useGenerationState } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { deletePoster, fetchActivities, fetchPoster, fetchPosterImage, fetchPosters, setPosterFavorite, variantPoster, type PosterRecord } from "../api";
-import { formatDurationMs, posterVariantLabel, shortModelLabel, shortQualityLabel } from "../poster/imageModels";
+import { posterVariantLabel, shortQualityLabel } from "../poster/imageModels";
 import { AUTO_PALETTE_ID, paletteChoiceLabel, showsPalettePicker, styleById, styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, viewerThumbStacks, type GallerySort } from "./galleryRuns";
 import { posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
 import { deleteGalleryImages, galleryArchive, selectedGalleryImages } from "./gallerySelection";
 import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
-import { ShareButton } from "../share";
+import { GalleryActionBar } from "./GalleryActionBar";
 import { MOBILE_QUERY, useMediaQuery } from "../useMediaQuery";
 
 type Props = {
@@ -32,17 +33,14 @@ function posterLabel(
   item: PosterRecord,
   siblings: PosterRecord[],
   compareStyles: boolean,
-  compareModels: boolean,
   compareQualities: boolean,
 ) {
   return (
     [
       compareStyles ? styleLabel(item.styleId, item.styleName ?? item.spec?.style?.name) : null,
       posterPaletteLabel(item),
-      compareModels || !compareStyles ? shortModelLabel(item.model, item.modelName) : null,
       compareQualities ? shortQualityLabel(item.quality) : null,
       posterVariantLabel(item, siblings),
-      item.durationMs != null ? formatDurationMs(item.durationMs) : null,
     ]
       .filter(Boolean)
       .join(" · ") || "result"
@@ -51,10 +49,6 @@ function posterLabel(
 
 function mixedStyles(posters: PosterRecord[]) {
   return new Set(posters.map((item) => item.styleId)).size > 1;
-}
-
-function mixedModels(posters: PosterRecord[]) {
-  return new Set(posters.map((item) => item.model)).size > 1;
 }
 
 function mixedQualities(posters: PosterRecord[]) {
@@ -72,19 +66,6 @@ function lineageNote(item: PosterRecord, originalId?: string) {
   return "";
 }
 
-function FavoriteMark({ filled }: { filled: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M12 3.8 14.7 9l5.8.9-4.2 4.1 1 5.8L12 17.2 6.7 19.8l1-5.8L3.5 9.9 9.3 9 12 3.8Z"
-        fill={filled ? "currentColor" : "none"}
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.6"
-      />
-    </svg>
-  );
-}
 
 function GalleryCard({
   poster,
@@ -136,7 +117,7 @@ function GalleryCard({
         <span>
           {title ? <strong>{title}</strong> : null}
           {lines.map((line, index) => (
-            <em key={line} className={index === 0 ? "gallery-model" : undefined}>
+            <em key={line} className={index === 0 ? "gallery-image-meta" : undefined}>
               {line}
             </em>
           ))}
@@ -164,6 +145,7 @@ function GalleryCard({
 
 function GalleryRun({
   posters,
+  allPosters,
   versionCount,
   onOpen,
   onToggleFavorite,
@@ -173,6 +155,7 @@ function GalleryRun({
   onToggleSelection,
 }: {
   posters: PosterRecord[];
+  allPosters: PosterRecord[];
   versionCount: (poster: PosterRecord) => number;
   onOpen: (poster: PosterRecord) => void;
   onToggleFavorite: (poster: PosterRecord) => void;
@@ -183,7 +166,6 @@ function GalleryRun({
 }) {
   const headline = runHeadline(posters);
   const styles = mixedStyles(posters);
-  const models = mixedModels(posters);
   const qualities = mixedQualities(posters);
   const ids = new Set(posters.map((item) => item.posterId));
   const originalId = posters.find(
@@ -213,7 +195,7 @@ function GalleryRun({
               key={poster.posterId}
               poster={poster}
               versionCount={versions}
-              lines={[posterLabel(poster, posters, styles, models, qualities), note].filter(Boolean)}
+              lines={[posterLabel(poster, allPosters, styles, qualities), note].filter(Boolean)}
               onOpen={() => onOpen(poster)}
               selecting={selecting}
               selected={selectedIds.has(poster.posterId)}
@@ -240,7 +222,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const [error, setError] = useState<string | null>(null);
   const [studioFrom, setStudioFrom] = useState<PosterRecord | null>(null);
   const [active, setActive] = useState<PosterRecord | null>(null);
-  const [showMeta, setShowMeta] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [sort, setSort] = useState<GallerySort>("generated");
   const [selecting, setSelecting] = useState(false);
@@ -296,7 +277,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     if (!openPosterId || loading) return;
     const poster = posters.find((item) => item.posterId === openPosterId);
     if (poster) {
-      setShowMeta(false);
       setActive(poster);
     }
     onOpenPosterHandled?.();
@@ -336,18 +316,18 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     [active, visible],
   );
   const compareStyles = mixedStyles(activitySiblings);
-  const compareModels = mixedModels(activitySiblings);
   const compareQualities = mixedQualities(activitySiblings);
   const viewerStacks = useMemo<GalleryImage[][]>(() => {
     if (!active) return [];
     const originalId = original?.posterId;
     return viewerThumbStacks(activitySiblings, posters).map((stack) =>
       stack.map((item) => {
-        const base = posterLabel(item, activitySiblings, compareStyles, compareModels, compareQualities);
+        const base = posterLabel(item, posters, compareStyles, compareQualities);
         const note = lineageNote(item, originalId);
         const stacked = stack.length > 1;
         return {
           id: item.posterId,
+          favorited: Boolean(item.favorited),
           src: item.url,
           thumbSrc: posterCardSrc(item),
           previewSrc: item.thumbDataUrl,
@@ -355,7 +335,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         };
       }),
     );
-  }, [active, activitySiblings, compareModels, compareQualities, compareStyles, original?.posterId, posters]);
+  }, [active, activitySiblings, compareQualities, compareStyles, original?.posterId, posters]);
 
   useEffect(() => {
     if (!active) return;
@@ -380,7 +360,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   }, [active, activitySiblings]);
 
   function openPoster(poster: PosterRecord) {
-    setShowMeta(false);
     setActive(poster);
   }
 
@@ -389,11 +368,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     if (!poster) return;
     setActive(poster);
 
-  }
-
-  function updatePoster(next: PosterRecord) {
-    setPosters((current) => current.map((item) => (item.posterId === next.posterId ? next : item)));
-    setActive((current) => (current?.posterId === next.posterId ? next : current));
   }
 
   function patchPoster(posterId: string, patch: Partial<PosterRecord>) {
@@ -420,18 +394,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
       onEditSetup(await fetchPoster(poster.posterId));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Could not load image setup");
-    }
-  }
-
-  async function handleShowMeta() {
-    const next = !showMeta;
-    setShowMeta(next);
-    if (!next || !active) return;
-    if (active.spec) return;
-    try {
-      updatePoster(await fetchPoster(active.posterId));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not load image details");
     }
   }
 
@@ -519,10 +481,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     }
   }
 
-  const selectedImage = active
-    ? viewerStacks.flat().find((item) => item.id === active.posterId)
-    : undefined;
-
   if (studioFrom) {
     return (
       <RefineStudio
@@ -598,7 +556,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                   <div className="gallery-pending-image"><strong>Generation failed</strong></div>
                   <div className="gallery-pending-caption">
                     <strong>{image.title}</strong>
-                    <p className="muted">{[image.styleId ? styleLabel(image.styleId) : null, image.model ? shortModelLabel(image.model) : null].filter(Boolean).join(" · ")}</p>
+                    {image.styleId && <p className="muted">{styleLabel(image.styleId)}</p>}
                     <p role="alert">{image.error}</p>
                     <div className="poster-actions">
                       <button type="button" onClick={() => { void image.retry(); }}>Regenerate</button>
@@ -626,7 +584,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                     <p className="muted">{[
                       image.styleId ? styleLabel(image.styleId) : null,
                       image.styleId ? posterPaletteLabel({ styleId: image.styleId, paletteId: image.paletteId }) : null,
-                      image.model ? shortModelLabel(image.model) : null,
                     ].filter(Boolean).join(" · ")}</p>
                   </div>
                 </div>
@@ -649,10 +606,8 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                       [
                         styleLabel(poster.styleId, poster.styleName ?? poster.spec?.style?.name),
                         posterPaletteLabel(poster),
-                        shortModelLabel(poster.model, poster.modelName),
                         shortQualityLabel(poster.quality),
-                        poster.variant != null ? String(poster.variant) : null,
-                        poster.durationMs != null ? formatDurationMs(poster.durationMs) : null,
+                        posterVariantLabel(poster, posters),
                       ]
                         .filter(Boolean)
                         .join(" · "),
@@ -675,6 +630,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             <GalleryRun
               key={section.run.key}
               posters={section.run.posters}
+              allPosters={posters}
               versionCount={versionCount}
               selecting={selecting}
               selectedIds={selectedIds}
@@ -697,126 +653,50 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
       {active && (
         <div className="lightbox" onClick={() => setActive(null)}>
           <div
-            className={`lightbox-inner ${showMeta ? "with-meta" : ""}`}
+            className="lightbox-inner"
             onClick={(event) => event.stopPropagation()}
           >
             <GalleryViewer
               stacks={viewerStacks}
               selectedId={active.posterId}
               onSelectPoster={selectPoster}
+              renderActions={(image) => {
+                const poster = posters.find((item) => item.posterId === image.id);
+                if (!poster) return null;
+                return (
+                  <GalleryActionBar
+                    image={image}
+                    favorited={Boolean(poster.favorited)}
+                    onFavorite={() => void handleFavorite(poster)}
+                    onDelete={() => void handleDelete(poster)}
+                    onVariant={() => handleNewVariant(poster)}
+                    onRefine={() => {
+                      setStudioFrom(poster);
+                      setActive(null);
+                    }}
+                    onEdit={() => void handleEditSetup(poster)}
+                  />
+                );
+              }}
+              onClose={() => setActive(null)}
             />
             <div className="lightbox-bar">
               <div className="lightbox-bar-copy">
                 <strong>{active.title}</strong>
                 <span className="muted">{active.subtitle}</span>
-                <span className="gallery-model">
+                <span className="gallery-image-meta">
                   {[
                     styleLabel(active.styleId, active.styleName ?? active.spec?.style?.name),
                     posterPaletteLabel(active),
-                    shortModelLabel(active.model, active.modelName),
                     active.quality || null,
                   ]
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
               </div>
-              <div className="poster-actions">
-                {activitySiblings.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      className="text-btn"
-                      onClick={() => {
-                        const index = activitySiblings.findIndex((item) => item.posterId === active.posterId);
-                        setActive(activitySiblings[(index - 1 + activitySiblings.length) % activitySiblings.length]);
-                      }}
-                    >
-                      Previous
-                    </button>
-                    <button
-                      type="button"
-                      className="text-btn"
-                      onClick={() => {
-                        const index = activitySiblings.findIndex((item) => item.posterId === active.posterId);
-                        setActive(activitySiblings[(index + 1) % activitySiblings.length]);
-                      }}
-                    >
-                      Next
-                    </button>
-                  </>
-                )}
-                <button type="button" className="text-btn" onClick={() => setActive(null)}>
-                  Close
-                </button>
-                <button
-                  type="button"
-                  className={`text-btn ${active.favorited ? "on" : ""}`}
-                  aria-pressed={Boolean(active.favorited)}
-                  onClick={() => void handleFavorite(active)}
-                >
-                  {active.favorited ? "Favourited" : "Favourite"}
-                </button>
-                <button type="button" className="text-btn" onClick={() => void handleShowMeta()}>
-                  {showMeta ? "Hide details" : "Details"}
-                </button>
-                {selectedImage && (
-                  <>
-                    <a className="button" href={selectedImage.src} download={`${active.posterId}.png`}>
-                      Download
-                    </a>
-                    <ShareButton url={selectedImage.src} filename={`${active.posterId}.png`} />
-                  </>
-                )}
-                <button type="button" className="button" onClick={() => handleNewVariant(active)}>
-                  Make new variant
-                </button>
-                <button
-                  type="button"
-                  className="button"
-                  onClick={() => {
-                    setStudioFrom(active);
-                    setActive(null);
-                  }}
-                >
-                  Refine image
-                </button>
-                <button type="button" className="text-btn" onClick={() => void handleEditSetup(active)}>
-                  Edit setup
-                </button>
-                <button type="button" className="text-btn" onClick={() => void handleDelete(active)}>
-                  Delete
-                </button>
-              </div>
+
             </div>
-            {showMeta && (
-              <aside className="meta-drawer">
-                <div className="eyebrow">Details</div>
-                <p className="muted">
-                  Image {active.model}
-                  {active.promptModel ? ` · Prompt ${active.promptModel}` : ""}
-                  {active.durationMs != null ? ` · ${formatDurationMs(active.durationMs)}` : ""}
-                   · {active.referenceCount} refs
-                </p>
-                {active.referenceCount > 0 && (
-                  <section aria-label="References for this image">
-                    <h3 className="subheading">Image references</h3>
-                    <div className="preview-grid">
-                      {Array.from({ length: active.referenceCount }, (_, i) => {
-                        const reference = active.spec?.grounding?.images.find((image) => image.index === i + 1);
-                        const label = reference?.role || (i === 0 ? "Schematic" : `Reference ${i + 1}`);
-                        const src = `/api/posters/${active.posterId}/ref-${i + 1}.png`;
-                        return (
-                          <a key={src} href={src} target="_blank" rel="noreferrer" title={`Open ${label} full size`}>
-                            <img src={src} alt={label} />
-                            <span>{label} · Open full size</span>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  </section>
-                )}
-              </aside>
-            )}
+
           </div>
         </div>
       )}

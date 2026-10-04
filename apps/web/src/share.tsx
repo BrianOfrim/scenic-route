@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 export async function sharePoster(url: string, filename: string): Promise<boolean> {
   if (typeof navigator === "undefined" || !navigator.share) return false;
@@ -22,10 +22,12 @@ export function ShareButton({
   url,
   filename,
   className = "text-btn",
+  children,
 }: {
   url: string;
   filename: string;
   className?: string;
+  children?: ReactNode;
 }) {
   const [available] = useState(
     () => typeof navigator !== "undefined" && typeof navigator.share === "function",
@@ -35,11 +37,13 @@ export function ShareButton({
     <button
       type="button"
       className={className}
+      aria-label="Share"
+      title="Share"
       onClick={() => {
         void sharePoster(url, filename);
       }}
     >
-      Share
+      {children ?? "Share"}
     </button>
   );
 }
