@@ -75,3 +75,35 @@ export async function sealImportedIdFloors() {
 export async function clearImportedIdFloor(userId: string) {
   await deleteSetting(settingKey(userId));
 }
+
+/** Remember which activity a file's bytes belong to, including after that activity is deleted. */
+export async function rememberActivityFile(
+  userId: string,
+  contentHash: string,
+  activityId: number,
+  client?: SqlClient,
+) {
+  if (!contentHash || !Number.isInteger(activityId) || activityId <= 0) return;
+  await query(
+    `INSERT INTO activity_file_ids (user_id, content_hash, activity_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, content_hash) DO UPDATE SET activity_id = EXCLUDED.activity_id`,
+    [userId, contentHash, activityId],
+    client,
+  );
+}
+
+/** Activity id previously assigned to these exact bytes, or null when this file has not been imported. */
+export async function activityIdForContent(
+  userId: string,
+  contentHash: string,
+  client?: SqlClient,
+): Promise<number | null> {
+  if (!contentHash) return null;
+  const row = await queryOne<{ activity_id: number }>(
+    `SELECT activity_id FROM activity_file_ids WHERE user_id = $1 AND content_hash = $2`,
+    [userId, contentHash],
+    client,
+  );
+  return row?.activity_id ?? null;
+}

@@ -5,6 +5,7 @@ import { deleteImportedByIds } from "./activities";
 import { closeDb, initDb, query } from "./db";
 import { clearImportedIdFloor } from "./importedIds";
 import { importTrackFiles } from "./importActivity";
+import { posterStore } from "./storage";
 
 const SEMI = 2_147_483_648 / 180;
 
@@ -185,6 +186,58 @@ describe("importTrackFiles", { concurrency: 1 }, () => {
       const rows = await query<{ route_breaks: string }>("SELECT route_breaks FROM activities WHERE user_id = $1 AND id = $2", [userId, id]);
       assert.deepEqual(JSON.parse(rows[0].route_breaks), [2]);
       assert.equal((await importTrackFiles(userId, [file])).skipped, 1);
+    });
+  });
+
+  test("re-importing a deleted file gets a new id when the gallery has no posters for it", async () => {
+    await withUser("same-bytes-empty", async (userId) => {
+      const file = textFile("beltline.gpx", gpx("Beltline Trail", 53.54, -113.5));
+      const first = await importTrackFiles(userId, [file]);
+      const id = first.activities[0]?.id;
+      assert.ok(id);
+      await deleteImportedByIds(userId, [id]);
+      const second = await importTrackFiles(userId, [file]);
+      const secondId = second.activities[0]?.id;
+      assert.ok(secondId);
+      assert.ok(secondId > id);
+      assert.equal(second.skipped, 0);
+    });
+  });
+
+  test("re-importing a deleted file keeps its id when gallery posters still use it", async () => {
+    await withUser("same-bytes-posters", async (userId) => {
+      const file = textFile("beltline.gpx", gpx("Beltline Trail", 53.54, -113.5));
+      const first = await importTrackFiles(userId, [file]);
+      const id = first.activities[0]?.id;
+      assert.ok(id);
+      const posterId = "20260101T000000Z-abc123";
+      await posterStore().put(
+        userId,
+        `${posterId}.json`,
+        Buffer.from(JSON.stringify({
+          posterId,
+          userId,
+          activityId: id,
+          title: "Beltline Trail",
+          subtitle: "10.5 km",
+          model: "test",
+          aspectRatio: "2:3",
+          cost: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          styleId: "topo",
+          referenceCount: 0,
+          url: `/api/posters/${posterId}.png`,
+        })),
+        "application/json",
+      );
+      try {
+        await deleteImportedByIds(userId, [id]);
+        const second = await importTrackFiles(userId, [file]);
+        assert.equal(second.activities[0]?.id, id);
+        assert.equal(second.skipped, 0);
+      } finally {
+        await posterStore().removeByPosterId(userId, posterId);
+      }
     });
   });
 

@@ -527,6 +527,16 @@ async function rebindReusedActivityPosters(userId: string) {
   await setSetting(flag, "1");
 }
 
+/** True when the gallery still has an image tied to this activity, even if the activity row is gone. */
+export async function activityHasPosters(userId: string, activityId: number): Promise<boolean> {
+  const names = await posterStore().listJsonNames(userId);
+  for (const name of names) {
+    const record = await readPosterRecord(userId, name.slice(0, -".json".length));
+    if (record?.activityId === activityId) return true;
+  }
+  return false;
+}
+
 export async function readPosterRecord(userId: string, posterId: string): Promise<PosterRecord | null> {
   if (!isSafePosterId(posterId)) return null;
   const bytes = await posterStore().get(userId, `${posterId}.json`);

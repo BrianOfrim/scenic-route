@@ -243,6 +243,20 @@ async function migrate(client: SqlClient) {
   await client.query(
     "CREATE UNIQUE INDEX IF NOT EXISTS activities_user_content_hash ON activities (user_id, content_hash) WHERE content_hash IS NOT NULL",
   );
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS activity_file_ids (
+      user_id TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      activity_id BIGINT NOT NULL,
+      PRIMARY KEY (user_id, content_hash)
+    )
+  `);
+  await client.query(`
+    INSERT INTO activity_file_ids (user_id, content_hash, activity_id)
+    SELECT user_id, content_hash, id FROM activities
+    WHERE content_hash IS NOT NULL
+    ON CONFLICT (user_id, content_hash) DO NOTHING
+  `);
 }
 
 async function ensureActivitiesTenancy(client: SqlClient) {
