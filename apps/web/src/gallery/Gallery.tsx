@@ -500,7 +500,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
           <div className="brand-lockup">
             <img className="brand-mark" src="/logo/sr-path-sage.svg" alt="" width={40} height={40} />
             <div>
-              <p className="brand">Scenic Route</p>
+              <p className="brand">Scenic{isMobile ? <br /> : " "}Route</p>
             </div>
           </div>
         </div>
@@ -508,12 +508,15 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         <div className="top-actions">
           <button type="button" className={`text-btn ${selecting ? "on" : ""}`}
             disabled={selectionBusy} aria-pressed={selecting}
+            aria-label={selecting ? "Done selecting" : "Select images"}
             onClick={() => { setSelecting(!selecting); setSelectedIds(new Set()); setSelectionNotice(null); }}>
-            {selecting ? "Done selecting" : "Select images"}
+            {selecting ? "Done" : "Select"}
           </button>
-          <label className="gallery-sort">
-            Sort by
-            <select value={sort} onChange={(event) => setSort(event.target.value as GallerySort)}>
+          <label className="gallery-sort" title={`Sort by: ${sort === "generated" ? "Recent Image" : "Recent Activity"}`}>
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 4v16m-4-4 4 4 4-4M14 5h6m-6 5h4m-4 5h2" />
+            </svg>
+            <select aria-label={`Sort by: ${sort === "generated" ? "Recent Image" : "Recent Activity"}`} value={sort} onChange={(event) => setSort(event.target.value as GallerySort)}>
               <option value="generated">Recent Image</option>
               <option value="activity" disabled={!activityDates}>Recent Activity</option>
             </select>
@@ -522,9 +525,10 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             type="button"
             className={`text-btn ${favoritesOnly ? "on" : ""}`}
             aria-pressed={favoritesOnly}
+            aria-label={`Favourites${favoriteCount ? ` · ${favoriteCount}` : ""}`}
             onClick={() => setFavoritesOnly((value) => !value)}
           >
-            Favourites{favoriteCount ? ` · ${favoriteCount}` : ""}
+            <span aria-hidden="true">{favoritesOnly ? "★" : "☆"}{favoriteCount ? ` ${favoriteCount}` : ""}</span>
           </button>
           {account}
         </div>

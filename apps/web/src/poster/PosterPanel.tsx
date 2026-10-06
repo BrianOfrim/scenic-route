@@ -2059,10 +2059,7 @@ export function PosterPanel({
   function togglePalette(styleId: string, paletteId: string) {
     const style = styleById(styleId);
     const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
-    const exclusive = sheetMode;
-    const selected = exclusive
-      ? [paletteId]
-      : current.includes(paletteId)
+    const selected = current.includes(paletteId)
         ? current.filter((item) => item !== paletteId)
         : [...current, paletteId];
     if (!selected.length) {
@@ -2085,24 +2082,9 @@ export function PosterPanel({
     }
   }
 
-  /** Mobile sheet: one theme / palette at a time via compact selects. */
-  function selectPalette(styleId: string, paletteId: string) {
-    const style = styleById(styleId);
-    const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
-    const next = [normalizePaletteId(style, paletteId)];
-    if (next.length === current.length && next[0] === current[0]) return;
-    setPaletteIdsByStyle((map) => ({ ...map, [styleId]: next }));
-    for (const id of current) {
-      if (!next.includes(id)) dropSlot(styleId, id);
-    }
-    setActiveStyleId(styleId);
-    setActivePlanKey(planSlotKey(styleId, next[0]));
-  }
-
   function toggleStyle(id: string) {
-    const exclusive = sheetMode;
     setStyleIds((current) => {
-      if (current.includes(id) && (!exclusive || current.length === 1)) {
+      if (current.includes(id)) {
         const next = current.filter((item) => item !== id);
         setActiveStyleId((active) => (active === id ? next[0] ?? "" : active));
         setPaletteIdsByStyle((map) => {
@@ -2119,67 +2101,28 @@ export function PosterPanel({
         );
         return next;
       }
-      if (exclusive) {
-        for (const prev of current) {
-          if (prev === id) continue;
-          for (const paletteId of paletteIdsForStyle(styleById(prev), paletteIdsByStyle[prev])) {
-            dropSlot(prev, paletteId);
-          }
-        }
-      }
       setActiveStyleId(id);
       if (id === "custom" && !stylePrompt) {
         const from = styleById(activeStyleId);
         if (from.prompt) setStylePrompt(from.prompt);
       }
       const palettes = paletteIdsForStyle(styleById(id), [AUTO_PALETTE_ID]);
-      setPaletteIdsByStyle((map) => (exclusive ? { [id]: palettes } : { ...map, [id]: palettes }));
+      setPaletteIdsByStyle((map) => ({ ...map, [id]: palettes }));
       setActivePlanKey(planSlotKey(id, palettes[0]));
-      return exclusive ? [id] : [...current, id];
-    });
-  }
-
-  function selectStyle(id: string) {
-    setStyleIds((current) => {
-      for (const prev of current) {
-        if (prev === id) continue;
-        for (const paletteId of paletteIdsForStyle(styleById(prev), paletteIdsByStyle[prev])) {
-          dropSlot(prev, paletteId);
-        }
-      }
-      if (!id) {
-        for (const prev of current) {
-          for (const paletteId of paletteIdsForStyle(styleById(prev), paletteIdsByStyle[prev])) {
-            dropSlot(prev, paletteId);
-          }
-        }
-        setActiveStyleId("");
-        setActivePlanKey("");
-        setPaletteIdsByStyle({});
-        return [];
-      }
-      setActiveStyleId(id);
-      if (id === "custom" && !stylePrompt) {
-        const from = styleById(activeStyleId);
-        if (from.prompt) setStylePrompt(from.prompt);
-      }
-      const palettes = paletteIdsForStyle(styleById(id), paletteIdsByStyle[id] ?? [AUTO_PALETTE_ID]).slice(0, 1);
-      setPaletteIdsByStyle({ [id]: palettes });
-      setActivePlanKey(planSlotKey(id, palettes[0]));
-      return [id];
+      return [...current, id];
     });
   }
 
   function applyExamplePalette(styleId: string, paletteId: string) {
     const nextPalette = normalizePaletteId(styleById(styleId), paletteId);
     for (const id of styleIds) {
-      if (id !== styleId && !sheetMode) continue;
+      if (id !== styleId) continue;
       for (const previous of paletteIdsForStyle(styleById(id), paletteIdsByStyle[id])) {
         if (id !== styleId || previous !== nextPalette) dropSlot(id, previous);
       }
     }
-    setStyleIds((current) => sheetMode ? [styleId] : current.includes(styleId) ? current : [...current, styleId]);
-    setPaletteIdsByStyle((current) => sheetMode ? { [styleId]: [nextPalette] } : { ...current, [styleId]: [nextPalette] });
+    setStyleIds((current) => current.includes(styleId) ? current : [...current, styleId]);
+    setPaletteIdsByStyle((current) => ({ ...current, [styleId]: [nextPalette] }));
     setActiveStyleId(styleId);
     setActivePlanKey(planSlotKey(styleId, nextPalette));
   }
@@ -2206,7 +2149,6 @@ export function PosterPanel({
     return sum + variantCount(variants, maxImages);
   }, 0);
   const editingCustom = styleIds.includes("custom");
-  const paletteStyles = styleIds.map(styleById).filter(showsPalettePicker);
   const launchStyleId = styleIds[0] ?? DEFAULT_POSTER_STYLE.id;
   const launchPaletteId = paletteIdsForStyle(styleById(launchStyleId), paletteIdsByStyle[launchStyleId])[0];
   const launchThemeLabel = planSlotLabel(launchStyleId, launchPaletteId);
@@ -2222,11 +2164,61 @@ export function PosterPanel({
   }
 
   const launchMode = sheetMode && mobileSurface === "launch";
-  const themeExamples = <ThemeExamples single={sheetMode} disabled={busy} selectedStyleIds={styleIds}
+  const themeExamples = <ThemeExamples single={false} disabled={busy} selectedStyleIds={styleIds}
     paletteIdsByStyle={paletteIdsByStyle} onTogglePalette={(id, paletteId) => {
       if (!styleIds.includes(id)) applyExamplePalette(id, paletteId);
       else togglePalette(id, paletteId);
-    }} onToggleTheme={toggleStyle} onSelectTheme={selectStyle} onApplyPalette={applyExamplePalette} />;
+    }} onToggleTheme={toggleStyle} onSelectTheme={toggleStyle} onApplyPalette={applyExamplePalette} />;
+  const themeSelection = (
+    <>
+      <div className="theme-selection-groups">
+        {THEME_GROUPS.map((group) => (
+          <div key={group.id} role="group" aria-labelledby={`theme-group-${group.id}`}>
+            <div id={`theme-group-${group.id}`} className="subheading">{group.label}</div>
+            <div className="theme-card-grid">
+              {group.styles.map((style) => {
+                const active = styleIds.includes(style.id);
+                const hasPalettes = showsPalettePicker(style);
+                const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
+                return <div key={style.id} className={`theme-choice-card${active ? " is-selected" : ""}${active && hasPalettes ? " is-expanded" : ""}`}>
+                  <button
+                    type="button"
+                    className="theme-choice-card-header"
+                    aria-pressed={active}
+                    aria-expanded={hasPalettes ? active : undefined}
+                    aria-controls={hasPalettes && active ? `theme-card-palettes-${style.id}` : undefined}
+                    onClick={() => toggleStyle(style.id)}
+                  >
+                    <span>{style.label}</span>
+                    <span aria-hidden="true">{active ? "✓" : "+"}</span>
+                  </button>
+                  {active && hasPalettes && <div id={`theme-card-palettes-${style.id}`} className="theme-choice-card-body">
+                    <div className="subheading">Palette</div>
+                    <div className="selected-theme-palettes" role="group" aria-label={`${style.label} palettes`}>
+                      {paletteChoices(style).map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={`chip ${selected.includes(item.id) ? "on" : ""}`}
+                          aria-pressed={selected.includes(item.id)}
+                          onClick={() => togglePalette(style.id, item.id)}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>}
+                </div>;
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      {planSlots.length > 1 && <p className="muted">
+        {`${planSlots.length} images — one per theme and palette`}
+      </p>}
+    </>
+  );
   const labelCount = selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length;
   const showOnMapStep =
     sheetMode &&
@@ -2255,7 +2247,7 @@ export function PosterPanel({
       : generating
         ? "Submitting…"
         : launchMode
-            ? `${launchThemeLabel} · full track`
+            ? `${generateCount > 1 ? `${generateCount} images` : launchThemeLabel} · full track`
             : showEditor
                 ? `${formatKm(croppedKm)}${!routeOnly && labelCount ? ` · ${labelCount} label${labelCount === 1 ? "" : "s"}` : ""}`
                 : "";
@@ -2279,31 +2271,6 @@ export function PosterPanel({
     if (workflowSteps.some((step) => step.id === workflowStep)) return;
     setWorkflowStep(workflowSteps[0]?.id ?? "crop");
   }, [sheetMode, launchMode, workflowStep, workflowSteps]);
-
-  useEffect(() => {
-    if (!sheetMode) return;
-    const allowed = styleIds.filter((id) => id !== "custom");
-    const keepId = allowed.includes(activeStyleId) ? activeStyleId : allowed[0];
-    if (styleIds.length === (keepId ? 1 : 0) && styleIds[0] === keepId) return;
-    for (const id of styleIds) {
-      if (id === keepId) continue;
-      for (const paletteId of paletteIdsForStyle(styleById(id), paletteIdsByStyle[id])) {
-        dropSlot(id, paletteId);
-      }
-    }
-    if (!keepId) {
-      setStyleIds([]);
-      setPaletteIdsByStyle({});
-      setActiveStyleId("");
-      setActivePlanKey("");
-      return;
-    }
-    const palettes = paletteIdsForStyle(styleById(keepId), paletteIdsByStyle[keepId]).slice(0, 1);
-    setStyleIds([keepId]);
-    setPaletteIdsByStyle({ [keepId]: palettes });
-    setActiveStyleId(keepId);
-    setActivePlanKey(planSlotKey(keepId, palettes[0]));
-  }, [sheetMode]);
 
   function selectWorkflowStep(id: PosterWorkflowStep) {
     setWorkflowStep(id);
@@ -2425,41 +2392,7 @@ export function PosterPanel({
               {formatKm(croppedKm)} · annotations off
             </p>
             {themeExamples}
-            <div className="poster-option-row">
-              <label className="poster-field">
-                Theme
-                <select
-                  value={styleIds[0] ?? ""}
-                  disabled={busy}
-                  onChange={(event) => selectStyle(event.target.value)}
-                >
-                  <option value="">Select a theme</option>
-                  {THEME_GROUPS.map((group) => (
-                    <optgroup key={group.id} label={group.label}>
-                      {group.styles.map((style) => (
-                        <option key={style.id} value={style.id}>{style.label}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              </label>
-              {paletteStyles[0] ? (
-                <label className="poster-field">
-                  Palette
-                  <select
-                    value={paletteIdsForStyle(paletteStyles[0], paletteIdsByStyle[paletteStyles[0].id])[0]}
-                    disabled={busy}
-                    onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
-                  >
-                    {paletteChoices(paletteStyles[0]).map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-            </div>
+            {themeSelection}
           </fieldset>
           <div className="poster-actions poster-launch-actions">
             <button
@@ -2470,7 +2403,7 @@ export function PosterPanel({
             >
               {generating
                   ? "Submitting…"
-                  : "Create image"}
+                  : generateCount > 1 ? `Create ${generateCount} images` : "Create image"}
             </button>
             <button
               className="text-btn"
@@ -3162,93 +3095,8 @@ export function PosterPanel({
             hint={!sheetMode ? themeExamples : undefined}
           >
             {sheetMode && themeExamples}
-            {sheetMode ? (
-              <div className="poster-option-row">
-                <label className="poster-field">
-                  Theme
-                  <select
-                    value={styleIds[0] ?? ""}
-                    disabled={busy}
-                    onChange={(event) => selectStyle(event.target.value)}
-                  >
-                    <option value="">Select a theme</option>
-                    {THEME_GROUPS.map((group) => (
-                      <optgroup key={group.id} label={group.label}>
-                        {group.styles.map((style) => (
-                          <option key={style.id} value={style.id}>{style.label}</option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </label>
-                {paletteStyles[0] ? (
-                  <label className="poster-field">
-                    Palette
-                    <select
-                      value={paletteIdsForStyle(paletteStyles[0], paletteIdsByStyle[paletteStyles[0].id])[0]}
-                      disabled={busy}
-                      onChange={(event) => selectPalette(paletteStyles[0].id, event.target.value)}
-                    >
-                      {paletteChoices(paletteStyles[0]).map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <div className="theme-selection-groups">
-                  {THEME_GROUPS.map((group) => (
-                    <div key={group.id} role="group" aria-labelledby={`theme-group-${group.id}`}>
-                      <div id={`theme-group-${group.id}`} className="subheading">{group.label}</div>
-                      <div className="theme-card-grid">
-                        {group.styles.map((style) => {
-                          const active = styleIds.includes(style.id);
-                          const hasPalettes = showsPalettePicker(style);
-                          const selected = paletteIdsForStyle(style, paletteIdsByStyle[style.id]);
-                          return <div key={style.id} className={`theme-choice-card${active ? " is-selected" : ""}${active && hasPalettes ? " is-expanded" : ""}`}>
-                            <button
-                              type="button"
-                              className="theme-choice-card-header"
-                              aria-pressed={active}
-                              aria-expanded={hasPalettes ? active : undefined}
-                              aria-controls={hasPalettes && active ? `theme-card-palettes-${style.id}` : undefined}
-                              onClick={() => toggleStyle(style.id)}
-                            >
-                              <span>{style.label}</span>
-                              <span aria-hidden="true">{active ? "✓" : "+"}</span>
-                            </button>
-                            {active && hasPalettes && <div id={`theme-card-palettes-${style.id}`} className="theme-choice-card-body">
-                              <div className="subheading">Palette</div>
-                              <div className="selected-theme-palettes" role="group" aria-label={`${style.label} palettes`}>
-                                {paletteChoices(style).map((item) => (
-                                  <button
-                                    key={item.id}
-                                    type="button"
-                                    className={`chip ${selected.includes(item.id) ? "on" : ""}`}
-                                    aria-pressed={selected.includes(item.id)}
-                                    onClick={() => togglePalette(style.id, item.id)}
-                                  >
-                                    {item.label}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>}
-                          </div>;
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {planSlots.length > 1 && <p className="muted">
-                  {`${planSlots.length} images — one per theme and palette`}
-                </p>}
-              </>
-            )}
-            {!sheetMode && editingCustom && (
+            {themeSelection}
+            {editingCustom && (
               <textarea
                 className="poster-prompt"
                 rows={5}
@@ -3257,7 +3105,7 @@ export function PosterPanel({
                 placeholder="Custom style prompt"
               />
             )}
-            {!sheetMode && styleIds.length > 1 && editingCustom && (
+            {styleIds.length > 1 && editingCustom && (
               <p className="muted">Custom uses this prompt; other themes use their presets.</p>
             )}
             <label className="poster-field">
@@ -3280,7 +3128,7 @@ export function PosterPanel({
                   disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
                   onClick={() => void handlePlanAndGenerate()}
                 >
-                  {generating ? "Submitting…" : "Generate image"}
+                  {generating ? "Submitting…" : generateCount > 1 ? `Generate ${generateCount} images` : "Generate image"}
                 </button>
                 {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
               </div>
