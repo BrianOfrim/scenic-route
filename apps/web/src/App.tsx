@@ -501,7 +501,7 @@ export function App() {
             <div className="brand-lockup">
               <img className="brand-mark" src="/logo/sr-path-sage.svg" alt="" width={40} height={40} />
               <div>
-                <p className="brand">Scenic Route</p>
+                <p className="brand">Scenic{isMobile ? <br /> : " "}Route</p>
               </div>
             </div>
           </div>
