@@ -493,6 +493,50 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     );
   }
 
+  const sortLabel = sort === "generated" ? "Recent Image" : "Recent Activity";
+  const galleryFilters = (
+    <>
+      <button type="button" className={`text-btn ${selecting ? "on" : ""}`}
+        disabled={selectionBusy} aria-pressed={selecting}
+        aria-label={selecting ? "Done selecting" : "Select images"}
+        onClick={() => { setSelecting(!selecting); setSelectedIds(new Set()); setSelectionNotice(null); }}>
+        {selecting ? "Done" : "Select"}
+      </button>
+      <label className="gallery-sort" title={`Sort by: ${sortLabel}`}>
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 4v16m-4-4 4 4 4-4M14 5h6m-6 5h4m-4 5h2" />
+        </svg>
+        <select aria-label={`Sort by: ${sortLabel}`} value={sort} onChange={(event) => setSort(event.target.value as GallerySort)}>
+          <option value="generated">Recent Image</option>
+          <option value="activity" disabled={!activityDates}>Recent Activity</option>
+        </select>
+      </label>
+      <button
+        type="button"
+        className={`text-btn ${favoritesOnly ? "on" : ""}`}
+        aria-pressed={favoritesOnly}
+        aria-label={`Favourites${favoriteCount ? ` · ${favoriteCount}` : ""}`}
+        onClick={() => setFavoritesOnly((value) => !value)}
+      >
+        <span aria-hidden="true">{favoritesOnly ? "★" : "☆"}{favoriteCount ? ` ${favoriteCount}` : ""}</span>
+      </button>
+    </>
+  );
+  const selectionControls = (
+    <>
+      <strong aria-live="polite">{selectedImages.length} selected</strong>
+      <button type="button" className="text-btn" disabled={selectionBusy || !displayed.length}
+        onClick={() => setSelectedIds(new Set(displayed.map(image => image.posterId)))}>Select all</button>
+      <button type="button" className="text-btn" disabled={selectionBusy || !selectedImages.length}
+        onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+      <button type="button" className="button" disabled={selectionBusy || !selectedImages.length}
+        onClick={() => void handleDownloadSelected()}>{selectionAction === "download" ? "Preparing ZIP…" : "Download selected"}</button>
+      <button type="button" className="button" disabled={selectionBusy || !selectedImages.length}
+        onClick={() => void handleDeleteSelected()}>{selectionAction === "delete" ? "Deleting…" : "Delete selected"}</button>
+      {selectionAction === "delete" && <span role="status">Processed {deleteProgress.completed} of {deleteProgress.total} images</span>}
+    </>
+  );
+
   return (
     <div className="gallery">
       <header className="top">
@@ -506,45 +550,23 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         </div>
         {!isMobile && tabs}
         <div className="top-actions">
-          <button type="button" className={`text-btn ${selecting ? "on" : ""}`}
-            disabled={selectionBusy} aria-pressed={selecting}
-            aria-label={selecting ? "Done selecting" : "Select images"}
-            onClick={() => { setSelecting(!selecting); setSelectedIds(new Set()); setSelectionNotice(null); }}>
-            {selecting ? "Done" : "Select"}
-          </button>
-          <label className="gallery-sort" title={`Sort by: ${sort === "generated" ? "Recent Image" : "Recent Activity"}`}>
-            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 4v16m-4-4 4 4 4-4M14 5h6m-6 5h4m-4 5h2" />
-            </svg>
-            <select aria-label={`Sort by: ${sort === "generated" ? "Recent Image" : "Recent Activity"}`} value={sort} onChange={(event) => setSort(event.target.value as GallerySort)}>
-              <option value="generated">Recent Image</option>
-              <option value="activity" disabled={!activityDates}>Recent Activity</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            className={`text-btn ${favoritesOnly ? "on" : ""}`}
-            aria-pressed={favoritesOnly}
-            aria-label={`Favourites${favoriteCount ? ` · ${favoriteCount}` : ""}`}
-            onClick={() => setFavoritesOnly((value) => !value)}
-          >
-            <span aria-hidden="true">{favoritesOnly ? "★" : "☆"}{favoriteCount ? ` ${favoriteCount}` : ""}</span>
-          </button>
+          {isMobile && galleryFilters}
           {account}
         </div>
       </header>
-      {selecting && (
+      {!isMobile && (
+        <section className="gallery-toolbar" aria-label="Gallery">
+          {galleryFilters}
+          {selecting && (
+            <div className="gallery-toolbar-selection" role="group" aria-label="Selected image actions" aria-busy={selectionBusy}>
+              {selectionControls}
+            </div>
+          )}
+        </section>
+      )}
+      {isMobile && selecting && (
         <section className="gallery-selection-bar" aria-label="Selected image actions" aria-busy={selectionBusy}>
-          <strong aria-live="polite">{selectedImages.length} selected</strong>
-          <button type="button" className="text-btn" disabled={selectionBusy || !displayed.length}
-            onClick={() => setSelectedIds(new Set(displayed.map(image => image.posterId)))}>Select all</button>
-          <button type="button" className="text-btn" disabled={selectionBusy || !selectedImages.length}
-            onClick={() => setSelectedIds(new Set())}>Clear selection</button>
-          <button type="button" className="button" disabled={selectionBusy || !selectedImages.length}
-            onClick={() => void handleDownloadSelected()}>{selectionAction === "download" ? "Preparing ZIP…" : "Download selected"}</button>
-          <button type="button" className="button" disabled={selectionBusy || !selectedImages.length}
-            onClick={() => void handleDeleteSelected()}>{selectionAction === "delete" ? "Deleting…" : "Delete selected"}</button>
-          {selectionAction === "delete" && <span role="status">Processed {deleteProgress.completed} of {deleteProgress.total} images</span>}
+          {selectionControls}
         </section>
       )}
       {selectionNotice && <p className="muted banner" role="status">{selectionNotice}</p>}
