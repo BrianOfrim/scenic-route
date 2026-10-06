@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { expandImportArchive, isZipBytes, maybeGunzip, type ArchiveTrack } from "./archive";
 import { toActivitySummary, type ActivityFormat, type ActivityOrigin, type ActivityRow, type ActivitySummary } from "./activities";
 import { query, queryOne, type SqlClient } from "./db";
-import { allocateImportedId, rememberImportedId } from "./importedIds";
+import { activityIdForContent, allocateImportedId, rememberActivityFile, rememberImportedId } from "./importedIds";
 import { isFitBytes, parseFit } from "./fit";
+import { activityHasPosters } from "./poster";
 import { gpxToActivityFields, mapSport, parseGpx, ImportError, type GpxActivityFields } from "./gpx";
 import { isTcxXml, parseTcx } from "./tcx";
 
@@ -189,6 +190,7 @@ async function insertImportedFields(
       )
     : null;
   if (duplicate) {
+    if (hash) await rememberActivityFile(userId, hash, duplicate.id, client);
     if (duplicate.route_breaks != null) return "skipped";
     await query(
       `UPDATE activities SET latlng = $1, route_breaks = $2, distance = $3,
@@ -203,7 +205,7 @@ async function insertImportedFields(
     );
     return toActivitySummary({ ...duplicate, distance: fields.distance, average_speed: fields.averageSpeed });
   }
-  const id = preferredId && preferredId > 0 ? preferredId : await allocateImportedId(userId, client);
+  const id = preferredId && preferredId > 0 ? preferredId : await reuseOrAllocateActivityId(userId, hash, client);
   const existing = preferredId && preferredId > 0
     ? await queryOne<ActivityRow>("SELECT * FROM activities WHERE user_id = $1 AND id = $2", [userId, preferredId], client)
     : null;
@@ -252,6 +254,7 @@ async function insertImportedFields(
     );
     if (!updated) throw new Error("imported activity was not saved");
     await rememberImportedId(userId, id, client);
+    if (hash) await rememberActivityFile(userId, hash, id, client);
     return toActivitySummary(updated);
   }
   await query(
@@ -296,7 +299,25 @@ async function insertImportedFields(
   );
   if (!row) throw new Error("imported activity was not saved");
   if (preferredId && preferredId > 0) await rememberImportedId(userId, id, client);
+  if (hash) await rememberActivityFile(userId, hash, id, client);
   return toActivitySummary(row);
+}
+
+/**
+ * Same bytes reuse their activity id only when gallery images still point at it.
+ * With nothing left to reunite, or for a different file, allocate a fresh id.
+ */
+async function reuseOrAllocateActivityId(userId: string, hash: string | undefined, client?: SqlClient) {
+  const remembered = hash ? await activityIdForContent(userId, hash, client) : null;
+  if (remembered != null) {
+    const taken = await queryOne<{ id: number }>(
+      "SELECT id FROM activities WHERE user_id = $1 AND id = $2",
+      [userId, remembered],
+      client,
+    );
+    if (!taken && (await activityHasPosters(userId, remembered))) return remembered;
+  }
+  return allocateImportedId(userId, client);
 }
 
 function contentHash(bytes: Uint8Array): string {
