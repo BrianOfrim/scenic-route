@@ -24,7 +24,7 @@ import { formatImportNotice, type ImportNotice } from "./importNotice";
 import { BasemapControl } from "./BasemapControl";
 import { Gallery } from "./gallery/Gallery";
 import { ProfileMenu } from "./ProfileMenu";
-import { SignIn } from "./SignIn";
+import { Landing } from "./Landing";
 import { MapView, type Basemap, type LandmarkHighlight } from "./MapView";
 import { PosterPanel, type PosterSheetSnap } from "./poster/PosterPanel";
 import { defaultPeopleForUser } from "./poster/people";
@@ -455,7 +455,7 @@ export function App() {
   }
 
   if (!session) {
-    return <SignIn />;
+    return <Landing />;
   }
 
   const profileMenu = (
