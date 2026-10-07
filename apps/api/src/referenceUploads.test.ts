@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createLocalStore, createR2Store, type ObjectStore } from "./storage";
 import { resolveReferences, uploadReferences } from "./referenceUploads";
+import { buildPlannerMessages } from "./planner";
 import { sanitizeForTrace } from "./llmTrace";
 
 const png = Buffer.from("89504e470d0a1a0a", "hex");
@@ -48,4 +49,15 @@ test("R2 signed GET targets the private user-scoped key and expires after 24 hou
   const safe = sanitizeForTrace({ image_url: { url: url.href } });
   assert.ok(!JSON.stringify(safe).includes("X-Amz-Signature"));
   assert.ok(!JSON.stringify(safe).includes("X-Amz-Credential"));
+});
+
+test("planner image attachments accept hosted URLs and metadata excludes them", () => {
+  const messages = buildPlannerMessages({
+    routeOnly: true, activity: {}, title: "Route", subtitle: "", stats: [],
+    style: { id: "swiss", label: "Swiss", prompt: "minimal" }, aspectRatio: "2:3", geography: [], pois: [],
+    grounding: [{ index: 1, role: "route", legend: "route line", url: "https://r2.example/image?signature=secret" }],
+  });
+  const content = messages[1].content as Array<{ type: string; text?: string; image_url?: { url: string } }>;
+  assert.equal(content.find(item => item.type === "image_url")?.image_url?.url, "https://r2.example/image?signature=secret");
+  assert.ok(!content[0].text?.includes("signature"));
 });

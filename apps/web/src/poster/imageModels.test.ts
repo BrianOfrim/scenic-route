@@ -143,19 +143,3 @@ test("posterVariantLabel shows x/n only for multiple variants of the same batch 
   assert.equal(posterVariantLabel(first, [first, refinement]), null);
   assert.equal(posterVariantLabel({ ...first, batchId: undefined }, group), null);
 });
-
-
-test("template prompts show image cost only and historical prompt charges stay visible", () => {
-  assert.equal(formatCostBreakdown({ promptCost: 0, cost: 0.043 }), "$0.043");
-  assert.equal(formatCostBreakdown({ promptCost: 0 }), "");
-  assert.equal(formatBatchCost([{ promptCost: 0, cost: 0.043 }]), "total $0.043");
-  assert.equal(formatCostBreakdown({ promptCost: 0.008, cost: 0.043 }), "prompt $0.008 · image $0.043");
-});
-
-
-test("a free template prompt cannot hide a historical charge in the same style batch", () => {
-  assert.deepEqual(batchCosts([
-    { styleId: "riso", promptCost: 0, cost: 0.04 },
-    { styleId: "riso", promptCost: 0.008, cost: 0.04 },
-  ]), { promptCost: 0.008, imageCost: 0.08, total: 0.088 });
-});

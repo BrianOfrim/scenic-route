@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from "react";
 
-export type GenerationPhase = "queued" | "generating";
+export type GenerationPhase = "queued" | "planning" | "generating";
 export const generationPhaseLabels: Record<GenerationPhase, string> = {
-  queued: "Queued", generating: "Generating",
+  queued: "Queued", planning: "Planning", generating: "Generating",
 };
 type PendingImage = { id: string; title: string; model: string; styleId?: string; paletteId?: string; phase: GenerationPhase; imageAttempt?: number };
 type FailedImage = PendingImage & { error: string; retry: () => Promise<void> };
@@ -117,7 +117,7 @@ export function useGenerationState() {
 }
 
 export type ServerGenerationJob = {
-  id: string; state: "queued" | "generating" | "completed" | "failed";
+  id: string; state: "queued" | "planning" | "ready" | "generating" | "completed" | "failed";
   title: string; model: string; styleId?: string; paletteId?: string; variants: number; error: string | null;
   imageAttempt?: number;
 };
@@ -138,8 +138,8 @@ export function setServerGenerationJobs(jobs: ServerGenerationJob[], retryJob: (
     for (let i=0;i<job.variants;i++) {
       const image = { id: `server:${job.id}:${i}`, title: job.title, model: job.model,
         styleId: job.styleId, paletteId: job.paletteId,
-        imageAttempt: job.state === "queued" && job.imageAttempt ? job.imageAttempt + 1 : job.imageAttempt,
-        phase: (job.state === "generating" ? "generating" : "queued") as GenerationPhase };
+        imageAttempt: job.state === "ready" && job.imageAttempt ? job.imageAttempt + 1 : job.imageAttempt,
+        phase: (job.state === "ready" ? "queued" : ["planning","generating"].includes(job.state) ? job.state : "queued") as GenerationPhase };
       if (job.state === "failed") {
         if (!dismissedServerImages.has(image.id)) failed.push({ ...image, error: job.error || "Generation failed", retry: async () => {
           if (retryingServerJobs.has(job.id)) return;
