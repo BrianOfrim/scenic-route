@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
+import { FullscreenZoom } from "./FullscreenZoom";
 export type GalleryImage = {
   id: string;
   src: string;
@@ -81,9 +82,9 @@ export function GalleryViewer({
   }
 
   return (
-    <div className="batch-compare">
-      <div className="compare-stage-wrap">
-        <div className="compare-stage single">
+    <div className="gallery-viewer">
+      <div className="gallery-viewer-stage-wrap">
+        <div className="gallery-viewer-stage">
           <ViewerPane image={selected} onExpand={() => expand(selected)} />
         </div>
         <ViewerControls
@@ -151,7 +152,7 @@ export function GalleryViewer({
       {expanded &&
         createPortal(
           <div
-            className="compare-fullscreen"
+            className="gallery-fullscreen"
             onClick={(event) => {
               if (event.target !== event.currentTarget || !canCloseRef.current) return;
               setExpanded(null);
@@ -160,13 +161,15 @@ export function GalleryViewer({
             aria-modal="true"
             aria-label={expanded.label}
           >
-            <div className="compare-stage-wrap">
-              <ReadyImage
-                src={expanded.src}
-                previewSrc={expanded.previewSrc || expanded.thumbSrc}
-                alt={expanded.label}
-                onClick={(event) => event.stopPropagation()}
-              />
+            <div className="gallery-viewer-stage-wrap">
+              <FullscreenZoom key={expanded.id}>
+                <ReadyImage
+                  src={expanded.src}
+                  previewSrc={expanded.previewSrc || expanded.thumbSrc}
+                  alt={expanded.label}
+                  onClick={(event) => event.stopPropagation()}
+                />
+              </FullscreenZoom>
               <ViewerControls
                 onClose={() => setExpanded(null)}
                 onNavigate={images.length > 1 ? (direction) => {
@@ -175,7 +178,7 @@ export function GalleryViewer({
                 } : undefined}
               />
             </div>
-            <div className="compare-fullscreen-bar" onClick={(event) => event.stopPropagation()}>
+            <div className="gallery-fullscreen-bar" onClick={(event) => event.stopPropagation()}>
               <strong>{expanded.label}</strong>
             </div>
           </div>,
@@ -221,13 +224,13 @@ export function ReadyImage({
 
 function ViewerPane({ image, onExpand }: { image: GalleryImage; onExpand: () => void }) {
   return (
-    <div className="compare-pane">
-      <div className="compare-pane-hit">
+    <div className="gallery-viewer-pane">
+      <div className="gallery-viewer-image">
         <ReadyImage src={image.src} previewSrc={image.previewSrc || image.thumbSrc} alt={image.label} />
       </div>
       <button
         type="button"
-        className="compare-expand"
+        className="gallery-viewer-expand"
         title="View full screen"
         aria-label={`View ${image.label} full screen`}
         onClick={onExpand}
