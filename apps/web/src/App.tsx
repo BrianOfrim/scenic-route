@@ -1,3 +1,4 @@
+import { SignInForm } from "./SignIn";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   AuthRequiredError,
@@ -446,6 +447,10 @@ export function App() {
     setPosterOpen(false);
   }
 
+  if (window.location.pathname === "/reset-password") {
+    return <div className="sign-in"><SignInForm reset /></div>;
+  }
+
   if (session === undefined) {
     return (
       <div className="sign-in">
@@ -459,7 +464,7 @@ export function App() {
   }
 
   const profileMenu = (
-    <ProfileMenu email={session.email} name={session.name}
+    <ProfileMenu email={session.email} name={session.name} image={session.image}
       onNameSaved={(name) => setSession((current) => current ? { ...current, name } : current)}
       onSignOut={() => void handleSignOut()} />
   );

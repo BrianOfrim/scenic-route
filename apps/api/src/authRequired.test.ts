@@ -5,7 +5,7 @@ import { createRequireUser, isPublicApiPath } from "./auth";
 
 test("public API paths stay open without a session", () => {
   assert.equal(isPublicApiPath("/api/health", "GET"), true);
-  assert.equal(isPublicApiPath("/api/auth/sign-in/magic-link", "POST"), true);
+  assert.equal(isPublicApiPath("/api/auth/sign-in/email", "POST"), true);
   assert.equal(isPublicApiPath("/api/status", "GET"), false);
   assert.equal(isPublicApiPath("/api/tiles/osm/1/2/3", "GET"), false);
   assert.equal(isPublicApiPath("/api/import", "POST"), false);

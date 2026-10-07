@@ -6,7 +6,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
-import { getAuth, requireUser, type AuthUser } from "./auth";
+import { getAuth, googleSignInEnabled, requireUser, type AuthUser } from "./auth";
 import { LLM_TRACES_DIR, REPO_ROOT, isSafePosterId } from "./paths";
 import { posterStore } from "./storage";
 
@@ -74,6 +74,8 @@ app.use(
     credentials: true,
   }),
 );
+
+app.get("/api/auth/config", (c) => c.json({ google: googleSignInEnabled() }));
 
 app.on(["GET", "POST"], "/api/auth/*", async (c) => {
   const auth = await getAuth();
