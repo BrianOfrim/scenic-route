@@ -1572,6 +1572,26 @@ textarea:disabled {
   z-index: 3;
 }
 
+.map-reset-view {
+  position: absolute;
+  top: 78px;
+  right: 10px;
+  z-index: 3;
+}
+
+.map-reset-view button svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: auto;
+  color: #333;
+}
+
+.map-reset-view button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
 .map-schematic-hits {
   position: absolute;
   inset: 0;
