@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { StyleSpecification } from "maplibre-gl";
+import { LngLat, type FitBoundsOptions, type StyleSpecification } from "maplibre-gl";
 import { Map, Marker, NavigationControl } from "./maplibre";
 import { canvasBitmapCollapsed, DEFAULT_MAX_CANVAS } from "./mapCanvas";
 import type { NamedArea, NamedWay, PosterPoi, PosterWays } from "./api";
@@ -152,6 +152,9 @@ export function MapView({
 }: Props) {
   const [mode, setMode] = useState<AnnotateMode>("browse");
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [resetViewNonce, setResetViewNonce] = useState(0);
+  const [canResetView, setCanResetView] = useState(false);
+  const defaultViewRef = useRef<{ center: LngLat; zoom: number; bearing: number; pitch: number } | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [draft, setDraft] = useState<NameDraft | null>(null);
   const [selectedHit, setSelectedHit] = useState<SchematicHover | null>(null);
@@ -258,6 +261,37 @@ export function MapView({
   sectionEditNameRef.current = sectionEditName;
   labelingRef.current = labelingEnabled;
 
+  function syncResetView() {
+    const map = mapRef.current;
+    const target = defaultViewRef.current;
+    if (!map || !target) {
+      setCanResetView(false);
+      return;
+    }
+    const center = map.project(map.getCenter());
+    const expected = map.project(target.center);
+    setCanResetView(
+      Math.abs(map.getZoom() - target.zoom) > 0.001 ||
+      Math.hypot(center.x - expected.x, center.y - expected.y) > 1 ||
+      Math.abs(map.getBearing() - target.bearing) > 0.01 ||
+      Math.abs(map.getPitch() - target.pitch) > 0.01,
+    );
+  }
+
+  function fitDefaultView(map: Map, route: [number, number][] | null | undefined, duration: number, bottom: number) {
+    defaultViewRef.current = null;
+    fit(map, route, duration, bottom, (camera) => {
+      if (!camera.center || camera.zoom == null) return;
+      defaultViewRef.current = {
+        center: LngLat.convert(camera.center),
+        zoom: camera.zoom,
+        bearing: camera.bearing ?? 0,
+        pitch: map.getPitch(),
+      };
+    });
+    syncResetView();
+  }
+
   useEffect(() => {
     if (!containerRef.current) return;
     const map = new Map({
@@ -317,7 +351,7 @@ export function MapView({
         onMovedLandmark: (name) => setHint(`Moved ${name}`),
         geoMask: geoMaskRef.current,
       });
-      fit(map, cropRef.current ?? trackRef.current, 0, bottom);
+      fitDefaultView(map, cropRef.current ?? trackRef.current, 0, bottom);
     };
     const redrawSchematic = () => {
       paintSchematicOverlay(map, overlayRef.current, {
@@ -608,6 +642,7 @@ export function MapView({
       paint();
     };
     map.on("load", markStyleReady);
+    map.on("moveend", syncResetView);
     map.on("style.load", markStyleReady);
     map.on("webglcontextrestored", onContextRestored);
     map.on("render", redrawSchematic);
@@ -624,6 +659,7 @@ export function MapView({
     window.addEventListener("pointerup", finishLandmarkDrag);
     return () => {
       map.off("load", markStyleReady);
+      map.off("moveend", syncResetView);
       map.off("style.load", markStyleReady);
       map.off("webglcontextrestored", onContextRestored);
       map.off("render", redrawSchematic);
@@ -686,18 +722,18 @@ export function MapView({
       if (basemapRef.current === "schematic") {
         clearMarkers(markersRef);
         map.triggerRepaint();
-        fit(map, target, 600, bottom);
+        fitDefaultView(map, target, 600, bottom);
         return;
       }
       if (!styleReadyRef.current) return;
       map.triggerRepaint();
-      fit(map, target, 600, bottom);
+      fitDefaultView(map, target, 600, bottom);
     };
     apply();
     return () => {
       map.off("style.load", apply);
     };
-  }, [selectedLatLng, selectedRouteBreaks, cropLatLng, cropRouteBreaks, cropStops, viewNonce, fitPaddingBottom, basemap]);
+  }, [selectedLatLng, selectedRouteBreaks, cropLatLng, cropRouteBreaks, cropStops, viewNonce, resetViewNonce, fitPaddingBottom, basemap]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -935,6 +971,26 @@ export function MapView({
   return (
     <div className={`map-root${mode !== "browse" ? ` is-annotate-${mode}` : ""}${touchUi ? " is-touch" : ""}`}>
       <div ref={containerRef} className="map" />
+      <div className="map-reset-view maplibregl-ctrl-group">
+        <button
+          type="button"
+          aria-label="Reset map view"
+          title="Reset map view"
+          disabled={!canResetView || trackLoading || (cropLatLng ?? selectedLatLng ?? []).length < 2}
+          onClick={() => setResetViewNonce((value) => value + 1)}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M9 4H4v5M15 4h5v5M20 15v5h-5M9 20H4v-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
       {trackLoading && (
         <div className="map-empty map-loading" role="status" aria-live="polite">
           <div className="map-empty-copy">
@@ -2107,6 +2163,7 @@ function fit(
   latlng: [number, number][] | null | undefined,
   duration: number,
   bottomPadPx = 0,
+  onFit?: (camera: NonNullable<ReturnType<Map["cameraForBounds"]>>) => void,
 ) {
   if (!latlng || latlng.length < 2) return;
   let minLng = latlng[0][1];
@@ -2122,20 +2179,22 @@ function fit(
   const height = map.getContainer().clientHeight || 1;
   const width = map.getContainer().clientWidth || 1;
   const edge = Math.min(FIT_EDGE_PX, Math.floor(Math.min(width, height) / 8));
-  map.fitBounds(
-    [
-      [minLng, minLat],
-      [maxLng, maxLat],
-    ],
-    {
-      padding: {
-        top: edge,
-        right: edge,
-        left: edge,
-        bottom: Math.max(edge, bottomPadPx),
-      },
-      maxZoom: 14,
-      duration,
+  const bounds: [[number, number], [number, number]] = [
+    [minLng, minLat],
+    [maxLng, maxLat],
+  ];
+  const options: FitBoundsOptions = {
+    padding: {
+      top: edge,
+      right: edge,
+      left: edge,
+      bottom: Math.max(edge, bottomPadPx),
     },
-  );
+    maxZoom: 14,
+    duration,
+  };
+  const camera = map.cameraForBounds(bounds, options);
+  if (!camera) return;
+  onFit?.(camera);
+  map.fitBounds(bounds, options);
 }
