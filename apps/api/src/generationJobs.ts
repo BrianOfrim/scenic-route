@@ -15,6 +15,7 @@ type GenerationJob = {
   error: string | null;
   imageAttempt: number;
   retryAt?: number;
+  createdAt: number;
   updatedAt: number;
 };
 const services = { getActivity, resolveReferences, maxImageOutputs, prepare: buildInitialPoster, generate: generatePoster };
@@ -26,6 +27,7 @@ function publicJobs(jobs: GenerationJob[]) {
     model: job.input.generate.model || "", styleId: job.input.generate.styleId,
     paletteId: job.input.generate.paletteId, variants: job.input.generate.variants || 1,
     error: job.error, imageAttempt: job.imageAttempt,
+    activityId: Number(job.input.generate.activityId), createdAt: new Date(job.createdAt).toISOString(),
   }));
 }
 function concurrency() {
@@ -89,7 +91,7 @@ export class GenerationJobQueue {
     }
     // Admit the entire batch synchronously after validation, before yielding again.
     return inputs.map((input, index) => {
-      const job: GenerationJob = { id: randomUUID(), userId, input, planned: prepared[index], state: "queued", error: null, imageAttempt: 0, updatedAt: Date.now() };
+      const job: GenerationJob = { id: randomUUID(), userId, input, planned: prepared[index], state: "queued", error: null, imageAttempt: 0, createdAt: Date.now(), updatedAt: Date.now() };
       this.jobs.set(job.id, job);
       return job.id;
     });

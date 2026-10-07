@@ -1879,7 +1879,7 @@ export function PosterPanel({
     const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
     if (!slots.length) return;
     const tasks = slots.flatMap(slot => activeImageModelIds.map(model => beginGeneration({
-      title: title.trim() || "New image", styleId: slot.styleId, paletteId: slot.paletteId,
+      activityId, title: title.trim() || "New image", styleId: slot.styleId, paletteId: slot.paletteId,
       model, variants: variantCount(variants, imageModelFor(model)?.maxImages),
     })));
     const submissionId = crypto.randomUUID();

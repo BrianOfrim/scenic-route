@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { generatePoster } from "../api";
+import { generatePoster, pollPosterJobs } from "../api";
 import { getArrivedPosters } from "./arrivedPosters";
 import { beginGeneration, clearFailedImage, getGenerationState, trackGeneration } from "./generationState";
 
@@ -24,6 +24,8 @@ test("background requests keep independent placeholders through preparation, com
   const a = generatePoster({ activityId: 1, spec: { text: { title: "First" } }, variants: 2 }, 2, () => first.promise);
   const b = generatePoster({ activityId: 2, spec: { text: { title: "Second" } } }, 1, () => second.promise);
   assert.equal(getGenerationState().pending.length, 3);
+  assert.deepEqual(getGenerationState().pending.map(image => image.activityId), [1, 1, 2]);
+  assert.ok(getGenerationState().pending.every(image => Number.isFinite(Date.parse(image.createdAt))));
   assert.equal(new Set(getGenerationState().pending.map((image) => image.id)).size, 3);
   assert.equal(bodies.length, 0, "placeholders appear before reference preparation finishes");
   assert.ok(getGenerationState().pending.every(image => image.phase === "queued"));
@@ -166,7 +168,7 @@ test("clearing failed images preserves other failures and pending work without r
 test("server jobs restore stages and failed retries after reload and refresh completion", async () => {
   const { setServerGenerationJobs } = await import("./generationState");
   const jobs = ["queued","generating","failed"].map((state,index) => ({
-    id: `durable-${index}`, state, title: "Persisted", model: "model", variants: 2, error: state === "failed" ? "Check before retry" : null,
+    id: `durable-${index}`, state, title: "Persisted", model: "model", activityId: 7, createdAt: "2026-09-26T00:00:00Z", variants: 2, error: state === "failed" ? "Check before retry" : null,
   })) as import("./generationState").ServerGenerationJob[];
   let retried = "";
   const retry = async (id: string) => { retried = id; };
@@ -175,6 +177,7 @@ test("server jobs restore stages and failed retries after reload and refresh com
   assert.deepEqual(getGenerationState().pending.map(image => image.phase),["queued","queued","generating","generating"]);
   const failed = getGenerationState().failed.filter(image => image.id.startsWith("server:"));
   assert.equal(failed.length,2);
+  assert.ok(getGenerationState().pending.every(image => image.activityId === 7 && image.createdAt === "2026-09-26T00:00:00Z"));
   assert.equal(failed[0].error,"Check before retry");
   await failed[0].retry();
   assert.equal(retried,"durable-2");
@@ -212,4 +215,34 @@ test("server retry attempts appear while queued and generating", async () => {
   assert.equal(image.phase, "generating");
   assert.equal(image.imageAttempt, 2);
   setServerGenerationJobs([], retry, retry);
+});
+
+
+test("job polling publishes completed images before removing activity placeholders", async t => {
+  const job = { id: "handoff", state: "generating", title: "Ride", activityId: 12, createdAt: "2026-09-26T00:00:00Z", model: "model", variants: 1, error: null };
+  const list = deferred<Response>();
+  let polls = 0;
+  let nextPoll: (() => Promise<void>) | undefined;
+  t.mock.method(globalThis, "setTimeout", (callback: () => Promise<void>) => {
+    nextPoll = callback;
+    return 0 as any;
+  });
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (url === "/api/poster/jobs") return new Response(JSON.stringify({ jobs: polls++ === 0 ? [job] : [] }));
+    assert.equal(url, "/api/posters");
+    return list.promise;
+  });
+  const stop = pollPosterJobs(error => { throw error; });
+  try {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.ok(nextPoll);
+    assert.ok(getGenerationState().pending.some(image => image.id === "server:handoff:0"));
+    const completion = nextPoll!();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.ok(getGenerationState().pending.some(image => image.id === "server:handoff:0"), "keep the placeholder while the list loads");
+    list.resolve(new Response(JSON.stringify({ posters: [{ posterId: "handoff-completed", activityId: 12 }] })));
+    await completion;
+    assert.ok(getArrivedPosters().some(poster => poster.posterId === "handoff-completed"));
+    assert.ok(!getGenerationState().pending.some(image => image.id === "server:handoff:0"));
+  } finally { stop(); }
 });

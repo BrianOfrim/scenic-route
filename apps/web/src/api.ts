@@ -526,7 +526,7 @@ export async function generatePoster(
   prepareReferences?: () => Promise<string[] | { referenceBatchId: string }>,
   task?: GenerationTask,
 ): Promise<PosterRecord[]> {
-  const details = body as { spec?: PosterSpec; model?: string; styleId?: string; paletteId?: string; variants?: number };
+  const details = body as { activityId?: number; spec?: PosterSpec; model?: string; styleId?: string; paletteId?: string; variants?: number };
   return trackGeneration({ ...details, variants: pendingCount ?? details.variants, title: details.spec?.text.title || "New image" }, async (generationTask) => {
     // Register placeholders before preparing references; preparation also runs in the background.
     const prepared = prepareReferences ? await prepareReferences() : undefined;
@@ -556,11 +556,12 @@ export async function variantPoster(body: {
   posterId: string;
   model?: string;
   title?: string;
+  activityId?: number;
   styleId?: string;
   paletteId?: string;
 }): Promise<PosterRecord[]> {
   return trackGeneration(
-    { title: body.title || "New variant", model: body.model, styleId: body.styleId, paletteId: body.paletteId, variants: 1 },
+    { activityId: body.activityId, previousPosterId: body.posterId, title: body.title || "New variant", model: body.model, styleId: body.styleId, paletteId: body.paletteId, variants: 1 },
     async () => {
       const payload = await readJson<{ posters?: PosterRecord[] }>(
         await apiFetch("/api/poster/variant", {
@@ -579,10 +580,14 @@ export async function variantPoster(body: {
 export async function modifyPoster(body: {
   posterId: string;
   request: string;
+  activityId?: number;
+  title?: string;
+  styleId?: string;
+  paletteId?: string;
   variants?: number;
   model?: string;
 }): Promise<PosterRecord[]> {
-  return trackGeneration({ ...body, title: "Refining image" }, async () => {
+  return trackGeneration({ ...body, previousPosterId: body.posterId, title: body.title || "Refining image" }, async () => {
     const payload = await readJson<{ posters?: PosterRecord[] }>(
       await apiFetch("/api/poster/modify", {
         method: "POST",
@@ -717,11 +722,21 @@ export async function submitPosterBatch(body: { submissionId: string; jobs: { pl
 }
 export function pollPosterJobs(onError: (error: unknown) => void) {
   let stopped = false;
+  let pendingJobIds = new Set<string>();
   let timer: ReturnType<typeof setTimeout>;
   const poll = async () => {
     try {
       const { jobs } = await readJson<{ jobs: ServerGenerationJob[] }>(await apiFetch("/api/poster/jobs"));
-      if (!stopped) setServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
+      const nextPending = new Set(jobs.filter(job => job.state === "queued" || job.state === "generating").map(job => job.id));
+      // Publish completed images before removing their placeholders.
+      if ([...pendingJobIds].some(id => !nextPending.has(id) && !jobs.some(job => job.id === id && job.state === "failed"))) {
+        const posters = await fetchPosters();
+        if (!stopped) noteArrivedPosters(posters);
+      }
+      if (!stopped) {
+        setServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
+        pendingJobIds = nextPending;
+      }
     } catch (error) { if (!stopped) onError(error); }
     finally { if (!stopped) timer = setTimeout(poll, 3000); }
   };

@@ -1,13 +1,13 @@
 import { FavoriteMark } from "./FavoriteMark";
 import { pollPosterJobs } from "../api";
 import { forgetArrivedPoster, getArrivedEpoch, getArrivedPosters, useArrivedEpoch } from "./arrivedPosters";
-import { clearFailedImage, generationPhaseLabels, useGenerationState } from "./generationState";
+import { clearFailedImage, generationPhaseLabels, useGenerationState, type PendingImage } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { deletePoster, fetchActivities, fetchPoster, fetchPosterImage, fetchPosters, setPosterFavorite, variantPoster, type PosterRecord } from "../api";
 import { posterVariantLabel, shortQualityLabel } from "../poster/imageModels";
 import { AUTO_PALETTE_ID, paletteChoiceLabel, showsPalettePicker, styleById, styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, viewerThumbStacks, type GallerySort } from "./galleryRuns";
-import { posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
+import { posterCardSrc, refreshPosterList, unionPosters, galleryPosters, isPendingPoster, type GalleryPoster } from "./galleryList";
 import { deleteGalleryImages, galleryArchive, selectedGalleryImages } from "./gallerySelection";
 import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
@@ -47,7 +47,7 @@ function posterLabel(
   );
 }
 
-function mixedStyles(posters: PosterRecord[]) {
+function mixedStyles(posters: { styleId: string }[]) {
   return new Set(posters.map((item) => item.styleId)).size > 1;
 }
 
@@ -143,6 +143,25 @@ function GalleryCard({
   );
 }
 
+function GalleryPendingCard({ image }: { image: PendingImage }) {
+  return (
+    <div className="gallery-card gallery-pending" role="status" aria-label={`${image.title}: ${generationPhaseLabels[image.phase]} image`}>
+      <div className="gallery-pending-image" aria-busy="true">
+        <i className="spinner" aria-hidden="true" />
+        <strong>{generationPhaseLabels[image.phase]}…</strong>
+        {!!image.imageAttempt && image.imageAttempt > 1 && <span>Attempt {image.imageAttempt} of 3</span>}
+      </div>
+      <div className="gallery-pending-caption">
+        <strong>{image.title}</strong>
+        <p className="muted">{[
+          image.styleId ? styleLabel(image.styleId) : null,
+          image.styleId ? posterPaletteLabel({ styleId: image.styleId, paletteId: image.paletteId }) : null,
+        ].filter(Boolean).join(" · ")}</p>
+      </div>
+    </div>
+  );
+}
+
 function GalleryRun({
   posters,
   allPosters,
@@ -154,7 +173,7 @@ function GalleryRun({
   selectionBusy,
   onToggleSelection,
 }: {
-  posters: PosterRecord[];
+  posters: GalleryPoster[];
   allPosters: PosterRecord[];
   versionCount: (poster: PosterRecord) => number;
   onOpen: (poster: PosterRecord) => void;
@@ -165,12 +184,13 @@ function GalleryRun({
   onToggleSelection: (id: string) => void;
 }) {
   const headline = runHeadline(posters);
+  const completed = posters.filter((poster): poster is PosterRecord => !isPendingPoster(poster));
   const styles = mixedStyles(posters);
-  const qualities = mixedQualities(posters);
+  const qualities = mixedQualities(completed);
   const ids = new Set(posters.map((item) => item.posterId));
   const originalId = posters.find(
     (item) =>
-      !(item.refineNotes?.trim() && item.previousPosterId && ids.has(item.previousPosterId)),
+      !(!isPendingPoster(item) && item.refineNotes?.trim() && item.previousPosterId && ids.has(item.previousPosterId)),
   )?.posterId;
   return (
     <section className="gallery-run">
@@ -188,6 +208,7 @@ function GalleryRun({
         tabIndex={0}
       >
         {posters.map((poster) => {
+          if (isPendingPoster(poster)) return <GalleryPendingCard key={poster.posterId} image={poster.pending} />;
           const note = lineageNote(poster, originalId);
           const versions = versionCount(poster);
           return (
@@ -287,10 +308,10 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     [favoritesOnly, posters],
   );
   const sections = useMemo(
-    () => gallerySections(sortGalleryRuns(galleryRuns(visible), sort, activityDates ?? new Map())),
-    [visible, sort, activityDates],
+    () => gallerySections(sortGalleryRuns(galleryRuns(galleryPosters(visible, favoritesOnly ? [] : generation.pending)), sort, activityDates ?? new Map())),
+    [visible, favoritesOnly, generation.pending, sort, activityDates],
   );
-  const displayed = useMemo(() => sections.flatMap(section => section.kind === "singles" ? section.posters : section.run.posters), [sections]);
+  const displayed = useMemo(() => sections.flatMap(section => section.kind === "singles" ? section.posters : section.run.posters).filter((poster): poster is PosterRecord => !isPendingPoster(poster)), [sections]);
   const selectedImages = selectedGalleryImages(displayed, selectedIds);
   const selectionBusy = selectionAction !== null;
 
@@ -401,6 +422,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     setActive(null);
     void variantPoster({
       posterId: poster.posterId,
+      activityId: poster.activityId,
       model: poster.model,
       title: poster.title,
       styleId: poster.styleId,
@@ -594,33 +616,11 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             </div>
           </section>
         )}
-        {generation.pending.length > 0 && (
-          <section className="gallery-run" aria-label="Images being generated">
-            <header className="gallery-run-head"><strong>Images in progress</strong></header>
-            <div className="gallery-run-row">
-              {generation.pending.map((image) => (
-                <div key={image.id} className="gallery-card gallery-pending" role="status" aria-label={`${image.title}: ${generationPhaseLabels[image.phase]} image`}>
-                  <div className="gallery-pending-image" aria-busy="true">
-                    <i className="spinner" aria-hidden="true" />
-                    <strong>{generationPhaseLabels[image.phase]}…</strong>
-                    {!!image.imageAttempt && image.imageAttempt > 1 && <span>Attempt {image.imageAttempt} of 3</span>}
-                  </div>
-                  <div className="gallery-pending-caption">
-                    <strong>{image.title}</strong>
-                    <p className="muted">{[
-                      image.styleId ? styleLabel(image.styleId) : null,
-                      image.styleId ? posterPaletteLabel({ styleId: image.styleId, paletteId: image.paletteId }) : null,
-                    ].filter(Boolean).join(" · ")}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
         {sections.map((section) =>
           section.kind === "singles" ? (
             <div key={`singles-${section.posters[0].posterId}`} className="gallery-grid">
               {section.posters.map((poster) => {
+                if (isPendingPoster(poster)) return <GalleryPendingCard key={poster.posterId} image={poster.pending} />;
                 const versions = versionCount(poster);
                 return (
                   <GalleryCard
