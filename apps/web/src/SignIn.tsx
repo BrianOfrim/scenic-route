@@ -1,13 +1,15 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type Ref } from "react";
 import { requestMagicLink } from "./api";
 
 type Props = {
+  inputRef?: Ref<HTMLInputElement>;
   onSent?: (email: string) => void;
+  onReset?: () => void;
 };
 
-export function SignIn({ onSent }: Props) {
+export function SignInForm({ inputRef, onSent, onReset }: Props) {
   const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +21,7 @@ export function SignIn({ onSent }: Props) {
     setError(null);
     try {
       await requestMagicLink(next);
-      setSent(true);
+      setSent(next);
       onSent?.(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send sign-in link");
@@ -28,38 +30,41 @@ export function SignIn({ onSent }: Props) {
     }
   }
 
-  return (
-    <div className="sign-in">
-      <div className="sign-in-card">
-        <div className="brand-lockup">
-          <img className="brand-mark" src="/logo/sr-path-sage.svg" alt="" width={40} height={40} />
-          <p className="brand">Scenic Route</p>
-        </div>
-        <h1>Sign in</h1>
-        {sent ? (
-          <p className="muted">Check your inbox for a sign-in link. It expires in a few minutes.</p>
-        ) : (
-          <>
-            <p className="muted">We’ll email you a magic link. After signing in, import activity files from your device.</p>
-            <form className="sign-in-form" onSubmit={(event) => void handleSubmit(event)}>
-              <label>
-                Email
-                <input
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  required
-                />
-              </label>
-              <button type="submit" className="button" disabled={busy || !email.trim()}>
-                {busy ? "Sending…" : "Email me a link"}
-              </button>
-            </form>
-          </>
-        )}
-        {error ? <p className="error">{error}</p> : null}
+  if (sent) {
+    return (
+      <div className="sign-in-sent" role="status">
+        <p>Check your inbox</p>
+        <p className="muted">
+          We sent a sign-in link to <strong>{sent}</strong>. It expires in a few minutes.
+        </p>
+        <button type="button" className="text-btn" onClick={() => {
+            setSent(null);
+            onReset?.();
+          }}>
+          Use a different email
+        </button>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <form className="sign-in-form" onSubmit={(event) => void handleSubmit(event)}>
+      <label>
+        <span className="sr-only">Email</span>
+        <input
+          ref={inputRef}
+          type="email"
+          autoComplete="email"
+          placeholder="you@example.com"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          required
+        />
+      </label>
+      <button type="submit" className="button" disabled={busy || !email.trim()}>
+        {busy ? "Sending…" : "Email me a link"}
+      </button>
+      {error ? <p className="error">{error}</p> : null}
+    </form>
   );
 }
