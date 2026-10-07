@@ -133,6 +133,7 @@ export type PosterContext = {
 };
 
 export type PosterSpec = {
+  promptTemplateVersion?: 1;
   style: {
     name: string;
     medium: string;
@@ -509,7 +510,7 @@ export async function uploadPosterReferences(references: string[]): Promise<{ re
   }));
 }
 
-export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cost: number | null; model: string }> {
+export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cost: number | null; model?: string }> {
   return readJson(
     await apiFetch("/api/poster/plan", {
       method: "POST",
