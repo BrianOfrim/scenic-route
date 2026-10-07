@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { SignInForm } from "./SignIn";
 import { StyleExplorer } from "./StyleExplorer";
 
@@ -21,7 +21,6 @@ const STEPS = [
 
 export function Landing() {
   const emailRef = useRef<HTMLInputElement>(null);
-  const [sent, setSent] = useState(false);
 
   const startSignIn = () => {
     const input = emailRef.current;
@@ -54,8 +53,7 @@ export function Landing() {
               keepsake to remember the day by, and to share with friends and followers.
             </p>
             <div className="landing-signin" id="start">
-              <SignInForm inputRef={emailRef} onSent={() => setSent(true)} onReset={() => setSent(false)} />
-              {!sent && <p className="landing-fine">No password. We email you a one-time sign-in link.</p>}
+              <SignInForm inputRef={emailRef} />
             </div>
           </div>
           <div className="landing-hero-art" aria-hidden="true">

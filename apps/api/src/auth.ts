@@ -1,6 +1,5 @@
 import type { Context, Next } from "hono";
-import { APIError, betterAuth } from "better-auth";
-import { magicLink } from "better-auth/plugins/magic-link";
+import { APIError, betterAuth, type BetterAuthOptions } from "better-auth";
 import type pg from "pg";
 import { Resend } from "resend";
 import { getPool } from "./db";
@@ -35,27 +34,48 @@ export function isPublicApiPath(path: string, method: string) {
   return false;
 }
 
-export async function sendMagicLinkEmail(data: { email: string; url: string }) {
+export function googleSignInEnabled() {
+  return Boolean(process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim());
+}
+
+export async function sendAuthEmail(data: { email: string; url: string }, kind: "verification" | "reset") {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.RESEND_FROM?.trim();
+  const subject = kind === "verification" ? "Verify your Scenic Route email" : "Reset your Scenic Route password";
   if (!apiKey || !from) {
-    console.log(`magic link for ${data.email}: ${data.url}`);
+    if (process.env.NODE_ENV === "production") {
+      throw new APIError("SERVICE_UNAVAILABLE", { message: "Email delivery is unavailable. Please try again later." });
+    }
+    console.log(`${subject} for ${data.email}: ${data.url}`);
     return;
   }
   const resend = new Resend(apiKey);
   const result = await resend.emails.send({
-    from,
-    to: data.email,
-    subject: "Sign in to Scenic Route",
-    html: `<p>Click to sign in to Scenic Route:</p><p><a href="${data.url}">Sign in</a></p>`,
+    from, to: data.email, subject,
+    text: `${subject}: ${data.url}`,
   });
   if (result.error) {
-    throw new APIError("BAD_REQUEST", { message: result.error.message });
+    throw new APIError("SERVICE_UNAVAILABLE", { message: "Could not send email. Please try again later." });
   }
 }
 
-export function createAuth(database: pg.Pool) {
-  return betterAuth({
+// Better Auth verifies Google's ID token before saving it on the account.
+// Read only the display photo here; this payload is never used to authenticate.
+export function googleProfileImage(account: { providerId: string; idToken?: string | null }): string | null {
+  if (account.providerId !== "google" || !account.idToken) return null;
+  try {
+    const profile = JSON.parse(Buffer.from(account.idToken.split(".")[1], "base64url").toString("utf8"));
+    if (typeof profile.picture !== "string") return null;
+    const url = new URL(profile.picture);
+    if (url.protocol !== "https:" || !(url.hostname === "googleusercontent.com" || url.hostname.endsWith(".googleusercontent.com"))) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+export function authOptions(database: BetterAuthOptions["database"]) {
+  return {
     secret: authSecret(),
     baseURL: authBaseUrl(),
     basePath: "/api/auth",
@@ -69,14 +89,49 @@ export function createAuth(database: pg.Pool) {
         httpOnly: true,
       },
     },
-    plugins: [
-      magicLink({
-        sendMagicLink: async ({ email, url }) => {
-          await sendMagicLinkEmail({ email, url });
+    databaseHooks: {
+      account: {
+        create: {
+          after: async (account, context) => {
+            const image = googleProfileImage(account);
+            if (image && context) await context.context.internalAdapter.updateUser(account.userId, { image });
+          },
         },
-      }),
-    ],
-  });
+        update: {
+          after: async (account, context) => {
+            const image = googleProfileImage(account);
+            if (image && context) await context.context.internalAdapter.updateUser(account.userId, { image });
+          },
+        },
+      },
+    },
+    emailAndPassword: {
+      enabled: true,
+      requireEmailVerification: true,
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: async ({ user, url }) => {
+        await sendAuthEmail({ email: user.email, url }, "reset");
+      },
+    },
+    emailVerification: {
+      sendOnSignUp: true,
+      sendOnSignIn: true,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        await sendAuthEmail({ email: user.email, url }, "verification");
+      },
+    },
+    socialProviders: googleSignInEnabled() ? {
+      google: {
+        clientId: process.env.GOOGLE_CLIENT_ID!.trim(),
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET!.trim(),
+      },
+    } : {},
+  } satisfies BetterAuthOptions;
+}
+
+export function createAuth(database: pg.Pool) {
+  return betterAuth(authOptions(database));
 }
 
 type AuthInstance = ReturnType<typeof createAuth>;

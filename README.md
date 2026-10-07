@@ -8,7 +8,7 @@ Production: [https://scenic-route.ca](https://scenic-route.ca)
 
 ## Flow
 
-1. Sign in with an emailed magic link.
+1. Create an account with email and password, or continue with Google.
 2. Import one or more tracks, then select an activity. The map can show streets, satellite, or the schematic.
 3. **Create image** uses the defaults: the full track, annotations off, every geography layer on, the Minimal theme, one variant, and a 4:5 frame. On a phone this is the launch sheet; **Customize** opens the rest of the editor. On a wider screen the composer is the full editor, and the button reads **Generate image**.
 4. While an image is generating it appears in **Gallery** as a pending card. Open a finished image to download it, share it, favourite it, read its details, **Refine image** with a follow-up prompt, or **Edit setup** and generate again from the same crop, geography, and theme.
@@ -47,7 +47,7 @@ OPENROUTER_IMAGE_MODEL=meta/muse-image
 npm run dev
 ```
 
-Open [http://localhost:5174](http://localhost:5174). Sign-in emails a magic link. Without `RESEND_API_KEY` and `RESEND_FROM`, the API prints that link in its log. After signing in, choose **Import activities**. You can upload GPX, FIT, or TCX files individually or in batches, including gzip-compressed tracks. A full Strava account-export ZIP can be uploaded directly; the importer reads `activities.csv` and matching files without retaining the original archive.
+Open [http://localhost:5174](http://localhost:5174). Email/password signup requires email verification. Without `RESEND_API_KEY` and `RESEND_FROM`, the development API prints verification and password-reset links in its log. Production requires working Resend configuration. Google sign-in is enabled when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set. After signing in, choose **Import activities**. You can upload GPX, FIT, or TCX files individually or in batches, including gzip-compressed tracks. A full Strava account-export ZIP can be uploaded directly; the importer reads `activities.csv` and matching files without retaining the original archive.
 
 Imported tracks are stored per account in Postgres (`DATABASE_URL`, default `scenic_route`). An existing `data/scenic-route.sqlite` is imported once if the database is empty. Images are written under `data/` unless R2 is configured (`R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`).
 
@@ -100,3 +100,18 @@ Batch creation uploads its reference sheets, then submits all jobs in one reques
 Job state is intentionally discarded on API restart; completed images remain in storage. Failed image jobs require explicit Regenerate and reuse their existing plan. Image requests are never automatically resent because the provider may have completed and charged for a failed request. Failures can be dismissed. Finished/failed job state and submission IDs are retained for up to 24 hours. Direct refinement/variant requests still use synchronous endpoints. Each style/model job plans independently. There is no cancellation or completion notification.
 
 Run one API process/machine for this in-memory queue: job status and concurrency are not shared across replicas. Fly auto-stop is disabled and at least one machine stays running so background work continues without active HTTP traffic. Configuration changes take effect on deployment. Local laptop sleep still pauses local workers.
+
+### Sign-in configuration
+
+Email/password authentication includes signup, email verification, and password reset. Regular sign-in uses the password. Verification links sign users in after confirming their email; password resets revoke existing sessions.
+
+For Google sign-in, create a **Web application** OAuth client in Google Cloud, configure the consent screen, and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on the API. Register the appropriate authorized redirect URI for each environment:
+
+- Local: `http://localhost:5174/api/auth/callback/google`
+- Production: `https://scenic-route.ca/api/auth/callback/google`
+
+Use separate Google Cloud projects and OAuth clients for development and public production use. For temporary live-site testing, the development client can include both callback URLs; keep local credentials in `.env.local` and configure live credentials through Fly secrets. If the consent screen is in testing mode, add the Google accounts that will test sign-in. Restart the API after changing credentials. The Google button is unavailable until both credentials are configured. Keep the client secret on the server.
+
+The reset-password page is `/reset-password`. Verification and Google callbacks return to `/`. Magic-link sign-in has been removed; existing users can use password reset to set a password. No account or content migration is performed.
+
+Google profile photos are shown in the account menu and refreshed when Google accounts are linked or used to sign in. Accounts without a working photo display an initial instead.

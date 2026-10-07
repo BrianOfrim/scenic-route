@@ -29,6 +29,7 @@ export type SessionUser = {
   id: string;
   email: string;
   name?: string | null;
+  image?: string | null;
 };
 
 export class AuthRequiredError extends Error {
@@ -285,17 +286,57 @@ export async function fetchSession(): Promise<SessionUser | null> {
   if (!response.ok) return null;
   const body = (await response.json()) as { user?: SessionUser } | null;
   if (!body?.user?.id || !body.user.email) return null;
-  return { id: body.user.id, email: body.user.email, name: body.user.name };
+  return { id: body.user.id, email: body.user.email, name: body.user.name, image: body.user.image };
 }
 
-export async function requestMagicLink(email: string) {
-  return readJson<{ status: boolean }>(
-    await apiFetch("/api/auth/sign-in/magic-link", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, callbackURL: "/" }),
-    }),
-  );
+export class SignInError extends Error {
+  constructor(message: string, public code?: string) { super(message); }
+}
+
+async function authPost(path: string, body: Record<string, unknown>) {
+  const response = await apiFetch(`/api/auth/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let data: { message?: string; code?: string; url?: string };
+  try {
+    data = await response.json();
+  } catch {
+    throw new SignInError("Sign-in is temporarily unavailable. Please try again.");
+  }
+  if (!response.ok) throw new SignInError(data.message ?? "Could not complete sign-in. Please try again.", data.code);
+  return data;
+}
+
+export async function fetchAuthConfig(): Promise<{ google: boolean }> {
+  return readJson(await apiFetch("/api/auth/config"));
+}
+
+export function signInEmail(email: string, password: string) {
+  return authPost("sign-in/email", { email, password, callbackURL: "/", rememberMe: true });
+}
+
+export function signUpEmail(name: string, email: string, password: string) {
+  return authPost("sign-up/email", { name, email, password, callbackURL: "/" });
+}
+
+export async function signInGoogle() {
+  const data = await authPost("sign-in/social", { provider: "google", callbackURL: "/", errorCallbackURL: "/?error=google_sign_in" });
+  if (!data.url) throw new Error("Could not start Google sign-in. Please try again.");
+  window.location.assign(data.url);
+}
+
+export function requestPasswordReset(email: string) {
+  return authPost("request-password-reset", { email, redirectTo: `${window.location.origin}/reset-password` });
+}
+
+export function resetPassword(token: string, newPassword: string) {
+  return authPost("reset-password", { token, newPassword });
+}
+
+export function resendVerification(email: string) {
+  return authPost("send-verification-email", { email, callbackURL: "/" });
 }
 
 export async function updateAccountName(name: string): Promise<string> {

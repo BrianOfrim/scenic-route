@@ -4,12 +4,14 @@ import { updateAccountName } from "./api";
 type Props = {
   email: string;
   name?: string | null;
+  image?: string | null;
   onNameSaved: (name: string) => void;
   onSignOut: () => void;
 };
 
-export function ProfileMenu({ email, name, onNameSaved, onSignOut }: Props) {
+export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Props) {
   const [open, setOpen] = useState(false);
+  const [failedImage, setFailedImage] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState(name ?? "");
   const [saving, setSaving] = useState(false);
@@ -88,7 +90,10 @@ export function ProfileMenu({ email, name, onNameSaved, onSignOut }: Props) {
         aria-controls={menuId}
         onClick={() => setOpen((value) => !value)}
       >
-        <span aria-hidden="true">{initial}</span>
+        {image && image !== failedImage ? (
+          <img className="profile-menu-avatar" src={image} alt="" width={38} height={38}
+            referrerPolicy="no-referrer" onError={() => setFailedImage(image)} />
+        ) : <span aria-hidden="true">{initial}</span>}
       </button>
       {open && (
         <div className="profile-menu-panel" id={menuId} role="menu">
