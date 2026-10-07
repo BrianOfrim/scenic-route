@@ -24,6 +24,9 @@ test("dev proxy groups API outages, returns 503, and resumes forwarding without 
   api.logger.warn = message => { warnings.push(message); };
   api.logger.info = message => { info.push(message); };
   const vite = await viteServer({ configFile: false, customLogger: api.logger,
+    // This test only proxies HTTP requests; dependency scanning can race teardown
+    // and add unrelated startup messages to the shared logger.
+    optimizeDeps: { noDiscovery: true, include: [] },
     server: { host: "127.0.0.1", port: 0, proxy: { "/api": api.proxy }, watch: null } });
   t.after(() => vite.close());
   await vite.listen();
@@ -42,7 +45,12 @@ test("dev proxy groups API outages, returns 503, and resumes forwarding without 
   assert.equal(healthy.status, 200);
   assert.equal(await healthy.text(), "ready");
   assert.equal(writes, 1);
-  assert.equal(info.length, 1, "recovery is reported");
+  const recoveryMessages = () => info.filter(message => message === "API connection restored.");
+  assert.equal(recoveryMessages().length, 1, "recovery is reported");
+  const stillHealthy = await fetch(`${url}/api/jobs`);
+  assert.equal(stillHealthy.status, 200);
+  assert.equal(await stillHealthy.text(), "ready");
+  assert.equal(recoveryMessages().length, 1, "healthy requests do not repeat the recovery message");
   const interrupted = await fetch(`${url}/api/reset`, { method: "POST" });
   assert.equal(interrupted.status, 503);
   assert.equal(writes, 2, "interrupted writes must not be retried");
