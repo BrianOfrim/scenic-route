@@ -2,6 +2,7 @@ import type { GeographyScene } from "../../../api/src/osm/geographyPolicy";
 import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, automaticGeographyAllowance, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
 import { beginGeneration } from "../gallery/generationState";
 import { ThemeExamples } from "./ThemeExamples";
+import { locationCaption, locationInput } from "./location";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   fetchPosterCapabilities,
@@ -824,7 +825,7 @@ export function PosterPanel({
   const [locationMode, setLocationMode] = useState<"place" | "coordinates">(seeded?.locationMode ?? "place");
   const [suggestedLocation, setSuggestedLocation] = useState("");
   const [locationStatus, setLocationStatus] = useState("");
-  const placeLocation = locationOverride ?? suggestedLocation;
+  const placeLocation = locationInput(locationOverride ?? suggestedLocation);
   const [dateOverride, setDateOverride] = useState<string | null>(seeded?.dateOverride ?? null);
   const [sportOverride, setSportOverride] = useState<string | null>(seeded?.sportOverride ?? null);
   const [distanceOverrideMeters, setDistanceOverrideMeters] = useState<number | null>(seeded?.distanceOverrideMeters ?? null);
@@ -847,7 +848,7 @@ export function PosterPanel({
   const [customWays, setCustomWays] = useState<NamedWay[]>([]);
   const [cropStart, setCropStart] = useState(0);
   const [cropEnd, setCropEnd] = useState(1);
-  const location = locationMode === "coordinates" ? cropCoordinates(context?.latlng ?? [], cropStart, cropEnd) : placeLocation;
+  const location = locationMode === "coordinates" ? cropCoordinates(context?.latlng ?? [], cropStart, cropEnd) : locationCaption(placeLocation);
   const [showRouteMarkers, setShowRouteMarkers] = useState(seeded?.showRouteMarkers ?? true);
   const routeOnly = true; // Annotations are paused; retain saved annotation data for older posters.
   const [landmarkQuery, setLandmarkQuery] = useState("");
@@ -3031,9 +3032,9 @@ export function PosterPanel({
                   {stat.label}
                 </label>
                 <input className="search" aria-label={stat.id === "location" && locationMode === "coordinates" ? "Display coordinates" : `Display ${stat.id}`}
-                  value={stat.value} maxLength={stat.id === "location" ? 200 : stat.id === "title" ? undefined : 80} disabled={busy}
+                  value={stat.id === "location" && locationMode === "place" ? placeLocation : stat.value} maxLength={stat.id === "location" ? 200 : stat.id === "title" ? undefined : 80} disabled={busy}
                   readOnly={stat.id === "location" && locationMode === "coordinates"}
-                  placeholder={stat.id === "location" ? locationMode === "coordinates" ? "Coordinates unavailable" : "City · Region · Country" : undefined}
+                  placeholder={stat.id === "location" ? locationMode === "coordinates" ? "Coordinates unavailable" : "City, Region, Country" : undefined}
                   onChange={(event) => stat.id === "title" ? setTitle(event.target.value) : stat.id === "date" ? setDateOverride(event.target.value) : stat.id === "sport" ? setSportOverride(event.target.value) : setLocationOverride(event.target.value)} />
               </div>
             ) : (
