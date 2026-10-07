@@ -10,8 +10,8 @@ const STEPS = [
     body: "Drop in a GPX, FIT, or TCX file from Strava, Garmin, Komoot, or AllTrails. Whole account exports work too.",
   },
   {
-    title: "Frame the story",
-    body: "Crop to the part that mattered, then pin the trails, peaks, and landmarks you want named on the map.",
+    title: "Tell the story",
+    body: "Pick the details that matter to you: the date, distance, place, and who you shared the adventure with.",
   },
   {
     title: "Choose your style",
@@ -48,10 +48,10 @@ export function Landing() {
       <main>
         <section className="landing-hero">
           <div className="landing-hero-copy">
-            <h1>Turn your routes into memories.</h1>
+            <h1>Turn your adventures into art.</h1>
             <p className="landing-lede">
-              Scenic Route turns a run, ride, or hike into something you'll want to hold onto: your
-              line, the places you passed, and a style that fits the day. Keep it, share it, or both.
+              Take your favorite rides, runs, and hikes and make something beautiful from them: a
+              keepsake to remember the day by, and to share with friends and followers.
             </p>
             <div className="landing-signin" id="start">
               <SignInForm inputRef={emailRef} onSent={() => setSent(true)} onReset={() => setSent(false)} />
