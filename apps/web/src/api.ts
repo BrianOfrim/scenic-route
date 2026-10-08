@@ -368,6 +368,18 @@ export async function fetchActivities(): Promise<ActivitySummary[]> {
   return body.activities;
 }
 
+export type PosterQuota = {
+  limit: number | null;
+  used: number;
+  reserved: number;
+  remaining: number | null;
+  resetsAt: string;
+};
+
+export async function fetchPosterQuota(): Promise<PosterQuota> {
+  return readJson(await apiFetch("/api/poster/quota"));
+}
+
 export type ImportFailure = { filename: string; error: string };
 
 export class ImportRequestError extends Error {
