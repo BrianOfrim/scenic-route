@@ -12,6 +12,7 @@ import { DEFAULT_ASPECT_RATIO, imageAspectRatio, specToImagePrompt, validatePost
 import { posterStore } from "./storage";
 import { resolveReferences } from "./referenceUploads";
 import { encodePosterThumb } from "./thumb";
+import { withPosterQuota } from "./posterQuota";
 
 export class PosterError extends Error {
   readonly status: 400 | 401 | 404 | 502 | 504;
@@ -289,7 +290,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
     : hosted.slice(0, maxRefs).map(ref => ({ bytes: ref.bytes!, mime: ref.mime }));
   const prompt = resolveImagePrompt(spec, body.prompt);
   const startedAt = Date.now();
-  const result = await createImage({
+  const result = await withPosterQuota(userId, count, () => createImage({
     prompt,
     aspectRatio,
     references,
@@ -297,7 +298,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
     n: count,
     label: body.label ?? "generate",
     user: userId,
-  });
+  }));
   const durationMs = Date.now() - startedAt;
   const share = result.images.length;
   const images = result.images.map((image) => ({

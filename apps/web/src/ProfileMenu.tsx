@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { updateAccountName } from "./api";
+import { fetchPosterQuota, updateAccountName, type PosterQuota } from "./api";
 
 type Props = {
   email: string;
@@ -13,6 +13,8 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
   const [open, setOpen] = useState(false);
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [quota, setQuota] = useState<PosterQuota | null>(null);
+  const [quotaError, setQuotaError] = useState(false);
   const [nameDraft, setNameDraft] = useState(name ?? "");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -23,6 +25,15 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
   const menuId = useId();
   const settingsId = useId();
   const initial = (name?.trim()[0] || email.trim()[0] || "?").toUpperCase();
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    let cancelled = false;
+    setQuota(null);
+    setQuotaError(false);
+    void fetchPosterQuota().then(value => { if (!cancelled) setQuota(value); }, () => { if (!cancelled) setQuotaError(true); });
+    return () => { cancelled = true; };
+  }, [settingsOpen]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -132,6 +143,13 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
               onChange={(event) => { setNameDraft(event.target.value); setSaveError(null); }} />
           </label>
           <p id={`${settingsId}-help`} className="muted">Used to prefill the people list on new posters. You can edit or remove it on each poster.</p>
+          <p className="muted" aria-live="polite">
+            {quota ? quota.limit === null ? "Poster generation: unlimited." : <>
+              {quota.used} of {quota.limit} posters generated this month. {quota.remaining} remaining.
+              {quota.reserved > 0 && ` ${quota.reserved} reserved for requests in progress.`}
+              {` Resets ${new Date(quota.resetsAt).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })} (UTC).`}
+            </> : quotaError ? "Could not load poster usage." : "Loading poster usage…"}
+          </p>
           {saveError && <p role="alert">{saveError}</p>}
           <button type="submit" className="button" disabled={saving}>{saving ? "Saving…" : "Save name"}</button>
         </form>

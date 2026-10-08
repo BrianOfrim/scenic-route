@@ -39,6 +39,7 @@ import { OpenRouterError, imageModel, listImageModels, maxImageReferences } from
 import { planPoster } from "./planner";
 import { RequestQueueError } from "./requestQueue";
 import { ReferenceUploadError, uploadReferences } from "./referenceUploads";
+import { getPosterQuota, PosterQuotaError } from "./posterQuota";
 import {
   PosterError,
   deletePoster,
@@ -103,6 +104,11 @@ app.get("/api/status", async (c) => {
       imageModel: process.env.OPENROUTER_IMAGE_MODEL?.trim() || null,
     },
   });
+});
+
+app.get("/api/poster/quota", async c => {
+  try { return c.json(await getPosterQuota(currentUserId(c))); }
+  catch (error) { return fail(c, error); }
 });
 
 app.get("/api/activities", async (c) => c.json({ activities: await listActivities(currentUserId(c)) }));
@@ -415,7 +421,7 @@ function webp(bytes: Buffer) {
 }
 
 function fail(c: Context, error: unknown) {
-  if (error instanceof PosterError || error instanceof OpenRouterError || error instanceof ReferenceUploadError || error instanceof RequestQueueError) {
+  if (error instanceof PosterError || error instanceof OpenRouterError || error instanceof ReferenceUploadError || error instanceof RequestQueueError || error instanceof PosterQuotaError) {
     return c.json({ error: error.message }, error.status);
   }
   const message = error instanceof Error ? error.message : "request failed";
