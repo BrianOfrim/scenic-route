@@ -455,7 +455,7 @@ a {
 .landing-explorer-poster {
   position: relative;
   /* Largest 2:3 box that fits the stage, capped so it never gets enormous. */
-  width: min(100cqw, calc(min(100cqh, 800px) * 2 / 3));
+  width: min(100cqw, calc(min(100cqh, var(--explorer-poster, 800px)) * 2 / 3));
   aspect-ratio: 2 / 3;
   border-radius: 4px;
   background: var(--panel);
@@ -472,14 +472,6 @@ a {
   height: 100%;
   border-radius: inherit;
   object-fit: cover;
-}
-
-.landing-explorer-poster img[data-ready] {
-  opacity: 0;
-}
-
-.landing-explorer-poster img[data-ready="true"] {
-  opacity: 1;
 }
 
 .landing-explorer-info {

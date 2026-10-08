@@ -4,7 +4,11 @@ import {
   paletteChoiceLabel,
   showsPalettePicker,
 } from "./poster/styles";
-import { examplesForTheme, type ThemeExample } from "./poster/themeExampleCatalog";
+import {
+  EXPLORER_POSTER_MAX_CSS_PX,
+  examplesForTheme,
+  type ThemeExample,
+} from "./poster/themeExampleCatalog";
 
 type Entry = {
   example: ThemeExample;
@@ -37,56 +41,29 @@ const STYLES = ENTRIES.reduce<{ id: string; label: string; first: number; count:
   [],
 );
 
-/** Average of the most colorful pixels: the accent that gives each look its identity. */
-function accentOf(image: HTMLImageElement): [number, number, number] | null {
-  try {
-    const width = 48;
-    const height = 72;
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    if (!context) return null;
-    context.drawImage(image, 0, 0, width, height);
-    const { data } = context.getImageData(0, 0, width, height);
-    const pixels: { r: number; g: number; b: number; chroma: number }[] = [];
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      pixels.push({ r, g, b, chroma: Math.max(r, g, b) - Math.min(r, g, b) });
-    }
-    pixels.sort((a, b) => b.chroma - a.chroma);
-    const top = pixels.slice(0, Math.max(1, Math.round(pixels.length * 0.03)));
-    const sum = top.reduce((acc, p) => ({ r: acc.r + p.r, g: acc.g + p.g, b: acc.b + p.b }), { r: 0, g: 0, b: 0 });
-    const mean = [sum.r, sum.g, sum.b].map((value) => value / top.length);
-    // Push away from grey so the glow reads as a color, not a smudge.
-    const luma = mean[0] * 0.3 + mean[1] * 0.59 + mean[2] * 0.11;
-    const [r, g, b] = mean.map((value) => Math.round(Math.min(255, Math.max(0, luma + (value - luma) * 1.7))));
-    return [r, g, b];
-  } catch {
-    return null;
-  }
-}
-
-/** Thumbnail shows instantly while the full-size image streams in on top. */
-function ExplorerImage({ entry }: { entry: Entry }) {
-  const [ready, setReady] = useState(false);
-  const fullRef = useCallback((node: HTMLImageElement | null) => {
-    if (node?.complete && node.naturalWidth) setReady(true);
-  }, []);
-  const label = entry.paletteLabel ? `${entry.styleLabel}, ${entry.paletteLabel}` : entry.styleLabel;
+/** Samples are 933×1400. Keep the previous poster up until the next one has decoded. */
+function ExplorerPoster({ entry }: { entry: Entry }) {
+  const [visible, setVisible] = useState(entry);
+  useEffect(() => {
+    if (visible.example.image === entry.example.image) return;
+    let cancelled = false;
+    const image = new Image();
+    image.onload = () => {
+      if (!cancelled) setVisible(entry);
+    };
+    image.src = entry.example.image;
+    return () => {
+      cancelled = true;
+    };
+  }, [entry, visible.example.image]);
+  const label = visible.paletteLabel ? `${visible.styleLabel}, ${visible.paletteLabel}` : visible.styleLabel;
   return (
     <div className="landing-explorer-poster">
-      <img src={entry.example.thumbnail} alt="" width={267} height={400} />
       <img
-        ref={fullRef}
-        src={entry.example.image}
+        src={visible.example.image}
         alt={`Beltline Trail map in the ${label} style`}
         width={933}
         height={1400}
-        data-ready={ready}
-        onLoad={() => setReady(true)}
       />
     </div>
   );
@@ -95,8 +72,6 @@ function ExplorerImage({ entry }: { entry: Entry }) {
 export function StyleExplorer() {
   const sectionRef = useRef<HTMLElement>(null);
   const [index, setIndex] = useState(0);
-  const [accents, setAccents] = useState<Record<string, [number, number, number]>>({});
-  const held = useRef<HTMLImageElement[]>([]);
   const count = ENTRIES.length;
 
   // Scroll position inside the pinned section picks the look.
@@ -125,50 +100,6 @@ export function StyleExplorer() {
     };
   }, [count]);
 
-  // Warm every thumbnail (and sample its accent color) once the section is near.
-  useEffect(() => {
-    const section = sectionRef.current;
-    if (!section) return;
-    let cancelled = false;
-    const observer = new IntersectionObserver(
-      (hits) => {
-        if (!hits.some((hit) => hit.isIntersecting)) return;
-        observer.disconnect();
-        const found: Record<string, [number, number, number]> = {};
-        let pending = ENTRIES.length;
-        for (const entry of ENTRIES) {
-          const image = new Image();
-          image.onload = image.onerror = () => {
-            const accent = image.naturalWidth ? accentOf(image) : null;
-            if (accent) found[entry.example.thumbnail] = accent;
-            pending -= 1;
-            if (pending === 0 && !cancelled) setAccents(found);
-          };
-          image.src = entry.example.thumbnail;
-          held.current.push(image);
-        }
-      },
-      { rootMargin: "1200px 0px" },
-    );
-    observer.observe(section);
-    return () => {
-      cancelled = true;
-      observer.disconnect();
-    };
-  }, []);
-
-  // Keep the full-size images around the current look ready for rapid scrolling.
-  useEffect(() => {
-    for (let step = -3; step <= 6; step += 1) {
-      const entry = ENTRIES[index + step];
-      if (!entry) continue;
-      const image = new Image();
-      image.src = entry.example.image;
-      held.current.push(image);
-    }
-    if (held.current.length > 160) held.current.splice(0, held.current.length - 160);
-  }, [index]);
-
   const jumpTo = useCallback(
     (target: number) => {
       const section = sectionRef.current;
@@ -185,21 +116,20 @@ export function StyleExplorer() {
 
   const current = ENTRIES[index];
   const activeStyle = STYLES.findIndex((style) => style.id === current.styleId);
-  const accent = accents[current.example.thumbnail];
-  const pinStyle = { "--glow": accent ? accent.join(" ") : "184 201 122" } as CSSProperties;
+  const pinStyle = { "--glow": current.example.accent.join(" ") } as CSSProperties;
 
   return (
     <section
       ref={sectionRef}
       className="landing-explorer"
       aria-labelledby="landing-explorer-title"
-      style={{ "--explorer-steps": count } as CSSProperties}
+      style={{ "--explorer-steps": count, "--explorer-poster": `${EXPLORER_POSTER_MAX_CSS_PX}px` } as CSSProperties}
     >
       <div className="landing-explorer-pin" style={pinStyle}>
         <div className="landing-explorer-glow" aria-hidden="true" />
         <div className="landing-explorer-inner">
           <div className="landing-explorer-stage">
-            <ExplorerImage key={current.example.image} entry={current} />
+            <ExplorerPoster entry={current} />
           </div>
 
           <div className="landing-explorer-info">
@@ -228,13 +158,12 @@ export function StyleExplorer() {
                             <ol className="landing-explorer-palettes" aria-label={`${style.label} palettes`}>
                               {palettes.map((entry, offset) => {
                                 const at = style.first + offset;
-                                const swatch = accents[entry.example.thumbnail];
                                 return (
                                   <li key={entry.example.image}>
                                     <button
                                       type="button"
                                       aria-current={at === index ? "true" : undefined}
-                                      style={swatch ? ({ "--swatch": swatch.join(" ") } as CSSProperties) : undefined}
+                                      style={{ "--swatch": entry.example.accent.join(" ") } as CSSProperties}
                                       onClick={() => jumpTo(at)}
                                     >
                                       <span className="landing-explorer-swatch" aria-hidden="true" />

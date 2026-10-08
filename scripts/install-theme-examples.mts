@@ -3,12 +3,19 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { POSTER_STYLES, paletteChoices } from "../apps/web/src/poster/styles";
-import type { ThemeExample } from "../apps/web/src/poster/themeExampleCatalog";
+import { accentOfFile } from "./accentColor.mts";
+
+type ReviewedSample = {
+  styleId: string;
+  paletteId: string;
+  thumbnail: string;
+  image: string;
+};
 
 const source = process.argv[2];
 if (!source) throw new Error("Usage: npx tsx scripts/install-theme-examples.ts <reviewed sample folder>");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const samples: ThemeExample[] = JSON.parse(await fs.readFile(path.join(source, "manifest.json"), "utf8"));
+const samples: ReviewedSample[] = JSON.parse(await fs.readFile(path.join(source, "manifest.json"), "utf8"));
 if (!Array.isArray(samples) || !samples.length) throw new Error("Sample manifest is empty or invalid");
 const seen = new Set<string>();
 const files: string[] = [];
@@ -41,7 +48,11 @@ if (process.argv.includes("--check")) {
 }
 await fs.mkdir(destination, { recursive: true });
 for (const file of files) await fs.copyFile(path.join(source, file), path.join(destination, file));
-// Only the four public sample fields are copied; private generation metadata stays out of the site.
-const manifest = samples.map(({ styleId, paletteId, image, thumbnail }) => ({ styleId, paletteId, image, thumbnail }));
+// Accent colors are derived here so the landing page does not download every thumbnail to color its dots.
+const manifest = [];
+for (const { styleId, paletteId, image, thumbnail } of samples) {
+  const accent = await accentOfFile(path.join(destination, path.basename(thumbnail)));
+  manifest.push({ styleId, paletteId, image, thumbnail, accent });
+}
 await fs.writeFile(path.join(root, "apps/web/src/poster/themeExamples.json"), JSON.stringify(manifest, null, 2) + "\n");
 console.log(`Installed ${samples.length} reviewed theme examples.`);
