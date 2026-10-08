@@ -182,6 +182,8 @@ export type PosterRecord = {
   subtitle: string;
   spec?: PosterSpec;
   prompt?: string;
+  basePrompt?: string;
+  editRequests?: string[];
   model: string;
   modelName?: string;
   batchId?: string;
@@ -190,7 +192,7 @@ export type PosterRecord = {
   quality?: string;
   cost: number | null;
   promptCost?: number | null;
-  /** Chat model that wrote the image prompt (planner / refine). */
+  /** Legacy chat model that wrote the image prompt. */
   promptModel?: string;
   durationMs?: number;
   createdAt: string;

@@ -1,91 +1,63 @@
-import { alignDataUrlMime } from "./imageMime";
-import { OpenRouterError, chatJson } from "./openrouter";
 import { SINGLE_ROUTE_RULE, TITLE_BLOCK_LAYOUT_RULE } from "./posterSpec";
 
-export const MODIFY_PROMPT_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["prompt"],
-  properties: {
-    prompt: { type: "string" },
-  },
-};
-
-/** Locked prefix so the image model treats image 1 as the artwork to revise. */
+/** Image 1 is artwork; all later images are grounding, never additional posters. */
 export const MODIFY_SOURCE_RULE =
   "Image 1 is the current poster. Keep everything that still belongs and apply only the requested changes. Later images are geographic grounding for the route and land — do not copy their schematic colors, numbered discs, or letters onto the finished poster. " + SINGLE_ROUTE_RULE;
 
-export type ModifyPromptInput = {
-  imageUrl: string;
-  previousPrompt: string;
-  request: string;
-  userId?: string;
+export type PosterDesignHistory = { basePrompt: string; editRequests: string[] };
+type HistorySource = Partial<PosterDesignHistory> & {
+  posterId: string;
+  prompt?: string;
+  previousPosterId?: string;
+  refineNotes?: string;
 };
 
-export function buildModifyMessages(input: ModifyPromptInput) {
-  return [
-    {
-      role: "system",
-      content: [
-        "You revise image-generation prompts for a map-poster model.",
-        'Reply with a single JSON object: {"prompt": "..."}.',
-        "You are shown the current poster and the prompt that produced it.",
-        "Apply the user's requested change. Keep the route shape, geography, landmarks, title, and style unless the user asks to change them.",
-        TITLE_BLOCK_LAYOUT_RULE,
-        "If the poster has a title, keep it a large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width, unless the user asks to change the title size or remove the title. Do not add a title when the design has none.",
-        "Write a complete replacement prompt, not a list of deltas.",
-        "The image model will receive the current poster as image 1, then the same geographic grounding images as before (schematic, then satellite if present). Rewrite any reference-image numbering to match that order.",
-        "Tell the image model to start from image 1 (the current poster) and apply only the requested changes.",
-        SINGLE_ROUTE_RULE,
-        "Keep critical route-fidelity instructions. Do not invent place names.",
-      ].join(" "),
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: [
-            "Current poster image is attached.",
-            "",
-            "Previous prompt:",
-            input.previousPrompt.trim(),
-            "",
-            "Requested change:",
-            input.request.trim(),
-          ].join("\n"),
-        },
-        {
-          type: "image_url",
-          image_url: { url: input.imageUrl },
-        },
-      ],
-    },
-  ];
+/** Recover old refinement chains once; new records carry their complete history. */
+export async function posterDesignHistory(
+  source: HistorySource,
+  load: (posterId: string) => Promise<HistorySource | null>,
+): Promise<PosterDesignHistory> {
+  const edits: string[] = [];
+  const seen = new Set<string>();
+  let current = source;
+  while (!seen.has(current.posterId)) {
+    seen.add(current.posterId);
+    if (current.basePrompt?.trim()) {
+      return { basePrompt: current.basePrompt.trim(), editRequests: [...(current.editRequests ?? []), ...edits] };
+    }
+    if (!current.previousPosterId) break;
+    const parent = await load(current.previousPosterId);
+    if (!parent || seen.has(parent.posterId)) break;
+    if (current.refineNotes?.trim()) edits.unshift(current.refineNotes.trim());
+    current = parent;
+  }
+  // An orphaned legacy record's saved prompt is the best available design brief.
+  return { basePrompt: current.prompt?.trim() ?? "", editRequests: edits };
 }
 
-export function withModifySourceRule(prompt: string) {
-  const text = prompt.trim();
-  if (!text) return "";
-  if (text.startsWith(MODIFY_SOURCE_RULE)) return text;
-  return `${MODIFY_SOURCE_RULE}\n\n${text}`;
-}
-
-export async function revisePosterPrompt(
-  input: ModifyPromptInput,
-): Promise<{ prompt: string; cost: number | null; model: string }> {
+export function buildModifyPrompt(input: {
+  request: string;
+  grounding: Array<{ role: string }>;
+}): string {
   const request = input.request.trim();
-  const previousPrompt = input.previousPrompt.trim();
-  if (!request) throw new OpenRouterError("a modification request is required", 400);
-  if (!previousPrompt) throw new OpenRouterError("previous prompt is required", 400);
-  const { value, cost, model } = await chatJson<{ prompt?: unknown }>({
-    messages: buildModifyMessages({ ...input, imageUrl: alignDataUrlMime(input.imageUrl), request, previousPrompt }),
-    schemaName: "poster_prompt_revision",
-    schema: MODIFY_PROMPT_SCHEMA,
-    label: "revise-prompt",
-    user: input.userId,
-  });
-  const prompt = typeof value?.prompt === "string" ? value.prompt.trim() : "";
-  if (!prompt) throw new OpenRouterError("modifier did not return a revised prompt", 502);
-  return { prompt: withModifySourceRule(prompt), cost, model };
+  if (!request) throw new Error("a modification request is required");
+  return [
+    MODIFY_SOURCE_RULE,
+    input.grounding.map((image, index) => `Image ${index + 2}: ${image.role}.`).join("\n"),
+    "Preserve the exact GPS route geometry, every segment, bend, crossing, out-and-back and gap, and its position relative to the geography. Do not add, omit, straighten or move route segments or geographic features. Keep the route continuous, unobscured and clearly contrasted against its background. Preserve north-up orientation. Do not invent place names.",
+    "Keep the existing title, other text, landmarks, palette and style unless the requested change explicitly changes them. Do not print the edit instructions or reference-image headings.",
+    TITLE_BLOCK_LAYOUT_RULE,
+    "If the current poster has a title, keep it large and readable when the whole poster is viewed on a phone, with font size at least 8% of poster width, unless the request changes its size or removes it. If it has no title, do not add one unless requested.",
+    `Requested change (apply to Image 1):\n${request}`,
+  ].filter(Boolean).join("\n\n");
+}
+
+/** Variants use only grounding images, so their brief has no current-poster reference. */
+export function buildVariantPrompt(history: PosterDesignHistory): string {
+  if (!history.editRequests.length) return history.basePrompt;
+  return [
+    history.basePrompt,
+    "Apply these design changes in order to the original brief above. Later changes supersede earlier changes and the original brief where they conflict, except that exact route geometry and geographic fidelity remain mandatory. These are visual instructions, not text to print:",
+    ...history.editRequests.map((request, index) => `${index + 1}. ${JSON.stringify(request)}`),
+  ].join("\n\n");
 }
