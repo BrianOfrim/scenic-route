@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { withAccountAccess } from "./accountLifecycle";
 import { GenerationJobQueue, type JobInput } from "./generationJobs";
 import { OpenRouterError } from "./openrouter";
 import type { PlannerInput } from "./planner";
 import type { PosterSpec } from "./posterSpec";
+
+const unlocked: typeof withAccountAccess = async (_user, _exclusive, run) => run({} as any);
 
 function setup() {
   const planned = { spec: { text: { title: "Rideau" }, finalPrompt: "Prepared route prompt", promptTemplateVersion: 1 } as PosterSpec, cost: 0 as const };
@@ -23,7 +26,7 @@ function setup() {
       return [];
     },
   };
-  return { queue: new GenerationJobQueue(work), input, work };
+  return { queue: new GenerationJobQueue(work, unlocked), input, work };
 }
 
 test("55-job batches deduplicate simultaneous submission and limit stage concurrency", async () => {
@@ -195,4 +198,18 @@ test("ambiguous transport failures, invalid payloads, and other HTTP errors do n
     assert.equal(images, 1);
     assert.equal(queue.claim(), undefined);
   }
+});
+
+
+test("account removal purges queued jobs and preserves other owners", async () => {
+  const { queue, input } = setup();
+  await queue.submit("owner", { submissionId: "delete", jobs: [input, input] });
+  await queue.submit("other", { submissionId: "keep", jobs: [input] });
+  queue.removeUser("owner");
+  assert.deepEqual(queue.list("owner"), []);
+  assert.equal(queue.list("other").length, 1);
+  const job = queue.claim()!;
+  assert.equal(job.userId, "other");
+  await queue.run(job);
+  assert.equal(queue.list("other").length, 0);
 });

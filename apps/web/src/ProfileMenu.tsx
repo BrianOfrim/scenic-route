@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { fetchPosterQuota, updateAccountName, type PosterQuota } from "./api";
+import { deleteAccount, fetchPosterQuota, updateAccountName, type PosterQuota } from "./api";
 
 type Props = {
   email: string;
@@ -16,6 +16,10 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
   const [quota, setQuota] = useState<PosterQuota | null>(null);
   const [quotaError, setQuotaError] = useState(false);
   const [nameDraft, setNameDraft] = useState(name ?? "");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteEmail, setDeleteEmail] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const settingsDialog = useRef<HTMLDialogElement>(null);
@@ -44,14 +48,14 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
   }, [settingsOpen]);
 
   function closeSettings() {
-    if (saving) return;
+    if (saving || deleting) return;
     setSettingsOpen(false);
     trigger.current?.focus();
   }
 
   async function saveName(event: FormEvent) {
     event.preventDefault();
-    if (saving) return;
+    if (saving || deleting) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -65,6 +69,20 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
       setSaveError(error instanceof Error ? error.message : "Could not save your name.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (deleting || deleteEmail !== email) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteAccount(deleteEmail);
+      // Drop mounted editors, cached responses, and account state after deletion.
+      window.location.replace("/");
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Could not delete your account. Please retry.");
+      setDeleting(false);
     }
   }
 
@@ -112,6 +130,9 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
           <p className="profile-menu-email">{email}</p>
           <button type="button" className="text-btn" role="menuitem" onClick={() => {
             setOpen(false);
+            setDeleteOpen(false);
+            setDeleteEmail("");
+            setDeleteError(null);
             setNameDraft(name ?? "");
             setSaveError(null);
             setSettingsOpen(true);
@@ -134,12 +155,12 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
         <form onSubmit={(event) => void saveName(event)}>
           <div className="account-settings-header">
             <h2 id={`${settingsId}-title`}>Account settings</h2>
-            <button type="button" className="text-btn" disabled={saving} onClick={closeSettings}>Close</button>
+            <button type="button" className="text-btn" disabled={saving || deleting} onClick={closeSettings}>Close</button>
           </div>
           <p className="profile-menu-email">{email}</p>
           <label className="poster-field" htmlFor={`${settingsId}-name`}>Name (optional)
             <input ref={nameInput} id={`${settingsId}-name`} className="search" autoComplete="name" maxLength={40}
-              value={nameDraft} disabled={saving} placeholder="Your name" aria-describedby={`${settingsId}-help`}
+              value={nameDraft} disabled={saving || deleting} placeholder="Your name" aria-describedby={`${settingsId}-help`}
               onChange={(event) => { setNameDraft(event.target.value); setSaveError(null); }} />
           </label>
           <p id={`${settingsId}-help`} className="muted">Used to prefill the people list on new posters. You can edit or remove it on each poster.</p>
@@ -151,8 +172,26 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
             </> : quotaError ? "Could not load poster usage." : "Loading poster usage…"}
           </p>
           {saveError && <p role="alert">{saveError}</p>}
-          <button type="submit" className="button" disabled={saving}>{saving ? "Saving…" : "Save name"}</button>
+          <button type="submit" className="button" disabled={saving || deleting}>{saving ? "Saving…" : "Save name"}</button>
         </form>
+        <section className="account-delete-section" aria-labelledby={`${settingsId}-delete-title`}>
+          <h3 id={`${settingsId}-delete-title`}>Delete account</h3>
+          <p className="muted">Permanently delete your account, activities, posters, uploaded images, and associated data. This cannot be undone.</p>
+          {!deleteOpen ? <button type="button" className="button account-delete-button" disabled={saving || deleting}
+            onClick={() => setDeleteOpen(true)}>Delete account…</button> : <>
+            <label className="poster-field" htmlFor={`${settingsId}-delete-email`}>Enter {email} to confirm
+              <input id={`${settingsId}-delete-email`} className="search" type="email" autoComplete="off"
+                value={deleteEmail} disabled={deleting} onChange={event => setDeleteEmail(event.target.value)} />
+            </label>
+            {deleteError && <p role="alert">{deleteError}</p>}
+            {deleting && <p role="status">Deleting your account and data…</p>}
+            <div className="account-delete-actions">
+              <button type="button" className="text-btn" disabled={deleting} onClick={() => setDeleteOpen(false)}>Cancel</button>
+              <button type="button" className="button account-delete-button" disabled={saving || deleting || deleteEmail !== email}
+                onClick={() => void handleDelete()}>{deleting ? "Deleting…" : "Permanently delete account"}</button>
+            </div>
+          </>}
+        </section>
       </dialog>}
     </div>
   );

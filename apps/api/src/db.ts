@@ -77,7 +77,16 @@ export async function getPool() {
       });
       try {
         await waitForPostgres(created);
-        await migrate(created);
+        const migration = await created.connect();
+        try {
+          // Multiple API/test processes can initialize together. Serialize DDL,
+          // including CREATE TABLE IF NOT EXISTS, which can still race in Postgres.
+          await migration.query("SELECT pg_advisory_lock(hashtextextended('scenic-route:migrations', 0))");
+          await migrate(migration);
+        } finally {
+          try { await migration.query("SELECT pg_advisory_unlock(hashtextextended('scenic-route:migrations', 0))"); }
+          finally { migration.release(); }
+        }
         try {
           await maybeImportSqlite(created);
         } catch (error) {

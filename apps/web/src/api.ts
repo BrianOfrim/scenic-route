@@ -355,6 +355,14 @@ export async function updateAccountName(name: string): Promise<string> {
   return normalized;
 }
 
+export async function deleteAccount(email: string) {
+  await readJson(await apiFetch("/api/account", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  }));
+}
+
 export async function signOut() {
   await apiFetch("/api/auth/sign-out", {
     method: "POST",
