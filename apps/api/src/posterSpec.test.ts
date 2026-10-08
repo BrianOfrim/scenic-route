@@ -403,6 +403,7 @@ test("unannotated prompt keeps geometry, deduplicates text and omits obsolete pl
   assert.match(prompt, /Preserve every segment/);
   assert.match(prompt, /Preserve segment breaks/);
   assert.match(prompt, /All reference images depict the same single GPS route/);
+  assert.match(prompt, /Place map markers only at the explicitly indicated marker positions/);
   assert.match(prompt, /Draw that route exactly once on one unified map/);
   assert.match(prompt, /Preserve the route's actual parallel segments/);
   assert.match(prompt, /Background roads, bridges and shorelines must never become route segments/);

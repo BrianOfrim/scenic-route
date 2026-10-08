@@ -2,7 +2,7 @@ export const AUTO_PALETTE_ID = "auto";
 
 /**
  * Kept in lockstep with TITLE_PHONE_CLAUSE in apps/api/src/posterSpec.ts.
- * Preset typography carries it so the planner copies a phone-readable title.
+ * Retained for saved presets; current prompt assembly owns title sizing.
  */
 export const TITLE_PHONE_CLAUSE =
   "Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.";
