@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Encoder, Profile, Utils } from "@garmin/fitsdk";
+import type { ActivityMesg, Encodable, FileIdMesg, RecordMesg, SessionMesg } from "@garmin/fitsdk";
 import { deleteImportedByIds } from "./activities";
 import { closeDb, initDb, query } from "./db";
 import { clearImportedIdFloor } from "./importedIds";
@@ -42,27 +43,29 @@ function fit(lat: number, lon: number) {
   const encoder = new Encoder();
   const start = new Date("2024-07-04T14:00:00Z");
   const t0 = Utils.convertDateToDateTime(start);
-  encoder.writeMesg({
+  const fileId: Encodable<FileIdMesg> = {
     mesgNum: Profile.MesgNum.FILE_ID,
     type: "activity",
     manufacturer: "development",
     product: 0,
     timeCreated: t0,
-  });
+  };
+  encoder.writeMesg(fileId);
   for (const [index, point] of [
     { lat, lng: lon, t: 0 },
     { lat: lat + 0.01, lng: lon, t: 20 },
     { lat: lat + 0.02, lng: lon, t: 40 },
   ].entries()) {
-    encoder.writeMesg({
+    const record: Encodable<RecordMesg> = {
       mesgNum: Profile.MesgNum.RECORD,
       timestamp: t0 + point.t,
       positionLat: Math.round(point.lat * SEMI),
       positionLong: Math.round(point.lng * SEMI),
       enhancedAltitude: 600 + index,
-    });
+    };
+    encoder.writeMesg(record);
   }
-  encoder.writeMesg({
+  const session: Encodable<SessionMesg> = {
     mesgNum: Profile.MesgNum.SESSION,
     timestamp: t0 + 40,
     startTime: t0,
@@ -70,13 +73,15 @@ function fit(lat: number, lon: number) {
     subSport: "generic",
     totalElapsedTime: 40,
     totalTimerTime: 40,
-  });
-  encoder.writeMesg({
+  };
+  encoder.writeMesg(session);
+  const activity: Encodable<ActivityMesg> = {
     mesgNum: Profile.MesgNum.ACTIVITY,
     timestamp: t0 + 40,
     numSessions: 1,
     totalTimerTime: 40,
-  });
+  };
+  encoder.writeMesg(activity);
   return encoder.close();
 }
 
