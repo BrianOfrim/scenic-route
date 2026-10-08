@@ -132,7 +132,6 @@ import {
   planSlotLabel,
   resolveStyleColor,
   showsPalettePicker,
-  specForSlot,
   styleById,
   stylePlanSlots,
 } from "./styles";
@@ -1768,7 +1767,7 @@ export function PosterPanel({
     );
   }
 
-  function plannerRequest(packed: Awaited<ReturnType<typeof renderContactSheets>>, referenceBatchId: string, slot: { styleId: string; paletteId: string }) {
+  function templateRequest(packed: Awaited<ReturnType<typeof renderContactSheets>>, referenceBatchId: string, slot: { styleId: string; paletteId: string }) {
     const style = styleById(slot.styleId);
     const base = {
       referenceBatchId,
@@ -1806,12 +1805,9 @@ export function PosterPanel({
     };
     return {
       ...base,
-      style: styleForPlan(style, slot.paletteId),
+      style: styleForTemplate(style, slot.paletteId),
       customStylePrompt: style.id === "custom" ? stylePrompt : undefined,
       vibes: vibes.trim() || undefined,
-      previousSpec:
-        specForSlot(specs, slot.styleId, slot.paletteId) ??
-        (refineFrom && refineFrom.styleId === slot.styleId ? refineFrom.spec : undefined),
     };
   }
 
@@ -1878,7 +1874,7 @@ export function PosterPanel({
     };
   }
 
-  async function handlePlanAndGenerate() {
+  async function handleGenerate() {
     if (!geographyScene || !context || !activeImageModelIds.length) return;
     const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
     if (!slots.length) return;
@@ -1895,7 +1891,7 @@ export function PosterPanel({
         const packed = await renderContactSheets(await buildGrounding(), maxRefs, aspectRatio);
         const uploaded = await referenceUpload.current(packed.map(sheet => sheet.dataUrl));
         return { submissionId, jobs: slots.flatMap(slot => activeImageModelIds.map(model => {
-          const plan = plannerRequest(packed, uploaded.referenceBatchId, slot);
+          const plan = templateRequest(packed, uploaded.referenceBatchId, slot);
           const generate = generationRequest(slot, model, batchId);
           return { plan, generate: { ...generate, referenceBatchId: uploaded.referenceBatchId } };
         })) };
@@ -2009,7 +2005,7 @@ export function PosterPanel({
     nearDebounce.current = window.setTimeout(() => commitLandmarkNear(id, raw), 450);
   }
 
-  function styleForPlan(style: ReturnType<typeof styleById>, selectedPaletteId: string) {
+  function styleForTemplate(style: ReturnType<typeof styleById>, selectedPaletteId: string) {
     if (style.id === "custom") {
       return {
         id: style.id,
@@ -2400,7 +2396,7 @@ export function PosterPanel({
               className="button"
               type="button"
               disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
-              onClick={() => void handlePlanAndGenerate()}
+              onClick={() => void handleGenerate()}
             >
               {generating
                   ? "Submitting…"
@@ -3127,7 +3123,7 @@ export function PosterPanel({
                   className="button"
                   type="button"
                   disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
-                  onClick={() => void handlePlanAndGenerate()}
+                  onClick={() => void handleGenerate()}
                 >
                   {generating ? "Submitting…" : generateCount > 1 ? `Generate ${generateCount} images` : "Generate image"}
                 </button>
@@ -3145,7 +3141,7 @@ export function PosterPanel({
                   className="button"
                   type="button"
                   disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
-                  onClick={() => void handlePlanAndGenerate()}
+                  onClick={() => void handleGenerate()}
                 >
                   {generating
                     ? "Submitting…"

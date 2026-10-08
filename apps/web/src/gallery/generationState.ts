@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from "react";
 
-export type GenerationPhase = "queued" | "planning" | "generating";
+export type GenerationPhase = "queued" | "generating";
 export const generationPhaseLabels: Record<GenerationPhase, string> = {
-  queued: "Queued", planning: "Planning", generating: "Generating",
+  queued: "Queued", generating: "Generating",
 };
 export type PendingImage = { activityId?: number; previousPosterId?: string; createdAt: string; id: string; title: string; model: string; styleId?: string; paletteId?: string; phase: GenerationPhase; imageAttempt?: number };
 type FailedImage = PendingImage & { error: string; retry: () => Promise<void> };
@@ -119,7 +119,7 @@ export function useGenerationState() {
 }
 
 export type ServerGenerationJob = {
-  id: string; state: "queued" | "planning" | "ready" | "generating" | "completed" | "failed";
+  id: string; state: "queued" | "generating" | "completed" | "failed";
   title: string; model: string; styleId?: string; paletteId?: string; variants: number; error: string | null;
   imageAttempt?: number; activityId?: number; createdAt?: string;
 };
@@ -141,8 +141,8 @@ export function setServerGenerationJobs(jobs: ServerGenerationJob[], retryJob: (
       const image = { id: `server:${job.id}:${i}`, title: job.title, model: job.model,
         styleId: job.styleId, paletteId: job.paletteId, activityId: job.activityId,
         createdAt: job.createdAt ?? snapshot.pending.find(image => image.id === `server:${job.id}:${i}`)?.createdAt ?? new Date().toISOString(),
-        imageAttempt: job.state === "ready" && job.imageAttempt ? job.imageAttempt + 1 : job.imageAttempt,
-        phase: (job.state === "ready" ? "queued" : ["planning","generating"].includes(job.state) ? job.state : "queued") as GenerationPhase };
+        imageAttempt: job.state === "queued" && job.imageAttempt ? job.imageAttempt + 1 : job.imageAttempt,
+        phase: (job.state === "generating" ? "generating" : "queued") as GenerationPhase };
       if (job.state === "failed") {
         if (!dismissedServerImages.has(image.id)) failed.push({ ...image, error: job.error || "Generation failed", retry: async () => {
           if (retryingServerJobs.has(job.id)) return;

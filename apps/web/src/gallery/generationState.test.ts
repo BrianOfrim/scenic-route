@@ -97,17 +97,17 @@ test("prompt and image generation share placeholders without duplicating or clea
 test("phases update all variants of one task, reset on retry, and ignore finished tasks", async () => {
   const task = beginGeneration({ title: "Phase route", variants: 2 });
   const other = beginGeneration({ title: "Queued route" });
-  task.setPhase("planning");
-  assert.deepEqual(getGenerationState().pending.map(image => image.phase), ["planning", "planning", "queued"]);
+  task.setPhase("generating");
+  assert.deepEqual(getGenerationState().pending.map(image => image.phase), ["generating", "generating", "queued"]);
   task.setPhase("generating");
   task.setRetry(async () => {
     const images = getGenerationState().pending.filter(image => image.title === "Phase route");
     assert.deepEqual(images.map(image => image.phase), ["queued", "queued"]);
-    task.setPhase("planning");
+    task.setPhase("generating");
   });
   task.finish(new Error("Retry this phase"));
   const snapshot = getGenerationState();
-  task.setPhase("planning");
+  task.setPhase("generating");
   assert.equal(getGenerationState(), snapshot, "finished work cannot change active tasks");
   await snapshot.failed.find(image => image.title === "Phase route")!.retry();
   assert.deepEqual(getGenerationState().pending.map(image => image.phase), ["queued"]);
@@ -167,20 +167,20 @@ test("clearing failed images preserves other failures and pending work without r
 
 test("server jobs restore stages and failed retries after reload and refresh completion", async () => {
   const { setServerGenerationJobs } = await import("./generationState");
-  const jobs = ["queued","planning","ready","generating","failed"].map((state,index) => ({
+  const jobs = ["queued","generating","failed"].map((state,index) => ({
     id: `durable-${index}`, state, title: "Persisted", model: "model", activityId: 7, createdAt: "2026-09-26T00:00:00Z", variants: 2, error: state === "failed" ? "Check before retry" : null,
   })) as import("./generationState").ServerGenerationJob[];
   let retried = "";
   const retry = async (id: string) => { retried = id; };
   const dismiss = async () => {};
   setServerGenerationJobs(jobs,retry,dismiss);
-  assert.deepEqual(getGenerationState().pending.map(image => image.phase),["queued","queued","planning","planning","queued","queued","generating","generating"]);
+  assert.deepEqual(getGenerationState().pending.map(image => image.phase),["queued","queued","generating","generating"]);
   const failed = getGenerationState().failed.filter(image => image.id.startsWith("server:"));
   assert.equal(failed.length,2);
   assert.ok(getGenerationState().pending.every(image => image.activityId === 7 && image.createdAt === "2026-09-26T00:00:00Z"));
   assert.equal(failed[0].error,"Check before retry");
   await failed[0].retry();
-  assert.equal(retried,"durable-4");
+  assert.equal(retried,"durable-2");
   const snapshot = getGenerationState();
   setServerGenerationJobs(jobs,retry,dismiss);
   assert.equal(getGenerationState(),snapshot,"unchanged polling does not reload the gallery");
@@ -205,7 +205,7 @@ test("resubmitting a batch dismisses every local failed placeholder", async () =
 test("server retry attempts appear while queued and generating", async () => {
   const { setServerGenerationJobs } = await import("./generationState");
   const retry = async () => {};
-  const job = { id: "retry-attempt", state: "ready" as const, title: "Retry", model: "model", variants: 1, error: null, imageAttempt: 1 };
+  const job = { id: "retry-attempt", state: "queued" as const, title: "Retry", model: "model", variants: 1, error: null, imageAttempt: 1 };
   setServerGenerationJobs([job], retry, retry);
   let image = getGenerationState().pending.find(image => image.id.startsWith("server:"))!;
   assert.equal(image.phase, "queued");
@@ -244,42 +244,5 @@ test("job polling publishes completed images before removing activity placeholde
     await completion;
     assert.ok(getArrivedPosters().some(poster => poster.posterId === "handoff-completed"));
     assert.ok(!getGenerationState().pending.some(image => image.id === "server:handoff:0"));
-  } finally { stop(); }
-});
-
-test("job polling keeps planning and ready placeholders until images exist", async t => {
-  const job = { id: "planning-handoff", state: "planning" as const, title: "Ride", activityId: 12, createdAt: "2026-09-26T00:00:00Z", model: "model", variants: 1, error: null };
-  const list = deferred<Response>();
-  let polls = 0;
-  let posterFetches = 0;
-  let nextPoll: (() => Promise<void>) | undefined;
-  t.mock.method(globalThis, "setTimeout", (callback: () => Promise<void>) => {
-    nextPoll = callback;
-    return 0 as any;
-  });
-  t.mock.method(globalThis, "fetch", async (url: string) => {
-    if (url === "/api/poster/jobs") {
-      const state = (["planning", "ready", ""] as const)[polls++] ?? "";
-      return new Response(JSON.stringify({ jobs: state ? [{ ...job, state }] : [] }));
-    }
-    assert.equal(url, "/api/posters");
-    posterFetches++;
-    return list.promise;
-  });
-  const stop = pollPosterJobs(error => { throw error; });
-  try {
-    await new Promise<void>(resolve => setImmediate(resolve));
-    assert.equal(getGenerationState().pending.find(image => image.id === "server:planning-handoff:0")?.phase, "planning");
-    await nextPoll!();
-    assert.equal(posterFetches, 0, "moving from planning to ready is not completion");
-    assert.equal(getGenerationState().pending.find(image => image.id === "server:planning-handoff:0")?.phase, "queued");
-    const completion = nextPoll!();
-    await new Promise<void>(resolve => setImmediate(resolve));
-    assert.equal(posterFetches, 1);
-    assert.ok(getGenerationState().pending.some(image => image.id === "server:planning-handoff:0"), "keep the placeholder while the list loads");
-    list.resolve(new Response(JSON.stringify({ posters: [{ posterId: "planned-completed", activityId: 12 }] })));
-    await completion;
-    assert.ok(getArrivedPosters().some(poster => poster.posterId === "planned-completed"));
-    assert.ok(!getGenerationState().pending.some(image => image.id === "server:planning-handoff:0"));
   } finally { stop(); }
 });
