@@ -5,6 +5,7 @@ import { buildInitialPoster, type PlannerInput } from "./planner";
 import { generatePoster, type GeneratePosterBody } from "./poster";
 import { maxImageOutputs, OpenRouterError } from "./openrouter";
 import { resolveReferences } from "./referenceUploads";
+import { providerQueue, RequestQueueError, type RequestQueue, type WaitingReservation } from "./requestQueue";
 
 export type JobInput = { plan: PlannerInput; generate: Omit<GeneratePosterBody, "spec"> };
 type GenerationJob = {
@@ -16,6 +17,7 @@ type GenerationJob = {
   error: string | null;
   imageAttempt: number;
   retryAt?: number;
+  waiting?: WaitingReservation;
   createdAt: number;
   updatedAt: number;
 };
@@ -31,23 +33,19 @@ function publicJobs(jobs: GenerationJob[]) {
     activityId: Number(job.input.generate.activityId), createdAt: new Date(job.createdAt).toISOString(),
   }));
 }
-function concurrency() {
-  const value = Number(process.env.OPENROUTER_IMAGE_CONCURRENCY || 4);
-  if (!Number.isInteger(value) || value < 1) throw new Error("request concurrency must be a positive integer");
-  return value;
-}
-
 /** Backend-owned jobs for one API process. Restarting intentionally discards them. */
 export class GenerationJobQueue {
   private jobs = new Map<string, GenerationJob>();
   private submissions = new Map<string, { result: Promise<string[]>; ids?: string[]; createdAt: number }>();
   private running = new Set<string>();
 
-  constructor(private work = services, private access = withAccountAccess) {}
+  constructor(private work = services, private scheduler: RequestQueue = providerQueue("image"), private access = withAccountAccess) {}
 
   async submit(userId: string, body: { submissionId: string; jobs: JobInput[] }) {
     if (!body || !/^[\w-]{1,100}$/.test(body.submissionId) || !Array.isArray(body.jobs) || !body.jobs.length || body.jobs.length > 200)
       throw new Error("submissionId and 1–200 jobs are required");
+    const selections = new Set(body.jobs.map(input => JSON.stringify([input?.generate?.styleId, input?.generate?.paletteId || "auto"])));
+    if (selections.size > 4) throw new Error("A generation batch must contain at most four theme/palette combinations");
     this.prune();
     const key = JSON.stringify([userId, body.submissionId]);
     let submission = this.submissions.get(key);
@@ -91,8 +89,9 @@ export class GenerationJobQueue {
       input.generate.variants = Math.max(1, Math.min(models.get(model)!, Math.floor(input.generate.variants || 1)));
     }
     // Admit the entire batch synchronously after validation, before yielding again.
+    const reservations = this.scheduler.reserveWaiting(userId, inputs.length);
     return inputs.map((input, index) => {
-      const job: GenerationJob = { id: randomUUID(), userId, input, planned: prepared[index], state: "queued", error: null, imageAttempt: 0, createdAt: Date.now(), updatedAt: Date.now() };
+      const job: GenerationJob = { id: randomUUID(), userId, input, waiting: reservations[index], planned: prepared[index], state: "queued", error: null, imageAttempt: 0, createdAt: Date.now(), updatedAt: Date.now() };
       this.jobs.set(job.id, job);
       return job.id;
     });
@@ -106,6 +105,7 @@ export class GenerationJobQueue {
   retry(userId: string, id: string) {
     const job = this.jobs.get(id);
     if (!job || job.userId !== userId || job.state !== "failed") throw new Error("failed job not found");
+    job.waiting = this.scheduler.reserveWaiting(userId, 1)[0];
     job.state = "queued";
     job.error = null;
     job.imageAttempt = 0;
@@ -119,30 +119,34 @@ export class GenerationJobQueue {
     if (job?.userId === userId && job.state === "failed") this.jobs.delete(id);
   }
 
-  claim() {
-    const jobs = [...this.jobs.values()];
-    if (jobs.filter(job => job.state === "generating").length >= concurrency()) return;
-    const job = jobs.find(job => job.state === "queued" && (!job.retryAt || job.retryAt <= Date.now()));
-    if (job) {
-      job.state = "generating"; job.updatedAt = Date.now(); job.retryAt = undefined;
-      job.imageAttempt++;
+  /** Enqueue ready jobs once; status changes only when the shared scheduler admits them. */
+  dispatch() {
+    const pending: Promise<void>[] = [];
+    for (const job of this.jobs.values()) {
+      if (job.state !== "queued" || this.running.has(job.id) || (job.retryAt && job.retryAt > Date.now())) continue;
+      this.running.add(job.id);
+      pending.push(this.scheduler.run(async () => {
+        job.waiting = undefined;
+        job.state = "generating";
+        job.updatedAt = Date.now();
+        job.retryAt = undefined;
+        job.imageAttempt++;
+        if (!this.jobs.has(job.id)) return;
+        try {
+          await this.access(job.userId, false, async () => {
+            if (this.jobs.has(job.id)) await this.run(job);
+          });
+        } catch (error) {
+          if (!(error instanceof AccountUnavailableError)) throw error;
+          // A deleting account must never be allowed to persist a worker result.
+          this.jobs.delete(job.id);
+        }
+      }, null, job.userId, job.waiting).finally(() => { this.running.delete(job.id); }));
     }
-    return job;
+    return pending;
   }
 
-  async run(job: GenerationJob) {
-    if (this.jobs.get(job.id) !== job || this.running.has(job.id) || job.state !== "generating") return;
-    try {
-      await this.access(job.userId, false, async () => this.runProtected(job));
-    } catch (error) {
-      if (!(error instanceof AccountUnavailableError)) throw error;
-      this.jobs.delete(job.id);
-    }
-  }
-
-  private async runProtected(job: GenerationJob) {
-    if (this.jobs.get(job.id) !== job || this.running.has(job.id) || job.state !== "generating") return;
-    this.running.add(job.id);
+  private async run(job: GenerationJob) {
     try {
       const planned = job.planned;
       const body = job.input.generate;
@@ -160,24 +164,37 @@ export class GenerationJobQueue {
     } catch (error) {
       // Only a completed upstream HTTP error is eligible. Local 502/504
       // wrappers can represent an ambiguous timeout after a paid generation.
+      job.state = "failed";
+      job.error = error instanceof Error ? error.message : "Generation failed";
       if (job.imageAttempt < 3 && error instanceof OpenRouterError
+        && error.providerCode !== "insufficient_credit" && error.providerCode !== "in_flight_budget"
         && [502, 503, 504].includes(error.upstreamStatus ?? 0)) {
+        try {
+          job.waiting = this.scheduler.reserveWaiting(job.userId, 1)[0];
+        } catch (capacityError) {
+          if (!(capacityError instanceof RequestQueueError)) throw capacityError;
+          // Keep the failed card and its prepared prompt; do not exceed the
+          // hard waiting ceiling or silently discard an admitted job.
+          job.error += ` Automatic retry could not be queued. ${capacityError.message} Retry this job manually.`;
+          return;
+        }
         job.state = "queued";
+        job.error = null;
         job.retryAt = Date.now() + (job.imageAttempt === 1 ? 5000 : 15000) + Math.random() * 2000;
-      } else {
-        job.state = "failed";
-        job.error = error instanceof Error ? error.message : "Generation failed";
       }
     } finally {
       job.updatedAt = Date.now();
-      this.running.delete(job.id);
     }
   }
 
   removeUser(userId: string) {
     for (const [id, job] of this.jobs) {
-      if (job.userId === userId) this.jobs.delete(id);
+      if (job.userId !== userId) continue;
+      // Dispatched reservations are released by the scheduler when admitted.
+      if (job.waiting && !this.running.has(id)) this.scheduler.releaseWaiting(job.waiting);
+      this.jobs.delete(id);
     }
+    this.scheduler.cancelWaiting(userId);
     for (const key of this.submissions.keys()) {
       if (JSON.parse(key)[0] === userId) this.submissions.delete(key);
     }
@@ -206,10 +223,8 @@ export function startGenerationWorker() {
   const tick = () => {
     try {
       queue.prune();
-      for (let i = 0; i < concurrency(); i++) {
-        const job = queue.claim();
-        if (!job) break;
-        void queue.run(job).catch(error => console.error("generation job", error));
+      for (const pending of queue.dispatch()) {
+        void pending.catch(error => console.error("generation job", error));
       }
     } catch (error) { console.error("generation worker", error); }
   };

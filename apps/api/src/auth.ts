@@ -3,6 +3,7 @@ import { APIError, betterAuth, type BetterAuthOptions } from "better-auth";
 import type pg from "pg";
 import { Resend } from "resend";
 import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
+import { providerQueue, RequestQueueError } from "./requestQueue";
 import { getPool } from "./db";
 import { maybeBootstrapUser } from "./bootstrap";
 
@@ -152,19 +153,23 @@ export async function getSessionUser(headers: Headers): Promise<AuthUser | null>
   return { id: user.id, email: user.email, name: user.name };
 }
 
-export function createRequireUser(lookup: SessionLookup = (headers) => getSessionUser(headers)) {
+export function createRequireUser(lookup: SessionLookup = (headers) => getSessionUser(headers), bootstrap = maybeBootstrapUser) {
   return async (c: Context, next: Next) => {
     if (isPublicApiPath(c.req.path, c.req.method)) return next();
     const user = await lookup(c.req.raw.headers);
     if (!user) return c.json({ error: "sign in required" }, 401);
     c.set("user", user);
     try {
-      return await withAccountAccess(user.id, c.req.path === "/api/account" && c.req.method === "DELETE", async () => {
-        await maybeBootstrapUser(user);
+      const run = () => withAccountAccess(user.id, c.req.path === "/api/account" && c.req.method === "DELETE", async () => {
+        await bootstrap(user);
         await next();
       });
+      // Match the worker's lock order. Image HTTP waiters must not hold all
+      // account-lock connections while workers hold the image scheduler slots.
+      const imageRequest = c.req.method === "POST" && /^\/api\/poster\/(generate|modify|variant)$/.test(c.req.path);
+      return await (imageRequest ? providerQueue("image").run(run, undefined, user.id) : run());
     } catch (error) {
-      if (error instanceof AccountUnavailableError) return c.json({ error: error.message }, error.status);
+      if (error instanceof AccountUnavailableError || error instanceof RequestQueueError) return c.json({ error: error.message }, error.status);
       throw error;
     }
   };

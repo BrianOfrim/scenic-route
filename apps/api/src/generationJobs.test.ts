@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { withAccountAccess } from "./accountLifecycle";
 import { GenerationJobQueue, type JobInput } from "./generationJobs";
+import { withAccountAccess } from "./accountLifecycle";
+import { RequestQueue } from "./requestQueue";
 import { OpenRouterError } from "./openrouter";
 import type { PlannerInput } from "./planner";
 import type { PosterSpec } from "./posterSpec";
@@ -26,24 +27,31 @@ function setup() {
       return [];
     },
   };
-  return { queue: new GenerationJobQueue(work, unlocked), input, work };
+  return { queue: new GenerationJobQueue(work, new RequestQueue(100, 100, 240_000, 4, 8), unlocked), input, work };
 }
 
-test("55-job batches deduplicate simultaneous submission and limit stage concurrency", async () => {
-  const { queue, input } = setup();
-  const body = { submissionId: "batch", jobs: Array.from({ length: 55 }, () => structuredClone(input)) };
+test("eight-job batches deduplicate simultaneous submission and limit stage concurrency", async () => {
+  const { queue, input, work } = setup();
+  const releases: (() => void)[] = [];
+  const originalGenerate = work.generate;
+  work.generate = async (...args) => { await new Promise<void>(resolve => releases.push(resolve)); return originalGenerate(...args); };
+  const body = { submissionId: "batch", jobs: Array.from({ length: 8 }, () => structuredClone(input)) };
   const [first, duplicate] = await Promise.all([queue.submit("owner", body), queue.submit("owner", body)]);
   assert.deepEqual(first, duplicate);
-  assert.equal(first.length, 55);
+  assert.equal(first.length, 8);
   assert.ok(first.every(job => job.activityId === 1 && Number.isFinite(Date.parse(job.createdAt))));
   assert.ok(first.every(job => job.variants === 1), "counts match the provider's output limit");
   assert.deepEqual(queue.list("other"), []);
-  const images = Array.from({ length: 10 }, () => queue.claim()).filter(job => !!job);
-  assert.equal(images.length, Number(process.env.OPENROUTER_IMAGE_CONCURRENCY || 4));
-  assert.equal(new Set(images.map(job => job.id)).size, images.length);
-  await Promise.all(images.map(job => queue.run(job)));
-  assert.equal(queue.list("owner").length, 55 - images.length);
-  assert.equal((await queue.submit("owner", body)).length, 55, "completed jobs still prevent duplicate submission");
+  const pending = queue.dispatch();
+  await Promise.resolve();
+  assert.equal(queue.list("owner").filter(job => job.state === "generating").length, 4);
+  assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 4);
+  assert.equal(queue.dispatch().length, 0, "waiting jobs cannot be scheduled twice");
+  work.generate = originalGenerate;
+  releases.forEach(release => release());
+  await Promise.all(pending);
+  assert.equal(queue.list("owner").length, 0);
+  assert.equal((await queue.submit("owner", body)).length, 8, "completed jobs still prevent duplicate submission");
   assert.deepEqual(new GenerationJobQueue().list("owner"), [], "a fresh backend intentionally has no old jobs");
 });
 
@@ -61,18 +69,18 @@ test("image failure is not automatically retried and explicit retry reuses the p
   };
   const [job] = await queue.submit("owner", { submissionId: "image-failure", jobs: [input] });
   assert.equal(images, 0);
-  const claimed = queue.claim()!;
-  await Promise.all([queue.run(claimed), queue.run(claimed)]);
+  const pending = queue.dispatch();
+  await Promise.all([...pending, ...queue.dispatch()]);
   assert.equal(images, 1, "a claimed job cannot run twice");
   assert.equal(queue.list("owner")[0].state, "failed");
   assert.match(queue.list("owner")[0].error!, /interrupted/);
-  assert.equal(queue.claim(), undefined, "failed images require an explicit retry");
+  assert.equal(queue.dispatch().length, 0, "failed images require an explicit retry");
   assert.throws(() => queue.retry("other", job.id), /not found/);
   queue.dismiss("other", job.id);
   assert.equal(queue.list("owner").length, 1);
   queue.retry("owner", job.id);
   assert.throws(() => queue.retry("owner", job.id), /not found/, "double clicks cannot retry active work");
-  await queue.run(queue.claim()!);
+  await Promise.all(queue.dispatch());
   assert.equal(plans, 1);
   assert.equal(images, 2);
   assert.deepEqual(queue.list("owner"), []);
@@ -101,10 +109,10 @@ test("finished and failed jobs expire after 24 hours while queued work remains",
   const start = Date.now();
   t.mock.method(Date, "now", () => start);
   await queue.submit("owner", { submissionId: "finished", jobs: [input] });
-  await queue.run(queue.claim()!);
+  await Promise.all(queue.dispatch());
   work.generate = async () => { throw new Error("Fail"); };
   await queue.submit("owner", { submissionId: "failed", jobs: [input] });
-  await queue.run(queue.claim()!);
+  await Promise.all(queue.dispatch());
   const [queued] = await queue.submit("owner", { submissionId: "queued", jobs: [input] });
   t.mock.method(Date, "now", () => start + 25 * 60 * 60 * 1000);
   assert.deepEqual(queue.list("owner").map(job => job.id), [queued.id]);
@@ -133,19 +141,18 @@ for (const status of [502, 503, 504]) {
       return originalGenerate(...args);
     };
     await queue.submit("owner", { submissionId: "retry", jobs: [input] });
-      await queue.run(queue.claim()!);
+      await Promise.all(queue.dispatch());
     assert.equal(queue.list("owner")[0].state, "queued");
     assert.equal(queue.list("owner")[0].error, null);
-    assert.equal(queue.claim(), undefined);
+    assert.equal(queue.dispatch().length, 0);
     await queue.submit("owner", { submissionId: "other", jobs: [input] });
-      await queue.run(queue.claim()!);
+      await Promise.all(queue.dispatch());
     assert.equal(images, 2, "another image can run while the first backs off");
     now += 5999;
-    assert.equal(queue.claim(), undefined);
+    assert.equal(queue.dispatch().length, 0);
     now++;
-    const retry = queue.claim()!;
-    assert.equal(queue.list("owner")[0].imageAttempt, 2);
-    await queue.run(retry);
+    await Promise.all(queue.dispatch());
+    assert.equal((await queue.submit("owner", { submissionId: "retry", jobs: [input] }))[0].imageAttempt, 2);
     assert.equal(images, 3);
     assert.equal(plans, 2, "each job planned once despite the image retry");
     assert.deepEqual(queue.list("owner"), []);
@@ -165,19 +172,19 @@ test("repeated upstream failures stop after three attempts and allow manual retr
     throw error;
   };
   const [job] = await queue.submit("owner", { submissionId: "exhaust", jobs: [input] });
-  await queue.run(queue.claim()!);
+  await Promise.all(queue.dispatch());
   now += 5000;
-  await queue.run(queue.claim()!);
+  await Promise.all(queue.dispatch());
   now += 14999;
-  assert.equal(queue.claim(), undefined);
+  assert.equal(queue.dispatch().length, 0);
   now++;
-  await queue.run(queue.claim()!);
+  await Promise.all(queue.dispatch());
   assert.equal(images, 3);
   assert.equal(queue.list("owner")[0].state, "failed");
   assert.equal(queue.list("owner")[0].error, "Still unavailable");
-  assert.equal(queue.claim(), undefined);
+  assert.equal(queue.dispatch().length, 0);
   assert.equal(queue.retry("owner", job.id)[0].imageAttempt, 0);
-  await queue.run(queue.claim()!);
+  await Promise.all(queue.dispatch());
   assert.equal(images, 4);
   assert.equal(queue.list("owner")[0].state, "queued");
 });
@@ -193,23 +200,207 @@ test("ambiguous transport failures, invalid payloads, and other HTTP errors do n
       throw error;
     };
     await queue.submit("owner", { submissionId: "no-retry", jobs: [input] });
-      await queue.run(queue.claim()!);
+      await Promise.all(queue.dispatch());
     assert.equal(queue.list("owner")[0].state, "failed");
     assert.equal(images, 1);
-    assert.equal(queue.claim(), undefined);
+    assert.equal(queue.dispatch().length, 0);
   }
 });
 
+test("selection cap counts distinct theme/palette pairs, independently of models and variants", async () => {
+  const { queue, input, work } = setup();
+  let prepared = 0;
+  const prepare = work.prepare;
+  work.prepare = (...args) => { prepared++; return prepare(...args); };
+  const jobs = Array.from({ length: 4 }, (_, index) => {
+    const job = structuredClone(input);
+    job.generate.paletteId = `palette-${index}`;
+    return job;
+  });
+  await assert.rejects(queue.submit("owner", { submissionId: "selection-cap", jobs: [...jobs,
+    { ...input, generate: { ...input.generate, styleId: "other-theme", paletteId: "palette-0" } }] }), /at most four/);
+  assert.equal(prepared, 0, "reject before any preparation or admission");
+  assert.deepEqual(queue.list("owner"), []);
+  const multiModel = jobs.flatMap(job => [job, { ...job, generate: { ...job.generate, model: "other-model", variants: 3 } }]);
+  assert.equal((await queue.submit("owner", { submissionId: "selection-cap", jobs: multiModel })).length, 8);
+});
 
-test("account removal purges queued jobs and preserves other owners", async () => {
+test("gallery and direct requests share owner limits, fairness, and release after failure", async () => {
+  const { input, work } = setup();
+  const scheduler = new RequestQueue(2, 100, 240_000, 1);
+  const queue = new GenerationJobQueue(work, scheduler, unlocked);
+  const releases: (() => void)[] = [];
+  const order: string[] = [];
+  work.generate = async user => {
+    order.push(`gallery:${user}`);
+    await new Promise<void>(resolve => releases.push(resolve));
+    throw new Error("storage failed");
+  };
+  await queue.submit("a", { submissionId: "a", jobs: [input, input] });
+  await queue.submit("b", { submissionId: "b", jobs: [input] });
+  const jobs = queue.dispatch();
+  const direct = scheduler.run(async () => { order.push("direct:a"); }, null, "a");
+  await Promise.resolve();
+  assert.deepEqual(order, ["gallery:a", "gallery:b"]);
+  assert.equal(queue.list("a")[1].state, "queued");
+  releases.shift()!();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(order, ["gallery:a", "gallery:b", "gallery:a"]);
+  releases.splice(0).forEach(release => release());
+  await Promise.all([...jobs, direct]);
+  assert.equal(order.at(-1), "direct:a");
+  assert.ok(queue.list("a").every(job => job.state === "failed"));
+});
+
+test("simultaneous batches atomically enforce eight waiting jobs without partial admission", async () => {
   const { queue, input } = setup();
+  const batches = await Promise.allSettled(["first", "second"].map(submissionId =>
+    queue.submit("owner", { submissionId, jobs: Array.from({ length: 5 }, () => input) })));
+  assert.equal(batches.filter(result => result.status === "fulfilled").length, 1);
+  const rejected = batches.find(result => result.status === "rejected") as PromiseRejectedResult;
+  assert.match(rejected.reason.message, /at most 8 waiting.*wait for existing work/i);
+  assert.equal(queue.list("owner").length, 5);
+  assert.equal((await queue.submit("other", { submissionId: "other", jobs: Array.from({ length: 8 }, () => input) })).length, 8,
+    "eight is per user, not global");
+  await assert.rejects(queue.submit("owner", { submissionId: "oversized", jobs: Array.from({ length: 9 }, () => input) }), /at most 8 waiting/);
+  assert.equal(queue.list("owner").length, 5);
+  await Promise.all(queue.dispatch());
+  assert.equal((await queue.submit("owner", { submissionId: "oversized", jobs: [input] })).length, 1,
+    "rejected submission IDs can be retried without leaked capacity");
+});
+
+test("four active jobs do not consume the eight waiting-job admission allowance", async () => {
+  const { queue, input, work } = setup();
+  const releases: (() => void)[] = [];
+  const original = work.generate;
+  work.generate = async (...args) => { await new Promise<void>(resolve => releases.push(resolve)); return original(...args); };
+  await queue.submit("owner", { submissionId: "active", jobs: Array.from({ length: 4 }, () => input) });
+  const pending = queue.dispatch();
+  await Promise.resolve();
+  assert.equal(queue.list("owner").filter(job => job.state === "generating").length, 4);
+  await queue.submit("owner", { submissionId: "waiting", jobs: Array.from({ length: 8 }, () => input) });
+  await assert.rejects(queue.submit("owner", { submissionId: "overflow", jobs: [input] }), /at most 8 waiting/);
+  assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 8);
+  work.generate = original;
+  releases.forEach(release => release());
+  await Promise.all(pending);
+  await Promise.all(queue.dispatch());
+  assert.equal(queue.list("owner").length, 0);
+});
+
+test("manual retry checks waiting capacity before changing failed state and releases it on success", async () => {
+  const { queue, input, work } = setup();
+  const original = work.generate;
+  work.generate = async () => { throw new Error("failed"); };
+  const [failed] = await queue.submit("owner", { submissionId: "failed", jobs: [input] });
+  await Promise.all(queue.dispatch());
+  await queue.submit("owner", { submissionId: "full", jobs: Array.from({ length: 8 }, () => input) });
+  assert.throws(() => queue.retry("owner", failed.id), /at most 8 waiting/);
+  assert.equal(queue.list("owner").find(job => job.id === failed.id)!.state, "failed");
+  assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 8);
+  work.generate = original;
+  await Promise.all(queue.dispatch());
+  assert.equal(queue.retry("owner", failed.id)[0].state, "queued");
+  assert.throws(() => queue.retry("owner", failed.id), /not found/);
+  await Promise.all(queue.dispatch());
+  assert.equal(queue.list("owner").length, 0);
+});
+
+test("direct waiting requests and gallery batches share the per-user waiting allowance", async () => {
+  const { input, work } = setup();
+  const scheduler = new RequestQueue(1, 100, 240_000, 1, 8);
+  const queue = new GenerationJobQueue(work, scheduler, unlocked);
+  let release!: () => void;
+  const active = scheduler.run(() => new Promise<void>(resolve => release = resolve), null, "owner");
+  const direct = scheduler.run(async () => {}, null, "owner");
+  await queue.submit("owner", { submissionId: "seven", jobs: Array.from({ length: 7 }, () => input) });
+  await assert.rejects(queue.submit("owner", { submissionId: "overflow", jobs: [input] }), /at most 8 waiting/);
+  await assert.rejects(scheduler.run(async () => assert.fail("overflow ran"), undefined, "owner"), /at most 8 waiting/);
+  await Promise.resolve();
+  release();
+  await Promise.all([active, direct]);
+  assert.equal((await queue.submit("owner", { submissionId: "overflow", jobs: [input] })).length, 1);
+  await Promise.all(queue.dispatch());
+});
+
+test("automatic retries preserve the hard waiting ceiling and failed job when waiting work filled the allowance", async t => {
+  const { queue, input, work } = setup();
+  let now = Date.now();
+  t.mock.method(Date, "now", () => now);
+  t.mock.method(Math, "random", () => 0);
+  let release!: () => void;
+  const original = work.generate;
+  work.generate = async () => {
+    await new Promise<void>(resolve => release = resolve);
+    const error = new OpenRouterError("temporary failure");
+    error.upstreamStatus = 503;
+    throw error;
+  };
+  const [retry] = await queue.submit("owner", { submissionId: "active-retry", jobs: [input] });
+  const active = queue.dispatch();
+  await Promise.resolve();
+  await queue.submit("owner", { submissionId: "full", jobs: Array.from({ length: 8 }, () => input) });
+  release();
+  await Promise.all(active);
+  assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 8);
+  assert.equal(queue.list("owner").find(job => job.id === retry.id)!.state, "failed");
+  assert.match(queue.list("owner").find(job => job.id === retry.id)!.error!, /Automatic retry could not be queued.*Retry this job manually/);
+  await assert.rejects(queue.submit("owner", { submissionId: "overflow", jobs: [input] }), /at most 8 waiting/);
+  work.generate = original;
+  await Promise.all(queue.dispatch());
+  assert.deepEqual(queue.list("owner").map(job => job.id), [retry.id], "failed retry remains available after queued jobs complete");
+  assert.equal(queue.list("owner")[0].imageAttempt, 1);
+  now += 5000;
+  await Promise.all(queue.dispatch());
+  assert.equal(queue.list("owner")[0].state, "failed", "capacity opening never auto-resumes this failed job");
+  queue.retry("owner", retry.id);
+  await Promise.all(queue.dispatch());
+  assert.deepEqual(queue.list("owner"), []);
+  assert.equal((await queue.submit("owner", { submissionId: "overflow", jobs: Array.from({ length: 8 }, () => input) })).length, 8,
+    "manual retry completion clears all reservations");
+});
+
+for (const providerCode of ["insufficient_credit", "in_flight_budget"]) {
+  test(`classified ${providerCode} cannot enter transient retries even inside HTTP 503`, async () => {
+    const { queue, input, work } = setup();
+    let calls = 0;
+    work.generate = async () => {
+      calls++;
+      const error = new OpenRouterError("Manual retry required", 503);
+      error.upstreamStatus = 503;
+      error.providerCode = providerCode;
+      throw error;
+    };
+    await queue.submit("owner", { submissionId: "billing", jobs: [input] });
+    await Promise.all(queue.dispatch());
+    assert.equal(queue.list("owner")[0].state, "failed");
+    assert.equal(queue.list("owner")[0].error, "Manual retry required");
+    assert.equal(queue.dispatch().length, 0);
+    assert.equal(calls, 1);
+    work.generate = async () => [];
+    assert.equal((await queue.submit("owner", { submissionId: "capacity", jobs: Array.from({ length: 8 }, () => input) })).length, 8);
+    await Promise.all(queue.dispatch());
+  });
+}
+
+
+test("account removal cancels queued jobs, releases waiting capacity, and preserves other owners", async () => {
+  const { input, work } = setup();
+  const scheduler = new RequestQueue(1, 100, 240_000, 1, 8);
+  const queue = new GenerationJobQueue(work, scheduler, unlocked);
+  let release!: () => void;
+  const active = scheduler.run(() => new Promise<void>(resolve => release = resolve), null, "other");
+  await Promise.resolve();
   await queue.submit("owner", { submissionId: "delete", jobs: [input, input] });
   await queue.submit("other", { submissionId: "keep", jobs: [input] });
+  const dispatched = queue.dispatch();
+  const done = Promise.allSettled(dispatched);
   queue.removeUser("owner");
   assert.deepEqual(queue.list("owner"), []);
   assert.equal(queue.list("other").length, 1);
-  const job = queue.claim()!;
-  assert.equal(job.userId, "other");
-  await queue.run(job);
-  assert.equal(queue.list("other").length, 0);
+  assert.equal(scheduler.reserveWaiting("owner", 8).length, 8, "deleted jobs released their capacity");
+  release();
+  await active;
+  const results = await done;
+  assert.equal(results.filter(result => result.status === "rejected").length, 2);
 });

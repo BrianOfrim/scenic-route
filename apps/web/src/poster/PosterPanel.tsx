@@ -123,6 +123,9 @@ import {
   AUTO_PALETTE_ID,
   DEFAULT_POSTER_STYLE,
   THEME_GROUPS,
+  MAX_THEME_SELECTIONS,
+  THEME_SELECTION_LIMIT_MESSAGE,
+  canChangeThemeSelections,
   defaultPaletteId,
   normalizePaletteId,
   paletteChoices,
@@ -785,6 +788,7 @@ export function PosterPanel({
   const [rectangle, setRectangle] = useState<OutlineHistory>(emptyOutline);
   const [rectAnchor, setRectAnchor] = useState<LngLat | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [geographyMode, setGeographyMode] = useState<"auto" | "manual">(() => seeded?.geographyMode ?? "auto");
   const [geographyResult, setGeographyResult] = useState<{ key: string; scene: GeographyScene } | null>(null);
@@ -1878,6 +1882,7 @@ export function PosterPanel({
     if (!geographyScene || !context || !activeImageModelIds.length) return;
     const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
     if (!slots.length) return;
+    if (slots.length > MAX_THEME_SELECTIONS) { setSelectionError(THEME_SELECTION_LIMIT_MESSAGE); return; }
     const tasks = slots.flatMap(slot => activeImageModelIds.map(model => beginGeneration({
       activityId, title: title.trim() || "New image", styleId: slot.styleId, paletteId: slot.paletteId,
       model, variants: variantCount(variants, imageModelFor(model)?.maxImages),
@@ -2053,6 +2058,16 @@ export function PosterPanel({
     });
   }
 
+  function acceptSelections(nextStyles: string[], nextPalettes: Record<string, string[]>) {
+    if (!canChangeThemeSelections(stylePlanSlots(styleIds, paletteIdsByStyle).length,
+      stylePlanSlots(nextStyles, nextPalettes).length)) {
+      setSelectionError(THEME_SELECTION_LIMIT_MESSAGE);
+      return false;
+    }
+    setSelectionError(null);
+    return true;
+  }
+
   function togglePalette(styleId: string, paletteId: string) {
     const style = styleById(styleId);
     const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
@@ -2065,6 +2080,7 @@ export function PosterPanel({
     }
     const next = paletteIdsForStyle(style, selected);
     if (next.length === current.length && next.every((id, index) => id === current[index])) return;
+    if (!acceptSelections(styleIds, { ...paletteIdsByStyle, [styleId]: next })) return;
     setPaletteIdsByStyle((map) => ({ ...map, [styleId]: next }));
     for (const id of current) {
       if (!next.includes(id)) dropSlot(styleId, id);
@@ -2080,6 +2096,9 @@ export function PosterPanel({
   }
 
   function toggleStyle(id: string) {
+    if (!styleIds.includes(id) && !acceptSelections([...styleIds, id],
+      { ...paletteIdsByStyle, [id]: paletteIdsForStyle(styleById(id), [AUTO_PALETTE_ID]) })) return;
+    setSelectionError(null);
     setStyleIds((current) => {
       if (current.includes(id)) {
         const next = current.filter((item) => item !== id);
@@ -2112,6 +2131,8 @@ export function PosterPanel({
 
   function applyExamplePalette(styleId: string, paletteId: string) {
     const nextPalette = normalizePaletteId(styleById(styleId), paletteId);
+    if (!acceptSelections(styleIds.includes(styleId) ? styleIds : [...styleIds, styleId],
+      { ...paletteIdsByStyle, [styleId]: [nextPalette] })) return;
     for (const id of styleIds) {
       if (id !== styleId) continue;
       for (const previous of paletteIdsForStyle(styleById(id), paletteIdsByStyle[id])) {
@@ -2168,6 +2189,9 @@ export function PosterPanel({
     }} onToggleTheme={toggleStyle} onSelectTheme={toggleStyle} onApplyPalette={applyExamplePalette} />;
   const themeSelection = (
     <>
+      <p>{planSlots.length}/{MAX_THEME_SELECTIONS} theme/palette selections</p>
+      {(selectionError || planSlots.length > MAX_THEME_SELECTIONS) &&
+        <p className="error" role="alert">{selectionError || THEME_SELECTION_LIMIT_MESSAGE}</p>}
       <div className="theme-selection-groups">
         {THEME_GROUPS.map((group) => (
           <div key={group.id} role="group" aria-labelledby={`theme-group-${group.id}`}>
@@ -2395,7 +2419,7 @@ export function PosterPanel({
             <button
               className="button"
               type="button"
-              disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
+              disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > MAX_THEME_SELECTIONS}
               onClick={() => void handleGenerate()}
             >
               {generating
@@ -3122,7 +3146,7 @@ export function PosterPanel({
                 <button
                   className="button"
                   type="button"
-                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
+                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > MAX_THEME_SELECTIONS}
                   onClick={() => void handleGenerate()}
                 >
                   {generating ? "Submitting…" : generateCount > 1 ? `Generate ${generateCount} images` : "Generate image"}
@@ -3140,7 +3164,7 @@ export function PosterPanel({
                 <button
                   className="button"
                   type="button"
-                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length}
+                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > MAX_THEME_SELECTIONS}
                   onClick={() => void handleGenerate()}
                 >
                   {generating
