@@ -5,7 +5,7 @@ import { allocateImportedId } from "./importedIds";
 import { planPosterActivityRebind } from "./posterActivityRebind";
 import { imageDataUrl, sniffImageMime } from "./imageMime";
 import { mapWithConcurrency } from "./mapPool";
-import { revisePosterPrompt } from "./modifyPrompt";
+import { buildModifyPrompt, buildVariantPrompt, posterDesignHistory } from "./modifyPrompt";
 import { createImage, listImageModels, maxImageOutputs, maxImageReferences, resolveImageModel } from "./openrouter";
 import { isSafePosterId } from "./paths";
 import { DEFAULT_ASPECT_RATIO, imageAspectRatio, specToImagePrompt, validatePosterSpec, withMarkerPlacementRule, withSingleRouteRule, type PosterSpec } from "./posterSpec";
@@ -30,6 +30,9 @@ export type PosterRecord = {
   subtitle: string;
   spec?: PosterSpec;
   prompt?: string;
+  /** Original grounding-only brief and ordered edits, independent of the rendered request. */
+  basePrompt?: string;
+  editRequests?: string[];
   model: string;
   modelName?: string;
   batchId?: string;
@@ -38,7 +41,7 @@ export type PosterRecord = {
   quality?: string;
   cost: number | null;
   promptCost?: number | null;
-  /** Chat model that wrote the image prompt (planner / refine). */
+  /** Legacy chat model that wrote the image prompt. */
   promptModel?: string;
   durationMs?: number;
   createdAt: string;
@@ -161,6 +164,8 @@ export type GeneratePosterBody = {
   referenceBatchId?: string;
   /** When set, skip assembling a prompt from the spec. */
   prompt?: string;
+  basePrompt?: string;
+  editRequests?: string[];
   /** Grounding images to persist as ref-N.png. Defaults to `references`. */
   persistReferences?: string[];
   previousPosterId?: string;
@@ -314,6 +319,8 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
         subtitle: spec.text.subtitle,
         spec,
         prompt,
+        basePrompt: body.basePrompt ?? prompt,
+        editRequests: body.editRequests ?? [],
         model,
         modelName,
         batchId,
@@ -367,19 +374,25 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
   if (!grounding.length) throw new PosterError("previous image is missing grounding images");
   const groundingLinks = await savedReferenceLinks(userId, source.posterId, grounding);
 
-  const revised = await revisePosterPrompt({
-    imageUrl: previousUrl,
-    previousPrompt: source.prompt,
-    request,
-    userId,
-  });
+  const history = await posterDesignHistory(source, id => readPosterRecord(userId, id));
+  history.editRequests.push(request);
   const model = resolveImageModel(body.model ?? source.model);
-  const spec: PosterSpec = { ...source.spec, finalPrompt: revised.prompt };
+  const references = modifyImageReferences(previousUrl, groundingLinks, await maxImageReferences(model));
+  const groundingImages = source.spec.grounding.images;
+  const prompt = buildModifyPrompt({
+    request,
+    grounding: references.slice(1).map((_, index) => ({
+      role: groundingImages[index]?.role || "geographic grounding",
+    })),
+  });
+  const spec: PosterSpec = { ...source.spec, finalPrompt: buildVariantPrompt(history) };
   return generatePoster(userId, {
     activityId: source.activityId,
     spec,
-    prompt: revised.prompt,
-    references: modifyImageReferences(previousUrl, groundingLinks, await maxImageReferences(model)),
+    prompt,
+    basePrompt: history.basePrompt,
+    editRequests: history.editRequests,
+    references,
     persistReferences: grounding,
     previousPosterId: source.posterId,
     refineNotes: request,
@@ -393,14 +406,13 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
     model,
     quality: source.quality,
     variants: body.variants,
-    promptCost: revised.cost,
-    promptModel: revised.model,
+    promptCost: 0,
     editor: source.editor,
     label: "modify",
   });
 }
 
-/** Another image from the saved prompt and grounding. The previous poster is not a reference. */
+/** Another image from the original brief plus edits and grounding. */
 export async function variantPoster(userId: string, body: VariantPosterBody): Promise<PosterRecord[]> {
   const source = await readPosterRecord(userId, body.posterId);
   if (!source) throw new PosterError("image not found", 404);
@@ -410,10 +422,14 @@ export async function variantPoster(userId: string, body: VariantPosterBody): Pr
   const groundingLinks = await savedReferenceLinks(userId, source.posterId, grounding);
 
   const model = resolveImageModel(body.model ?? source.model);
+  const history = await posterDesignHistory(source, id => readPosterRecord(userId, id));
+  const prompt = buildVariantPrompt(history);
   return generatePoster(userId, {
     activityId: source.activityId,
-    spec: source.spec,
-    prompt: source.prompt,
+    spec: { ...source.spec, finalPrompt: prompt },
+    prompt,
+    basePrompt: history.basePrompt,
+    editRequests: history.editRequests,
     references: variantImageReferences(groundingLinks, await maxImageReferences(model)),
     persistReferences: grounding,
     featureIds: source.featureIds,
@@ -427,7 +443,7 @@ export async function variantPoster(userId: string, body: VariantPosterBody): Pr
     quality: source.quality,
     batchId: source.batchId,
     variants: 1,
-    promptModel: source.promptModel,
+    promptCost: 0,
     editor: source.editor,
     label: "variant",
   });

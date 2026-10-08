@@ -2,7 +2,7 @@
 
 Route-image studio. Import a GPS activity, choose how much of the surrounding map to show, and generate a stylized image of the route to share.
 
-A chat model on OpenRouter receives the schematic and available satellite reference, then chooses aesthetic treatments. The application assembles a compact prompt with fixed route-fidelity rules and deduplicated text. Meta Muse Image renders that prompt from grounding images: a schematic of the route, plus a satellite snapshot when the image model accepts a second reference. Finished images live in a gallery.
+The application assembles prompts locally with fixed route-fidelity rules and exact text. The image model on OpenRouter chooses aesthetic treatments and renders the poster from geographic grounding images. Refinement sends the current poster, available grounding images, and the user’s edit request directly to the image model. Finished images live in a gallery.
 
 Production: [https://scenic-route.ca](https://scenic-route.ca)
 
@@ -38,8 +38,6 @@ Create an OpenRouter key at [https://openrouter.ai/keys](https://openrouter.ai/k
 
 ```
 OPENROUTER_API_KEY=
-OPENROUTER_MODEL=meta/muse-spark-1.3-contributor
-# Chat model is used only for poster modification. Initial prompts use a static template.
 OPENROUTER_IMAGE_MODEL=meta/muse-image
 ```
 
@@ -84,7 +82,7 @@ To inspect performance:
 
 Image generation allows ten minutes per image by default. Set `OPENROUTER_IMAGE_TIMEOUT_MS` to a positive integer in milliseconds to change the per-image deadline; multi-image requests multiply it by the requested image count. Restart the API after changing the environment setting.
 
-Image generation and modification chat requests automatically write JSON traces to `data/llm-traces/`. Each request logs its trace ID at start and completion. A trace left with `lifecycle: "running"` indicates no completion was recorded (for example, an API restart); it does not prove the provider failed. Finished traces include each HTTP attempt's phase, status, response headers, request/response byte counts, provider error metadata, nested network error causes, concurrent request counts in this API process, deadline timing, and heartbeat delays. Header logging uses an allowlist for request IDs, `Retry-After`, `X-RateLimit-*`, and timing/content metadata; it excludes authentication and cookies. Image bytes are summarized in traces as before.
+Image generation and refinement requests automatically write JSON traces to `data/llm-traces/`. Each request logs its trace ID at start and completion. A trace left with `lifecycle: "running"` indicates no completion was recorded (for example, an API restart); it does not prove the provider failed. Finished traces include each HTTP attempt's phase, status, response headers, request/response byte counts, provider error metadata, nested network error causes, concurrent request counts in this API process, deadline timing, and heartbeat delays. Header logging uses an allowlist for request IDs, `Retry-After`, `X-RateLimit-*`, and timing/content metadata; it excludes authentication and cookies. Image bytes are summarized in traces as before.
 
 For a failure, inspect `diagnostics.attempts`: `waiting-for-headers` means no HTTP response was received; `reading-body` means headers arrived but the body failed or stalled. `providerError.metadata` and rate-limit headers can distinguish OpenRouter limits from upstream provider errors. `timeoutTimerDelayMs` and `maxHeartbeatDelayMs` show delayed local execution, which can result from event-loop blocking or machine sleep; they cannot distinguish those causes by themselves. These traces describe what the app observed, and cannot determine a provider's internal cause when no response arrives. Failed gallery cards and their Regenerate callbacks currently live only in browser memory and disappear on reload.
 
@@ -93,13 +91,13 @@ For a failure, inspect `diagnostics.attempts`: `waiting-for-headers` means no HT
 The Fly.io app is `scenic-route` (`scenic-route.fly.dev` is the fallback host). Production Postgres is Neon, and images are stored in R2. Hostname-sensitive config is env-only (`WEB_ORIGIN`, `BETTER_AUTH_URL`, `RESEND_FROM`, `DATABASE_URL`). Local defaults in `.env.example` stay on `localhost`.
 
 
-Initial prompts are assembled locally from the selected style, palette, typography, atmosphere note, exact text, and reference metadata. The image model chooses title placement, route color, marker appearance, and background treatments within geometry, palette, and text constraints. Initial generation does not require `OPENROUTER_MODEL`. The compatibility endpoint `POST /api/poster/plan` returns a template-built spec, zero cost, and no model identifier. New specs include `promptTemplateVersion: 1` and the complete prompt in `finalPrompt`. Saved variants reuse the exact saved prompt; reopening setup builds a fresh prompt from current inputs. Existing model-assisted modification still uses the chat model.
+Initial prompts are assembled locally from the selected style, palette, typography, atmosphere note, exact text, and reference metadata. The image model chooses title placement, route color, marker appearance, and background treatments within geometry, palette, and text constraints. Generation and refinement do not require `OPENROUTER_MODEL`. The compatibility endpoint `POST /api/poster/plan` returns a template-built spec, zero cost, and no model identifier. New specs include `promptTemplateVersion: 1` and the complete prompt in `finalPrompt`. Records save the original design brief (`basePrompt`) and ordered edit requests (`editRequests`) separately from the actual image request. Refinement uses a fixed edit template with the current poster as image 1 and grounding images numbered from 2. Variants use the original brief plus ordered edits, with grounding images numbered from 1; later edits override earlier design instructions while preserving geographic fidelity. Legacy refinement chains recover their brief and edits from saved parent records when available. Reopening setup builds a fresh prompt from current inputs.
 
 Batch creation uploads its reference sheets, then submits all jobs in one request (`POST /api/poster/jobs`, client-generated `submissionId`). The API validates the entire batch and assembles prompts before admission. An in-memory backend queue retains prepared prompts and states, with four image jobs per API process (`OPENROUTER_IMAGE_CONCURRENCY`). Duplicate submissions are coalesced within the running process. Gallery polls user-scoped job status, showing Queued → Generating, and restores pending/failed cards after browser reload. Once submission succeeds, closing the browser does not interrupt the batch. Preparing/uploading references still needs the browser.
 
 Image provider calls use a process-local FIFO queue with up to 100 waiting calls; they wait at most their generation deadline plus one minute for a slot. Backend jobs retry explicit upstream HTTP 502/503/504 at most twice, after 5 and 15 seconds plus up to 2 seconds of jitter. Backoff releases the job slot; retries reuse the exact prepared prompt and refresh reference URLs. Connection interruptions, local deadlines, malformed responses, and other failures require manual retry because completion and charges may be ambiguous. Manual retry starts a fresh three-attempt allowance. Direct image requests are not automatically retried.
 
-Poster modification retains the chat transport's separate FIFO queue (`OPENROUTER_PLAN_CONCURRENCY`, legacy name), retry/deadline handling, and schema fallback. The local Vite proxy has no independent timeout; the API enforces the deadlines.
+Poster refinement uses the same image provider queue and deadline handling as generation, with no separate chat request. The local Vite proxy has no independent timeout; the API enforces the deadlines.
 
 Job state is intentionally discarded on API restart; completed images remain in storage. Failures can be dismissed. Finished/failed job state and submission IDs are retained for up to 24 hours. Direct refinement/variant requests still use synchronous endpoints. Each style/model job stores its prepared template prompt. There is no cancellation or completion notification.
 
