@@ -1,4 +1,4 @@
-import manifest from "./themeExamples.json";
+import rawManifest from "./themeExamples.json";
 import { POSTER_STYLES, paletteChoices } from "./styles";
 
 export type ThemeExample = {
@@ -6,7 +6,14 @@ export type ThemeExample = {
   paletteId: string;
   thumbnail: string;
   image: string;
+  /** Swatch and glow color, sampled from the thumbnail. */
+  accent: [number, number, number];
 };
+
+/** Tallest the landing explorer draws a poster, in CSS pixels. */
+export const EXPLORER_POSTER_MAX_CSS_PX = 800;
+
+const manifest = rawManifest as ThemeExample[];
 
 export function examplesForTheme(styleId: string, examples: ThemeExample[] = manifest) {
   const style = POSTER_STYLES.find((item) => item.id === styleId);

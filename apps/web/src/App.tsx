@@ -1,5 +1,5 @@
 import { SignInForm } from "./SignIn";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   AuthRequiredError,
   fetchActivities,
@@ -26,13 +26,16 @@ import { BasemapControl } from "./BasemapControl";
 import { Gallery } from "./gallery/Gallery";
 import { ProfileMenu } from "./ProfileMenu";
 import { Landing } from "./Landing";
-import { MapView, type Basemap, type LandmarkHighlight } from "./MapView";
-import { PosterPanel, type PosterSheetSnap } from "./poster/PosterPanel";
+import type { Basemap, LandmarkHighlight } from "./MapView";
+import type { PosterSheetSnap } from "./poster/PosterPanel";
 import { defaultPeopleForUser } from "./poster/people";
 import type { GeoMask } from "./poster/grounding/geoMask";
 import type { SchematicLayers } from "./poster/grounding/renderSchematic";
 import type { GeoEdit } from "./poster/polygonEdit";
 import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
+
+const MapView = lazy(() => import("./MapView").then((module) => ({ default: module.MapView })));
+const PosterPanel = lazy(() => import("./poster/PosterPanel").then((module) => ({ default: module.PosterPanel })));
 
 type MobilePane = "activities" | "map";
 type AppTab = MobilePane | "gallery";
@@ -556,6 +559,7 @@ export function App() {
           />
           <main className="stage">
             {basemapSelect}
+            <Suspense fallback={null}>
             <MapView
               selectedLatLng={selectedLatLng}
               selectedRouteBreaks={selectedRouteBreaks}
@@ -597,8 +601,10 @@ export function App() {
               geoMask={posterOpen ? geoMask : null}
               onGeoEdit={(edit) => geoEditRef.current(edit)}
             />
+            </Suspense>
           </main>
           {posterOpen && selectedId != null ? (
+            <Suspense fallback={null}>
             <PosterPanel
               key={selectedId}
               activityId={selectedId}
@@ -639,6 +645,7 @@ export function App() {
               renameLandmark={renameLandmark}
               renameTrail={renameTrail}
             />
+            </Suspense>
           ) : null}
         </div>
         {isMobile && <AppTabs active={mobilePane} isMobile onSelect={selectTab} />}

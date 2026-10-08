@@ -5,7 +5,7 @@ import { POSTER_STYLES, paletteChoices } from "./styles";
 import { THEME_EXAMPLES, examplesForTheme, type ThemeExample } from "./themeExampleCatalog";
 
 const sample = (styleId: string, paletteId: string): ThemeExample => ({
-  styleId, paletteId, thumbnail: `/samples/${styleId}-${paletteId}-thumb.webp`, image: `/samples/${styleId}-${paletteId}.webp`,
+  styleId, paletteId, thumbnail: `/samples/${styleId}-${paletteId}-thumb.webp`, image: `/samples/${styleId}-${paletteId}.webp`, accent: [0, 0, 0],
 });
 
 test("theme browsing orders the default first and filters redundant Auto and invalid samples", () => {
@@ -27,7 +27,9 @@ test("the installed collection covers every available theme and palette with val
     const key = `${example.styleId}/${example.paletteId}`;
     assert.ok(!seen.has(key), `Duplicate ${key}`);
     seen.add(key);
-    assert.deepEqual(Object.keys(example).sort(), ["image", "paletteId", "styleId", "thumbnail"]);
+    assert.deepEqual(Object.keys(example).sort(), ["accent", "image", "paletteId", "styleId", "thumbnail"]);
+    assert.deepEqual(example.accent.map(Number.isInteger), [true, true, true]);
+    assert.ok(example.accent.every((channel) => channel >= 0 && channel <= 255));
     for (const url of [example.image, example.thumbnail]) {
       assert.match(url, /^\/theme-examples\/beltline\/[a-z0-9-]+\.webp$/);
       const bytes = fs.readFileSync(new URL(`../../public${url}`, import.meta.url));
