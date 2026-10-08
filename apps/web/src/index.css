@@ -1502,6 +1502,13 @@ textarea:disabled {
   inset: 0;
 }
 
+/* MapLibre sets .maplibregl-map to position: relative, and that sheet loads after
+   this file once the map is lazy-loaded. The extra class keeps the map filling the stage. */
+.map.maplibregl-map {
+  position: absolute;
+  inset: 0;
+}
+
 .map-empty {
   position: absolute;
   inset: 0;
