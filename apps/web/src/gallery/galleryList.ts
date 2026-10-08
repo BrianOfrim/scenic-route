@@ -1,3 +1,4 @@
+import type { PendingImage } from "./generationState";
 import type { PosterRecord } from "../api";
 
 export function posterCardSrc(poster: Pick<PosterRecord, "url" | "thumbUrl" | "thumbDataUrl">) {
@@ -45,4 +46,27 @@ export function mergePosterList(current: PosterRecord[], incoming: PosterRecord[
       thumbDataUrl: prev.thumbDataUrl,
     };
   });
+}
+
+/** Pending cards share the same grouping and sorting path as saved images. */
+export type GalleryPendingPoster = {
+  posterId: string;
+  activityId?: number;
+  previousPosterId?: string;
+  createdAt: string;
+  title: string;
+  styleId: string;
+  model: string;
+  pending: PendingImage;
+};
+export type GalleryPoster = PosterRecord | GalleryPendingPoster;
+export function isPendingPoster(poster: GalleryPoster): poster is GalleryPendingPoster {
+  return "pending" in poster;
+}
+export function galleryPosters(posters: PosterRecord[], pending: PendingImage[]): GalleryPoster[] {
+  return [...posters, ...pending.map(image => ({
+    posterId: image.id, activityId: image.activityId, previousPosterId: image.previousPosterId,
+    createdAt: image.createdAt, title: image.title, styleId: image.styleId ?? "", model: image.model,
+    pending: image,
+  }))];
 }

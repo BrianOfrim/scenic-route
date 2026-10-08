@@ -32,6 +32,7 @@ test("55-job batches deduplicate simultaneous submission and limit stage concurr
   const [first, duplicate] = await Promise.all([queue.submit("owner", body), queue.submit("owner", body)]);
   assert.deepEqual(first, duplicate);
   assert.equal(first.length, 55);
+  assert.ok(first.every(job => job.activityId === 1 && Number.isFinite(Date.parse(job.createdAt))));
   assert.ok(first.every(job => job.variants === 1), "counts match the provider's output limit");
   assert.deepEqual(queue.list("other"), []);
   const images = Array.from({ length: 10 }, () => queue.claim()).filter(job => !!job);

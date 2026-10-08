@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { PosterRecord } from "../api";
-import { mergePosterList, posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
+import { galleryPosters, isPendingPoster, mergePosterList, posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
+import { galleryRuns, gallerySections, sortGalleryRuns } from "./galleryRuns";
 import { unzipSync } from "fflate";
 import { deleteGalleryImages, galleryArchive, selectedGalleryImages } from "./gallerySelection";
 
@@ -145,4 +146,32 @@ test("batch deletions bound concurrency and report each result before the batch 
 test("empty batch deletion makes no requests or progress callbacks", async () => {
   const result = await deleteGalleryImages([], async () => { assert.fail("unexpected deletion"); }, () => { assert.fail("unexpected progress"); });
   assert.deepEqual(result, { deleted: [], failed: [] });
+});
+
+
+test("pending images move their activity to the top and share its row through partial completion", () => {
+  const saved = [item({ posterId: "existing", activityId: 1 }), item({ posterId: "other", activityId: 2, createdAt: "2026-09-25T00:00:00Z" })];
+  const pending = [0, 1].map(index => ({ id: `job:${index}`, activityId: 1, title: "Ride", model: "model", styleId: "swiss", phase: "queued" as const, createdAt: "2026-09-26T00:00:00Z" }));
+  const sections = gallerySections(galleryRuns(galleryPosters(saved, pending)));
+  assert.equal(sections.length, 2);
+  assert.equal(sections[0].kind, "run");
+  if (sections[0].kind !== "run") throw new Error("expected activity row");
+  assert.deepEqual(sections[0].run.posters.map(p => p.posterId), ["job:0", "job:1", "existing"]);
+  const completed = item({ posterId: "completed", createdAt: "2026-09-26T00:01:00Z" });
+  const runs = galleryRuns(galleryPosters([...saved, completed], pending.slice(1)));
+  assert.deepEqual(runs.map(run => run.activityId), [1, 2]);
+  const row = gallerySections(runs)[0];
+  if (row.kind !== "run") throw new Error("expected activity row");
+  assert.deepEqual(row.run.posters.map(p => p.posterId), ["completed", "job:1", "existing"]);
+  assert.equal(row.run.posters.filter(isPendingPoster).length, 1);
+  assert.deepEqual(sortGalleryRuns(runs, "activity", new Map([[1, "2026-09-01"], [2, "2026-09-02"]])).map(run => run.activityId), [2, 1]);
+});
+
+test("a new activity gets a row immediately, while unassociated pending images use the grid", () => {
+  const pending = { id: "new-job", activityId: 3, title: "New ride", model: "model", phase: "generating" as const, createdAt: "2026-09-26T00:00:00Z" };
+  const sections = gallerySections(galleryRuns(galleryPosters([], [pending])));
+  assert.equal(sections[0].kind, "run");
+  if (sections[0].kind === "run") assert.equal(sections[0].run.activityId, 3);
+  const solo = gallerySections(galleryRuns(galleryPosters([], [{ ...pending, activityId: undefined }])));
+  assert.equal(solo[0].kind, "singles");
 });

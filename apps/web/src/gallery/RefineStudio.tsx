@@ -47,6 +47,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
     try {
       const records = await modifyPoster({
         posterId: selected.posterId,
+        activityId: selected.activityId, title: selected.title, styleId: selected.styleId, paletteId: selected.paletteId,
         request: text,
         variants: 1,
         model: selected.model,
