@@ -80,8 +80,7 @@ export function formatCostBreakdown(input: {
   imageCost?: number | null;
   cost?: number | null;
 }) {
-  const amount = finiteMoney(input.promptCost);
-  const prompt = amount === 0 ? null : amount;
+  const prompt = finiteMoney(input.promptCost);
   const image = finiteMoney(input.imageCost) ?? finiteMoney(input.cost);
   if (prompt == null && image == null) return "";
   if (prompt == null) return formatUsd(image as number);
@@ -104,7 +103,7 @@ export function batchCosts(items: CostItem[]) {
     const prompt = finiteMoney(item.promptCost);
     if (prompt != null) {
       const key = item.styleId?.trim() || `\0${index}`;
-      if (!prompts.has(key) || (prompts.get(key) === 0 && prompt > 0)) prompts.set(key, prompt);
+      if (!prompts.has(key)) prompts.set(key, prompt);
     }
     const image = finiteMoney(item.imageCost) ?? finiteMoney(item.cost);
     if (image != null) images.push(image);
@@ -117,7 +116,7 @@ export function batchCosts(items: CostItem[]) {
 export function formatBatchCost(items: CostItem[]) {
   const { promptCost, imageCost, total } = batchCosts(items);
   if (total == null) return "";
-  if (promptCost != null && promptCost > 0 && imageCost != null) {
+  if (promptCost != null && imageCost != null) {
     return `total ${formatUsd(total)} · prompt ${formatUsd(promptCost)} · image ${formatUsd(imageCost)}`;
   }
   return `total ${formatUsd(total)}`;

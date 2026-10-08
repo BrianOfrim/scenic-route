@@ -1,7 +1,20 @@
+import { areaLetter } from "./areaLetters";
+import { normalizePeople, peopleStatValue } from "./people";
 import type { NamedArea, NamedWay, PosterPoi } from "./osm/features";
-import { peopleStatValue } from "./people";
+import { chatJson } from "./openrouter";
 import { resolveReferences } from "./referenceUploads";
-import { imageAspectRatio, initialImagePrompt, validatePosterSpec, type PosterSpec } from "./posterSpec";
+import {
+  DEFAULT_ASPECT_RATIO,
+  POSTER_SPEC_SCHEMA,
+  TITLE_BLOCK_LAYOUT_RULE,
+  TITLE_PHONE_RULE,
+  posterHasTitle,
+  validatePosterSpec,
+  withTitlePhoneClause,
+  withTitlePhoneRule,
+  type PosterSpec,
+} from "./posterSpec";
+import { TRAIL_TREATMENT, trailColorName } from "./trailColors";
 
 export type PlannerInput = {
   activity: {
@@ -38,62 +51,555 @@ export type PlannerInput = {
   namedAreas?: NamedArea[];
   referenceBatchId?: string;
   grounding: Array<{ index: number; role: string; legend: string; dataUrl?: string; url?: string }>;
-  /** Accepted for old clients; fresh templates never reuse planner decisions or edit notes. */
   refineNotes?: string;
   previousSpec?: PosterSpec;
   /** No landmarks, trail names, or named districts — geography layers may still be included. */
   routeOnly?: boolean;
 };
 
+const REGION_TREATMENT =
+  "write the name across that district in the same place as the schematic letter; paint for what it is, not schematic ochre; not a pin";
+
+/**
+ * A compact skeleton of the required output. Models that ignore the strict
+ * response schema still tend to copy the shape they are shown.
+ */
+export const POSTER_SPEC_SHAPE = {
+  style: { name: "", medium: "", palette: [""], typography: "", texture: "", references: "" },
+  composition: { aspectRatio: DEFAULT_ASPECT_RATIO, routePlacement: "", titleBlock: "", border: "", decorations: [""] },
+  route: { treatment: "", color: "", startMarker: "", finishMarker: "", startName: "", finishName: "", shapeNotes: "" },
+  geography: [{ kind: "", name: "", placement: "", treatment: "", color: "", letter: "" }],
+  landmarks: [{ name: "", kind: "", placement: "", icon: "", pin: 1 }],
+  text: { title: "", subtitle: "", stats: [{ label: "", value: "" }], rules: "" },
+  grounding: { images: [{ index: 1, role: "", legend: "" }], rules: [""] },
+  negative: [""],
+  finalPrompt: "",
+} as const;
+
+export function proximityWord(distToRouteM: number): string {
+  if (distToRouteM <= 60) return "on the route";
+  if (distToRouteM <= 300) return "just off the route";
+  if (distToRouteM <= 1500) return "a short way from the route";
+  return "well away from the route";
+}
+
+export function buildPlannerMessages(input: PlannerInput) {
+  if (input.routeOnly) return buildUnannotatedPlannerMessages(input);
+  // Coarse verbal placement only: image models place labels by region, and the
+  // planner tends to echo whatever phrase it is given straight into the prompt.
+  const landmarks = input.routeOnly
+    ? []
+    : input.pois.map((poi, index) => ({
+        pin: index + 1,
+        name: poi.name,
+        kind: poi.kind,
+        placement: poi.inside
+          ? `${poi.xy.region}, ${poi.bearing} of the route, inside ${poi.inside}`
+          : `${poi.xy.region}, ${poi.bearing} of the route`,
+        proximity: proximityWord(poi.distToRouteM),
+        routeProgressPct: Math.round(poi.routeFrac * 100),
+      }));
+  const namedTrails = input.routeOnly
+    ? []
+    : (input.namedWays ?? []).map((way, index) => {
+        const color = trailColorName(index, way.colorName);
+        return {
+          name: way.name,
+          kind: way.kind,
+          color,
+          placement: `${way.xy.region}, ${way.bearing} of the route`,
+          proximity: proximityWord(way.distToRouteM),
+          routeProgressPct: Math.round(way.routeFrac * 100),
+          treatment: TRAIL_TREATMENT,
+        };
+      });
+  const namedRegions = input.routeOnly
+    ? []
+    : (input.namedAreas ?? []).map((area, index) => ({
+        name: area.name,
+        kind: area.kind,
+        letter: area.letter || areaLetter(index),
+        placement: `${area.xy.region}, ${area.bearing} of the route`,
+        proximity: proximityWord(area.distToRouteM),
+        routeProgressPct: Math.round(area.routeFrac * 100),
+        treatment: REGION_TREATMENT,
+      }));
+  const user = {
+    title: input.title,
+    subtitle: input.subtitle,
+    stats: input.stats,
+    people: peopleStatValue(input.people) ? normalizePeople(input.people) : null,
+    activity: input.activity,
+    routeMarkers: input.routeMarkers ?? null,
+    routeOnly: Boolean(input.routeOnly),
+    stylePreset: input.style,
+    paletteInstruction: paletteInstruction(input.style),
+    customStylePrompt: input.customStylePrompt?.trim() || null,
+    vibes: normalizeVibes(input.vibes) || null,
+    aspectRatio: input.aspectRatio,
+    geographyLayers: input.geography,
+    landmarks,
+    namedTrails,
+    namedRegions,
+    groundingImages: input.grounding,
+    refineNotes: input.refineNotes?.trim() || null,
+    previousSpec: input.previousSpec ?? null,
+  };
+  return [
+    {
+      role: "system",
+      content: [
+        "You write structured prompts for a map-poster image model.",
+        "Reply with a single JSON object using keys style, composition, route, geography, landmarks, text, grounding, negative, and optional finalPrompt.",
+        `Every value must follow this exact shape (nested objects and arrays, never a prose string in place of an object): ${JSON.stringify(POSTER_SPEC_SHAPE)}`,
+        "Fill style.name, style.medium, style.palette, style.typography, composition.routePlacement, composition.titleBlock, route.treatment, and route.color with concrete choices; do not leave them blank.",
+        TITLE_BLOCK_LAYOUT_RULE,
+        paletteInstruction(input.style) ?? "",
+        "If vibes is supplied, it is the rider's note about how the day felt. Flavor season, weather, light, and the color of vegetation in style.texture and geography treatments. Stay inside a supplied palette. Do not print the note as poster text, and do not add places or features that are absent from the schematic.",
+        "A supplied Location stat is a place caption: print its value once without a Location prefix in a footer, bottom margin, clear map space, or the title block as suits the theme. Keep it off the route and never treat it as a map pin.",
+        "Copy title, subtitle, stats, and groundingImages from the input into text and grounding verbatim.",
+        "If people is supplied, those are the names of the people who did the activity. Add one text.stats entry with label \"With\" and those names as the value, joined naturally: two names use \"and\"; three or more use commas and a final \"and\". Keep every other stat. Typeset that line once in the title block. Do not add the names to the subtitle, do not invent extra names, and do not place them on the map or treat them as landmarks, trails, or places.",
+        ...(input.routeOnly
+          ? [
+              "This poster has no annotations. landmarks must be empty. Do not invent landmarks, trail names, named districts, road labels, water names, or any other place names. geography may describe unlabeled layers from geographyLayers (roads, water, forest, parks, and similar) that appear on the schematic — style those shapes without naming places. The schematic shows the GPS track, optional start/finish markers, and those geography layers. Title and stats belong in the title block, except a supplied Location stat may appear once as a separate footer or map caption.",
+              "If previousSpec is present, keep its style direction but drop every landmark, trail, and district name.",
+            ]
+          : [
+              "Landmarks: one entry per supplied landmark, exact spelling, pin copied from the list so the image prompt can look up locations. The schematic uses numbered discs as a private index only. The finished poster may put a small marker on the route at that disc. Landmark names and icons sit beside the path, not on it, and must never occlude, break, or replace the route. Do not describe large pictorial icons as sitting on the GPS track. The finished poster must write each landmark name on the map near that disc and must never copy the numbers or add a number-to-name legend. Do not describe numbered discs as a poster feature. Do not forbid printed landmark names. placement copied as the short phrase given (e.g. 'upper-left, west of the route'); do not add distances or percentages.",
+              "Named trails recolor stretches of the GPS track on the schematic only, as a private name index. They are not separate lines and have no text on the schematic. Put each supplied namedTrails entry in geography as a named path. Copy color as the index word only. Treatment is write the name along that stretch — never 'teal stretch' or any colored-track phrase. The finished poster must write each trail name along that stretch and paint the whole GPS track as one line in route.color — never in the schematic trail colors. route.treatment and route.color describe one continuous poster path; do not describe a multi-colored track. Do not invent extra trails, treat trail names as point landmarks, or tell the image model to draw a color key.",
+              "Named regions are pale ochre washes on the schematic with a letter as a private name index, not discs. The lettered wash is the exact footprint: put each supplied namedRegions entry in geography as a labeled district and tell the image model to draw and label that district in the same place and extent as the wash. Do not drift, slide, or invent a different area. Copy letter as the index character only. The ochre color is index scaffolding, like trail colors — look up the name, then discard the letter and the ochre. Paint each region for what it is: parks and green space as green; campuses, neighbourhoods, and other districts in the poster palette. Never copy the schematic's brown or ochre wash. The finished poster must write each region name across that wash and must never copy the letters or add a letter-to-name key. Do not invent extra districts or treat region names as point landmarks.",
+              "If a landmark placement already says inside a region, keep that one clause. Do not nest further. Neighbourhood, campus, and park landmarks that are still in the landmark list have no region wash: write them as district labels, not building icons.",
+            ]),
+        "Keep field values concise. Skip or keep finalPrompt short; a complete image prompt is assembled from the structured fields.",
+        "The attached grounding images (described by index and role) are the geographic source of truth.",
+        input.routeOnly
+          ? "The GPS track on the schematic is exact. There are no colored trail stretches, numbered discs, or region washes. Geography layers on the schematic (roads, water, forest, parks) are shapes to style, not places to name. Every separate stroke of the red line is a required segment. The finished poster must reproduce that path shape exactly: every bend, switchback, out-and-back, and crossing, in the same place relative to water, roads, and land cover when those appear. Style the line as one color; do not copy the schematic's red."
+          : "The GPS track on the schematic is exact. Colored stretches identify named trails for lookup only. If a satellite image is attached, it is real aerial photography of the same extent with that same red GPS track overlaid. Use it to read land cover, water, vegetation, and built form, and to confirm every bend, parallel, and shore hug. Every separate stroke of the red line is a required segment. Do not copy the photograph or its colors; the finished poster stays stylized. If the photograph is surrounded by black, that black is empty margin, not land, water, or sky. The finished poster must reproduce that path shape exactly: every bend, switchback, out-and-back, and crossing, in the same place relative to water, roads, and landmarks. Style the line as one color; do not copy the schematic's route colors.",
+        "Never write route.shapeNotes or finalPrompt that describe a different, simpler, or idealized path, or that tell the image model to keep the schematic's route colors. Style the line; do not redesign it.",
+        input.routeOnly
+          ? "Do not invent place names. Use exact spelling from the supplied stats and routeMarkers names only. Names in people are people, not places."
+          : "Do not invent place names. Use exact spelling from the supplied landmarks, stats, and routeMarkers names. Names in people are people, not places.",
+        "North is up. The route is the hero: plan it as the highest-contrast primary mark, clearly visible against every adjacent background and never lost in water, terrain, roads, textures, or labels. Put the title block only in unused negative space; it must never cover, crop, hide, or cut off any route segment. If space is tight, move the title block into unused space or its own band rather than shrinking a supplied title or sacrificing any part of the route.",
+        TITLE_PHONE_RULE,
+        "Copy the supplied title into text.title verbatim. If that title is empty, leave text.title empty and do not invent one. When a title is supplied, write that phone-size requirement into style.typography, composition.titleBlock, and text.rules.",
+        "Do not request a scale bar, graphic scale, or distance ruler in decorations or elsewhere. Those will not be accurate. Do not invent a distance; one appears only when it is already in the supplied stats.",
+        "Each supplied stat is printed once. When the value already says what it is — a distance such as 10.0 km, a date, a single duration, or a speed — the poster prints that value alone. Those are examples of how a supplied value reads, not values to invent. Do not write typography or rules that prefix those values with Distance, Date, Time, or Speed. Keep a label when the value would be ambiguous, such as elevation gain, or when two different times are both shown. Do not plan the distance, or any other stat, as both a large display figure and a labeled line.",
+        "The title block is closed: it may contain only text.title, text.subtitle, and text.stats, exactly as supplied. Do not invent a date, distance, duration, elevation, season, sport, start label, finish label, or any other title-block text. If the style preset mentions date, distance, duration, or metadata, that is lettering for stats that were actually supplied — omit any that are absent, and do not write typography, titleBlock, rules, or finalPrompt that request them. Start and finish markers are symbols. Do not tell the image model to letter Start or Finish unless that word is inside a supplied name, title, subtitle, or stat. Supplied start/finish names stay on the map.",
+        "Honor routeMarkers. If enabled is false, startMarker and finishMarker must be none — do not draw start or finish symbols.",
+        "If routeMarkers.mode is loop, start and finish are the same place: use one combined start/finish marker, not two.",
+        "If routeMarkers.mode is start-finish, use distinct start and finish markers.",
+        "If routeMarkers.startName or finishName are supplied, copy them onto route.startName and route.finishName. The finished poster must write those names at the schematic start/finish marker(s). The schematic has no start/finish text — the marker is the location index. If both names match or mode is loop, write one name at the combined marker. These names are map labels, not title-block stats.",
+        "If refineNotes or previousSpec are present, evolve that spec rather than starting over.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    },
+    {
+      role: "user",
+      content: JSON.stringify(user, null, 2),
+    },
+  ];
+}
+
+const VIBES_MAX_CHARS = 500;
+
 /** Collapse a rider's day note into a single prompt-sized line. */
 export function normalizeVibes(value?: string | null): string {
-  return (value ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+  return (value ?? "").replace(/\s+/g, " ").trim().slice(0, VIBES_MAX_CHARS);
 }
 
-/** Pure preparation: the image model makes aesthetic decisions from these inputs. */
-export function buildInitialPoster(input: PlannerInput): { spec: PosterSpec; cost: 0; model?: string } {
-  if (!input?.style?.id || !input.style.prompt?.trim()) throw new Error("a style and style description are required");
-  if (!Array.isArray(input.grounding) || !input.grounding.length) throw new Error("at least one grounding image is required");
-  if (input.grounding.some((ref, index) => ref.index !== index + 1 || !ref.role?.trim())) {
-    throw new Error("reference metadata must use ordered image indices and roles");
+function applyVibes(style: Record<string, unknown>, raw?: string | null) {
+  const vibes = normalizeVibes(raw);
+  if (!vibes) return;
+  const texture = str(style.texture);
+  const references = str(style.references);
+  if (`${texture} ${references}`.toLowerCase().includes(vibes.toLowerCase())) return;
+  const note = `Scene: ${vibes}`;
+  style.references = references ? `${references.replace(/[. ]+$/, "")}. ${note}` : note;
+}
+
+function paletteInstruction(style: PlannerInput["style"]): string | null {
+  if (style.openPalette) {
+    return "The style has no fixed palette. Fill style.palette with inks that fit the process and the geography. Honor any open-choice instruction in the style prompt. Do not fall back to a cliché pair.";
   }
-  const markers = input.routeMarkers ?? { enabled: true, mode: input.activity?.isLoop ? "loop" : "start-finish" };
-  const people = peopleStatValue(input.people);
-  const styleText = [...new Set([input.style.prompt.trim(), input.customStylePrompt?.trim()].filter(Boolean))].join(" ");
-  const spec = validatePosterSpec({
-    promptTemplateVersion: 1,
-    style: {
-      name: input.style.label, references: styleText,
-      palette: input.style.openPalette ? [] : input.style.palette ?? [],
-      typography: input.style.typography ?? "", texture: normalizeVibes(input.vibes),
-    },
-    composition: { aspectRatio: imageAspectRatio(input.aspectRatio) },
-    route: {
-      treatment: "uniform solid line",
-      startMarker: !markers.enabled ? "none" : markers.mode === "loop" ? "one combined start/finish symbol; choose its appearance to suit the style" : "start symbol; choose its appearance to suit the style",
-      finishMarker: !markers.enabled ? "none" : markers.mode === "loop" ? "one combined start/finish symbol; choose its appearance to suit the style" : "distinct finish symbol; choose its appearance to suit the style",
-      startName: markers.enabled ? markers.startName?.trim() ?? "" : "",
-      finishName: markers.enabled ? markers.finishName?.trim() ?? "" : "",
-    },
-    geography: (input.geography ?? []).map(layer => ({ kind: layer.label || layer.id })),
-    landmarks: [],
-    text: {
-      title: input.title, subtitle: input.subtitle,
-      stats: people ? [...input.stats.filter(stat => stat.label.trim().toLowerCase() !== "with"), { label: "With", value: people }] : input.stats,
-    },
-    grounding: { images: input.grounding.map(({ index, role, legend }) => ({ index, role, legend })) },
-  });
-  spec.finalPrompt = initialImagePrompt(spec);
-  return { spec, cost: 0 };
+  if (style.palette?.length) {
+    return `Honor stylePreset.palette exactly: ${style.palette.join(", ")}. Copy those colors into style.palette.`;
+  }
+  return null;
 }
 
-/** Compatibility endpoint; uploaded references remain account-scoped, with no model call. */
-export async function planPoster(userId: string, input: PlannerInput) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function str(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function splitList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(str).filter(Boolean);
+  const text = str(value);
+  if (!text) return [];
+  return text
+    .split(/[;\n]|,\s(?=[A-Za-z])/)
+    .map((part) => part.replace(/^[-•*\s]+/, "").trim())
+    .filter(Boolean);
+}
+
+/**
+ * Drop named trails/districts while retaining ordinary map layers.
+ *
+ * Planner models commonly give an unlabeled layer a descriptive name (for
+ * example, "Major roads") and a palette colour. Neither means that the
+ * finished poster should print a map label. Removing those records entirely
+ * turns the no-annotations option into a route-only poster, so keep the layer
+ * and clear its annotation fields. A retained colour is interpreted as a
+ * named-trail index later in prompt assembly, so it must be cleared too.
+ */
+function stripNamedGeography(geography: unknown[]) {
+  return geography
+    .filter(isRecord)
+    .filter((item) => {
+      if (/^trail$/i.test(str(item.kind))) return false;
+      if (/stretch of the GPS track|pale wash|across the (region|district)|not a pin/i.test(str(item.treatment))) {
+        return false;
+      }
+      return Boolean(str(item.kind) || str(item.treatment));
+    })
+    .map((item) => ({ ...item, name: "", color: "", letter: "" }));
+}
+
+/** "Castle Mountain — peak, upper-right" | "Castle Mountain (upper-right)" | "Castle Mountain: upper-right" */
+function ensureNamedTrails(geography: unknown[], ways: NamedWay[]) {
+  if (!ways.length) return geography;
+  const byName = new Map(
+    ways.map((way, index) => [way.name.toLowerCase(), { way, color: trailColorName(index, way.colorName) }]),
+  );
+  const rows = geography.filter(isRecord).map((item) => {
+    const hit = byName.get(str(item.name).toLowerCase());
+    if (!hit) return item;
+    return {
+      ...item,
+      kind: str(item.kind) || hit.way.kind || "trail",
+      color: str(item.color) || hit.color,
+      treatment: stripLegacyTrailTreatment(str(item.treatment)),
+    };
+  });
+  const existing = new Set(rows.map((item) => str(item.name).toLowerCase()).filter(Boolean));
+  const extras = ways.flatMap((way, index) => {
+    if (existing.has(way.name.toLowerCase())) return [];
+    return [
+      {
+        kind: way.kind || "trail",
+        name: way.name,
+        placement: `${way.xy.region}, ${way.bearing} of the route`,
+        color: trailColorName(index, way.colorName),
+        treatment: TRAIL_TREATMENT,
+      },
+    ];
+  });
+  return extras.length ? [...rows, ...extras] : rows;
+}
+
+function stripLegacyTrailTreatment(treatment: string) {
+  if (/stretch of the GPS track/i.test(treatment)) return TRAIL_TREATMENT;
+  return treatment || TRAIL_TREATMENT;
+}
+
+function ensureNamedRegions(geography: unknown[], areas: NamedArea[]) {
+  if (!areas.length) return geography;
+  const byName = new Map(
+    areas.map((area, index) => [area.name.toLowerCase(), { area, letter: area.letter || areaLetter(index) }]),
+  );
+  const rows = geography.filter(isRecord).map((item) => {
+    const hit = byName.get(str(item.name).toLowerCase());
+    if (!hit) return item;
+    return {
+      ...item,
+      kind: str(item.kind) || hit.area.kind,
+      letter: str(item.letter) || hit.letter,
+      treatment: str(item.treatment) || REGION_TREATMENT,
+    };
+  });
+  const existing = new Set(rows.map((item) => str(item.name).toLowerCase()).filter(Boolean));
+  const extras = areas.flatMap((area, index) => {
+    if (existing.has(area.name.toLowerCase())) return [];
+    return [
+      {
+        kind: area.kind,
+        name: area.name,
+        placement: `${area.xy.region}, ${area.bearing} of the route`,
+        letter: area.letter || areaLetter(index),
+        treatment: REGION_TREATMENT,
+      },
+    ];
+  });
+  return extras.length ? [...rows, ...extras] : rows;
+}
+
+function dropRegionLandmarks(landmarks: unknown[], areas: NamedArea[]) {
+  if (!areas.length) return landmarks;
+  const names = new Set(areas.map((area) => area.name.toLowerCase()));
+  return landmarks.filter((item) => !names.has(str(isRecord(item) ? item.name : item).toLowerCase()));
+}
+
+function assignLandmarkPins(landmarks: unknown[], pois: PlannerInput["pois"]) {
+  const rows = landmarks.filter(isRecord);
+  const pinByName = new Map(pois.map((poi, index) => [poi.name.trim().toLowerCase(), index + 1]));
+  return rows.map((item, index) => ({
+    ...item,
+    pin: pinByName.get(str(item.name).toLowerCase()) ?? (Number(item.pin) > 0 ? Math.round(Number(item.pin)) : index + 1),
+  }));
+}
+
+function landmarkFromText(text: string): { name: string; kind: string; placement: string; icon: string; pin: number } {
+  const match = /^(?:\d+[\.)]\s*)?(.*?)\s*(?:[—–:-]\s*|\()(.*?)\)?$/.exec(text.trim());
+  if (!match || !match[2]) return { name: text.trim(), kind: "", placement: "", icon: "", pin: 0 };
+  return { name: match[1].trim(), kind: "", placement: match[2].trim(), icon: "", pin: 0 };
+}
+
+/**
+ * Coerce planner output that used prose strings where the schema wants
+ * objects, and fill fields the planner is only meant to copy from the input.
+ * Runs before validation so fewer fields collapse to empty.
+ */
+export function repairPlannerOutput(raw: unknown, input: PlannerInput): Record<string, unknown> {
+  const record: Record<string, unknown> = isRecord(raw) ? { ...raw } : {};
+
+  if (!isRecord(record.style)) {
+    record.style = { medium: str(record.style) };
+  }
+  const style = { ...(record.style as Record<string, unknown>) };
+  if (!str(style.name)) style.name = input.style.label;
+  if (!Array.isArray(style.palette) || !style.palette.length) {
+    const parsed = splitList(style.palette);
+    style.palette = parsed.length ? parsed : input.style.palette ?? [];
+  }
+  if (!str(style.typography) && input.style.typography) style.typography = input.style.typography;
+  if (!str(style.medium) && !str(style.references)) {
+    style.references = [input.style.prompt, input.customStylePrompt?.trim()].filter(Boolean).join(" ");
+  }
+  record.style = style;
+
+  if (!isRecord(record.composition)) {
+    record.composition = { routePlacement: str(record.composition) };
+  }
+  const composition = { ...(record.composition as Record<string, unknown>) };
+  if (!str(composition.aspectRatio)) composition.aspectRatio = input.aspectRatio;
+  if (!Array.isArray(composition.decorations)) composition.decorations = splitList(composition.decorations);
+  record.composition = composition;
+
+  if (!isRecord(record.route)) {
+    record.route = { treatment: str(record.route) };
+  }
+  const route = { ...(record.route as Record<string, unknown>) };
+  if (input.routeMarkers && !input.routeMarkers.enabled) {
+    route.startMarker = "none";
+    route.finishMarker = "none";
+  }
+  if (input.routeMarkers) {
+    route.startName = (input.routeMarkers.startName ?? "").trim();
+    route.finishName = (input.routeMarkers.finishName ?? "").trim();
+  }
+  record.route = route;
+
+  if (input.routeOnly) {
+    record.landmarks = [];
+    if (!Array.isArray(record.geography)) {
+      record.geography = splitList(record.geography).map((treatment) => ({
+        kind: "geography",
+        name: "",
+        placement: "",
+        treatment,
+      }));
+    }
+    record.geography = stripNamedGeography(Array.isArray(record.geography) ? record.geography : []);
+  } else {
+    if (!Array.isArray(record.geography)) {
+      record.geography = splitList(record.geography).map((treatment) => ({
+        kind: "geography",
+        name: "",
+        placement: "",
+        treatment,
+      }));
+    }
+    record.geography = ensureNamedTrails(
+      ensureNamedRegions(
+        Array.isArray(record.geography) ? record.geography : [],
+        input.namedAreas ?? [],
+      ),
+      input.namedWays ?? [],
+    );
+
+    if (!Array.isArray(record.landmarks)) {
+      record.landmarks = splitList(record.landmarks).map(landmarkFromText);
+    } else {
+      record.landmarks = record.landmarks.map((item) => (typeof item === "string" ? landmarkFromText(item) : item));
+    }
+    record.landmarks = assignLandmarkPins(
+      dropRegionLandmarks(Array.isArray(record.landmarks) ? record.landmarks : [], input.namedAreas ?? []),
+      input.pois,
+    );
+  }
+
+  const text: Record<string, unknown> = isRecord(record.text) ? { ...record.text } : { rules: str(record.text) };
+  if (!posterHasTitle(input.title)) text.title = "";
+  else if (!str(text.title)) text.title = input.title;
+  if (!str(text.subtitle)) text.subtitle = input.subtitle;
+  if (!Array.isArray(text.stats) || !text.stats.length) text.stats = input.stats;
+  const hasTitle = posterHasTitle(str(text.title));
+  if (!input.routeOnly) {
+    style.typography = withTitlePhoneClause(str(style.typography), hasTitle);
+    composition.titleBlock = withTitlePhoneClause(str(composition.titleBlock), hasTitle);
+    text.rules = withTitlePhoneRule(str(text.rules), hasTitle);
+  }
+  applyVibes(style, input.vibes);
+  record.style = style;
+  record.composition = composition;
+  record.text = text;
+
+  const grounding: Record<string, unknown> = isRecord(record.grounding)
+    ? { ...record.grounding }
+    : { rules: splitList(record.grounding) };
+  if (!Array.isArray(grounding.images) || !grounding.images.length) grounding.images = input.grounding;
+  if (!Array.isArray(grounding.rules)) grounding.rules = splitList(grounding.rules);
+  if (input.routeOnly) {
+    grounding.images = input.grounding.map(({ index, role, legend }) => ({ index, role, legend }));
+    grounding.rules = [];
+    text.title = input.title;
+    text.subtitle = input.subtitle;
+    text.stats = input.stats;
+    text.rules = "";
+    route.shapeNotes = "";
+    route.treatment = "uniform solid line";
+    if (input.routeMarkers?.enabled && input.routeMarkers.mode === "loop") {
+      route.finishMarker = route.startMarker = str(route.startMarker) || "combined endpoint dot";
+    }
+    record.finalPrompt = "";
+    record.negative = [];
+  }
+  const peopleLine = peopleStatValue(input.people);
+  if (peopleLine) {
+    const stats = Array.isArray(text.stats) ? text.stats : [];
+    text.stats = [
+      ...stats.filter((item) => !(isRecord(item) && str(item.label).toLowerCase() === "with")),
+      { label: "With", value: peopleLine },
+    ];
+  }
+  record.grounding = grounding;
+
+  if (!Array.isArray(record.negative)) record.negative = splitList(record.negative);
+
+  return record;
+}
+
+/**
+ * A spec is usable when the image model would receive at least a style
+ * direction and a route treatment. Anything less is a failed plan, not a
+ * plan with gaps to paper over.
+ */
+export function assertUsableSpec(spec: PosterSpec) {
+  const hasStyle = Boolean(spec.style.medium.trim() || spec.style.references.trim() || spec.style.name.trim());
+  const hasRoute = Boolean(spec.route.treatment.trim() || spec.route.color.trim());
+  if (!hasStyle || !hasRoute) {
+    throw new Error("Planner returned an unusable spec (no style or route direction). Try again or switch OPENROUTER_MODEL.");
+  }
+}
+
+export async function planPoster(
+  userId: string,
+  input: PlannerInput,
+): Promise<{ spec: PosterSpec; cost: number | null; model: string }> {
+  input = { ...input, routeOnly: true, pois: [], namedWays: [], namedAreas: [] };
   if (input.referenceBatchId) {
-    const refs = await resolveReferences(userId, input.referenceBatchId);
-    if (refs.length !== input.grounding?.length) throw new Error("reference metadata must match the uploaded images");
-  } else if (input.grounding?.some(ref => ref.url)) {
+    const references = await resolveReferences(userId, input.referenceBatchId);
+    if (references.length !== input.grounding.length) throw new Error("reference metadata must match the uploaded images");
+    input = { ...input, grounding: input.grounding.map((ref, index) => ({
+      index: ref.index, role: ref.role, legend: ref.legend, url: references[index].url,
+    })) };
+  } else if (input.grounding.some(ref => ref.url)) {
     throw new Error("a reference batch id is required for hosted images");
   }
-  return buildInitialPoster(input);
+  const { value, cost, model } = await chatJson<unknown>({
+    messages: buildPlannerMessages(input),
+    inlineMessages: input.referenceBatchId ? async () => {
+      const refs = await resolveReferences(userId, input.referenceBatchId!, true);
+      return buildPlannerMessages({ ...input, grounding: input.grounding.map((ref, index) => ({
+        index: ref.index, role: ref.role, legend: ref.legend,
+        dataUrl: `data:${refs[index].mime};base64,${refs[index].bytes!.toString("base64")}`,
+      })) });
+    } : undefined,
+    schemaName: "poster_spec",
+    schema: UNANNOTATED_PLANNER_SCHEMA,
+    label: "plan",
+    user: userId,
+  });
+  const spec = validatePosterSpec(repairPlannerOutput(value, input));
+  if (!spec.route.color.trim()) throw new Error("Planner did not choose a route color. Try planning again.");
+  assertUsableSpec(spec);
+  return { spec, cost, model };
+}
+
+
+// Only aesthetic decisions cross the planner boundary. Existing saved specs retain their schema.
+const UNANNOTATED_PLANNER_SHAPE = {
+  style: POSTER_SPEC_SHAPE.style,
+  composition: { titleBlock: "", border: "", decorations: [""] },
+  route: { color: "", startMarker: "", finishMarker: "" },
+  geography: [{ kind: "", treatment: "" }],
+};
+function selectSchemaFields(schema: { type: string; additionalProperties: boolean; required: readonly string[]; properties: Record<string, unknown> }, names: string[]) {
+  return { ...schema, required: names, properties: Object.fromEntries(names.map(name => [name, schema.properties[name]])) };
+}
+const UNANNOTATED_PLANNER_SCHEMA = {
+  type: "object", additionalProperties: false,
+  required: ["style", "composition", "route", "geography"],
+  properties: {
+    style: POSTER_SPEC_SCHEMA.properties.style,
+    composition: selectSchemaFields(POSTER_SPEC_SCHEMA.properties.composition, ["titleBlock", "border", "decorations"]),
+    route: selectSchemaFields(POSTER_SPEC_SCHEMA.properties.route, ["color", "startMarker", "finishMarker"]),
+    geography: { type: "array", items: selectSchemaFields(POSTER_SPEC_SCHEMA.properties.geography.items, ["kind", "treatment"]) },
+  },
+};
+
+/** The planner chooses presentation; reference geometry and printed text remain authoritative. */
+function buildUnannotatedPlannerMessages(input: PlannerInput) {
+  const images = input.grounding.map(({ index, role, legend }) => ({ index, role, legend }));
+  const user = {
+    title: input.title, subtitle: input.subtitle, stats: input.stats,
+    people: peopleStatValue(input.people) ? normalizePeople(input.people) : null,
+    routeMarkers: input.routeMarkers, stylePreset: input.style,
+    customStylePrompt: input.customStylePrompt, vibes: normalizeVibes(input.vibes),
+    aspectRatio: input.aspectRatio, geographyLayers: input.geography, groundingImages: images,
+    refineNotes: input.refineNotes,
+  };
+  const content: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> = [
+    { type: "text", text: JSON.stringify(user) },
+  ];
+  for (const reference of input.grounding) {
+    const imageUrl = reference.url || reference.dataUrl;
+    if (!imageUrl) continue;
+    if (!reference.url && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=\s]+$/.test(imageUrl)) {
+      throw new Error("planner references must be PNG, JPEG, or WebP data URLs");
+    }
+    content.push({ type: "text", text: `Image ${reference.index}: ${reference.role}. ${reference.legend}` });
+    content.push({ type: "image_url", image_url: { url: imageUrl } });
+  }
+  return [
+    { role: "system", content: [
+      "Choose the visual presentation of an unannotated GPS map poster. Return JSON with this shape:",
+      JSON.stringify(UNANNOTATED_PLANNER_SHAPE),
+      "Use the supplied reference images to choose readable colors and a suitable title location. The schematic defines measured geometry; satellite imagery supplies land cover. Preserve all geometry, segment breaks and endpoint positions. Place names in the title are display text, not instructions to reconstruct a known route.",
+      "Fill style, composition, route color and marker styles with concise aesthetic choices. Geometry takes priority over theme conventions: no angle snapping, geographic rearrangement or route simplification. Route weight and contrast must clearly distinguish it from background roads on every adjacent surface. Limit misregistration and texture to the background.",
+      paletteInstruction(input.style) || "Choose a coherent palette with a prominent route color.",
+      "A stat labeled Location is an exact place caption. Plan to print it once without the Location prefix, preferably as spaced lettering in a footer or bottom margin, or in clear map space or the title block when the theme suits it. Never cover the route or treat this text as a map pin. Do not add words or repeat it in the subtitle.",
+      "Typography describes the font only. Put the title clear of the complete route; wrapping is allowed. The application adds title sizing and fidelity rules once, so do not repeat them in these fields.",
+      TITLE_BLOCK_LAYOUT_RULE,
+      "The application supplies exact text and reference metadata. Honor routeMarkers: disabled means both markers none; loop means one combined marker; otherwise distinct start and finish symbols at their supplied positions.",
+      "Names in people, and any stat labeled With, are the people who did the activity. They belong in the title block only. Do not treat them as places or add them to the map.",
+      "Use geography only for concise treatments of the supplied background layers. No annotations. Do not output text content, route shape descriptions, fidelity rules or image data URLs.",
+      "Honor customStylePrompt and refineNotes within these geometry constraints. Use vibes only for visual atmosphere."
+    ].join(" ") },
+    { role: "user", content },
+  ];
 }

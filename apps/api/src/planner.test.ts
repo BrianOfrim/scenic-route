@@ -1,130 +1,691 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildInitialPoster, normalizeVibes, planPoster, type PlannerInput } from "./planner";
+import {
+  assertUsableSpec,
+  buildPlannerMessages,
+  normalizeVibes,
+  repairPlannerOutput,
+  type PlannerInput,
+} from "./planner";
 import { specToImagePrompt, validatePosterSpec } from "./posterSpec";
-import { resolveImagePrompt } from "./poster";
 
 const input: PlannerInput = {
-  activity: { isLoop: true }, routeMarkers: { enabled: true, mode: "loop" },
-  title: "Lunch ride", subtitle: "12.4 km", stats: [{ label: "Distance", value: "12.4 km" }],
-  style: { id: "risograph", label: "Risograph", prompt: "Two-ink print. Keep misregistration in the background.", palette: ["orange", "teal"], typography: "zine sans" },
-  aspectRatio: "3:4", geography: [{ id: "lakes", label: "Lakes & ponds" }], pois: [],
-  grounding: [
-    { index: 1, role: "route-only", legend: "exact track" },
-    { index: 2, role: "schematic", legend: "geographic layout" },
-    { index: 3, role: "satellite", legend: "land cover" },
+  activity: { name: "Lunch ride", sportType: "Ride", isLoop: true },
+  routeMarkers: { enabled: true, mode: "loop" },
+  title: "Lunch ride",
+  subtitle: "12.4 km · 41 min",
+  stats: [{ label: "Distance", value: "12.4 km" }],
+  style: {
+    id: "swiss",
+    label: "Swiss minimal",
+    prompt: "Swiss modernist map poster",
+    palette: ["off-white", "red"],
+    typography: "Helvetica",
+  },
+  customStylePrompt: "more negative space",
+  aspectRatio: "2:3",
+  geography: [{ id: "lakes", label: "Lakes & ponds" }],
+  pois: [
+    {
+      name: "Norsemen Inn",
+      kind: "pub",
+      lat: 53.02,
+      lng: -112.83,
+      distToRouteM: 40,
+      routeFrac: 0.12,
+      bearing: "west",
+      xy: { x: 0.2, y: 0.3, region: "upper-left" },
+    },
   ],
+  grounding: [{ index: 1, role: "schematic", legend: "red = route" }],
 };
-const prompt = (changes: Partial<PlannerInput> = {}) => buildInitialPoster({ ...input, ...changes }).spec.finalPrompt;
 
-test("initial preparation is deterministic, leaves input untouched, and requires no chat model or fetch", async t => {
-  t.mock.method(globalThis, "fetch", async () => { throw new Error("unexpected network request"); });
-  const old = process.env.OPENROUTER_MODEL;
-  delete process.env.OPENROUTER_MODEL;
-  try {
-    const original = structuredClone(input);
-    const a = buildInitialPoster(input);
-    assert.deepEqual(a, await planPoster("owner", input));
-    assert.deepEqual(a, buildInitialPoster(input));
-    assert.deepEqual(input, original);
-    assert.equal(a.cost, 0);
-    assert.equal(a.model, undefined);
-    assert.equal(a.spec.promptTemplateVersion, 1);
-  } finally { if (old !== undefined) process.env.OPENROUTER_MODEL = old; }
+test("buildPlannerMessages includes landmarks and grounding roles", () => {
+  const messages = buildPlannerMessages(input);
+  assert.equal(messages.length, 2);
+  assert.match(String(messages[0].content), /geographic source of truth/);
+  assert.match(String(messages[0].content), /GPS track on the schematic is exact/);
+  assert.match(String(messages[0].content), /satellite image/);
+  assert.match(String(messages[0].content), /real aerial photography/);
+  assert.match(String(messages[0].content), /every separate stroke/i);
+  assert.match(String(messages[0].content), /do not redesign it/i);
+  assert.match(String(messages[0].content), /optional finalPrompt/);
+  assert.match(String(messages[0].content), /combined start\/finish marker/);
+  assert.match(String(messages[0].content), /write those names at the schematic start\/finish marker/);
+  assert.match(String(messages[0].content), /not title-block stats/);
+  assert.match(String(messages[0].content), /never a prose string in place of an object/);
+  assert.match(String(messages[0].content), /Do not request a scale bar/);
+  assert.match(String(messages[0].content), /Each supplied stat is printed once/);
+  assert.match(String(messages[0].content), /The title block is closed/);
+  assert.match(String(messages[0].content), /Do not invent a date, distance, duration/);
+  assert.match(String(messages[0].content), /8% of the poster width/);
+  assert.match(String(messages[0].content), /clearly readable when the whole poster is viewed on a phone/);
+  assert.match(String(messages[0].content), /Do not add a title when the design has none/);
+  assert.match(String(messages[0].content), /do not invent one/);
+  assert.match(String(messages[0].content), /private index/);
+  assert.match(String(messages[0].content), /never copy the numbers/);
+  assert.match(String(messages[0].content), /small marker on the route/);
+  assert.match(String(messages[0].content), /never occlude, break, or replace the route/);
+  assert.match(String(messages[0].content), /one line in route.color/);
+  assert.match(String(messages[0].content), /highest-contrast primary mark/);
+  assert.match(String(messages[0].content), /title block only in unused negative space/i);
+  assert.match(String(messages[0].content), /do not copy the schematic's route colors/);
+  assert.match(String(messages[0].content), /"landmarks":\[\{"name":""/);
+  const user = JSON.parse(String(messages[1].content)) as {
+    landmarks: Array<Record<string, unknown>>;
+    namedTrails: Array<Record<string, unknown>>;
+    namedRegions: Array<Record<string, unknown>>;
+    customStylePrompt: string;
+    vibes: string | null;
+    people: string[] | null;
+    groundingImages: Array<{ role: string }>;
+    routeMarkers: { enabled: boolean; mode: string };
+    routeOnly: boolean;
+  };
+  assert.equal(user.landmarks[0].name, "Norsemen Inn");
+  assert.equal(user.landmarks[0].pin, 1);
+  assert.equal(user.landmarks[0].placement, "upper-left, west of the route");
+  assert.equal(user.landmarks[0].proximity, "on the route");
+  assert.equal(user.landmarks[0].routeProgressPct, 12);
+  assert.equal("lat" in user.landmarks[0], false, "planner payload should not carry coordinates");
+  assert.deepEqual(user.namedTrails, []);
+  assert.deepEqual(user.namedRegions, []);
+  assert.match(String(messages[0].content), /Named trails recolor stretches/);
+  assert.match(String(messages[0].content), /Named regions are pale ochre washes/);
+  assert.match(String(messages[0].content), /letter as a private name index/);
+  assert.match(String(messages[0].content), /lettered wash is the exact footprint/);
+  assert.match(String(messages[0].content), /same place and extent as the wash/);
+  assert.match(String(messages[0].content), /Never copy the schematic's brown or ochre wash/);
+  assert.match(String(messages[0].content), /parks and green space as green/);
+  assert.match(String(messages[0].content), /never copy the letters/);
+  assert.equal(user.customStylePrompt, "more negative space");
+  assert.equal(user.vibes, null);
+  assert.equal(user.people, null);
+  assert.match(String(messages[0].content), /If vibes is supplied/);
+  assert.match(String(messages[0].content), /If people is supplied/);
+  assert.match(String(messages[0].content), /Names in people are people, not places/);
+  assert.match(String(messages[0].content), /color of vegetation/);
+  assert.equal(user.groundingImages[0].role, "schematic");
+  assert.deepEqual(user.routeMarkers, { enabled: true, mode: "loop" });
+  assert.equal(user.routeOnly, false);
 });
 
-test("fixed palette delegates color allocation and layout without inventing choices", () => {
-  const p = prompt();
-  assert.match(p, /Use only these palette inks: orange, teal/);
-  assert.match(p, /Tints and the paper showing through are allowed/);
-  assert.match(p, /do not introduce additional ink colors/);
-  assert.match(p, /Choose one palette ink for maximum route contrast first/);
-  assert.match(p, /visibly thicker and higher-contrast than every background/);
-  assert.match(p, /Forest and water must also use this palette/);
-  assert.match(p, /unused space or a separate band/);
-  assert.doesNotMatch(p, /Title placement:|Border:|Decorations:/);
-  assert.match(p, /Geometry and exact-text constraints take priority/);
+test("buildPlannerMessages passes the people who did the activity", () => {
+  const messages = buildPlannerMessages({
+    ...input,
+    people: ["  Alex  ", "Jordan", "alex", "Sam"],
+  });
+  const user = JSON.parse(String(messages[1].content)) as { people: string[] };
+  assert.deepEqual(user.people, ["Alex", "Jordan", "Sam"]);
+  assert.match(String(messages[0].content), /label "With"/);
+  assert.match(String(messages[0].content), /Do not add the names to the subtitle/);
 });
 
-test("open palettes and custom styles delegate color selection and preserve instructions once", () => {
-  for (const style of [{ ...input.style, openPalette: true }, { id: "custom", label: "Custom", prompt: "Ink etched on silver", palette: [] }]) {
-    const p = prompt({ style, customStylePrompt: style.prompt });
-    assert.match(p, /Choose a coherent palette/);
-    assert.doesNotMatch(p, /Use only these palette inks/);
-    assert.equal(p.split(style.prompt).length - 1, 1);
-  }
-  const p = prompt({ customStylePrompt: "Use a playful letterform", vibes: "Windy\n and wavy!" });
-  assert.equal(p.split(input.style.prompt).length - 1, 1);
-  assert.equal(p.split("zine sans").length - 1, 1);
-  assert.equal(p.split("Use a playful letterform").length - 1, 1);
-  assert.equal(p.split("Windy and wavy!").length - 1, 1);
-  assert.match(p, /visual appearance only; never print it/);
-  assert.equal(normalizeVibes("a".repeat(600)).length, 500);
+test("repairPlannerOutput adds a title-block credit for people and keeps other stats", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Blueprint", medium: "cyanotype", palette: ["navy"], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: {
+        title: "T",
+        subtitle: "12.4 km",
+        stats: [{ label: "Distance", value: "12.4 km" }, { label: "With", value: "someone else" }],
+        rules: "",
+      },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    { ...input, people: ["Alex", "Jordan", "Sam"] },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.text.subtitle, "12.4 km");
+  assert.deepEqual(spec.text.stats, [
+    { label: "Distance", value: "12.4 km" },
+    { label: "With", value: "Alex, Jordan, and Sam" },
+  ]);
+  const prompt = specToImagePrompt(spec);
+  assert.match(prompt, /Print each of these text items once: "T"; "12.4 km"\./);
+  assert.equal(prompt.match(/12\.4 km/g)?.length, 1);
+  assert.match(
+    prompt,
+    /People who did this activity, typeset once in the title block, exactly: "With Alex, Jordan, and Sam"\./,
+  );
+  assert.match(prompt, /These are people, not places\. Do not add them to the map/);
+  assert.doesNotMatch(prompt, /someone else/);
 });
 
-test("marker modes preserve count and names while delegating appearance", () => {
-  assert.match(prompt(), /Marker: one combined start\/finish symbol/);
-  assert.doesNotMatch(prompt(), /Start marker:|Finish marker:/);
-  const off = prompt({ routeMarkers: { enabled: false, mode: "loop", startName: "Hidden endpoint" } });
-  assert.match(off, /Draw no endpoint markers/);
-  assert.doesNotMatch(off, /Hidden endpoint/);
-  const separate = prompt({ routeMarkers: { enabled: true, mode: "start-finish", startName: "Home", finishName: "Park" } });
-  assert.match(separate, /Start marker: start symbol/);
-  assert.match(separate, /Finish marker: distinct finish symbol/);
-  assert.match(separate, /Write "Home" at the start marker and "Park" at the finish marker/);
+test("buildPlannerMessages passes a rider's vibes note to the planner", () => {
+  const messages = buildPlannerMessages({
+    ...input,
+    vibes: "  A nice, crisp fall day.\nLeaves were beautiful colours!  ",
+  });
+  const user = JSON.parse(String(messages[1].content)) as { vibes: string };
+  assert.equal(user.vibes, "A nice, crisp fall day. Leaves were beautiful colours!");
 });
 
-test("exact text, people and location credits stay authoritative and print once", () => {
-  const p = prompt({ people: ["Alex", "Sam"], stats: [...input.stats, { label: "Location", value: "Edmonton · Alberta" }] });
-  assert.equal(p.split('"12.4 km"').length - 1, 1);
-  assert.match(p, /Print each of these text items once: "Lunch ride"; "12.4 km"/);
-  assert.match(p, /"With Alex and Sam"/);
-  assert.match(p, /These are people, not places/);
-  assert.match(p, /Location caption, exactly: "Edmonton · Alberta"/);
-  assert.match(p, /font size at least 8%/);
+test("normalizeVibes drops blank notes and caps length", () => {
+  assert.equal(normalizeVibes("   "), "");
+  assert.equal(normalizeVibes(undefined), "");
+  assert.equal(normalizeVibes("x".repeat(600)).length, 500);
 });
 
-test("references retain order and geometry constraints but never URLs or image bytes", () => {
-  const p = prompt({ grounding: input.grounding.map(ref => ({ ...ref, url: "https://private.example/secret", dataUrl: "data:image/png;base64,SECRET" })) });
-  assert.ok(p.indexOf("Image 1: route-only") < p.indexOf("Image 2: schematic"));
-  assert.ok(p.indexOf("Image 2: schematic") < p.indexOf("Image 3: satellite"));
-  assert.match(p, /Image 1 defines the exact route geometry/);
-  assert.match(p, /Draw that route exactly once/);
-  assert.match(p, /Preserve every segment, bend, crossing, out-and-back and gap/);
-  assert.match(p, /Background roads, bridges and shorelines must never become route segments/);
-  assert.match(p, /Preserve every supplied shape and position/);
-  assert.doesNotMatch(p, /SECRET|private.example/);
+test("repairPlannerOutput weaves vibes into references when the planner omits them", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: {
+        name: "Swiss",
+        medium: "print",
+        palette: ["off-white"],
+        typography: "",
+        texture: "paper grain",
+        references: "",
+      },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    { ...input, vibes: "A nice, crisp fall day. Leaves were beautiful colours!" },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.style.texture, "paper grain");
+  assert.match(spec.style.references, /Scene: A nice, crisp fall day/);
 });
 
-test("new setup ignores cached planner decisions and annotation fields", () => {
-  const previousSpec = buildInitialPoster(input).spec;
-  previousSpec.style.references = "OLD STYLE";
-  const p = prompt({ previousSpec, refineNotes: "OLD PLANNING NOTES", pois: [{ name: "OLD LANDMARK" } as any] });
-  assert.doesNotMatch(p, /OLD STYLE|OLD PLANNING NOTES|OLD LANDMARK/);
+test("repairPlannerOutput does not duplicate vibes the planner already wrote", () => {
+  const note = "A nice, crisp fall day.";
+  const repaired = repairPlannerOutput(
+    {
+      style: {
+        name: "Swiss",
+        medium: "print",
+        palette: ["off-white"],
+        typography: "",
+        texture: note,
+        references: "",
+      },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    { ...input, vibes: note },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.style.texture, note);
 });
 
-test("versioned prompts survive validation and explicit edit prompts take precedence", () => {
-  const spec = buildInitialPoster(input).spec;
-  const roundtrip = validatePosterSpec(JSON.parse(JSON.stringify(spec)));
-  assert.equal(roundtrip.promptTemplateVersion, 1);
-  assert.equal(specToImagePrompt(roundtrip), spec.finalPrompt);
-  assert.ok(resolveImagePrompt(roundtrip).endsWith(spec.finalPrompt));
-  assert.ok(resolveImagePrompt(roundtrip, "Apply this edit").endsWith("Apply this edit"));
-  const legacy = { ...roundtrip, promptTemplateVersion: undefined, finalPrompt: "LEGACY UNUSED LEAD", route: { ...roundtrip.route, color: "red" } };
-  assert.doesNotMatch(specToImagePrompt(legacy), /LEGACY UNUSED LEAD/);
-  assert.match(specToImagePrompt(legacy), /Draw the route in red/);
+test("unannotated planner receives ordered image parts without annotation metadata", () => {
+  const dataUrl = "data:image/png;base64,aGVsbG8=";
+  const messages = buildPlannerMessages({ ...input, routeOnly: true,
+    grounding: [{ index: 1, role: "schematic", legend: "red = GPS", dataUrl },
+      { index: 2, role: "satellite", legend: "same frame", dataUrl }],
+  });
+  const system = String(messages[0].content);
+  const parts = messages[1].content as Array<any>;
+  const user = JSON.parse(parts[0].text);
+  assert.deepEqual(user.geographyLayers, input.geography);
+  assert.equal(user.landmarks, undefined);
+  assert.equal(user.people, null);
+  assert.match(system, /people who did the activity/);
+  assert.deepEqual(parts.filter(part => part.type === "image_url").map(part => part.image_url.url), [dataUrl, dataUrl]);
+  assert.match(parts[1].text, /Image 1: schematic/);
+  assert.match(parts[3].text, /Image 2: satellite/);
+  assert.doesNotMatch(parts[0].text, /base64/);
+  assert.doesNotMatch(system, /numbered discs|colored stretches|shapeNotes|finalPrompt/);
 });
 
-test("invalid preparation fails early and hosted reference URLs require a batch", async () => {
-  assert.throws(() => prompt({ grounding: [] }), /grounding image/);
-  assert.throws(() => prompt({ grounding: [{ index: 2, role: "schematic", legend: "" }] }), /ordered image/);
-  assert.throws(() => prompt({ style: { ...input.style, prompt: " " } }), /style description/);
-  await assert.rejects(planPoster("owner", { ...input, grounding: [{ index: 1, role: "schematic", legend: "", url: "https://untrusted.example" }] }), /batch id/);
+test("planner rejects remote reference URLs", () => {
+  assert.throws(() => buildPlannerMessages({ ...input, routeOnly: true,
+    grounding: [{ index: 1, role: "schematic", legend: "", dataUrl: "https://example.com/map.png" }],
+  }), /data URLs/);
 });
 
+test("repairPlannerOutput in route-only mode strips landmarks and named geography", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: ["red"], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "dot", finishMarker: "dot", shapeNotes: "" },
+      geography: [
+        { kind: "trail", name: "River Valley Trail", placement: "along route", treatment: "write the name" },
+        {
+          kind: "water",
+          name: "Lakes and rivers",
+          placement: "background shapes",
+          treatment: "flat blue lakes",
+          color: "navy",
+        },
+      ],
+      landmarks: [{ name: "Norsemen Inn", kind: "pub", placement: "upper-left", icon: "pub", pin: 1 }],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    { ...input, routeOnly: true },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.deepEqual(spec.landmarks, []);
+  assert.deepEqual(
+    spec.geography.map((item) => [item.kind, item.name, item.treatment, item.color]),
+    [["water", "", "flat blue lakes", undefined]],
+  );
+  const prompt = specToImagePrompt(spec);
+  assert.match(prompt, /Background treatments: water/);
+  assert.match(prompt, /No additional place annotations/);
+  assert.doesNotMatch(prompt, /route-only poster: only the GPS track/i);
+});
 
-test("template aspect ratio uses the same normalization as image generation", () => {
-  const { spec } = buildInitialPoster({ ...input, aspectRatio: "4:5" });
+test("repairPlannerOutput keeps a people credit after route-only stats are restored", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: ["red"], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [{ label: "With", value: "someone else" }], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    { ...input, routeOnly: true, people: ["Alex", "Jordan", "Sam"] },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.deepEqual(spec.text.stats, [
+    { label: "Distance", value: "12.4 km" },
+    { label: "With", value: "Alex, Jordan, and Sam" },
+  ]);
+  const prompt = specToImagePrompt(spec);
+  assert.match(prompt, /"12.4 km"/);
+  assert.match(prompt, /People who did this activity, typeset once in the title block, exactly: "With Alex, Jordan, and Sam"/);
+  assert.match(prompt, /These are people, not places\. Do not add them to the map/);
+  assert.doesNotMatch(prompt, /someone else/);
+  assert.equal(prompt.match(/With Alex, Jordan, and Sam/g)?.length, 1);
+});
+
+test("repairPlannerOutput coerces prose fields into the nested shape", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: "Swiss modernist print on off-white paper",
+      composition: "route centered, title at the bottom",
+      route: "thick red line with a gold loop marker",
+      geography: "flat blue lakes; pale grey roads",
+      landmarks: ["Norsemen Inn — pub, upper-left", "Camrose (center)"],
+      text: "exact spelling only",
+      grounding: "follow image 1",
+      negative: "photorealism, clutter",
+    },
+    input,
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.style.medium, "Swiss modernist print on off-white paper");
+  assert.equal(spec.style.name, "Swiss minimal");
+  assert.deepEqual(spec.style.palette, ["off-white", "red"]);
+  assert.match(spec.style.typography, /^Helvetica\. Large display title/);
+  assert.match(spec.style.typography, /8% of the poster width/);
+  assert.match(spec.composition.titleBlock, /Large display title, clearly readable when the whole poster is viewed on a phone/);
+  assert.equal(spec.composition.routePlacement, "route centered, title at the bottom");
+  assert.equal(spec.composition.aspectRatio, "2:3");
+  assert.equal(spec.route.treatment, "thick red line with a gold loop marker");
+  assert.deepEqual(
+    spec.geography.map((item) => item.treatment),
+    ["flat blue lakes", "pale grey roads"],
+  );
+  assert.deepEqual(
+    spec.landmarks.map((item) => [item.pin, item.name, item.placement]),
+    [
+      [1, "Norsemen Inn", "pub, upper-left"],
+      [2, "Camrose", "center"],
+    ],
+  );
+  assert.equal(spec.text.title, "Lunch ride");
+  assert.equal(spec.text.subtitle, "12.4 km · 41 min");
+  assert.deepEqual(spec.text.stats, [{ label: "Distance", value: "12.4 km" }]);
+  assert.match(spec.text.rules, /^exact spelling only\. Set the title as a large display title/);
+  assert.match(spec.text.rules, /Do not add a title when the design has none/);
+  assert.deepEqual(spec.grounding.images, [{ index: 1, role: "schematic", legend: "red = route" }]);
+  assert.deepEqual(spec.grounding.rules, ["follow image 1"]);
+  assert.deepEqual(spec.negative, ["photorealism", "clutter"]);
+  assertUsableSpec(spec);
+});
+
+test("repairPlannerOutput leaves well-formed output alone and forces markers off", () => {
+  const good = {
+    style: { name: "Blueprint", medium: "cyanotype", palette: ["navy", "white"], typography: "mono", texture: "", references: "" },
+    composition: { aspectRatio: "3:4", routePlacement: "center", titleBlock: "bottom", border: "none", decorations: [] },
+    route: { treatment: "white line", color: "white", startMarker: "dot", finishMarker: "dot", shapeNotes: "" },
+    geography: [],
+    landmarks: [],
+    text: { title: "T", subtitle: "S", stats: [], rules: "" },
+    grounding: { images: [{ index: 1, role: "schematic", legend: "" }], rules: [] },
+    negative: [],
+    finalPrompt: "",
+  };
+  const repaired = repairPlannerOutput(good, { ...input, routeMarkers: { enabled: false, mode: "loop" } });
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.style.name, "Blueprint");
   assert.equal(spec.composition.aspectRatio, "3:4");
-  assert.match(spec.finalPrompt, /Aspect ratio: 3:4/);
+  assert.equal(spec.text.title, "T");
+  assert.equal(spec.route.startMarker, "none");
+  assert.equal(spec.route.finishMarker, "none");
+});
+
+test("repairPlannerOutput stamps start and finish place names from routeMarkers", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Blueprint", medium: "cyanotype", palette: ["navy"], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "green dot", finishMarker: "black dot", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "",
+    },
+    {
+      ...input,
+      routeMarkers: { enabled: true, mode: "start-finish", startName: "Camrose", finishName: "Edmonton" },
+    },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.route.startName, "Camrose");
+  assert.equal(spec.route.finishName, "Edmonton");
+  assert.match(specToImagePrompt(spec), /Write "Camrose" at the start marker and "Edmonton" at the finish marker/);
+});
+
+test("repairPlannerOutput stamps schematic pin numbers by landmark name", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: [], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [
+        { name: "Augustana", kind: "college", placement: "center", icon: "campus" },
+        { name: "Norsemen Inn", kind: "pub", placement: "upper-left", icon: "" },
+      ],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "x",
+    },
+    {
+      ...input,
+      pois: [
+        input.pois[0],
+        {
+          ...input.pois[0],
+          name: "Augustana",
+          kind: "college",
+          routeFrac: 0.5,
+          xy: { x: 0.5, y: 0.5, region: "center" },
+        },
+      ],
+    },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.deepEqual(
+    spec.landmarks.map((item) => [item.pin, item.name]),
+    [
+      [2, "Augustana"],
+      [1, "Norsemen Inn"],
+    ],
+  );
+});
+
+const augustanaArea = {
+  name: "Augustana",
+  kind: "university",
+  geometry: {
+    type: "Polygon" as const,
+    coordinates: [[[-112.84, 53.01], [-112.82, 53.01], [-112.82, 53.03], [-112.84, 53.03], [-112.84, 53.01]]],
+  },
+  lat: 53.02,
+  lng: -112.83,
+  distToRouteM: 30,
+  routeFrac: 0.5,
+  bearing: "east",
+  xy: { x: 0.6, y: 0.5, region: "middle-right" },
+};
+
+const porcupineTrail = {
+  name: "Porcupine Rim",
+  kind: "trail",
+  geometry: { type: "MultiLineString" as const, coordinates: [[[-109.5, 38.6], [-109.49, 38.599]]] },
+  lat: 38.6,
+  lng: -109.5,
+  distToRouteM: 20,
+  routeFrac: 0.3,
+  bearing: "east",
+  xy: { x: 0.7, y: 0.4, region: "upper-right" },
+  colorName: "teal",
+};
+
+test("buildPlannerMessages sends named trail colors without geometry", () => {
+  const messages = buildPlannerMessages({ ...input, namedWays: [porcupineTrail] });
+  const user = JSON.parse(String(messages[1].content)) as {
+    namedTrails: Array<Record<string, unknown>>;
+  };
+  assert.equal(user.namedTrails[0].name, "Porcupine Rim");
+  assert.equal(user.namedTrails[0].color, "teal");
+  assert.equal(user.namedTrails[0].treatment, "write the name along that stretch");
+  assert.doesNotMatch(String(user.namedTrails[0].treatment), /teal stretch/);
+  assert.equal("geometry" in user.namedTrails[0], false);
+  assert.equal("lat" in user.namedTrails[0], false);
+});
+
+test("repairPlannerOutput injects named trails into geography", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: [], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [{ kind: "water", name: "lake", placement: "left", treatment: "flat blue" }],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "x",
+    },
+    { ...input, namedWays: [porcupineTrail] },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.geography[1].name, "Porcupine Rim");
+  assert.equal(spec.geography[1].color, "teal");
+  assert.equal(spec.geography[1].treatment, "write the name along that stretch");
+  assert.doesNotMatch(spec.geography[1].treatment, /teal stretch/);
+});
+
+test("repairPlannerOutput strips legacy teal-stretch treatments", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: [], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [
+        {
+          kind: "trail",
+          name: "Porcupine Rim",
+          placement: "upper-right",
+          treatment: "teal stretch of the GPS track, write the name along that stretch",
+        },
+      ],
+      landmarks: [],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "Paint the teal stretch of the GPS track.",
+    },
+    { ...input, namedWays: [porcupineTrail] },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.equal(spec.geography[0].color, "teal");
+  assert.equal(spec.geography[0].treatment, "write the name along that stretch");
+  assert.doesNotMatch(specToImagePrompt(spec), /teal stretch of the GPS track/);
+});
+
+test("buildPlannerMessages sends named regions and one-level inside clauses", () => {
+  const messages = buildPlannerMessages({
+    ...input,
+    pois: [{ ...input.pois[0], inside: "Augustana" }],
+    namedAreas: [augustanaArea],
+  });
+  const user = JSON.parse(String(messages[1].content)) as {
+    landmarks: Array<Record<string, unknown>>;
+    namedRegions: Array<Record<string, unknown>>;
+  };
+  assert.equal(user.landmarks[0].placement, "upper-left, west of the route, inside Augustana");
+  assert.equal(user.namedRegions[0].name, "Augustana");
+  assert.equal(user.namedRegions[0].kind, "university");
+  assert.equal(user.namedRegions[0].letter, "A");
+  assert.match(String(user.namedRegions[0].treatment), /same place as the schematic letter/);
+  assert.match(String(user.namedRegions[0].treatment), /not schematic ochre/);
+  assert.equal("geometry" in user.namedRegions[0], false);
+});
+
+test("repairPlannerOutput injects named regions and drops them from landmarks", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Swiss", medium: "print", palette: [], typography: "", texture: "", references: "" },
+      composition: { aspectRatio: "2:3", routePlacement: "center", titleBlock: "top", border: "", decorations: [] },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [{ kind: "water", name: "lake", placement: "left", treatment: "flat blue" }],
+      landmarks: [
+        { name: "Augustana", kind: "university", placement: "center", icon: "campus" },
+        { name: "Norsemen Inn", kind: "pub", placement: "upper-left", icon: "" },
+      ],
+      text: { title: "T", subtitle: "S", stats: [], rules: "" },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "x",
+    },
+    { ...input, namedAreas: [augustanaArea] },
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.deepEqual(
+    spec.geography.map((item) => item.name),
+    ["lake", "Augustana"],
+  );
+  assert.match(spec.geography[1].treatment, /same place as the schematic letter/);
+  assert.match(spec.geography[1].treatment, /not schematic ochre/);
+  assert.equal(spec.geography[1].letter, "A");
+  assert.deepEqual(
+    spec.landmarks.map((item) => item.name),
+    ["Norsemen Inn"],
+  );
+});
+
+test("assertUsableSpec rejects a spec with no style or route direction", () => {
+  const empty = validatePosterSpec({ text: { title: "x" }, finalPrompt: "y" });
+  assert.throws(() => assertUsableSpec(empty), /unusable spec/);
+});
+
+test("planner asks for an open palette instead of refilling a cliché pair", () => {
+  const openInput: PlannerInput = {
+    ...input,
+    style: {
+      id: "risograph",
+      label: "Risograph",
+      prompt: "Two-ink risograph print. Pick any two Riso inks.",
+      palette: [],
+      typography: "zine sans",
+      openPalette: true,
+    },
+  };
+  const messages = buildPlannerMessages(openInput);
+  assert.match(String(messages[0].content), /no fixed palette/);
+  assert.match(String(messages[0].content), /Do not fall back to a cliché pair/);
+  const user = JSON.parse(String(messages[1].content)) as {
+    stylePreset: { palette: string[]; openPalette: boolean };
+    paletteInstruction: string;
+  };
+  assert.deepEqual(user.stylePreset.palette, []);
+  assert.equal(user.stylePreset.openPalette, true);
+  assert.match(user.paletteInstruction, /no fixed palette/);
+  const repaired = repairPlannerOutput(
+    {
+      style: { name: "Risograph", medium: "risograph", palette: [], typography: "zine sans" },
+      composition: { routePlacement: "center" },
+      route: { treatment: "loud ink", color: "the louder ink" },
+    },
+    openInput,
+  );
+  const spec = validatePosterSpec(repaired);
+  assert.deepEqual(spec.style.palette, []);
+});
+
+test("repairPlannerOutput does not invent a title when the design has none", () => {
+  const repaired = repairPlannerOutput(
+    {
+      style: {
+        name: "Swiss",
+        medium: "print",
+        palette: ["red"],
+        typography:
+          "Helvetica. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.",
+        texture: "",
+        references: "",
+      },
+      composition: {
+        aspectRatio: "2:3",
+        routePlacement: "center",
+        titleBlock:
+          "top. Large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width.",
+        border: "",
+        decorations: [],
+      },
+      route: { treatment: "line", color: "red", startMarker: "none", finishMarker: "none", shapeNotes: "" },
+      geography: [],
+      landmarks: [],
+      text: { title: "Invented headline", subtitle: "", stats: [], rules: "Set the title as a large display title, clearly readable when the whole poster is viewed on a phone, not a zoomed crop, with the title font at least 8% of the poster width. It is the largest text on the sheet. Wrap a long title instead of shrinking it below that size. Stats and map labels stay smaller. Do not add a title when the design has none." },
+      grounding: { images: [], rules: [] },
+      negative: [],
+      finalPrompt: "x",
+    },
+    { ...input, title: "", subtitle: "" },
+  );
+  assert.equal((repaired.text as { title: string }).title, "");
+  assert.equal((repaired.style as { typography: string }).typography, "Helvetica");
+  assert.equal((repaired.composition as { titleBlock: string }).titleBlock, "top");
+  assert.equal((repaired.text as { rules: string }).rules, "");
+});
+
+test("planner honors a supplied costume palette", () => {
+  const messages = buildPlannerMessages(input);
+  assert.match(String(messages[0].content), /Honor stylePreset.palette exactly: off-white, red/);
+});
+
+test("compact planner output is completed with authoritative text, markers and safe reference metadata", () => {
+  const spec = validatePosterSpec(repairPlannerOutput({
+    style: { name: "Swiss", medium: "print", palette: ["red", "white"], typography: "Helvetica", texture: "", references: "" },
+    composition: { titleBlock: "bottom", border: "none", decorations: [] },
+    route: { color: "red", startMarker: "circle", finishMarker: "square" },
+    geography: [{ kind: "water", treatment: "pale fill" }],
+  }, { ...input, routeOnly: true, grounding: [{ ...input.grounding[0], dataUrl: "data:image/png;base64,aGVsbG8=" }] }));
+  assertUsableSpec(spec);
+  assert.equal(spec.text.title, input.title);
+  assert.deepEqual(spec.text.stats, input.stats);
+  assert.equal(spec.composition.aspectRatio, input.aspectRatio);
+  assert.equal(spec.route.startMarker, spec.route.finishMarker);
+  assert.deepEqual(spec.landmarks, []);
+  assert.deepEqual(spec.grounding.images, input.grounding);
+  assert.doesNotMatch(JSON.stringify(spec), /base64/);
+  const prompt = specToImagePrompt(spec);
+  assert.equal(prompt.match(/8%/g)?.length, 1);
+  assert.equal(prompt.match(/12\.4 km/g)?.length, 1);
 });

@@ -133,7 +133,6 @@ export type PosterContext = {
 };
 
 export type PosterSpec = {
-  promptTemplateVersion?: 1;
   style: {
     name: string;
     medium: string;
@@ -510,7 +509,7 @@ export async function uploadPosterReferences(references: string[]): Promise<{ re
   }));
 }
 
-export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cost: number | null; model?: string }> {
+export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cost: number | null; model: string }> {
   return readJson(
     await apiFetch("/api/poster/plan", {
       method: "POST",
@@ -727,7 +726,7 @@ export function pollPosterJobs(onError: (error: unknown) => void) {
   const poll = async () => {
     try {
       const { jobs } = await readJson<{ jobs: ServerGenerationJob[] }>(await apiFetch("/api/poster/jobs"));
-      const nextPending = new Set(jobs.filter(job => job.state === "queued" || job.state === "generating").map(job => job.id));
+      const nextPending = new Set(jobs.filter(job => job.state === "queued" || job.state === "planning" || job.state === "ready" || job.state === "generating").map(job => job.id));
       // Publish completed images before removing their placeholders.
       if ([...pendingJobIds].some(id => !nextPending.has(id) && !jobs.some(job => job.id === id && job.state === "failed"))) {
         const posters = await fetchPosters();

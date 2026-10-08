@@ -8,7 +8,7 @@ import { mapWithConcurrency } from "./mapPool";
 import { revisePosterPrompt } from "./modifyPrompt";
 import { createImage, listImageModels, maxImageOutputs, maxImageReferences, resolveImageModel } from "./openrouter";
 import { isSafePosterId } from "./paths";
-import { DEFAULT_ASPECT_RATIO, imageAspectRatio, specToImagePrompt, validatePosterSpec, withSingleRouteRule, type PosterSpec } from "./posterSpec";
+import { DEFAULT_ASPECT_RATIO, imageAspectRatio, specToImagePrompt, validatePosterSpec, withMarkerPlacementRule, withSingleRouteRule, type PosterSpec } from "./posterSpec";
 import { posterStore } from "./storage";
 import { resolveReferences } from "./referenceUploads";
 import { encodePosterThumb } from "./thumb";
@@ -196,7 +196,7 @@ export type VariantPosterBody = {
 
 export function resolveImagePrompt(spec: PosterSpec, override?: string) {
   const trimmed = override?.trim() ?? "";
-  return withSingleRouteRule(trimmed || specToImagePrompt(spec));
+  return withSingleRouteRule(withMarkerPlacementRule(trimmed || specToImagePrompt(spec)));
 }
 
 export function pngDataUrl(bytes: Buffer, mime = "image/png") {
