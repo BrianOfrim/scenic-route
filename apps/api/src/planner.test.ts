@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildInitialPoster, normalizeVibes, planPoster, type PlannerInput } from "./planner";
-import { specToImagePrompt, validatePosterSpec } from "./posterSpec";
+import { MARKER_PLACEMENT_RULE, specToImagePrompt, validatePosterSpec } from "./posterSpec";
 import { resolveImagePrompt } from "./poster";
 
 const input: PlannerInput = {
@@ -64,6 +64,7 @@ test("open palettes and custom styles delegate color selection and preserve inst
 
 test("marker modes preserve count and names while delegating appearance", () => {
   assert.match(prompt(), /Marker: one combined start\/finish symbol/);
+  assert.equal(prompt().split(MARKER_PLACEMENT_RULE).length - 1, 1);
   assert.doesNotMatch(prompt(), /Start marker:|Finish marker:/);
   const off = prompt({ routeMarkers: { enabled: false, mode: "loop", startName: "Hidden endpoint" } });
   assert.match(off, /Draw no endpoint markers/);
@@ -108,7 +109,8 @@ test("versioned prompts survive validation and explicit edit prompts take preced
   const roundtrip = validatePosterSpec(JSON.parse(JSON.stringify(spec)));
   assert.equal(roundtrip.promptTemplateVersion, 1);
   assert.equal(specToImagePrompt(roundtrip), spec.finalPrompt);
-  assert.ok(resolveImagePrompt(roundtrip).endsWith(spec.finalPrompt));
+  assert.equal(resolveImagePrompt(roundtrip), spec.finalPrompt);
+  assert.equal(resolveImagePrompt(roundtrip).split(MARKER_PLACEMENT_RULE).length - 1, 1);
   assert.ok(resolveImagePrompt(roundtrip, "Apply this edit").endsWith("Apply this edit"));
   const legacy = { ...roundtrip, promptTemplateVersion: undefined, finalPrompt: "LEGACY UNUSED LEAD", route: { ...roundtrip.route, color: "red" } };
   assert.doesNotMatch(specToImagePrompt(legacy), /LEGACY UNUSED LEAD/);

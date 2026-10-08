@@ -398,6 +398,15 @@ function scrubIndexLanguage(text: string) {
 export const SINGLE_ROUTE_RULE =
   "All reference images depict the same single GPS route in the same geographic frame. They are complementary views of one route, not separate routes to reproduce. Draw that route exactly once on one unified map. Do not draw one route per reference image, duplicate or offset copies of the track, separate maps, inset maps, or multiple panels. Reference names such as route-only, schematic, and satellite describe the inputs only; do not print those names or reference-image headings on the poster. Preserve the route's actual parallel segments, crossings, out-and-backs, and gaps; those are parts of the one route, not duplicate routes.";
 
+export const MARKER_PLACEMENT_RULE =
+  "Place map markers only at the explicitly indicated marker positions on the schematic, and only when requested by this prompt. Preserve their exact locations and count. Do not add, duplicate, move, or infer markers at route bends, crossings, pauses, landmarks, or other points of interest. If the schematic indicates no markers, draw no map markers. Style instructions may change marker appearance, never authorize extra markers or new positions.";
+
+/** Also protects saved prompts used for variants and refinements. */
+export function withMarkerPlacementRule(prompt: string): string {
+  const text = prompt.trim();
+  return text.includes(MARKER_PLACEMENT_RULE) ? text : `${MARKER_PLACEMENT_RULE}\n\n${text}`;
+}
+
 /** Also protects saved prompts used for variants and refinements. */
 export function withSingleRouteRule(prompt: string): string {
   const text = prompt.trim();
@@ -420,6 +429,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
   const lead = scrubIndexLanguage(t(spec.finalPrompt) || fallbackPrompt(spec));
   sections.push(sentence(lead));
   sections.push(SINGLE_ROUTE_RULE);
+  sections.push(MARKER_PLACEMENT_RULE);
   sections.push(routeOnly ? UNANNOTATED_MAP_TRACE_RULE : ROUTE_TRACE_RULE);
   if (routeOnly) {
     sections.push(
@@ -745,6 +755,7 @@ function unannotatedImagePrompt(spec: PosterSpec, template = false): string {
   return [
     `Create a north-up ${spec.style.name} map poster. Aspect ratio: ${spec.composition.aspectRatio}.`,
     SINGLE_ROUTE_RULE,
+    MARKER_PLACEMENT_RULE,
     template ? "Geometry and exact-text constraints take priority over any conflicting style conventions. Apply the style without simplifying, omitting, moving, or inventing geographic features. Do not copy reference scaffolding colors or symbols as design choices." : "",
     references.join(" "),
     `${routeReference ? `Image ${routeReference.index} defines the exact route geometry and endpoints; the schematic locates them within the geography.` : "The schematic defines the exact GPS route, endpoint positions and geographic layout."} Preserve every segment, bend, crossing, out-and-back and gap, in the same position relative to the geography. Do not smooth, straighten, shortcut, add connections, or snap onto nearby roads. Background roads, bridges and shorelines must never become route segments. Title place names are display text only; use the supplied geometry throughout generation and refinement.`,
