@@ -12,6 +12,13 @@ npm registry audit and GitHub reviewed advisory sources were checked on October 
 
 Audit results reflect known advisories at review time, not a comprehensive security assessment.
 
+## Validation after the split
+
+- `npm ci`, then `npm audit --omit=dev --json` and `npm audit --json`: zero reported vulnerabilities at every severity. Installed versions are MapLibre GL JS 6.13.0 and Sharp 0.35.5.
+- `npx tsc -p apps/api/tsconfig.json --noEmit` and `npx tsc -p apps/web/tsconfig.json --noEmit`: passed.
+- Sharp encoded a 2×2 PNG (96 bytes).
+- `npm test -w @scenic-route/web`: 200 tests passed.
+
 ## Pending checks
 
-MapLibre is a major-version upgrade. Compile and map/poster tests were run on the combined branch before this split. An interactive browser smoke test of live maps, custom styles, attribution, and schematic exports remains pending. No deploy or merge was performed.
+MapLibre is a major-version upgrade. An interactive browser smoke test of live maps, custom styles, attribution, and schematic exports remains pending. No deploy or merge was performed.
