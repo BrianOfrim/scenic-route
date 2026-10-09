@@ -1,3 +1,4 @@
+import { LegalLinks } from "./LegalLinks";
 import { useRef } from "react";
 import { SignInForm } from "./SignIn";
 import { StyleExplorer } from "./StyleExplorer";
@@ -99,6 +100,7 @@ export function Landing() {
       </main>
 
       <footer className="landing-footer">
+        <LegalLinks />
         <p>© {new Date().getFullYear()} Scenic Route</p>
       </footer>
     </div>

@@ -1,3 +1,4 @@
+import { LegalLinks } from "./LegalLinks";
 import { useEffect, useState, type FormEvent, type Ref } from "react";
 import {
   fetchAuthConfig, requestPasswordReset, resendVerification, resetPassword,
@@ -105,6 +106,7 @@ export function SignInForm({ inputRef, reset = false }: Props) {
         {google === false && <p className="auth-hint">Google sign-in isn’t available yet. Use email below.</p>}
         <div className="auth-divider"><span>or use email</span></div>
       </>}
+      {(mode === "signup" || mode === "signin") && <LegalLinks />}
       <form className="sign-in-form" onSubmit={(event) => void handleSubmit(event)}>
         {mode === "signup" && <label>Name
           <input autoComplete="name" value={name} maxLength={40} onChange={(event) => setName(event.target.value)} required disabled={busy} />
