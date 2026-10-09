@@ -69,3 +69,29 @@ Existing Fly HTTP check: GET `/api/health`, 30-second interval, 5-second timeout
 5. Record UTC time, URL/status, image/SHA and trace ID, determine scope, check provider limits/health, and follow recovery or [privacy response](privacy-incident.md). Test failure/recovery routing before calling monitoring operational.
 
 No log or backup retention schedule is approved here; Brian must choose access, destination, deletion policy and automation separately.
+
+
+## OSM Standard tile cache rollout and recovery
+
+The tile proxy remains part of the sole API process. Fly root storage is ephemeral; the new dedicated `osm_tile_cache` volume mounts at `/tile-cache`. The source configuration does not prove that this volume has been provisioned or attached. This code change has not deployed or changed cloud resources.
+
+After Brian separately authorizes production deployment:
+
+1. Confirm one serving machine in `dfw`, record the current image, and drain generation work using the existing maintenance procedure. Do not add a replica or overlap API processes.
+2. Provision a 3 GB encrypted volume in `dfw` named `osm_tile_cache` and attach it through the updated `fly.toml`. Review actual volume placement and machine attachment before replacement. Example provisioning command: `fly volumes create osm_tile_cache --region dfw --size 3 --app scenic-route`. Volumes attach to one machine and are not automatically replicated: see [Fly volume documentation](https://docs.fly.io/volumes/overview/).
+3. Deploy with the existing immediate, single-machine procedure. Confirm the mount; production requests verify a non-root filesystem mount before fetching. Missing/unwritable storage disables OSM misses, while the other API features remain available. Keep the volume on subsequent deploys and rollbacks. Do not roll back to the old uncached OSM proxy; disable OSM in a cache-capable release if necessary.
+4. Sign in with the separately approved test account, open one small Streets viewport, verify readable credits/link and the issue link, then revisit it. Inspect aggregate `osm_tile_cache` logs for hits, bounded upstream work, errors and cache usage. Restart only after draining other jobs, and confirm the same tiles are served from disk. Never pan/zoom through regions as a load test or seed the cache.
+5. Check mobile attribution with the poster sheet open and drag the map. The browser sends origin-only Referer; the upstream request identifies Scenic Route. Verify no cookies, private page paths, query parameters, account IDs, or client IPs reach OSM.
+
+Configuration:
+
+- `OSM_TILES_ENABLED=true` is the default; `false` stops OSM tile access. Restart the API after changing configuration. Saved entries remain on disk; Satellite/Schematic remain available. This is not an uncached-access switch.
+- `OSM_TILE_CACHE_DIR` defaults locally to `data/tile-cache` (ignored by Git), and in production to `/tile-cache`. Local development needs no Fly account or volume.
+- `OSM_TILE_CACHE_MAX_BYTES=2147483648` and `OSM_TILE_CACHE_MAX_ENTRIES=50000` bound serialized entries/index. The 3 GB volume leaves headroom for atomic writes and filesystem overhead. Seven-day fallback entries are protected until expiry; other eligible entries use expired-first LRU eviction. Full protected storage returns 503; investigate before increasing the limits.
+- `OSM_TILE_ALLOWED_ORIGINS` is a comma-separated list of exact origins. Development defaults to `WEB_ORIGIN`; production defaults to `https://scenic-route.ca,https://scenic-route.fly.dev`. Missing/foreign Referer is rejected, not fabricated. Never include private URL paths.
+
+Failures: fresh readable cache entries remain usable during storage/upstream failures; expired entries require successful validation. Upstream 429/503 triggers service cooldown respecting Retry-After (bounded to 24 hours); other failed tile requests use a 30-second cooldown. Fix the mount/permissions/disk space and restart to recover write health. Corrupt entries and interrupted temporary writes are removed on recovery. There is no cache warming, alternate-host retry or provider substitution.
+
+Logs contain only aggregate hit/miss/coalescing/revalidation/error/eviction/saturation counters, bytes, entry count and queue state. Routine events are sampled; failure events are always logged. Diagnose sustained fresh eviction/cache saturation by increasing the volume and cache budget or changing to a suitable provider. Capacity is an initial beta default, not a measured workload guarantee. Do not log tile keys/coordinates, Referers, credentials, or user identities.
+
+The new volume is a rebuildable tile cache, not a backup of posters or customer data. Fly snapshots may contain tile-access geography; keep access restricted and use the volume's default five-day snapshot retention initially. Volume storage is US$0.15/GB-month (3 GB: about US$0.45); snapshots have separate allowances/pricing. See [Fly pricing](https://docs.fly.io/about/pricing/). A host/volume failure may interrupt Streets maps; Fly does not give this single-machine architecture redundancy. Restore a snapshot or replace the volume without any bulk refill job.

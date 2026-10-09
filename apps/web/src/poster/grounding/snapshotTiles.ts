@@ -3,10 +3,9 @@ import { maskImageToRegion, maskIsActive, projectorForFrame, type GeoMask, type 
 import { cameraForFrame, fittedFrame } from "./mapFrame";
 import { canvasSize, drawGpsTrack, drawRouteEndMarkers } from "./renderSchematic";
 
-export type TileSource = "osm" | "topo" | "satellite";
+export type TileSource = "topo" | "satellite";
 
 const TILE_URLS: Record<TileSource, string> = {
-  osm: "/api/tiles/osm/{z}/{x}/{y}.png",
   topo: "/api/tiles/topo/{z}/{x}/{y}.png",
   satellite: "/api/tiles/satellite/{z}/{x}/{y}.png",
 };
@@ -26,6 +25,7 @@ export async function snapshotTiles(
   },
   signal?: AbortSignal,
 ): Promise<SatelliteFrame> {
+  if ((options.source as string) === "osm") throw new Error("OSM Standard tiles cannot be used for off-screen references");
   if (signal?.aborted) throw abortError();
   const { width, height } = canvasSize(options.aspectRatio);
   const fitted = fittedFrame(options.bbox, width, height);

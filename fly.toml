@@ -30,3 +30,14 @@ primary_region = "dfw"
   memory = "1gb"
   cpu_kind = "shared"
   cpus = 1
+
+[env]
+  OSM_TILES_ENABLED = "true"
+  OSM_TILE_CACHE_DIR = "/tile-cache"
+  OSM_TILE_CACHE_MAX_BYTES = "2147483648"
+  OSM_TILE_CACHE_MAX_ENTRIES = "50000"
+  OSM_TILE_ALLOWED_ORIGINS = "https://scenic-route.ca,https://scenic-route.fly.dev"
+
+[[mounts]]
+  source = "osm_tile_cache"
+  destination = "/tile-cache"
