@@ -1,3 +1,4 @@
+import { validateActivityXml } from "./importXml";
 import { ImportError, type ParsedGpx } from "./gpx";
 
 export class TcxError extends ImportError {
@@ -17,7 +18,9 @@ const TRACK_RE =
   /<(?:[\w.-]+:)?Track\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?Track\s*>/gi;
 
 export function parseTcx(xml: string): ParsedGpx {
-  const source = xml.replace(/^\uFEFF/, "");
+  let source: string;
+  try { source = validateActivityXml(xml.replace(/^\uFEFF/, ""), "TrainingCenterDatabase"); }
+  catch (error) { throw new TcxError(error instanceof Error ? error.message : "Activity XML is malformed"); }
   if (!isTcxXml(source)) throw new TcxError("This file is not a TCX activity");
 
   const activities = [...source.matchAll(ACTIVITY_RE)].map((match) => ({
@@ -65,8 +68,8 @@ function parseTrackpoints(xml: string): ParsedGpx["points"] {
     const position = firstBlock(body, "Position");
     const latRaw = position ? childText(position, "LatitudeDegrees") : null;
     const lngRaw = position ? childText(position, "LongitudeDegrees") : null;
-    const lat = latRaw != null ? Number(latRaw) : NaN;
-    const lng = lngRaw != null ? Number(lngRaw) : NaN;
+    const lat = latRaw?.trim() ? Number(latRaw) : NaN;
+    const lng = lngRaw?.trim() ? Number(lngRaw) : NaN;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
     if (Math.abs(lat) > 90 || Math.abs(lng) > 180) continue;
     const eleRaw = childText(body, "AltitudeMeters");

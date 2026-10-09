@@ -74,7 +74,7 @@ export function SignInForm({ inputRef, reset = false }: Props) {
         setPassword("");
         setConfirmation("");
         setNeedsVerification(true);
-        setNotice("Check your inbox for a verification link to finish creating your account. If you already have an account, sign in or reset your password.");
+        setNotice("Check your inbox to verify your email, then sign in to see your beta admission or waitlist status. If you already have an account, sign in or reset your password.");
       } else if (mode === "forgot") {
         await requestPasswordReset(email.trim());
         setNotice("If an account exists for this email, you’ll receive a password reset link. Check your inbox.");
@@ -92,6 +92,7 @@ export function SignInForm({ inputRef, reset = false }: Props) {
   return (
     <div className="auth-card">
       <h2>{title}</h2>
+      {(mode === "signup" || mode === "signin") && <p className="auth-hint">Free public beta: 100 accounts. New accounts join the waitlist when all places are reserved. This applies to email and Google signup.</p>}
       {(mode === "signin" || mode === "signup") && <>
         <button type="button" className="button google-sign-in" disabled={busy || !google}
           onClick={() => void run(signInGoogle)}>

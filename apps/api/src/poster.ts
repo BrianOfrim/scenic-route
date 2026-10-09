@@ -1,3 +1,4 @@
+import { providerQueue } from "./requestQueue";
 import { randomBytes } from "node:crypto";
 import { getActivity, listActivities } from "./activities";
 import { getSetting, setSetting } from "./db";
@@ -261,6 +262,18 @@ export function newPosterId() {
 }
 
 export async function generatePoster(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
+  // Public requests must not forward arbitrary URLs to the image provider.
+  // persistReferences is independently supplied and cannot establish URL ownership.
+  for (const reference of dataUrls(body.references)) decodeDataUrl(reference);
+  return generatePosterWithReferences(userId, body);
+}
+
+/** Only edits/variants may supply links minted from an owned poster. */
+async function generatePosterWithReferences(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
+  return providerQueue("image").run(() => generateScheduledPoster(userId, body), undefined, userId);
+}
+
+async function generateScheduledPoster(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
   const activityId = Number(body.activityId);
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new PosterError("activityId is required");
@@ -387,7 +400,7 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
     })),
   });
   const spec: PosterSpec = { ...source.spec, finalPrompt: buildVariantPrompt(history) };
-  return generatePoster(userId, {
+  return generatePosterWithReferences(userId, {
     activityId: source.activityId,
     spec,
     prompt,
@@ -425,7 +438,7 @@ export async function variantPoster(userId: string, body: VariantPosterBody): Pr
   const model = resolveImageModel(body.model ?? source.model);
   const history = await posterDesignHistory(source, id => readPosterRecord(userId, id));
   const prompt = buildVariantPrompt(history);
-  return generatePoster(userId, {
+  return generatePosterWithReferences(userId, {
     activityId: source.activityId,
     spec: { ...source.spec, finalPrompt: prompt },
     prompt,

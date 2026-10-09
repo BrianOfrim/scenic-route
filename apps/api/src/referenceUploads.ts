@@ -46,11 +46,12 @@ export async function resolveReferences(userId: string, batchId: string, include
   const bytes = await store.get(userId, `${batchId}/manifest`);
   if (!bytes) throw new ReferenceUploadError("reference batch not found", 404);
   const manifest = JSON.parse(bytes.toString()) as { expiresAt: number; mimes: string[] };
-  if (manifest.expiresAt <= Date.now()) throw new ReferenceUploadError("reference batch expired; upload the images again");
+  const remainingSeconds = Math.floor((manifest.expiresAt - Date.now()) / 1000);
+  if (!Number.isFinite(remainingSeconds) || remainingSeconds < 1) throw new ReferenceUploadError("reference batch expired; upload the images again");
   if (!store.signedUrl) throw new ReferenceUploadError("R2 signed URLs are unavailable", 503);
   return Promise.all(manifest.mimes.map(async (mime, index) => {
     const name = `${batchId}/${index}`;
-    const url = await store.signedUrl!(userId, name, URL_SECONDS);
+    const url = await store.signedUrl!(userId, name, Math.min(URL_SECONDS, remainingSeconds));
     const image = includeBytes ? await store.get(userId, name) : null;
     if (includeBytes && !image) throw new ReferenceUploadError("reference image not found", 404);
     return { url, mime, bytes: image };

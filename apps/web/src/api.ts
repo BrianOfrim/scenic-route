@@ -30,6 +30,7 @@ export type SessionUser = {
   email: string;
   name?: string | null;
   image?: string | null;
+  betaStatus?: "admitted" | "waiting";
 };
 
 export class AuthRequiredError extends Error {
@@ -289,7 +290,8 @@ export async function fetchSession(): Promise<SessionUser | null> {
   if (!response.ok) return null;
   const body = (await response.json()) as { user?: SessionUser } | null;
   if (!body?.user?.id || !body.user.email) return null;
-  return { id: body.user.id, email: body.user.email, name: body.user.name, image: body.user.image };
+  const beta = await readJson<{ status: "admitted" | "waiting" }>(await apiFetch("/api/beta"));
+  return { id: body.user.id, email: body.user.email, name: body.user.name, image: body.user.image, betaStatus: beta.status };
 }
 
 export class SignInError extends Error {
@@ -377,6 +379,7 @@ export async function fetchActivities(): Promise<ActivitySummary[]> {
 }
 
 export type PosterQuota = {
+  imageLimits: { active: number | null; unfinished: number | null; selections: number | null };
   limit: number | null;
   used: number;
   reserved: number;
