@@ -1,3 +1,4 @@
+import { configureImageLimits } from "./imageLimits";
 import type { Context, Next } from "hono";
 import { APIError, betterAuth, type BetterAuthOptions } from "better-auth";
 import type pg from "pg";
@@ -160,6 +161,7 @@ export function createRequireUser(lookup: SessionLookup = (headers) => getSessio
     if (!user) return c.json({ error: "sign in required" }, 401);
     c.set("user", user);
     try {
+      if (c.req.path.startsWith("/api/poster/")) await configureImageLimits(user.id);
       const run = () => withAccountAccess(user.id, c.req.path === "/api/account" && c.req.method === "DELETE", async () => {
         await bootstrap(user);
         await next();

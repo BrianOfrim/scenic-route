@@ -1,3 +1,4 @@
+import { getImageLimits, type ImageLimits } from "./imageLimits";
 import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
 import { randomUUID } from "node:crypto";
 import { getActivity } from "./activities";
@@ -21,7 +22,7 @@ type GenerationJob = {
   createdAt: number;
   updatedAt: number;
 };
-const services = { getActivity, resolveReferences, maxImageOutputs, prepare: buildInitialPoster, generate: generatePoster };
+const services = { getActivity, resolveReferences, maxImageOutputs, prepare: buildInitialPoster, generate: generatePoster, limits: getImageLimits };
 const RETENTION_MS = 24 * 60 * 60 * 1000;
 
 function publicJobs(jobs: GenerationJob[]) {
@@ -39,13 +40,16 @@ export class GenerationJobQueue {
   private submissions = new Map<string, { result: Promise<string[]>; ids?: string[]; createdAt: number }>();
   private running = new Set<string>();
 
-  constructor(private work = services, private scheduler: RequestQueue = providerQueue("image"), private access = withAccountAccess) {}
+  constructor(private work: Omit<typeof services, "limits"> & { limits?: (userId: string) => Promise<ImageLimits> } = services, private scheduler: RequestQueue = providerQueue("image"), private access = withAccountAccess) {}
 
   async submit(userId: string, body: { submissionId: string; jobs: JobInput[] }) {
     if (!body || !/^[\w-]{1,100}$/.test(body.submissionId) || !Array.isArray(body.jobs) || !body.jobs.length || body.jobs.length > 200)
       throw new Error("submissionId and 1–200 jobs are required");
+    const limits = await this.work.limits?.(userId);
+    if (limits) this.scheduler.setOwnerLimits(userId, limits.active ?? Infinity, limits.unfinished ?? Infinity);
+    const selectionLimit = limits ? limits.selections ?? Infinity : 8;
     const selections = new Set(body.jobs.map(input => JSON.stringify([input?.generate?.styleId, input?.generate?.paletteId || "auto"])));
-    if (selections.size > 8) throw new Error("A generation batch must contain at most eight theme/palette combinations");
+    if (selections.size > selectionLimit) throw new Error(`A generation batch must contain at most ${selectionLimit} theme/palette combinations`);
     this.prune();
     const key = JSON.stringify([userId, body.submissionId]);
     let submission = this.submissions.get(key);

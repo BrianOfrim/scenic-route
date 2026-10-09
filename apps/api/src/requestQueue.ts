@@ -10,6 +10,15 @@ type Waiter = { reservation: JobReservation; owner: string; autoRelease: boolean
 
 /** Process-local scheduler: FIFO within an owner, round-robin between waiting owners. */
 export class RequestQueue {
+  private ownerLimits = new Map<string, { active: number; unfinished: number }>();
+  setOwnerLimits(owner: string, active: number, unfinished: number) {
+    for (const value of [active, unfinished]) {
+      if (value !== Infinity && (!Number.isSafeInteger(value) || value < 1)) throw new Error("Invalid account image limit");
+    }
+    this.ownerLimits.set(owner, { active, unfinished });
+    this.drain();
+  }
+  private activeLimit(owner: string) { return this.ownerLimits.get(owner)?.active ?? this.perOwner; }
   private active = 0;
   private activeByOwner = new Map<string, number>();
   private waiting = new Map<string, Waiter[]>();
@@ -27,8 +36,9 @@ export class RequestQueue {
   /** Reserve unfinished capacity through active work and retry backoff; callers release terminal jobs. */
   reserveJobs(owner: string, count: number): JobReservation[] {
     const current = this.reservedByOwner.get(owner) || 0;
-    if (current + count > this.maxUnfinishedPerOwner) {
-      throw new RequestQueueError(`You can have at most ${this.maxUnfinishedPerOwner} unfinished image-generation jobs. Please wait for existing work to finish before submitting more.`);
+    const limit = this.ownerLimits.get(owner)?.unfinished ?? this.maxUnfinishedPerOwner;
+    if (current + count > limit) {
+      throw new RequestQueueError(`You can have at most ${limit} unfinished image-generation jobs. Please wait for existing work to finish before submitting more.`);
     }
     this.reservedByOwner.set(owner, current + count);
     return Array.from({ length: count }, () => ({ owner, pending: true }));
@@ -51,7 +61,7 @@ export class RequestQueue {
     if (current?.active && current.owner === owner) return work();
     const lease = await new Promise<Lease>((resolve, reject) => {
       if (waitMs !== null && this.waitingCount >= this.maxWaiting
-        && (this.active >= this.limit || (this.activeByOwner.get(owner) || 0) >= this.perOwner || this.waiting.has(owner))) {
+        && (this.active >= this.limit || (this.activeByOwner.get(owner) || 0) >= this.activeLimit(owner) || this.waiting.has(owner))) {
         reject(new RequestQueueError("Request queue is full; try again later"));
         return;
       }
@@ -99,7 +109,7 @@ export class RequestQueue {
     let skipped = 0;
     while (this.active < this.limit && this.owners.length && skipped < this.owners.length) {
       const owner = this.owners.shift()!;
-      if ((this.activeByOwner.get(owner) || 0) >= this.perOwner) {
+      if ((this.activeByOwner.get(owner) || 0) >= this.activeLimit(owner)) {
         this.owners.push(owner);
         skipped++;
         continue;

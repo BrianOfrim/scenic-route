@@ -6,6 +6,7 @@ import { locationCaption, locationInput } from "./location";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   fetchPosterCapabilities,
+  fetchPosterQuota,
   fetchPosterContext,
   fetchPosterLocation,
   fetchPosterGeography,
@@ -124,7 +125,6 @@ import {
   DEFAULT_POSTER_STYLE,
   THEME_GROUPS,
   MAX_THEME_SELECTIONS,
-  THEME_SELECTION_LIMIT_MESSAGE,
   canChangeThemeSelections,
   defaultPaletteId,
   normalizePaletteId,
@@ -779,6 +779,13 @@ export function PosterPanel({
     if (!remote) return item;
     return { ...item, ...remote, nearRouteM: remote.nearRouteM ?? item.nearRouteM };
   });
+  const [selectionLimit, setSelectionLimit] = useState<number>(MAX_THEME_SELECTIONS);
+  useEffect(() => {
+    let cancelled = false;
+    fetchPosterQuota().then(quota => { if (!cancelled) setSelectionLimit(quota.imageLimits.selections ?? Infinity); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const selectionLimitMessage = `Choose up to ${selectionLimit} theme/palette combinations.`;
   const seeded = useMemo(() => editorSeed(refineFrom), [refineFrom]);
   const [selectedChip, setSelectedChip] = useState<{ kind: "area" | "trail" | "poi"; name: string } | null>(null);
   const [context, setContext] = useState<PosterContext | null>(null);
@@ -1882,7 +1889,7 @@ export function PosterPanel({
     if (!geographyScene || !context || !activeImageModelIds.length) return;
     const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
     if (!slots.length) return;
-    if (slots.length > MAX_THEME_SELECTIONS) { setSelectionError(THEME_SELECTION_LIMIT_MESSAGE); return; }
+    if (slots.length > selectionLimit) { setSelectionError(selectionLimitMessage); return; }
     const tasks = slots.flatMap(slot => activeImageModelIds.map(model => beginGeneration({
       activityId, title: title.trim() || "New image", styleId: slot.styleId, paletteId: slot.paletteId,
       model, variants: variantCount(variants, imageModelFor(model)?.maxImages),
@@ -2060,8 +2067,8 @@ export function PosterPanel({
 
   function acceptSelections(nextStyles: string[], nextPalettes: Record<string, string[]>) {
     if (!canChangeThemeSelections(stylePlanSlots(styleIds, paletteIdsByStyle).length,
-      stylePlanSlots(nextStyles, nextPalettes).length)) {
-      setSelectionError(THEME_SELECTION_LIMIT_MESSAGE);
+      stylePlanSlots(nextStyles, nextPalettes).length, selectionLimit)) {
+      setSelectionError(selectionLimitMessage);
       return false;
     }
     setSelectionError(null);
@@ -2189,9 +2196,9 @@ export function PosterPanel({
     }} onToggleTheme={toggleStyle} onSelectTheme={toggleStyle} onApplyPalette={applyExamplePalette} />;
   const themeSelection = (
     <>
-      <p>{planSlots.length}/{MAX_THEME_SELECTIONS} theme/palette selections</p>
-      {(selectionError || planSlots.length > MAX_THEME_SELECTIONS) &&
-        <p className="error" role="alert">{selectionError || THEME_SELECTION_LIMIT_MESSAGE}</p>}
+      <p>{planSlots.length}/{Number.isFinite(selectionLimit) ? selectionLimit : "unlimited"} theme/palette selections</p>
+      {(selectionError || planSlots.length > selectionLimit) &&
+        <p className="error" role="alert">{selectionError || selectionLimitMessage}</p>}
       <div className="theme-selection-groups">
         {THEME_GROUPS.map((group) => (
           <div key={group.id} role="group" aria-labelledby={`theme-group-${group.id}`}>
@@ -2419,7 +2426,7 @@ export function PosterPanel({
             <button
               className="button"
               type="button"
-              disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > MAX_THEME_SELECTIONS}
+              disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
               onClick={() => void handleGenerate()}
             >
               {generating
@@ -3146,7 +3153,7 @@ export function PosterPanel({
                 <button
                   className="button"
                   type="button"
-                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > MAX_THEME_SELECTIONS}
+                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
                   onClick={() => void handleGenerate()}
                 >
                   {generating ? "Submitting…" : generateCount > 1 ? `Generate ${generateCount} images` : "Generate image"}
@@ -3164,7 +3171,7 @@ export function PosterPanel({
                 <button
                   className="button"
                   type="button"
-                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > MAX_THEME_SELECTIONS}
+                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
                   onClick={() => void handleGenerate()}
                 >
                   {generating

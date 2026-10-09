@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  canChangeThemeSelections,
   AUTO_PALETTE_ID,
   DEFAULT_POSTER_STYLE,
   POSTER_STYLES,
@@ -259,4 +260,11 @@ test("eight theme/palette selections allow replacements and restored setup remov
   assert.equal(stylePlanSlots(POSTER_STYLES.slice(0, 8).map(style => style.id)).length, 8);
   const slots = stylePlanSlots(["swiss"], { "swiss": paletteChoices(styleById("swiss")).slice(0, 4).map(palette => palette.id) });
   assert.equal(slots.length, 4, "four palettes of one theme count as four selections");
+});
+
+test("account selection limits can be raised or unlimited while retaining default enforcement", () => {
+  assert.equal(canChangeThemeSelections(8, 9), false);
+  assert.equal(canChangeThemeSelections(8, 9, 32), true);
+  assert.equal(canChangeThemeSelections(32, 33, 32), false);
+  assert.equal(canChangeThemeSelections(32, 33, Infinity), true);
 });

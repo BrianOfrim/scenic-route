@@ -218,7 +218,7 @@ test("selection cap counts distinct theme/palette pairs, independently of models
     return job;
   });
   await assert.rejects(queue.submit("owner", { submissionId: "selection-cap", jobs: [...jobs,
-    { ...input, generate: { ...input.generate, styleId: "other-theme", paletteId: "palette-0" } }] }), /at most eight/);
+    { ...input, generate: { ...input.generate, styleId: "other-theme", paletteId: "palette-0" } }] }), /at most 8/);
   assert.equal(prepared, 0, "reject before any preparation or admission");
   assert.deepEqual(queue.list("owner"), []);
   assert.equal((await queue.submit("owner", { submissionId: "selection-cap", jobs })).length, 8);
@@ -481,4 +481,13 @@ test("manual retry waits for failed attempt cleanup before reserving another pla
   queue.removeUser("owner");
   remaining.forEach(reservation => scheduler.releaseJob(reservation));
   assert.equal(scheduler.reserveJobs("owner", 16).length, 16);
+});
+
+test("batch selection overrides are resolved per account and enforced on the server", async () => {
+  const { input, work } = setup();
+  const queue = new GenerationJobQueue({ ...work, generate: async () => [], limits: async owner => ({active: 8, unfinished: 16, selections: owner === "tester" ? null : 8}) }, new RequestQueue(128, Infinity, 240_000, 8, 16), unlocked);
+  const jobs = Array.from({length: 9}, (_, index) => ({...input, generate: {...input.generate, paletteId: `palette-${index}`}}));
+  await assert.rejects(queue.submit("normal", {submissionId: "batch", jobs}), /at most 8/);
+  assert.equal((await queue.submit("tester", {submissionId: "batch", jobs})).length, 9);
+  await Promise.all(queue.dispatch());
 });

@@ -1,3 +1,4 @@
+import { getImageLimits, parseImageLimits } from "./imageLimits";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -119,4 +120,16 @@ test("account-lock connection acquisition times out against an unresponsive data
     for (const socket of sockets) socket.destroy();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
+});
+
+
+test("account image overrides persist independently and can restore defaults", async () => {
+  const owner = await fixture();
+  const other = await fixture();
+  await query('UPDATE "user" SET image_limits = $2::jsonb WHERE id = $1', [owner.id, JSON.stringify({active: 32, unfinished: 64, selections: null})]);
+  assert.deepEqual(await getImageLimits(owner.id), {active: 32, unfinished: 64, selections: null});
+  assert.deepEqual(await getImageLimits(other.id), parseImageLimits());
+  await query('UPDATE "user" SET image_limits = $2::jsonb WHERE id = $1', [owner.id, '{}']);
+  assert.deepEqual(await getImageLimits(owner.id), parseImageLimits());
+  for (const value of [0, -1, 1.5, "32"]) assert.throws(() => parseImageLimits({active: value}), /Invalid/);
 });

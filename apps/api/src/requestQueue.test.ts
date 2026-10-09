@@ -153,3 +153,29 @@ test("retained backoff reservations block direct admission even with free active
   await queue.run(async () => { throw new Error("failed"); }, undefined, "owner").catch(() => {});
   assert.equal(queue.reserveJobs("owner", 16).length, 16, "direct failure releases admission");
 });
+
+test("account overrides raise individual capacity but preserve global limits and other users' defaults", async () => {
+  const queue = new RequestQueue(4, Infinity, 240_000, 1, 2);
+  queue.setOwnerLimits("tester", Infinity, Infinity);
+  const releases: (() => void)[] = [];
+  const started: string[] = [];
+  const work = (owner: string) => queue.run(async () => {
+    started.push(owner);
+    await new Promise<void>(resolve => releases.push(resolve));
+  }, null, owner);
+  const pending = Array.from({length: 5}, () => work("tester"));
+  pending.push(work("normal"), work("normal"));
+  await assert.rejects(work("normal"), /2 unfinished/);
+  await Promise.resolve();
+  assert.equal(started.length, 4, "unlimited account cannot exceed global ceiling");
+  queue.setOwnerLimits("tester", 1, 2);
+  await assert.rejects(work("tester"), /2 unfinished/);
+  releases.splice(0).forEach(release => release());
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(started.filter(owner => owner === "normal").length, 1);
+  while (releases.length) {
+    releases.splice(0).forEach(release => release());
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  await Promise.all(pending);
+});
