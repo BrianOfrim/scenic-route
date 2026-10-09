@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { expandImportArchive, isZipBytes, maybeGunzip, type ArchiveTrack } from "./archive";
+import { expandImportArchive, expandTrack, isZipBytes, maybeGunzip, type ArchiveTrack } from "./archive";
 import { toActivitySummary, type ActivityFormat, type ActivityOrigin, type ActivityRow, type ActivitySummary } from "./activities";
 import { query, queryOne, type SqlClient } from "./db";
 import { activityIdForContent, allocateImportedId, rememberActivityFile, rememberImportedId } from "./importedIds";
@@ -133,17 +133,18 @@ function expandUploads(files: ImportFile[]): {
 } {
   const tracks: ArchiveTrack[] = [];
   const errors: Array<{ filename: string; error: string }> = [];
+  const budget = { bytes: 0, tracks: 0 };
   for (const file of files) {
     const filename = file.filename || "upload";
     try {
       if (isZipBytes(file.bytes) || filename.toLowerCase().endsWith(".zip")) {
-        tracks.push(...expandImportArchive(file.bytes, filename));
+        tracks.push(...expandImportArchive(file.bytes, filename, budget));
         continue;
       }
       tracks.push({
         origin: "upload",
         filename,
-        bytes: maybeGunzip(file.bytes, filename),
+        bytes: expandTrack(file.bytes, filename, budget),
         externalId: null,
         name: null,
         type: null,

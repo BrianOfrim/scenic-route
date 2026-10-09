@@ -1,3 +1,4 @@
+import { validateActivityXml } from "./importXml";
 import { bboxFromLatLng, haversineM, type LatLng } from "./geo";
 import { stitchTrackSegments, trackDistanceWithBreaks } from "./trackSegments";
 
@@ -105,7 +106,9 @@ const ELE_NOISE_M = 1;
 const MOVING_SPEED_MS = 0.3;
 
 export function parseGpx(xml: string): ParsedGpx {
-  const source = stripBom(xml);
+  let source: string;
+  try { source = validateActivityXml(stripBom(xml), "gpx"); }
+  catch (error) { throw new GpxError(error instanceof Error ? error.message : "Activity XML is malformed"); }
   if (!/<(?:[\w.-]+:)?gpx\b/i.test(source)) {
     throw new GpxError("This file is not a GPX track");
   }
@@ -203,8 +206,10 @@ function parsePoints(xml: string): GpxPoint[] {
   const points: GpxPoint[] = [];
   POINT_RE.lastIndex = 0;
   for (const match of xml.matchAll(POINT_RE)) {
-    const lat = Number(attr(match[2], "lat"));
-    const lng = Number(attr(match[2], "lon") ?? attr(match[2], "lng"));
+    const latRaw = attr(match[2], "lat");
+    const lngRaw = attr(match[2], "lon") ?? attr(match[2], "lng");
+    const lat = latRaw?.trim() ? Number(latRaw) : NaN;
+    const lng = lngRaw?.trim() ? Number(lngRaw) : NaN;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
     if (Math.abs(lat) > 90 || Math.abs(lng) > 180) continue;
     const body = match[3] ?? "";

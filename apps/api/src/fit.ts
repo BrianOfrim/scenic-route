@@ -1,3 +1,4 @@
+import { MAX_EXPANDED_TRACK_BYTES } from "./importLimits";
 import { Decoder, Stream } from "@garmin/fitsdk";
 import { ImportError, type ParsedGpx } from "./gpx";
 
@@ -21,19 +22,32 @@ export function isFitBytes(bytes: Uint8Array): boolean {
   );
 }
 
-export function parseFit(bytes: Uint8Array): ParsedGpx {
+export function parseFit(bytes: Uint8Array, maxMessages = 500_000): ParsedGpx {
+  if (bytes.length > MAX_EXPANDED_TRACK_BYTES) throw new FitError("FIT activity is too large");
   if (!isFitBytes(bytes)) throw new FitError("This file is not a FIT activity");
 
   const stream = Stream.fromByteArray(bytes);
   const decoder = new Decoder(stream);
   if (!decoder.isFIT()) throw new FitError("This file is not a FIT activity");
+  if (!decoder.checkIntegrity()) throw new FitError("FIT activity is corrupt or truncated");
 
+  let messageCount = 0;
+  let limitExceeded = false;
   const { messages, errors } = decoder.read({
+    mesgListener: () => {
+      if (++messageCount > maxMessages) {
+        limitExceeded = true;
+        throw new FitError("FIT activity contains too many messages");
+      }
+    },
     applyScaleAndOffset: true,
     convertTypesToStrings: true,
     convertDateTimesToDates: true,
     mergeHeartRates: false,
   });
+
+  if (limitExceeded) throw new FitError("FIT activity contains too many messages");
+  if (errors.length) throw new FitError("FIT activity could not be decoded");
 
   const records = messages.recordMesgs ?? [];
   const coursePoints = messages.coursePointMesgs ?? [];
@@ -85,6 +99,7 @@ export function fitSportName(sport: unknown, subSport: unknown): string | null {
 }
 
 function toDegrees(value: unknown, maxAbs: number): number | null {
+  if (value == null || value === "") return null;
   const n = Number(value);
   if (!Number.isFinite(n) || Math.abs(n) === INVALID_SEMI) return null;
   const deg = Math.abs(n) <= 180 ? n : n * SEMI_TO_DEG;
