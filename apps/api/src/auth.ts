@@ -128,6 +128,7 @@ export function authOptions(database: BetterAuthOptions["database"]) {
     },
     socialProviders: googleSignInEnabled() ? {
       google: {
+        prompt: "select_account",
         clientId: process.env.GOOGLE_CLIENT_ID!.trim(),
         clientSecret: process.env.GOOGLE_CLIENT_SECRET!.trim(),
       },

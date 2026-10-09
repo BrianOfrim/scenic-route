@@ -6,7 +6,15 @@ import { authOptions, googleProfileImage, sendAuthEmail } from "./auth";
 
 function fixture(google = false, mockGoogleVerification = false) {
   const database: Parameters<typeof memoryAdapter>[0] = { user: [], session: [], account: [], verification: [] };
+  const previousId = process.env.GOOGLE_CLIENT_ID;
+  const previousSecret = process.env.GOOGLE_CLIENT_SECRET;
+  process.env.GOOGLE_CLIENT_ID = "test-client-id";
+  process.env.GOOGLE_CLIENT_SECRET = "test-client-secret";
   const options = authOptions(memoryAdapter(database));
+  const googleOptions = options.socialProviders.google;
+  assert.ok(googleOptions);
+  if (previousId === undefined) delete process.env.GOOGLE_CLIENT_ID; else process.env.GOOGLE_CLIENT_ID = previousId;
+  if (previousSecret === undefined) delete process.env.GOOGLE_CLIENT_SECRET; else process.env.GOOGLE_CLIENT_SECRET = previousSecret;
   const emails: { kind: string; url: string }[] = [];
   const auth = betterAuth({
     ...options,
@@ -14,7 +22,7 @@ function fixture(google = false, mockGoogleVerification = false) {
     secret: "scenic-route-test-secret-at-least-32-characters",
     trustedOrigins: ["http://localhost:5174"],
     logger: { disabled: true },
-    socialProviders: google ? { google: { clientId: "test-client-id", clientSecret: "test-client-secret", ...(mockGoogleVerification ? { verifyIdToken: async () => true } : {}) } } : {},
+    socialProviders: google ? { google: { ...googleOptions, ...(mockGoogleVerification ? { verifyIdToken: async () => true } : {}) } } : {},
     emailAndPassword: {
       ...options.emailAndPassword,
       sendResetPassword: async ({ url }) => { emails.push({ kind: "reset", url }); },
@@ -92,6 +100,7 @@ test("Google starts OAuth with configured callback and is unavailable without co
   assert.equal(url.hostname, "accounts.google.com");
   assert.equal(url.searchParams.get("client_id"), "test-client-id");
   assert.equal(url.searchParams.get("redirect_uri"), "http://localhost:5174/api/auth/callback/google");
+  assert.equal(url.searchParams.get("prompt"), "select_account");
   assert.ok(url.searchParams.get("state"));
   const disabled = fixture();
   assert.equal((await disabled.post("sign-in/social", { provider: "google", callbackURL: "/" })).status, 404);
