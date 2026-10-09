@@ -5,6 +5,7 @@
     "apps/*"
   ],
   "scripts": {
+    "image:limits": "tsx scripts/set-image-limits.mts",
     "poster:limit": "tsx scripts/set-poster-limit.mts",
     "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev -w @scenic-route/api\" \"npm run dev -w @scenic-route/web\"",
     "db:up": "docker compose up -d --wait",

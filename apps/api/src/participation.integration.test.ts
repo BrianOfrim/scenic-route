@@ -9,6 +9,7 @@ import { closeAccountLocks, withAccountAccess } from "./accountLifecycle";
 import { participationStatus, recordParticipation, requireGenerationConsent, ParticipationError } from "./participation";
 import { generatePoster, modifyPoster, variantPoster } from "./poster";
 import { GenerationJobQueue, type JobInput } from "./generationJobs";
+import { RequestQueue } from "./requestQueue";
 import type { PosterSpec } from "./posterSpec";
 
 const ids: string[] = [];
@@ -74,12 +75,12 @@ test('server generation services and queued execution recheck revoked consent be
   const input: JobInput = { plan: { activity: {}, title: 'Ride', subtitle: '', stats: [], style: { id: 'test', label: 'Test', prompt: 'style' }, aspectRatio: '3:4', geography: [], pois: [], grounding: [], referenceBatchId: 'refs' },
     generate: { activityId: 1, referenceBatchId: 'refs', model: 'test', styleId: 'test', paletteId: 'auto' } };
   const queue = new GenerationJobQueue({ getActivity: async () => ({ id: 1 } as any), resolveReferences: async () => [], maxImageOutputs: async () => 1,
-    prepare: () => ({ spec: { finalPrompt: 'test' } as PosterSpec, cost: 0 }), generate: generatePoster }, withAccountAccess);
+    prepare: () => ({ spec: { finalPrompt: 'test' } as PosterSpec, cost: 0 }), generate: generatePoster }, new RequestQueue(128, Infinity, 240_000, 8, 16), withAccountAccess);
   await queue.submit(id, { submissionId: 'queued-before-refusal', jobs: [input] });
   await recordParticipation(id, choices(false));
   for (const generate of [generatePoster, modifyPoster, variantPoster]) await assert.rejects(generate(id, {} as any), ParticipationError);
-  await queue.run(queue.claim()!); assert.equal(queue.list(id)[0].state, 'failed'); assert.match(queue.list(id)[0].error!, /consent/);
-  queue.retry(id, queue.list(id)[0].id); await queue.run(queue.claim()!); assert.equal(queue.list(id)[0].state, 'failed');
+  await Promise.all(queue.dispatch()); assert.equal(queue.list(id)[0].state, 'failed'); assert.match(queue.list(id)[0].error!, /consent/);
+  queue.retry(id, queue.list(id)[0].id); await Promise.all(queue.dispatch()); assert.equal(queue.list(id)[0].state, 'failed');
   await query('UPDATE "user" SET eligibility_blocked = true WHERE id = $1', [id]);
   await assert.rejects(requireGenerationConsent(id), /cannot use/);
 });

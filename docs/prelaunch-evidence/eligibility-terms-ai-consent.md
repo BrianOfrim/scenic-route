@@ -23,9 +23,9 @@ Integrate the policy routes into public application routing. The participation w
 
 Owner/contact context for policy review: Brian Ofrim, Alberta, Canada; `info@scenic-route.ca`. The 50-images/month limit remains in the existing quota implementation; this PR does not implement a 100-account admission cap or change that limit.
 
-## Queue integration dependency
+## Queue integration
 
-Queue changes are pending in another chat. This PR does not edit `generationJobs.ts` or its scheduling behavior. Retain the service-level consent checks when integrating that work. If queued jobs begin calling another provider entry point, that path must check persisted eligibility/current Terms/current AI consent at execution, not just enqueue time. New HTTP generation paths must also be included in `generationPath`. Failed jobs after consent withdrawal stay failed and may be retried only after current requirements are met.
+The fair per-user image scheduler from `main` is merged. Direct generation checks persisted eligibility, the current Terms, and current AI consent in `generatePoster` before it takes a nested scheduler slot or reads inputs, references, or the provider. Gallery workers call that same function, so queued execution and manual retry recheck consent. HTTP submission and retry stay in `generationPath`. Image HTTP requests take a scheduler slot before the account lock; consent changes still take the exclusive account lock. Failed jobs after consent withdrawal stay failed and can be retried only after the current requirements are met. A new provider entry point must perform the same persisted check at execution, and a new HTTP generation path must be added to `generationPath`.
 
 ## Operator handling of a known underage account
 
@@ -49,5 +49,6 @@ Handle privacy/deletion requests through `info@scenic-route.ca` and the existing
 - Operator command tested against a disposable user in the dedicated local test database: restriction=true and the expected audit event were verified, then the disposable user was removed.
 - Local mock-only browser preview visually checked at desktop 1280×720 and mobile 390×844. Explicit checkboxes, disclosure, privacy contact, sign-out and deletion disclosure fit and remain readable. No real account or legal acceptance was submitted through the browser.
 - Initial full API run was 297/298 because `examples/canadian-routes/west-coast-trail.gpx` is an ignored local fixture absent from a fresh worktree. Copied the existing primary-checkout fixture into the isolated worktree (still ignored), reran the affected tests and then the complete suites successfully. CI still needs that fixture or the separate fixture-cleanup work.
+- Merge with `origin/main` (`e01ef35`): API TypeScript passed. `npm run build` passed; the existing Vite large-chunk advisory remains. Web tests: 202 passed. API tests on the default local database: 332 passed and 1 failed, the same missing West Coast Trail fixture.
 
-No merge, deployment, production/cloud change or real customer email was performed. Remaining release checks: integrate reviewed public policy pages, set approved versions/routes, confirm the pending queue implementation preserves the gates, and smoke-test the complete production auth/cookie flow after integration. Real Google OAuth and email delivery were not exercised against external services.
+No deployment, production/cloud change or real customer email was performed. Remaining release checks: integrate reviewed public policy pages, set approved versions/routes, and smoke-test the complete production auth/cookie flow after integration. Real Google OAuth and email delivery were not exercised against external services.

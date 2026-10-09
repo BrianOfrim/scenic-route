@@ -1,4 +1,5 @@
 import { requireGenerationConsent } from "./participation";
+import { providerQueue } from "./requestQueue";
 import { randomBytes } from "node:crypto";
 import { getActivity, listActivities } from "./activities";
 import { getSetting, setSetting } from "./db";
@@ -263,6 +264,10 @@ export function newPosterId() {
 
 export async function generatePoster(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
   await requireGenerationConsent(userId);
+  return providerQueue("image").run(() => generateScheduledPoster(userId, body), undefined, userId);
+}
+
+async function generateScheduledPoster(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
   const activityId = Number(body.activityId);
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new PosterError("activityId is required");

@@ -1,3 +1,4 @@
+import { getImageLimits } from "./imageLimits";
 import { participationStatus, recordParticipation, ParticipationError, assertParticipation, authRecoveryPath } from "./participation";
 import { startGenerationWorker, submitGenerationJobs, listGenerationJobs, retryGenerationJob, dismissGenerationJob } from "./generationJobs";
 import fs from "node:fs";
@@ -158,7 +159,7 @@ app.get("/api/status", async (c) => {
 });
 
 app.get("/api/poster/quota", async c => {
-  try { return c.json(await getPosterQuota(currentUserId(c))); }
+  try { return c.json({ ...await getPosterQuota(currentUserId(c)), imageLimits: await getImageLimits(currentUserId(c)) }); }
   catch (error) { return fail(c, error); }
 });
 
