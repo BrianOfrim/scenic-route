@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { createApiApp } from "./index";
+import { recordParticipation } from "./participation";
 import { closeDb, initDb, query } from "./db";
 import { closeAccountLocks } from "./accountLifecycle";
 import { createLocalStore, resetPosterStore } from "./storage";
@@ -24,13 +25,20 @@ const request = (user: AuthUser | null, url: string, method = "GET", body?: unkn
   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
 });
 
+const policyEnv = ["TERMS_VERSION", "AI_CONSENT_VERSION", "TERMS_ROUTE", "PRIVACY_ROUTE"] as const;
+const previousPolicy = policyEnv.map(name => process.env[name]);
 before(async () => {
   // These integration tests use the default local database only, never account credentials.
   assert.ok(!process.env.DATABASE_URL || new URL(process.env.DATABASE_URL).hostname === "127.0.0.1" || new URL(process.env.DATABASE_URL).hostname === "localhost");
+  process.env.TERMS_VERSION = "test-reviewed-terms-v1";
+  process.env.AI_CONSENT_VERSION = "test-ai-v1";
+  process.env.TERMS_ROUTE = "/terms";
+  process.env.PRIVACY_ROUTE = "/privacy";
   await initDb();
   resetPosterStore(store);
   for (const user of users) {
     await query('INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $1, $2, true)', [user.id, user.email]);
+    await recordParticipation(user.id, { eligible: true, terms: true, ai: true, termsVersion: "test-reviewed-terms-v1", aiVersion: "test-ai-v1" });
     await query(`INSERT INTO activities (user_id, id, name, type, sport_type, start_date, distance, imported, latlng) VALUES ($1, 42, $2, 'Ride', 'Ride', '2026-10-08', 100, 1, '[[51,-115],[51.1,-115.1]]')`, [user.id, user === alice ? "Alice private ride" : "Bob private ride"]);
   }
   await store.put(alice.id, `${posterId}.json`, Buffer.from(JSON.stringify({ posterId, userId: alice.id, activityId: 42, title: "Alice private ride", spec, prompt: "private", referenceCount: 1 })), "application/json");
@@ -39,6 +47,10 @@ before(async () => {
   await store.put(alice.id, `${posterId}.ref-1.png`, Buffer.from("private grounding"), "image/png");
 });
 after(async () => {
+  policyEnv.forEach((name, index) => {
+    if (previousPolicy[index] === undefined) delete process.env[name];
+    else process.env[name] = previousPolicy[index];
+  });
   await query('DELETE FROM activities WHERE user_id = ANY($1::text[])', [users.map(user => user.id)]);
   await query('DELETE FROM activity_file_ids WHERE user_id = ANY($1::text[])', [users.map(user => user.id)]);
   await query('DELETE FROM settings WHERE key = ANY($1::text[])', [users.flatMap(user => [`imported_id_next:${user.id}`, `poster_activity_rebind_v1:${user.id}`])]);

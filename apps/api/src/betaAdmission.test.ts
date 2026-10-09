@@ -8,6 +8,7 @@ import { betterAuth } from "better-auth";
 import { Hono } from "hono";
 import { authOptions, createRequireUser } from "./auth";
 import { admitBetaUser, getBetaStatus } from "./betaAdmission";
+import { recordParticipation } from "./participation";
 import { AccountUnavailableError, withAccountAccess, closeAccountLocks } from "./accountLifecycle";
 import { closeDb, databaseUrl, getPool, query, queryOne, withTransaction } from "./db";
 
@@ -167,7 +168,21 @@ test("waitlisted sessions cannot import, generate, or read another account; stat
   assert.deepEqual(await own.json(), { status: "waiting", cap: 100 });
   assert.deepEqual(await (await app.request("/api/beta", { headers: { "X-Test-User": "existing-0" } })).json(),
     { status: "admitted", cap: 100 });
-  assert.equal((await app.request("/api/activities", { headers: { "X-Test-User": "existing-0" } })).status, 200);
+  const policy = ["TERMS_VERSION", "AI_CONSENT_VERSION", "TERMS_ROUTE", "PRIVACY_ROUTE"] as const;
+  const previousPolicy = policy.map(name => process.env[name]);
+  process.env.TERMS_VERSION = "test-reviewed-terms-v1";
+  process.env.AI_CONSENT_VERSION = "test-ai-v1";
+  process.env.TERMS_ROUTE = "/terms";
+  process.env.PRIVACY_ROUTE = "/privacy";
+  try {
+    await recordParticipation("existing-0", { eligible: true, terms: true, ai: true, termsVersion: "test-reviewed-terms-v1", aiVersion: "test-ai-v1" });
+    assert.equal((await app.request("/api/activities", { headers: { "X-Test-User": "existing-0" } })).status, 200);
+  } finally {
+    policy.forEach((name, index) => {
+      if (previousPolicy[index] === undefined) delete process.env[name];
+      else process.env[name] = previousPolicy[index];
+    });
+  }
   assert.equal(called, 1);
   // A waiting account can still invoke account deletion; it never bootstraps.
   assert.equal((await app.request("/api/account", { method: "DELETE" })).status, 200);

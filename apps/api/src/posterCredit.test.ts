@@ -12,17 +12,22 @@ import { GenerationJobQueue, type JobInput } from "./generationJobs";
 import { INSUFFICIENT_CREDIT_MESSAGE, OpenRouterError } from "./openrouter";
 import { buildInitialPoster, type PlannerInput } from "./planner";
 import { generatePoster, modifyPoster, variantPoster } from "./poster";
+import { recordParticipation } from "./participation";
 import { getPosterQuota } from "./posterQuota";
 import { posterStore, resetPosterStore } from "./storage";
 
 test("queued batches and direct generation/refinement/variants release quota and capacity on insufficient credit, without automatic resumption", async t => {
   const owner = `credit-test-${randomUUID()}`;
   const activityId = 8_000_000_000_000 + randomInt(1_000_000_000);
-  const envNames = ["OPENROUTER_API_KEY", "OPENROUTER_IMAGE_MODEL", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "R2_ENDPOINT"];
+  const envNames = ["OPENROUTER_API_KEY", "OPENROUTER_IMAGE_MODEL", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "R2_ENDPOINT", "TERMS_VERSION", "AI_CONSENT_VERSION", "TERMS_ROUTE", "PRIVACY_ROUTE"];
   const previous = envNames.map(name => process.env[name]);
   for (const name of envNames) delete process.env[name];
   process.env.OPENROUTER_API_KEY = "test";
   process.env.OPENROUTER_IMAGE_MODEL = "test/credit-image";
+  process.env.TERMS_VERSION = "test-reviewed-terms-v1";
+  process.env.AI_CONSENT_VERSION = "test-ai-v1";
+  process.env.TERMS_ROUTE = "/terms";
+  process.env.PRIVACY_ROUTE = "/privacy";
   resetPosterStore();
   const store = posterStore();
   t.after(async () => {
@@ -39,6 +44,7 @@ test("queued batches and direct generation/refinement/variants release quota and
   });
   await initDb();
   await query('INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $1, $2, true)', [owner, `${owner}@example.com`]);
+  await recordParticipation(owner, { eligible: true, terms: true, ai: true, termsVersion: "test-reviewed-terms-v1", aiVersion: "test-ai-v1" });
   await query(`INSERT INTO activities (id, user_id, name, type, sport_type, start_date, distance)
     VALUES ($1, $2, 'Credit test', 'Ride', 'Ride', '2026-10-08', 1000)`, [activityId, owner]);
   const png = await sharp({ create: { width: 16, height: 16, channels: 3, background: "white" } }).png().toBuffer();
@@ -129,7 +135,8 @@ test("queued batches and direct generation/refinement/variants release quota and
   app.use("/api/*", createRequireUser(async () => ({ id: owner, email: `${owner}@example.com`, name: owner }), async () => {}));
   app.post("/api/poster/variant", c => c.json({ ok: true }));
   const request = app.request("/api/poster/variant", { method: "POST" });
-  await new Promise(resolve => setImmediate(resolve));
+  // The handler loads account image limits before waiting for a scheduler slot.
+  await new Promise(resolve => setTimeout(resolve, 100));
   await withAccountAccess(owner, true, async () => {});
   // Exclusive access succeeded: the image request waiting for a slot does
   // not hold an account lock, avoiding inversion against gallery workers.

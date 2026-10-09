@@ -4,6 +4,7 @@ import { APIError, betterAuth, type BetterAuthOptions } from "better-auth";
 import type pg from "pg";
 import { Resend } from "resend";
 import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
+import { createParticipationGate, recoveryPath } from "./participation";
 import { providerQueue, RequestQueueError } from "./requestQueue";
 import { getPool } from "./db";
 import { getBetaStatus, type BetaStatus } from "./betaAdmission";
@@ -183,14 +184,16 @@ export function createRequireUser(
       // Reject before taking a scheduler slot. The locked check below stays authoritative.
       if (imageRequest && await betaLookup(user.id) === "waiting") return waitlistedResponse(c);
       if (c.req.path.startsWith("/api/poster/")) await configureImageLimits(user.id);
-      const run = () => withAccountAccess(user.id, c.req.path === "/api/account" && c.req.method === "DELETE", async () => {
+      const run = () => withAccountAccess(user.id, (c.req.path === "/api/account" && c.req.method === "DELETE") || (c.req.path === "/api/participation" && c.req.method === "POST"), async () => {
         const status = await betaLookup(user.id);
-        if (c.req.path === "/api/beta" && c.req.method === "GET") {
-          return c.json({ status, cap: 100 });
-        }
-        if (status === "waiting" && !(c.req.path === "/api/account" && c.req.method === "DELETE")) return waitlistedResponse(c);
-        if (status === "admitted") await bootstrap(user);
-        await next();
+        if (c.req.path === "/api/beta" && c.req.method === "GET") return c.json({ status, cap: 100 });
+        // Waitlisted accounts can record eligibility and delete themselves. Admission does not grant consent.
+        if (status === "waiting" && !recoveryPath(c.req.path, c.req.method)) return waitlistedResponse(c);
+        if (recoveryPath(c.req.path, c.req.method)) return next();
+        return createParticipationGate()(c, async () => {
+          if (status === "admitted") await bootstrap(user);
+          await next();
+        });
       }, true);
       // Match the worker's lock order. Image HTTP waiters must not hold all
       // account-lock connections while workers hold the image scheduler slots.
