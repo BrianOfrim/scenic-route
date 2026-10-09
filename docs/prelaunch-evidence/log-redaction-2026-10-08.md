@@ -15,6 +15,8 @@ Generation-log redaction split out of the dependency advisory upgrades. Dependen
 
 ## Validation
 
+After this branch was limited to redaction, `npx tsx --test src/llmTrace.test.ts src/authRequired.test.ts` passed 12 tests, including planner-message redaction, signed URLs, private file permissions, trace-write failure, and the auth-email fallback.
+
 These checks were run on the combined branch before the dependency upgrades were split out:
 
 - `npm test`: 295 API tests and 200 web tests passed. The clean-worktree test attempt had one pre-existing missing ignored fixture (`examples/canadian-routes/west-coast-trail.gpx`). That fixture was copied locally for validation only and is not part of this change.
