@@ -9,6 +9,7 @@ export class AccountUnavailableError extends Error {
 
 // Keep lock leases separate from application queries, which may need their own
 // transactions while the lease is held. Sharing a pool can deadlock under load.
+// Allow 16 other account requests alongside the default 128 active image jobs.
 let locks: pg.Pool | undefined;
 export async function closeAccountLocks() {
   const current = locks;
@@ -18,7 +19,7 @@ export async function closeAccountLocks() {
 
 /** Shared by HTTP requests and workers; exclusive deletion also works across API processes. */
 export async function withAccountAccess<T>(userId: string, exclusive: boolean, work: (client: SqlClient) => Promise<T>) {
-  const client = await (locks ??= new pg.Pool({ connectionString: databaseUrl(), max: 128 })).connect();
+  const client = await (locks ??= new pg.Pool({ connectionString: databaseUrl(), max: 144 })).connect();
   const mode = exclusive ? "" : "_shared";
   let locked = false;
   try {
