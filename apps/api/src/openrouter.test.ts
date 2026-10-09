@@ -334,3 +334,84 @@ test("a network interruption retries planning; image failures never retry", asyn
   await assert.rejects(createImage({ model: "test/image", prompt: "test", references: [], aspectRatio: "1:1" }));
   assert.equal(calls, 1);
 });
+
+test("image provider entry point shares eight-per-user admission with gallery work and exceeds four globally", async t => {
+  const { createImage } = await import("./openrouter");
+  const oldKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "test";
+  t.after(() => {
+    if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = oldKey;
+  });
+  const releases: (() => void)[] = [];
+  const owners: string[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    owners.push(JSON.parse(String(init.body)).user);
+    await new Promise<void>(resolve => releases.push(resolve));
+    return new Response(JSON.stringify({ data: [{ b64_json: "dGVzdA==" }] }), { status: 200 });
+  });
+  const generate = (user: string) => createImage({ model: "test/image", prompt: "test", references: [], aspectRatio: "1:1", user });
+  // Gallery's outer slot must be reused by its provider call. Direct callers
+  // go through the same singleton using their authenticated ownership.
+  const pending = [providerQueue("image").run(() => generate("image-owner-a"), null, "image-owner-a"),
+    ...Array.from({ length: 9 }, () => generate("image-owner-a")),
+    ...Array.from({ length: 10 }, () => generate("image-owner-b"))];
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(owners.length, 16, "provider no longer has a global eight-request bottleneck");
+  assert.equal(owners.filter(owner => owner === "image-owner-a").length, 8);
+  assert.equal(owners.filter(owner => owner === "image-owner-b").length, 8);
+  while (releases.length) {
+    releases.splice(0).forEach(release => release());
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  await Promise.all(pending);
+  assert.equal(owners.length, 20);
+});
+
+for (const scenario of [
+  { status: 402, code: 402, source: undefined, expected: "insufficient_credit" },
+  { status: 402, code: 402, source: "openrouter_credits", expected: "insufficient_credit" },
+  { status: 402, code: 402, source: "openrouter_key_limit", expected: "insufficient_credit" },
+  { status: 200, code: 402, source: "openrouter_credits", expected: "insufficient_credit" },
+  { status: 503, code: 402, source: "openrouter_credits", expected: "insufficient_credit" },
+  { status: 402, code: 402, source: "openrouter_in_flight_budget", expected: "in_flight_budget" },
+]) {
+  test(`image billing classification: HTTP ${scenario.status}, ${scenario.source || "legacy 402"}`, async t => {
+    const { createImage, OpenRouterError, INSUFFICIENT_CREDIT_MESSAGE, PROVIDER_CAPACITY_MESSAGE, isRetryablePlanningError } = await import("./openrouter");
+    const oldKey = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "test";
+    t.after(() => { if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = oldKey; });
+    let calls = 0;
+    t.mock.method(globalThis, "fetch", async () => {
+      calls++;
+      return new Response(JSON.stringify({ error: { code: scenario.code, message: "opaque billing error", metadata: {
+        limit_source: scenario.source, remedy_hint: "operator-only billing details",
+      } } }), { status: scenario.status, headers: { "retry-after": "1" } });
+    });
+    await assert.rejects(createImage({ prompt: "test", aspectRatio: "1:1", references: [], model: "test/image", user: "billing-user" }), error => {
+      assert.ok(error instanceof OpenRouterError);
+      assert.equal(error.status, 503);
+      assert.equal(error.upstreamStatus, scenario.status);
+      assert.equal(error.providerCode, scenario.expected);
+      assert.equal(error.message, scenario.expected === "insufficient_credit" ? INSUFFICIENT_CREDIT_MESSAGE : PROVIDER_CAPACITY_MESSAGE);
+      assert.equal(isRetryablePlanningError(error), false);
+      return true;
+    });
+    assert.equal(calls, 1, "billing errors are never automatically retried by the provider layer");
+    await providerQueue("image").run(async () => {}, undefined, "billing-user");
+  });
+}
+
+test("credit-like text in a non-billing error does not misclassify it as depleted balance", async t => {
+  const { createImage, OpenRouterError } = await import("./openrouter");
+  const oldKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "test";
+  t.after(() => { if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = oldKey; });
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ error: { code: 503, message: "Insufficient credits in diagnostic text", metadata: {} } }), { status: 503 }));
+  await assert.rejects(createImage({ prompt: "test", aspectRatio: "1:1", references: [], model: "test/image" }), error => {
+    assert.ok(error instanceof OpenRouterError);
+    assert.equal(error.providerCode, undefined);
+    assert.equal(error.upstreamStatus, 503);
+    return true;
+  });
+});
