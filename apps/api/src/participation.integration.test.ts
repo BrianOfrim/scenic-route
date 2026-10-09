@@ -1,28 +1,28 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { before, after, test } from "node:test";
+import { before, test } from "node:test";
 import { Hono } from "hono";
 import { betterAuth } from "better-auth";
 import { authOptions, createRequireUser } from "./auth";
-import { closeDb, getPool, query } from "./db";
-import { closeAccountLocks, withAccountAccess } from "./accountLifecycle";
+import { getPool, query } from "./db";
+import { withAccountAccess } from "./accountLifecycle";
 import { participationStatus, recordParticipation, requireGenerationConsent, ParticipationError } from "./participation";
 import { generatePoster, modifyPoster, variantPoster } from "./poster";
 import { GenerationJobQueue, type JobInput } from "./generationJobs";
 import { RequestQueue } from "./requestQueue";
 import type { PosterSpec } from "./posterSpec";
 
-const ids: string[] = [];
-before(async () => {
+import { useBootstrapFixture } from "./bootstrapFixture.test-support";
+
+useBootstrapFixture();
+before(() => {
   process.env.TERMS_VERSION = 'test-reviewed-terms-v1'; process.env.AI_CONSENT_VERSION = 'test-ai-v1';
   process.env.TERMS_ROUTE = '/terms'; process.env.PRIVACY_ROUTE = '/privacy';
   process.env.BOOTSTRAP_EMAIL = 'bootstrap-unrelated@example.com';
-  await getPool();
 });
-after(async () => { await query('DELETE FROM "user" WHERE id = ANY($1::text[])', [ids]); await closeAccountLocks(); await closeDb(); });
 const choices = (ai = true) => ({ eligible: true, terms: true, ai, termsVersion: process.env.TERMS_VERSION, aiVersion: process.env.AI_CONSENT_VERSION });
 async function user() {
-  const id = `participation-${randomUUID()}`; ids.push(id);
+  const id = `participation-${randomUUID()}`;
   await query('INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $1, $2, true)', [id, `${id}@example.com`]); return id;
 }
 for (const provider of ['email', 'google']) test(`${provider} authenticated new and existing users cannot bypass eligibility/Terms/AI gates`, async () => {
@@ -46,7 +46,7 @@ for (const provider of ['email', 'google']) test(`${provider} authenticated new 
   }
   assert.equal(login.status, 200);
   const cookie = login.headers.getSetCookie().map(v => v.split(';')[0]).join('; ');
-  const session = await auth.api.getSession({ headers: new Headers({ cookie }) }); assert.ok(session); const id = session.user.id; ids.push(id);
+  const session = await auth.api.getSession({ headers: new Headers({ cookie }) }); assert.ok(session); const id = session.user.id;
   const app = new Hono(); app.use('/api/*', createRequireUser(async headers => (await auth.api.getSession({ headers }))?.user ?? null));
   app.all('/api/*', c => c.json({ ok: true }));
   const request = (path = '/api/activities', method = 'GET') => app.request(path, { method, headers: { cookie } });
