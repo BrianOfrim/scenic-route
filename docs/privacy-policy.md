@@ -4,7 +4,7 @@ Draft for review — October 9, 2026. Not yet effective. This incomplete draft d
 
 ## Who is responsible
 
-Brian Ofrim operates Scenic Route from Alberta, Canada. Contact [info@scenic-route.ca](mailto:info@scenic-route.ca) with privacy questions, access or correction requests, deletion requests, or concerns. The [draft Terms of Service](/terms) describe the proposed adult-only Canada/US beta.
+Brian Ofrim operates Scenic Route from Alberta, Canada. Contact [info@scenic-route.ca](mailto:info@scenic-route.ca) with privacy questions, access or correction requests, deletion requests, or concerns. The [draft Terms of Service](/terms) describe the proposed Canada/US beta for users aged 13 and older.
 
 ## Information processed and why
 
