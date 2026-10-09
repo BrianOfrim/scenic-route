@@ -160,6 +160,10 @@ export function ProfileMenu({ email, name, image, waiting = false, onNameSaved, 
             <button type="button" className="text-btn" disabled={saving || deleting} onClick={closeSettings}>Close</button>
           </div>
           <p className="profile-menu-email">{email}</p>
+          <button type="button" className="text-btn" onClick={() => {
+            setSettingsOpen(false);
+            window.dispatchEvent(new Event("participation-required"));
+          }}>Eligibility, Terms and AI consent</button>
           <label className="poster-field" htmlFor={`${settingsId}-name`}>Name (optional)
             <input ref={nameInput} id={`${settingsId}-name`} className="search" autoComplete="name" maxLength={40}
               value={nameDraft} disabled={saving || deleting} placeholder="Your name" aria-describedby={`${settingsId}-help`}

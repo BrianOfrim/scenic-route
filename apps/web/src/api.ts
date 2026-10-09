@@ -263,8 +263,13 @@ export type PosterEditorSnapshot = {
   landmarkNearM?: Record<string, number>;
 };
 
-function apiFetch(input: string, init?: RequestInit) {
-  return fetch(input, { ...init, credentials: "include" });
+async function apiFetch(input: string, init?: RequestInit) {
+  const response = await fetch(input, { ...init, credentials: "include" });
+  if (response.status === 403) {
+    const body = await response.clone().json().catch(() => null);
+    if (body?.code === "PARTICIPATION_REQUIRED") window.dispatchEvent(new Event("participation-required"));
+  }
+  return response;
 }
 
 async function readJson<T>(response: Response, onBody?: (body: string) => void): Promise<T> {

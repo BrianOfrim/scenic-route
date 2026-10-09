@@ -4150,3 +4150,8 @@ button.map-schematic-tip-name:focus-visible {
 .legal-page footer { margin-top: 3rem; border-top: 1px solid #7a877c; }
 .legal-skip { position: fixed; top: -10rem; padding: .75rem; background: #faf8f3; z-index: 100; }
 .legal-skip:focus { top: 1rem; }
+
+.participation-card { max-width: 580px; }
+.participation-card form { display: grid; gap: 16px; }
+.participation-card label { display: block; }
+.participation-card input[type="checkbox"] { width: auto; margin-right: 8px; }

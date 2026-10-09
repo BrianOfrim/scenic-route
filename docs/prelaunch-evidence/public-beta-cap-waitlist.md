@@ -39,7 +39,7 @@ Use a trusted machine with database credentials pointing at the intended databas
 
 ## Integration dependencies
 
-Eligibility/consent is a separate auth PR: preserve its requirements and this admission gate when merging auth.ts, api.ts, SignIn.tsx, and App.tsx. Eligibility must complete before app access; beta admission does not establish consent. beta_status and beta_exempt intentionally are not Better Auth additionalFields and cannot be supplied by auth request bodies.
+Eligibility/consent is merged with this admission gate. Eligibility must complete before app access; beta admission does not establish consent. Waitlisted accounts can still read `/api/beta`, record participation, and delete the account so the consent screen and waitlist page can load. Other application routes stay waitlisted before bootstrap. `beta_status` and `beta_exempt` intentionally are not Better Auth additionalFields and cannot be supplied by auth request bodies.
 
 The separate queue/fair-scheduling PR may modify lifecycle/worker handling. Preserve the default waitlist rejection in withAccountAccess and its 403 AccountUnavailableError, along with owner scoping and deletion locks. Worker callers retain the default allowWaiting=false; only auth and request middleware use the override. Re-run beta, auth, account deletion, queue and generation tests after integration. No queue implementation was replaced or reverted in this PR.
 

@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { ParticipationGate } from "./ParticipationGate";
 import { App } from "./App";
 import "./index.css";
 import { LegalPage, legalDocumentPath } from "./LegalPage";
@@ -11,6 +12,6 @@ if (policy) document.title = `${policy === "terms" ? "Terms of Service" : "Priva
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {policy ? <LegalPage document={policy === "terms" ? terms : privacy} /> : <App />}
+    {policy ? <LegalPage document={policy === "terms" ? terms : privacy} /> : <ParticipationGate><App /></ParticipationGate>}
   </StrictMode>,
 );
