@@ -1,13 +1,10 @@
-import { gunzipSync, unzipSync } from "fflate";
+import { gunzipSync } from "node:zlib";
+import { readBoundedZip, safeArchivePath } from "./boundedZip";
+import { MAX_ZIP_BYTES, MAX_EXPANDED_BYTES, MAX_EXPANDED_TRACK_BYTES, MAX_EXPANDED_TRACKS, MAX_ARCHIVE_ENTRIES, type ExpansionBudget } from "./importLimits";
 import { ImportError } from "./gpx";
 
 const TRACK_EXT = /\.(gpx|fit|tcx)(\.gz)?$/i;
 const GZIP_MAGIC = [0x1f, 0x8b];
-const MAX_ARCHIVE_BYTES = 250 * 1024 * 1024;
-const MAX_ARCHIVE_ENTRIES = 20_000;
-const MAX_EXPANDED_BYTES = 512 * 1024 * 1024;
-const MAX_TRACK_BYTES = 64 * 1024 * 1024;
-
 export type ArchiveTrack = {
   origin: "upload" | "archive";
   filename: string;
@@ -34,49 +31,18 @@ export function isZipBytes(bytes: Uint8Array): boolean {
   );
 }
 
-export function expandImportArchive(bytes: Uint8Array, zipName = "export.zip"): ArchiveTrack[] {
+export function expandImportArchive(bytes: Uint8Array, zipName = "export.zip", budget: ExpansionBudget = { bytes: 0, tracks: 0 }): ArchiveTrack[] {
   if (!isZipBytes(bytes)) throw new ImportError("This file is not a zip archive");
-  if (bytes.byteLength > MAX_ARCHIVE_BYTES) throw new ImportError("This zip archive is too large");
+  if (bytes.byteLength > MAX_ZIP_BYTES) throw new ImportError("This zip archive is too large");
 
-  let entries: Record<string, Uint8Array>;
-  try {
-    let entryCount = 0;
-    let expandedBytes = 0;
-    entries = unzipSync(bytes, {
-      filter: (entry) => {
-        entryCount += 1;
-        if (entryCount > MAX_ARCHIVE_ENTRIES) {
-          throw new ImportError("This zip archive contains too many files");
-        }
-        const path = entry.name.replace(/\\/g, "/");
-        const wanted = TRACK_EXT.test(path) || path.split("/").pop()?.toLowerCase() === "activities.csv";
-        if (!wanted) return false;
-        if (entry.originalSize > MAX_TRACK_BYTES && TRACK_EXT.test(path)) {
-          throw new ImportError(`${basename(path)} is too large to import`);
-        }
-        expandedBytes += entry.originalSize;
-        if (expandedBytes > MAX_EXPANDED_BYTES) {
-          throw new ImportError("This zip archive expands beyond the import limit");
-        }
-        return true;
-      },
-    });
-  } catch (error) {
-    if (error instanceof ImportError) throw error;
-    throw new ImportError("Could not read this zip archive");
+  const files = readBoundedZip(bytes, { entries: MAX_ARCHIVE_ENTRIES, file: MAX_EXPANDED_TRACK_BYTES, total: Math.max(0, MAX_EXPANDED_BYTES - budget.bytes) });
+  for (const [path, data] of files) {
+    if (!data.length || path.endsWith("/") || path.includes("__MACOSX/") || /(^|\/)\./.test(path)) files.delete(path);
   }
-
-  const files = new Map<string, Uint8Array>();
-  for (const [rawPath, data] of Object.entries(entries)) {
-    const path = rawPath.replace(/\\/g, "/");
-    if (!data?.length) continue;
-    if (path.endsWith("/")) continue;
-    if (path.includes("__MACOSX/") || /(^|\/)\./.test(path)) continue;
-    files.set(path, data);
-  }
-
+  // Include CSV and compressed entry storage in the shared request budget.
+  for (const data of files.values()) consumeBytes(budget, data.length);
   const csvPath = [...files.keys()].find((path) => path.split("/").pop()?.toLowerCase() === "activities.csv");
-  const tracks = csvPath ? tracksFromCsv(files, csvPath) : tracksFromFiles(files);
+  const tracks = csvPath ? tracksFromCsv(files, csvPath, budget) : tracksFromFiles(files, budget);
 
   if (!tracks.length) {
     throw new ImportError(
@@ -88,15 +54,19 @@ export function expandImportArchive(bytes: Uint8Array, zipName = "export.zip"): 
   return tracks;
 }
 
-export function maybeGunzip(bytes: Uint8Array, filename: string): Uint8Array {
+export function maybeGunzip(bytes: Uint8Array, filename: string, limit = MAX_EXPANDED_TRACK_BYTES): Uint8Array {
   const gzipped =
     TRACK_EXT.test(filename) && filename.toLowerCase().endsWith(".gz")
       ? true
       : bytes.length >= 2 && bytes[0] === GZIP_MAGIC[0] && bytes[1] === GZIP_MAGIC[1];
-  if (!gzipped) return bytes;
+  if (!gzipped) {
+    if (bytes.length > limit) throw new ImportError(`${basename(filename)} is too large to import`);
+    return bytes;
+  }
   try {
-    return gunzipSync(bytes);
-  } catch {
+    return gunzipSync(bytes, { maxOutputLength: limit });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE") throw new ImportError(`${basename(filename)} expands beyond the import limit`);
     throw new ImportError(`${basename(filename)} is not valid gzip`);
   }
 }
@@ -147,7 +117,7 @@ export function parseActivitiesCsv(text: string): Array<{
   }));
 }
 
-function tracksFromCsv(files: Map<string, Uint8Array>, csvPath: string): ArchiveTrack[] {
+function tracksFromCsv(files: Map<string, Uint8Array>, csvPath: string, budget: ExpansionBudget): ArchiveTrack[] {
   const rows = parseActivitiesCsv(new TextDecoder().decode(files.get(csvPath)));
   const dir = dirname(csvPath);
   const byBase = indexByBasename(files);
@@ -155,13 +125,14 @@ function tracksFromCsv(files: Map<string, Uint8Array>, csvPath: string): Archive
 
   for (const row of rows) {
     if (!row.filename) continue;
+    safeArchivePath(row.filename);
     const data = lookupZipFile(files, byBase, dir, row.filename);
     if (!data) continue;
     const filename = basename(row.filename);
     tracks.push({
       origin: "archive",
       filename,
-      bytes: maybeGunzip(data, filename),
+      bytes: expandTrack(data, filename, budget),
       externalId: row.id ?? parseExternalId(filename),
       name: row.name,
       type: row.type,
@@ -177,7 +148,7 @@ function tracksFromCsv(files: Map<string, Uint8Array>, csvPath: string): Archive
   return tracks;
 }
 
-function tracksFromFiles(files: Map<string, Uint8Array>): ArchiveTrack[] {
+function tracksFromFiles(files: Map<string, Uint8Array>, budget: ExpansionBudget): ArchiveTrack[] {
   const tracks: ArchiveTrack[] = [];
   for (const [path, data] of files) {
     if (!TRACK_EXT.test(path)) continue;
@@ -185,7 +156,7 @@ function tracksFromFiles(files: Map<string, Uint8Array>): ArchiveTrack[] {
     tracks.push({
       origin: "archive",
       filename,
-      bytes: maybeGunzip(data, filename),
+      bytes: expandTrack(data, filename, budget),
       externalId: parseExternalId(filename),
       name: null,
       type: null,
@@ -250,16 +221,23 @@ function parseCsv(text: string): string[][] {
     if (ch === "\n") {
       if (field.endsWith("\r")) field = field.slice(0, -1);
       row.push(field);
-      if (row.some((value) => value.length)) rows.push(row);
+      if (row.some((value) => value.length)) {
+        if (rows.length >= 20_001) throw new ImportError("Activity CSV contains too many rows");
+        rows.push(row);
+      }
       row = [];
       field = "";
       continue;
     }
     field += ch;
   }
+  if (quoted) throw new ImportError("Activity CSV has an unterminated quoted field");
   if (field.length || row.length) {
     row.push(field);
-    if (row.some((value) => value.length)) rows.push(row);
+    if (row.some((value) => value.length)) {
+        if (rows.length >= 20_001) throw new ImportError("Activity CSV contains too many rows");
+        rows.push(row);
+      }
   }
   return rows;
 }
@@ -300,4 +278,18 @@ function basename(path: string): string {
 function dirname(path: string): string {
   const index = path.replace(/\\/g, "/").lastIndexOf("/");
   return index < 0 ? "" : path.slice(0, index);
+}
+
+export function consumeBytes(budget: ExpansionBudget, size: number): void {
+  budget.bytes += size;
+  if (budget.bytes > MAX_EXPANDED_BYTES) throw new ImportError("Upload expands beyond the import limit");
+}
+
+export function expandTrack(data: Uint8Array, filename: string, budget: ExpansionBudget): Uint8Array {
+  if (++budget.tracks > MAX_EXPANDED_TRACKS) throw new ImportError("Upload contains too many activities");
+  const remaining = MAX_EXPANDED_BYTES - budget.bytes;
+  if (remaining <= 0) throw new ImportError("Upload expands beyond the import limit");
+  const bytes = maybeGunzip(data, filename, Math.min(MAX_EXPANDED_TRACK_BYTES, remaining));
+  consumeBytes(budget, bytes.length);
+  return bytes;
 }

@@ -7,6 +7,7 @@ import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
 import { createParticipationGate, recoveryPath } from "./participation";
 import { providerQueue, RequestQueueError } from "./requestQueue";
 import { getPool } from "./db";
+import { getBetaStatus, type BetaStatus } from "./betaAdmission";
 import { maybeBootstrapUser } from "./bootstrap";
 
 export type AuthUser = {
@@ -155,24 +156,38 @@ export async function getSessionUser(headers: Headers): Promise<AuthUser | null>
   return { id: user.id, email: user.email, name: user.name };
 }
 
-export function createRequireUser(lookup: SessionLookup = (headers) => getSessionUser(headers), bootstrap = maybeBootstrapUser) {
+function waitlistedResponse(c: Context) {
+  return c.json({ error: "You’re on the public beta waitlist. Imports and poster generation unlock after admission.", code: "BETA_WAITLISTED" }, 403);
+}
+
+export function createRequireUser(
+  lookup: SessionLookup = (headers) => getSessionUser(headers),
+  bootstrap: (user: AuthUser) => Promise<void> = maybeBootstrapUser,
+  betaLookup: (id: string) => Promise<BetaStatus> = getBetaStatus,
+) {
   return async (c: Context, next: Next) => {
     if (isPublicApiPath(c.req.path, c.req.method)) return next();
     const user = await lookup(c.req.raw.headers);
     if (!user) return c.json({ error: "sign in required" }, 401);
     c.set("user", user);
     try {
+      const imageRequest = c.req.method === "POST" && /^\/api\/poster\/(generate|modify|variant)$/.test(c.req.path);
+      // Reject before taking a scheduler slot. The locked check below stays authoritative.
+      if (imageRequest && await betaLookup(user.id) === "waiting") return waitlistedResponse(c);
       if (c.req.path.startsWith("/api/poster/")) await configureImageLimits(user.id);
       const run = () => withAccountAccess(user.id, (c.req.path === "/api/account" && c.req.method === "DELETE") || (c.req.path === "/api/participation" && c.req.method === "POST"), async () => {
+        const status = await betaLookup(user.id);
+        if (c.req.path === "/api/beta" && c.req.method === "GET") return c.json({ status, cap: 100 });
+        // Waitlisted accounts can record eligibility and delete themselves. Admission does not grant consent.
+        if (status === "waiting" && !recoveryPath(c.req.path, c.req.method)) return waitlistedResponse(c);
         if (recoveryPath(c.req.path, c.req.method)) return next();
         return createParticipationGate()(c, async () => {
-          await bootstrap(user);
+          if (status === "admitted") await bootstrap(user);
           await next();
         });
-      });
+      }, true);
       // Match the worker's lock order. Image HTTP waiters must not hold all
       // account-lock connections while workers hold the image scheduler slots.
-      const imageRequest = c.req.method === "POST" && /^\/api\/poster\/(generate|modify|variant)$/.test(c.req.path);
       return await (imageRequest ? providerQueue("image").run(run, undefined, user.id) : run());
     } catch (error) {
       if (error instanceof AccountUnavailableError || error instanceof RequestQueueError) return c.json({ error: error.message }, error.status);

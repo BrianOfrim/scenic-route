@@ -141,7 +141,12 @@ export class GenerationJobQueue {
             if (this.jobs.has(job.id)) await this.run(job);
           });
         } catch (error) {
-          if (error instanceof AccountUnavailableError) {
+          if (error instanceof AccountUnavailableError && error.status === 403 && this.jobs.has(job.id)) {
+            // Waitlisted accounts keep the job, but it must not generate.
+            job.state = "failed";
+            job.error = error.message;
+            job.updatedAt = Date.now();
+          } else if (error instanceof AccountUnavailableError) {
             // A deleting account must never be allowed to persist a worker result.
             this.jobs.delete(job.id);
           } else {
