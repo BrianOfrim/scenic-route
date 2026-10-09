@@ -1,3 +1,4 @@
+import { participationStatus, recordParticipation, ParticipationError, assertParticipation, authRecoveryPath } from "./participation";
 import { startGenerationWorker, submitGenerationJobs, listGenerationJobs, retryGenerationJob, dismissGenerationJob } from "./generationJobs";
 import fs from "node:fs";
 import path from "node:path";
@@ -93,9 +94,13 @@ app.on(["GET", "POST"], "/api/auth/*", async (c) => {
   }
   if (!user) return auth.handler(c.req.raw);
   try {
-    return await withAccountAccess(user.id, false, async () => auth.handler(c.req.raw));
+    return await withAccountAccess(user.id, false, async () => {
+      if (!authRecoveryPath(c.req.path)) assertParticipation(await participationStatus(user!.id));
+      return auth.handler(c.req.raw);
+    });
   } catch (error) {
     if (error instanceof AccountUnavailableError) return c.json({ error: error.message }, error.status);
+    if (error instanceof ParticipationError) return c.json({ error: error.message, code: error.code }, 403);
     throw error;
   }
 });
@@ -105,6 +110,13 @@ app.use("/api/*", requireUser);
 function currentUserId(c: Context<AppEnv>) {
   return c.get("user").id;
 }
+
+app.get("/api/participation", async c => c.json(await participationStatus(currentUserId(c))));
+app.post("/api/participation", async c => {
+  if (c.req.header("Origin") !== WEB_ORIGIN) return c.json({ error: "Invalid origin" }, 403);
+  try { return c.json(await recordParticipation(currentUserId(c), await c.req.json())); }
+  catch (error) { return fail(c, error); }
+});
 
 app.delete("/api/account", async c => {
   const user = c.get("user");
@@ -460,6 +472,7 @@ function webp(bytes: Buffer) {
 }
 
 function fail(c: Context, error: unknown) {
+  if (error instanceof ParticipationError) return c.json({ error: error.message, code: error.code }, 403);
   if (error instanceof PosterError || error instanceof OpenRouterError || error instanceof ReferenceUploadError || error instanceof RequestQueueError || error instanceof PosterQuotaError) {
     return c.json({ error: error.message }, error.status);
   }

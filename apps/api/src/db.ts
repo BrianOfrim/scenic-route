@@ -232,6 +232,19 @@ async function migrate(client: SqlClient) {
       ON poster_generation_usage (user_id, month);
   `);
 
+  await client.query(`
+    ALTER TABLE "user" ADD COLUMN IF NOT EXISTS eligibility_blocked BOOLEAN NOT NULL DEFAULT false;
+    CREATE TABLE IF NOT EXISTS participation_events (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('eligibility', 'terms', 'ai')),
+      version TEXT NOT NULL,
+      accepted BOOLEAN NOT NULL,
+      recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS participation_events_user_kind ON participation_events (user_id, kind, id DESC);
+  `);
+
   await ensureActivitiesTenancy(client);
   await ensureColumn(client, "activities", "segment_efforts", "TEXT");
   await ensureColumn(client, "activities", "route_breaks", "TEXT");

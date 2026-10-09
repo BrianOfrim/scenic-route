@@ -1,3 +1,4 @@
+import { requireGenerationConsent } from "./participation";
 import { randomBytes } from "node:crypto";
 import { getActivity, listActivities } from "./activities";
 import { getSetting, setSetting } from "./db";
@@ -261,6 +262,7 @@ export function newPosterId() {
 }
 
 export async function generatePoster(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
+  await requireGenerationConsent(userId);
   const activityId = Number(body.activityId);
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new PosterError("activityId is required");
@@ -361,6 +363,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
 }
 
 export async function modifyPoster(userId: string, body: ModifyPosterBody): Promise<PosterRecord[]> {
+  await requireGenerationConsent(userId);
   const request = body.request?.trim() ?? "";
   if (!request) throw new PosterError("a modification request is required");
   const source = await readPosterRecord(userId, body.posterId);
@@ -415,6 +418,7 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
 
 /** Another image from the original brief plus edits and grounding. */
 export async function variantPoster(userId: string, body: VariantPosterBody): Promise<PosterRecord[]> {
+  await requireGenerationConsent(userId);
   const source = await readPosterRecord(userId, body.posterId);
   if (!source) throw new PosterError("image not found", 404);
   if (!source.spec || !source.prompt?.trim()) throw new PosterError("image is missing prompt data", 502);
