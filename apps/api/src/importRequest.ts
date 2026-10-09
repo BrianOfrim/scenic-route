@@ -1,9 +1,44 @@
 import { ImportError } from "./gpx";
 import type { ImportFile } from "./importActivity";
 
-export const MAX_IMPORT_FILES = 256;
-export const MAX_TRACK_BYTES = 15 * 1024 * 1024;
-export const MAX_ZIP_BYTES = 250 * 1024 * 1024;
+import { MAX_IMPORT_FILES, MAX_TRACK_BYTES, MAX_ZIP_BYTES, MAX_REQUEST_BYTES } from "./importLimits";
+export { MAX_IMPORT_FILES, MAX_TRACK_BYTES, MAX_ZIP_BYTES } from "./importLimits";
+
+export class ImportBodyLimitError extends ImportError {
+  constructor() { super("Upload request is too large (maximum 350 MiB)"); }
+}
+
+// Bound bytes before JSON/multipart parsing, even for chunked or dishonest uploads.
+export async function boundedImportRequest(request: Request, limit = MAX_REQUEST_BYTES, timeoutMs = 300_000): Promise<Request> {
+  if (Number(request.headers.get("content-length")) > limit) {
+    await request.body?.cancel();
+    throw new ImportBodyLimitError();
+  }
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  if (reader) {
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; void reader.cancel().catch(() => {}); }, timeoutMs);
+    try {
+      while (true) {
+        const part = await reader.read();
+        if (timedOut) throw new ImportError("Upload timed out; retry with a faster connection or smaller batch");
+        if (part.done) break;
+        size += part.value.byteLength;
+        if (size > limit) {
+          await reader.cancel();
+          throw new ImportBodyLimitError();
+        }
+        chunks.push(part.value);
+      }
+    } finally { clearTimeout(timer); reader.releaseLock(); }
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.length; }
+  return new Request(request.url, { method: request.method, headers: request.headers, body });
+}
 
 const FORM_KEYS = ["file", "files", "gpx", "fit", "zip"] as const;
 
@@ -15,6 +50,7 @@ export type ParsedUploads = {
 };
 
 export async function filesFromRequest(request: Request): Promise<ParsedUploads> {
+  request = await boundedImportRequest(request);
   const contentType = request.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     return filesFromJsonBody(await request.json());
@@ -32,12 +68,9 @@ export function filesFromJsonBody(body: unknown): ParsedUploads {
   const items = Array.isArray(body) ? body : body == null ? [] : [body];
   const files: ImportFile[] = [];
   const errors: ImportParseError[] = [];
-  items.slice(MAX_IMPORT_FILES).forEach((item, index) => {
-    errors.push({
-      filename: jsonFilename(item, MAX_IMPORT_FILES + index),
-      error: fileLimitMessage(),
-    });
-  });
+  if (items.length > MAX_IMPORT_FILES) {
+    errors.push({ filename: jsonFilename(items[MAX_IMPORT_FILES], MAX_IMPORT_FILES), error: fileLimitMessage() });
+  }
   items.slice(0, MAX_IMPORT_FILES).forEach((item, index) => {
     try {
       files.push(bytesFromJson(item, index));
@@ -56,8 +89,8 @@ async function filesFromForm(form: FormData): Promise<ParsedUploads> {
   for (const key of FORM_KEYS) parts.push(...form.getAll(key));
   const files: ImportFile[] = [];
   const errors: ImportParseError[] = [];
-  for (const value of parts.slice(MAX_IMPORT_FILES)) {
-    errors.push({ filename: formName(value), error: fileLimitMessage() });
+  if (parts.length > MAX_IMPORT_FILES) {
+    errors.push({ filename: formName(parts[MAX_IMPORT_FILES]), error: fileLimitMessage() });
   }
   for (const value of parts.slice(0, MAX_IMPORT_FILES)) {
     if (typeof value === "string") {
@@ -80,7 +113,8 @@ async function filesFromForm(form: FormData): Promise<ParsedUploads> {
 }
 
 function bytesFromJson(item: unknown, index: number): ImportFile {
-  const row = (item ?? {}) as {
+  if (!item || typeof item !== "object" || Array.isArray(item)) throw new ImportError("Invalid import file object");
+  const row = item as {
     filename?: string;
     gpx?: string;
     xml?: string;
@@ -92,7 +126,12 @@ function bytesFromJson(item: unknown, index: number): ImportFile {
   const filename = jsonFilename(item, index);
   const binary = row.fit ?? row.zip ?? row.base64;
   if (typeof binary === "string" && binary.length && !binary.includes("<")) {
-    const bytes = Uint8Array.from(Buffer.from(binary, "base64"));
+    if (binary.length % 4 || /[^A-Za-z0-9+/=]/.test(binary) || !/^[A-Za-z0-9+/]*={0,2}$/.test(binary)) throw new ImportError("Invalid base64 activity file");
+    const padding = binary.endsWith("==") ? 2 : binary.endsWith("=") ? 1 : 0;
+    const earlyProblem = sizeProblem(filename, binary.length / 4 * 3 - padding);
+    if (earlyProblem) throw new ImportError(earlyProblem);
+    const decoded = Buffer.from(binary, "base64");
+    const bytes = new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength);
     const problem = sizeProblem(filename, bytes.byteLength);
     if (problem) throw new ImportError(problem);
     return { filename, bytes };

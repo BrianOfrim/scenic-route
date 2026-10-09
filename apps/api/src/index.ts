@@ -29,10 +29,8 @@ import {
 import { databaseUrlSource, initDb, queryOne } from "./db";
 import { sealImportedIdFloors } from "./importedIds";
 import { purgeLegacyApiData } from "./fileFirstMigration";
-import { ImportError } from "./gpx";
 import { sniffImageMime } from "./imageMime";
-import { importTrackFiles } from "./importActivity";
-import { filesFromRequest } from "./importRequest";
+import { createImportHandler } from "./importEndpoint";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
 import { loadGeography, parseGeographyBbox } from "./osm/geography";
 import { loadRouteFeatures } from "./osm/features";
@@ -163,34 +161,7 @@ app.post("/api/activities/remove", async (c) => {
   }
 });
 
-app.post("/api/activities/import", async (c) => {
-  try {
-    const parsed = await filesFromRequest(c.req.raw);
-    if (!parsed.files.length && !parsed.errors.length) {
-      return c.json({ error: "Choose a GPX, FIT, TCX, or account export zip" }, 400);
-    }
-    const imported = parsed.files.length
-      ? await importTrackFiles(currentUserId(c), parsed.files)
-      : { activities: [], errors: [], skipped: 0 };
-    const errors = [...parsed.errors, ...imported.errors];
-    const result = { activities: imported.activities, errors, skipped: imported.skipped };
-    if (!result.activities.length && !result.skipped) {
-      const first = errors[0];
-      return c.json(
-        {
-          error: first ? `${first.filename}: ${first.error}` : "Could not import file",
-          errors,
-          skipped: result.skipped,
-        },
-        400,
-      );
-    }
-    return c.json(result);
-  } catch (error) {
-    if (error instanceof ImportError) return c.json({ error: error.message }, 400);
-    return c.json({ error: error instanceof Error ? error.message : "import failed" }, 400);
-  }
-});
+app.post("/api/activities/import", createImportHandler());
 
 app.get("/api/activities/:id", async (c) => {
   const id = Number(c.req.param("id"));
