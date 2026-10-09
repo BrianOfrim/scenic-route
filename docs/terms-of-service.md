@@ -1,6 +1,6 @@
 # Terms of Service
 
-Draft for review — October 8, 2026. Not yet effective. This incomplete draft describes proposed beta terms and is not an agreement users are asked to accept. Publication and legal review remain pending.
+Draft for review — October 9, 2026. Not yet effective. This incomplete draft describes proposed beta terms and is not an agreement users are asked to accept. Publication and legal review remain pending.
 
 ## Operator and contact
 
@@ -8,7 +8,7 @@ Scenic Route is operated by Brian Ofrim in Alberta, Canada. Contact [info@scenic
 
 ## Proposed beta and eligibility
 
-The planned free public beta is for residents of Canada and the United States, with 100 admitted accounts. You must be at least 18 and have reached the age of majority where you live. Keep your account credentials secure and provide accurate account information. Admission and adult eligibility enforcement are separate launch requirements; this draft does not implement them.
+The planned free public beta is for residents of Canada and the United States. The application admits up to 100 accounts. When that capacity is full, new email and Google signups are waitlisted until an operator admits them. A waitlisted account can sign in, manage the account, and request deletion; imports and poster generation stay unavailable until admission. You must be at least 18 and have reached the age of majority where you live. Keep your account credentials secure and provide accurate account information. Canada and United States residency and adult eligibility are not checked by the application. This draft does not add those checks and is not a request to accept terms.
 
 The planned allowance is 50 generated images per account per UTC calendar month, including edits and variants. Each generated image counts individually; a request for multiple variants can use multiple images. The allowance resets at the beginning of each UTC month and does not roll over. Availability and limits may change with notice; no payment is required for this beta.
 

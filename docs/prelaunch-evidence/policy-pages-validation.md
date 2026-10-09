@@ -25,6 +25,13 @@ Dependencies installed in the isolated worktree with npm ci --ignore-scripts --n
 
 Authenticated settings links were inspected in source and typechecked; no real account was used for an authenticated browser walkthrough. Deletion/provider data handling was not verified in production. No accessibility certification or counsel review is claimed.
 
-Queue work is pending separately. Reconcile any overlapping settings/signup edits during integration and verify final allowance/admission behaviour. Adult/consent enforcement is a dependent PR and must reference approved versioned terms, not these drafts. Provider routing/countries, log and backup retention, mailbox/operational procedures, and final legal publication remain unresolved in policy-publication-notes.md.
+Merged origin/main (54f9b74) on October 9, 2026. The web test script keeps both `src/LegalPage.test.tsx` (with `tsconfig.app.json` for JSX) and `src/share.test.ts`. Signup, the waitlist screen, and account settings keep the draft policy links. The application now admits 100 accounts and waitlists the rest; the default allowance remains 50 images per UTC month. Residency and adult/consent checks are still absent. Adult/consent enforcement is a dependent PR and must reference approved versioned terms, not these drafts. Provider routing/countries, log and backup retention, mailbox/operational procedures, and final legal publication remain unresolved in policy-publication-notes.md.
 
-No merge, deployment, cloud account change, or final publication approval was performed.
+## Recheck after merging origin/main
+
+- npm test -w @scenic-route/web: 207 passed, 0 failed/skipped. Includes the policy page tests and src/share.test.ts.
+- npm run build -w @scenic-route/web: passed. The existing large chunk warning remains. The production bundle contains the updated admission and privacy wording.
+- npx tsc -p apps/api/tsconfig.json --noEmit: passed.
+- Account deletion, poster quota, and llm trace tests: 21 passed. Beta admission tests: 7 passed. Local PostgreSQL required CREATEDB on the scenic role before the admission suite could create its temporary databases.
+
+No deployment, production account change, or final publication approval was performed.

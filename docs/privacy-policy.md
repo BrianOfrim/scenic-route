@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Draft for review — October 8, 2026. Not yet effective. This incomplete draft describes inspected code and intended practices. Provider settings, retention periods, and publication review remain unresolved; it is not a final privacy notice or a request for consent.
+Draft for review — October 9, 2026. Not yet effective. This incomplete draft describes inspected code and intended practices. Provider settings, retention periods, and publication review remain unresolved; it is not a final privacy notice or a request for consent.
 
 ## Who is responsible
 
@@ -8,7 +8,7 @@ Brian Ofrim operates Scenic Route from Alberta, Canada. Contact [info@scenic-rou
 
 ## Information processed and why
 
-Account information includes email address, name, optional profile image, verification status, and account identifiers. Email/password authentication stores password credentials in hashed form; Google sign-in, when enabled, stores linked provider credentials and profile information. Sessions include technical information such as IP address and user agent. These support sign-in, account security, and account management. Verification and password reset emails contain your email address and authentication links.
+Account information includes email address, name, optional profile image, verification status, public-beta admission status (admitted or waiting), and account identifiers. Email/password authentication stores password credentials in hashed form; Google sign-in, when enabled, stores linked provider credentials and profile information. Sessions include technical information such as IP address and user agent. These support sign-in, account security, and account management. Verification and password reset emails contain your email address and authentication links.
 
 Uploaded GPX, FIT, TCX, and archive activity files are processed to extract GPS coordinates, routes, dates, activity names, and available statistics such as distance, duration, elevation, and speed. Imported activity records and tracks are stored for your account. Routes may reveal homes, routines, or other sensitive locations.
 
