@@ -1,3 +1,5 @@
+import { accountContext } from "./accountLifecycle";
+import { assertSafeUserId } from "./storage";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -6,6 +8,7 @@ import { LLM_TRACES_DIR } from "./paths";
 export type LlmTraceKind = "chat" | "image";
 
 export type LlmTrace = {
+  userId?: string;
   id: string;
   kind: LlmTraceKind;
   label: string;
@@ -174,9 +177,12 @@ export async function withLlmTrace<T>(
 
 function persistAndPrint(trace: LlmTrace) {
   try {
-    fs.mkdirSync(LLM_TRACES_DIR, { recursive: true });
-    const file = path.join(LLM_TRACES_DIR, `${trace.id}-${safeLabel(trace.label)}.json`);
-    const written: LlmTrace = { ...trace, file };
+    const userId = accountContext.getStore();
+    if (userId) assertSafeUserId(userId);
+    const dir = userId ? path.join(LLM_TRACES_DIR, userId) : LLM_TRACES_DIR;
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${trace.id}-${safeLabel(trace.label)}.json`);
+    const written: LlmTrace = { ...trace, userId, file };
     fs.writeFileSync(file, `${stringify(written)}\n`);
     console.log(trace.lifecycle === "running"
       ? `[llm:${trace.label}] started ${trace.id} ${trace.kind} ${trace.model} wrote ${file}`

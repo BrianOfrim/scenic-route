@@ -6,7 +6,9 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
-import { getAuth, googleSignInEnabled, requireUser, type AuthUser } from "./auth";
+import { purgeAccount, validateAccountDeletion } from "./accountDeletion";
+import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
+import { authBaseUrl, getSessionUser, getAuth, googleSignInEnabled, requireUser, type AuthUser } from "./auth";
 import { LLM_TRACES_DIR, REPO_ROOT, isSafePosterId } from "./paths";
 import { posterStore } from "./storage";
 
@@ -23,7 +25,7 @@ import {
   parseNumberArray,
   parseLatLng,
 } from "./activities";
-import { databaseUrlSource, initDb } from "./db";
+import { databaseUrlSource, initDb, queryOne } from "./db";
 import { sealImportedIdFloors } from "./importedIds";
 import { purgeLegacyApiData } from "./fileFirstMigration";
 import { ImportError } from "./gpx";
@@ -80,7 +82,22 @@ app.get("/api/auth/config", (c) => c.json({ google: googleSignInEnabled() }));
 
 app.on(["GET", "POST"], "/api/auth/*", async (c) => {
   const auth = await getAuth();
-  return auth.handler(c.req.raw);
+  let user = await getSessionUser(c.req.raw.headers);
+  // Password-reset tokens are stored without a user foreign key. Hold account
+  // access even for anonymous reset requests so they cannot outlive a purge.
+  if (!user && c.req.path === "/api/auth/request-password-reset" && c.req.method === "POST") {
+    const body = await c.req.raw.clone().json().catch(() => null);
+    if (typeof body?.email === "string") {
+      user = await queryOne<AuthUser>('SELECT id, email FROM "user" WHERE lower(email) = lower($1)', [body.email]) ?? null;
+    }
+  }
+  if (!user) return auth.handler(c.req.raw);
+  try {
+    return await withAccountAccess(user.id, false, async () => auth.handler(c.req.raw));
+  } catch (error) {
+    if (error instanceof AccountUnavailableError) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
 });
 
 app.use("/api/*", requireUser);
@@ -88,6 +105,28 @@ app.use("/api/*", requireUser);
 function currentUserId(c: Context<AppEnv>) {
   return c.get("user").id;
 }
+
+app.delete("/api/account", async c => {
+  const user = c.get("user");
+  let body: { email?: unknown };
+  try { body = await c.req.json(); }
+  catch { return c.json({ error: "Enter your account email to confirm deletion." }, 400); }
+  const validation = validateAccountDeletion(c.req.header("Origin"), [WEB_ORIGIN, new URL(authBaseUrl()).origin], body?.email, user.email);
+  if (validation) return c.json({ error: validation }, validation.includes("origin") ? 403 : 400);
+  try {
+    await purgeAccount(user);
+  } catch (error) {
+    console.error("account deletion failed", error instanceof Error ? error.message : "unknown error");
+    return c.json({ error: "Could not finish deleting your account. Please retry to complete the purge." }, 503);
+  }
+  // Sign-out expires Better Auth's session cookies even after the session row is removed.
+  const auth = await getAuth();
+  const response = await auth.handler(new Request(new URL("/api/auth/sign-out", c.req.url), {
+    method: "POST", headers: c.req.raw.headers, body: "{}",
+  }));
+  for (const cookie of response.headers.getSetCookie()) c.header("Set-Cookie", cookie, { append: true });
+  return c.json({ ok: true });
+});
 
 app.get("/api/health", async (c) => {
   await initDb();
@@ -406,7 +445,7 @@ function png(bytes: Buffer) {
   return new Response(new Uint8Array(bytes), {
     headers: {
       "content-type": sniffImageMime(bytes) || "image/png",
-      "cache-control": "public, max-age=31536000",
+      "cache-control": "private, no-store",
     },
   });
 }
@@ -415,7 +454,7 @@ function webp(bytes: Buffer) {
   return new Response(new Uint8Array(bytes), {
     headers: {
       "content-type": "image/webp",
-      "cache-control": "public, max-age=31536000",
+      "cache-control": "private, no-store",
     },
   });
 }

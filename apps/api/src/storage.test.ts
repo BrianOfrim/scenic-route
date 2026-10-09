@@ -52,3 +52,32 @@ test("local store removes only posters derived from selected activities", async 
   assert.deepEqual(await store.listJsonNames("user-b"), ["other.json"]);
   assert.equal(await store.get("user-a", "remove.png"), null);
 });
+
+test("R2 account purge paginates, batches deletes, and rejects partial deletion failures", async t => {
+  const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = await import("@aws-sdk/client-s3");
+  const { createR2Store } = await import("./storage");
+  const calls: any[] = [];
+  let fail = false;
+  t.mock.method(S3Client.prototype, "send", async (command: any) => {
+    calls.push(command);
+    if (command instanceof ListObjectsV2Command) {
+      assert.equal(command.input.Prefix, "references/user-a/");
+      const second = command.input.ContinuationToken === "next";
+      return {
+        Contents: Array.from({ length: second ? 2 : 1000 }, (_, i) => ({ Key: `references/user-a/${second ? 1000 + i : i}` })),
+        IsTruncated: !second, NextContinuationToken: second ? undefined : "next",
+      };
+    }
+    assert.ok(command instanceof DeleteObjectsCommand);
+    assert.ok(command.input.Delete!.Objects!.length <= 1000);
+    assert.ok(command.input.Delete!.Objects!.every((item: any) => item.Key.startsWith("references/user-a/")));
+    return fail ? { Errors: [{ Key: "references/user-a/0", Code: "AccessDenied" }] } : {};
+  });
+  const store = createR2Store({ bucket: "test", endpoint: "https://test.example", accessKeyId: "test", secretAccessKey: "test" }, "references/");
+  await store.removeUser("user-a");
+  const deletes = calls.filter(command => command instanceof DeleteObjectsCommand);
+  assert.deepEqual(deletes.map(command => command.input.Delete!.Objects!.length), [1000, 2]);
+  fail = true;
+  await assert.rejects(store.removeUser("user-a"), /Could not delete all/);
+  await assert.rejects(store.removeUser("../user-b"), /invalid user id/);
+});

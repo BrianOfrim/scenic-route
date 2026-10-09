@@ -2,6 +2,7 @@ import type { Context, Next } from "hono";
 import { APIError, betterAuth, type BetterAuthOptions } from "better-auth";
 import type pg from "pg";
 import { Resend } from "resend";
+import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
 import { getPool } from "./db";
 import { maybeBootstrapUser } from "./bootstrap";
 
@@ -157,8 +158,15 @@ export function createRequireUser(lookup: SessionLookup = (headers) => getSessio
     const user = await lookup(c.req.raw.headers);
     if (!user) return c.json({ error: "sign in required" }, 401);
     c.set("user", user);
-    await maybeBootstrapUser(user);
-    return next();
+    try {
+      return await withAccountAccess(user.id, c.req.path === "/api/account" && c.req.method === "DELETE", async () => {
+        await maybeBootstrapUser(user);
+        await next();
+      });
+    } catch (error) {
+      if (error instanceof AccountUnavailableError) return c.json({ error: error.message }, error.status);
+      throw error;
+    }
   };
 }
 

@@ -10,6 +10,7 @@ export type ObjectStore = {
   put(userId: string, name: string, body: Buffer, contentType: string): Promise<void>;
   get(userId: string, name: string): Promise<Buffer | null>;
   listJsonNames(userId: string): Promise<string[]>;
+  removeUser(userId: string): Promise<void>;
   removeByPosterId(userId: string, posterId: string): Promise<void>;
   removeByActivityIds(userId: string, activityIds: Set<number>): Promise<number>;
   hasUnscopedPosters(): Promise<boolean>;
@@ -76,6 +77,9 @@ export function createLocalStore(root = POSTERS_DIR): ObjectStore {
       const dir = userDir(userId);
       if (!fs.existsSync(dir)) return [];
       return fs.readdirSync(dir).filter((name) => name.endsWith(".json"));
+    },
+    async removeUser(userId) {
+      fs.rmSync(userDir(userId), { recursive: true, force: true });
     },
     async removeByPosterId(userId, posterId) {
       const dir = userDir(userId);
@@ -191,13 +195,13 @@ export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>, 
   }
 
   async function removeNames(names: string[]) {
-    if (!names.length) return;
-    await client.send(
-      new DeleteObjectsCommand({
+    for (let offset = 0; offset < names.length; offset += 1000) {
+      const result = await client.send(new DeleteObjectsCommand({
         Bucket: config.bucket,
-        Delete: { Objects: names.map((name) => ({ Key: `${prefix}${name}` })) },
-      }),
-    );
+        Delete: { Objects: names.slice(offset, offset + 1000).map(name => ({ Key: `${prefix}${name}` })) },
+      }));
+      if (result.Errors?.length) throw new Error("Could not delete all stored account files. Please retry.");
+    }
   }
 
   return {
@@ -220,6 +224,10 @@ export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>, 
       return (await listNames(prefixName))
         .filter((name) => name.startsWith(prefixName) && name.endsWith(".json"))
         .map((name) => name.slice(prefixName.length));
+    },
+    async removeUser(userId) {
+      assertSafeUserId(userId);
+      await removeNames(await listNames(`${userId}/`));
     },
     async removeByPosterId(userId, posterId) {
       const names = await listNames(scopedName(userId, `${posterId}.`));

@@ -1,3 +1,4 @@
+import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
 import { randomUUID } from "node:crypto";
 import { getActivity } from "./activities";
 import { buildInitialPoster, type PlannerInput } from "./planner";
@@ -42,7 +43,7 @@ export class GenerationJobQueue {
   private submissions = new Map<string, { result: Promise<string[]>; ids?: string[]; createdAt: number }>();
   private running = new Set<string>();
 
-  constructor(private work = services) {}
+  constructor(private work = services, private access = withAccountAccess) {}
 
   async submit(userId: string, body: { submissionId: string; jobs: JobInput[] }) {
     if (!body || !/^[\w-]{1,100}$/.test(body.submissionId) || !Array.isArray(body.jobs) || !body.jobs.length || body.jobs.length > 200)
@@ -131,6 +132,16 @@ export class GenerationJobQueue {
 
   async run(job: GenerationJob) {
     if (this.jobs.get(job.id) !== job || this.running.has(job.id) || job.state !== "generating") return;
+    try {
+      await this.access(job.userId, false, async () => this.runProtected(job));
+    } catch (error) {
+      if (!(error instanceof AccountUnavailableError)) throw error;
+      this.jobs.delete(job.id);
+    }
+  }
+
+  private async runProtected(job: GenerationJob) {
+    if (this.jobs.get(job.id) !== job || this.running.has(job.id) || job.state !== "generating") return;
     this.running.add(job.id);
     try {
       const planned = job.planned;
@@ -163,6 +174,15 @@ export class GenerationJobQueue {
     }
   }
 
+  removeUser(userId: string) {
+    for (const [id, job] of this.jobs) {
+      if (job.userId === userId) this.jobs.delete(id);
+    }
+    for (const key of this.submissions.keys()) {
+      if (JSON.parse(key)[0] === userId) this.submissions.delete(key);
+    }
+  }
+
   prune() {
     const cutoff = Date.now() - RETENTION_MS;
     for (const job of this.jobs.values()) {
@@ -179,6 +199,8 @@ export const submitGenerationJobs = (userId: string, body: Parameters<Generation
 export const listGenerationJobs = (userId: string) => queue.list(userId);
 export const retryGenerationJob = (userId: string, id: string) => queue.retry(userId, id);
 export const dismissGenerationJob = (userId: string, id: string) => queue.dismiss(userId, id);
+
+export const removeUserGenerationJobs = (userId: string) => queue.removeUser(userId);
 
 export function startGenerationWorker() {
   const tick = () => {

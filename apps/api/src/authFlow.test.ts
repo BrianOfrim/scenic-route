@@ -150,3 +150,19 @@ test("photo extraction ignores malformed tokens, other providers, and non-Google
   assert.equal(googleProfileImage({ providerId: "google", idToken: token("https://googleusercontent.com.attacker.example/photo") }), null);
   assert.equal(googleProfileImage({ providerId: "google", idToken: token("http://lh3.googleusercontent.com/photo") }), null);
 });
+
+test("sign out expires the session cookie after the account was purged", async () => {
+  const { auth, emails, post, database } = fixture();
+  await post("sign-up/email", { ...credentials, name: "Rider" });
+  await auth.handler(new Request(emails[0].url));
+  const signin = await post("sign-in/email", credentials);
+  const cookie = signin.headers.getSetCookie().map(value => value.split(";")[0]).join("; ");
+  database.user.length = 0;
+  database.session.length = 0;
+  database.account.length = 0;
+  const result = await auth.handler(new Request("http://localhost:5174/api/auth/sign-out", {
+    method: "POST", headers: { cookie, Origin: "http://localhost:5174", "Content-Type": "application/json" }, body: "{}",
+  }));
+  assert.equal(result.status, 200);
+  assert.ok(result.headers.getSetCookie().some(value => value.includes("session_token=") && value.includes("Max-Age=0")));
+});

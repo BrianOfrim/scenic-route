@@ -1,3 +1,5 @@
+import { accountContext } from "../accountLifecycle";
+import { assertSafeUserId } from "../storage";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { OSM_CACHE_DIR } from "../paths";
@@ -101,7 +103,9 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
   parseGeographyBbox(bbox);
   const detailScope = options.detailScope ?? (options.routeDetail === true ? "route" : "none");
   const requestKey = JSON.stringify([bbox, aspect, mode, detailScope === "route" ? options.route ?? [] : [], detailScope]);
-  const sceneDir = options.sceneDir ?? path.join(OSM_CACHE_DIR, "scenes");
+  const userId = accountContext.getStore();
+  if (userId) assertSafeUserId(userId);
+  const sceneDir = options.sceneDir ?? path.join(OSM_CACHE_DIR, "scenes", ...(userId ? [userId] : []));
   const warnings: string[] = [];
   if (savedSceneId && /^[a-f0-9]{64}$/.test(savedSceneId)) {
     try {
