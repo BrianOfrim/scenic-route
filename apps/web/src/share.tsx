@@ -4,14 +4,15 @@ export async function sharePoster(url: string, filename: string): Promise<boolea
   if (typeof navigator === "undefined" || !navigator.share) return false;
   try {
     const response = await fetch(url);
+    if (!response.ok) return false;
     const blob = await response.blob();
     const file = new File([blob], filename, { type: blob.type || "image/png" });
     if (navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], title: filename });
       return true;
     }
-    await navigator.share({ url, title: filename });
-    return true;
+    // Poster URLs require the current session; recipients cannot open them.
+    return false;
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") return true;
     return false;

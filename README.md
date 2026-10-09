@@ -141,7 +141,6 @@ Google profile photos are shown in the account menu and refreshed when Google ac
 
 Account settings includes **Delete account**. Users confirm by entering their account email. Authenticated `DELETE /api/account` requires a trusted Origin and `{ "email": "account@example.com" }`. Deletion purges activities, file fingerprints, per-account settings, poster files (including orphaned files), reference uploads, generation jobs, traces, saved geography scenes, quota usage, credentials, and sessions. Active requests or generations return 409; retry after they finish. Storage errors return 503 and retain the account so the purge can be retried. Account access uses shared Postgres advisory locks; deletion uses an exclusive lock to prevent late writes across processes. Older unscoped diagnostic and scene-cache files are discarded on deletion because their ownership cannot be recovered. New traces and scenes are stored per account.
 
-
 ### Per-account generation limits
 
 An operator can override active requests, unfinished jobs, and theme/palette selections for an account:
@@ -154,3 +153,7 @@ npm run poster:limit -- user@example.com unlimited
 Each of the three `image:limits` values accepts a positive integer, `unlimited`, or `default`. For example, `unlimited unlimited unlimited` removes individual generation limits; `default default default` restores the configured active default (normally eight), 16 unfinished jobs, and eight selections. The monthly image quota is managed separately by `poster:limit`.
 
 The command connects to the database in `.env.local` / `.env` (or the supplied environment); use the intended database. Changes apply on the account's next poster request without restarting the API; reload an open composer to refresh its selection allowance. Lowering limits does not cancel accepted work: new submissions wait for room and subsequent starts respect the new active ceiling. The 128 global concurrency ceiling, 144 account-lock pool, and 200-job request-size validation remain in force. Overrides are stored by account ID and can only be changed by the operator command/database access, not by client request fields.
+
+## Operator runbooks
+
+Release, rollback, restart handling, smoke checks and monitoring: [operations](docs/runbooks/operations.md). Database/image backup and isolated restore: [recovery](docs/runbooks/recovery.md). Canadian, Alberta and US privacy notification assessment: [incident response](docs/runbooks/privacy-incident.md). [Local validation evidence and production gaps](docs/prelaunch-evidence/operator-runbooks.md) distinguish completed checks from operator work still required.
