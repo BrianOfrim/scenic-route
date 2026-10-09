@@ -1,7 +1,7 @@
 import type { Context, Next } from "hono";
 import { query, queryOne, withTransaction, type SqlClient } from "./db";
 
-export const ELIGIBILITY_VERSION = "adult-majority-v1";
+export const ELIGIBILITY_VERSION = "age-13-plus-v1";
 export type PolicyConfig = { termsVersion: string | null; aiVersion: string | null; termsUrl: string | null; privacyUrl: string | null };
 export type Participation = PolicyConfig & { eligible: boolean; blocked: boolean; termsAccepted: boolean; aiConsented: boolean; ready: boolean };
 export function policyConfig(): PolicyConfig {

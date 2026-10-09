@@ -92,7 +92,7 @@ export function SignInForm({ inputRef, reset = false }: Props) {
   return (
     <div className="auth-card">
       <h2>{title}</h2>
-      {(mode === "signup" || mode === "signin") && <p className="auth-hint">Free public beta: 100 accounts. New accounts join the waitlist when all places are reserved. This applies to email and Google signup.</p>}
+      {(mode === "signup" || mode === "signin") && <p className="auth-hint">Limited public beta.</p>}
       {(mode === "signin" || mode === "signup") && <>
         <button type="button" className="button google-sign-in" disabled={busy || !google}
           onClick={() => void run(signInGoogle)}>
