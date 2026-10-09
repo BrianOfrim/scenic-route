@@ -1,3 +1,4 @@
+import { safeErrorForLog } from "./llmTrace";
 import { startGenerationWorker, submitGenerationJobs, listGenerationJobs, retryGenerationJob, dismissGenerationJob } from "./generationJobs";
 import fs from "node:fs";
 import path from "node:path";
@@ -116,7 +117,7 @@ app.delete("/api/account", async c => {
   try {
     await purgeAccount(user);
   } catch (error) {
-    console.error("account deletion failed", error instanceof Error ? error.message : "unknown error");
+    console.error("account deletion failed", safeErrorForLog(error));
     return c.json({ error: "Could not finish deleting your account. Please retry to complete the purge." }, 503);
   }
   // Sign-out expires Better Auth's session cookies even after the session row is removed.
@@ -478,7 +479,7 @@ try {
     );
   }
 } catch (error) {
-  console.error(error instanceof Error ? error.message : error);
+  console.error(safeErrorForLog(error));
   process.exit(1);
 }
 

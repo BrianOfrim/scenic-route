@@ -235,7 +235,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const isMobile = useMediaQuery(MOBILE_QUERY);
   const generation = useGenerationState();
   const arrivedEpoch = useArrivedEpoch();
-  useEffect(() => pollPosterJobs(error => console.warn("Could not refresh generation jobs", error)), []);
+  useEffect(() => pollPosterJobs(() => console.warn("Could not refresh generation jobs")), []);
   const [posters, setPosters] = useState<PosterRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const postersRef = useRef(posters);

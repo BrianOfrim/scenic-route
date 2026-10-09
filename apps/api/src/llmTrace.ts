@@ -38,10 +38,10 @@ export type LlmTraceCapture = (info: {
 /** Keep transport causes (including AggregateError) without copying arbitrary error properties. */
 export function describeError(value: unknown, depth = 0): unknown {
   if (depth > 4) return "[cause depth limit]";
-  if (!value || typeof value !== "object") return String(value);
+  if (!value || typeof value !== "object") return "[redacted]";
   const error = value as Record<string, unknown>;
   const result: Record<string, unknown> = {};
-  for (const key of ["name", "message", "code", "errno", "syscall", "address", "port", "status", "upstreamStatus", "providerCode", "retryAfterMs"]) {
+  for (const key of ["name", "code", "errno", "syscall", "port", "status", "upstreamStatus", "providerCode", "retryAfterMs"]) {
     if (typeof error[key] === "string" || typeof error[key] === "number") result[key] = error[key];
   }
   if (error.cause !== undefined) result.cause = describeError(error.cause, depth + 1);
@@ -50,7 +50,11 @@ export function describeError(value: unknown, depth = 0): unknown {
 }
 
 const DATA_URL_RE = /^data:([^;,]+);base64,([\s\S]+)$/;
-const B64_KEYS = /^(b64|b64_json)$/i;
+// Only explicitly recognized operational fields may retain primitive values.
+// Unknown fields (including future provider payloads) fail closed.
+const SAFE_STRINGS = new Set(["model", "role", "type", "media_type", "phase", "method", "failureLayer", "node", "undici", "code", "syscall"]);
+const SAFE_NUMBERS = /^(status|upstreamStatus|providerCode|errno|port|cost|number|chat|image|peakActiveRequests|.*Ms|.*Bytes)$/;
+const SAFE_BOOLEANS = new Set(["responseReceived", "validJson", "abortedByDeadline"]);
 
 export function newTraceId() {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
@@ -61,24 +65,23 @@ export function sanitizeForTrace(value: unknown, key?: string): unknown {
   if (typeof value === "string") {
     const dataUrl = summarizeDataUrl(value);
     if (dataUrl) return dataUrl;
-    if (/^https?:\/\//.test(value) && /[?&]X-Amz-Signature=/i.test(value)) {
-      // Signed reference URLs grant access to private objects. Keep only the object path.
-      return `${value.split("?")[0]}?[signed-url redacted]`;
-    }
-    if (key && B64_KEYS.test(key) && value.length > 80) {
-      return `[base64 ${value.length} chars]`;
-    }
-    return value;
+    if (/^\[data-url [a-zA-Z0-9.+/-]+ \d+ bytes\]$/.test(value)) return value;
+    if (key === "name" && /^(Error|TypeError|RangeError|AggregateError|AbortError|TimeoutError|OpenRouterError)$/.test(value)) return value;
+    if (key && SAFE_STRINGS.has(key) && /^[a-zA-Z0-9_./:+ -]{1,100}$/.test(value)) return value;
+    return "[redacted]";
   }
-  if (Array.isArray(value)) return value.map((item) => sanitizeForTrace(item));
+  if (typeof value === "number") return key && SAFE_NUMBERS.test(key) ? value : "[redacted]";
+  if (typeof value === "boolean") return key && SAFE_BOOLEANS.has(key) ? value : "[redacted]";
+  if (Array.isArray(value)) return value.map((item) => sanitizeForTrace(item, key));
   if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [nextKey, next] of Object.entries(value)) {
-      out[nextKey] = sanitizeForTrace(next, nextKey);
-    }
-    return out;
+    return Object.fromEntries(Object.entries(value).map(([nextKey, next]) => [nextKey, sanitizeForTrace(next, nextKey)]));
   }
   return value;
+}
+
+/** Log transport evidence, never arbitrary exception messages or properties. */
+export function safeErrorForLog(value: unknown): unknown {
+  return sanitizeForTrace(describeError(value));
 }
 
 function summarizeDataUrl(value: string): string | null {
@@ -96,10 +99,10 @@ export function formatLlmTraceConsole(trace: LlmTrace): string {
     `[llm:${trace.label}] ${result} ${trace.id}`,
     `[llm:${trace.label}] ${trace.kind} ${trace.model} ${status} ${trace.durationMs}ms cost=${cost}`,
   ];
-  if (trace.error) lines.push(`[llm:${trace.label}] error ${trace.error}`);
-  if (!trace.ok && trace.diagnostics) lines.push(`[llm:${trace.label}] diagnostics ${JSON.stringify(trace.diagnostics)}`);
-  if (trace.errorDetails) lines.push(`[llm:${trace.label}] cause ${JSON.stringify(trace.errorDetails)}`);
-  if (trace.file) lines.push(`[llm:${trace.label}] wrote ${trace.file}`);
+  if (trace.error) lines.push(`[llm:${trace.label}] error [redacted; see transport codes]`);
+  if (!trace.ok && trace.diagnostics) lines.push(`[llm:${trace.label}] diagnostics ${JSON.stringify(sanitizeForTrace(trace.diagnostics))}`);
+  if (trace.errorDetails) lines.push(`[llm:${trace.label}] cause ${JSON.stringify(sanitizeForTrace(trace.errorDetails))}`);
+
   return lines.join("\n");
 }
 
@@ -110,14 +113,14 @@ export function formatLlmTrace(trace: LlmTrace): string {
   const lines = [
     `[llm:${trace.label}] ${result} ${trace.id}`,
     `[llm:${trace.label}] ${trace.kind} ${trace.model} ${status} ${trace.durationMs}ms cost=${cost}`,
-    `[llm:${trace.label}] ${trace.url}`,
+    `[llm:${trace.label}] endpoint [redacted]`,
     `[llm:${trace.label}] request`,
-    stringify(trace.request),
+    stringify(sanitizeForTrace(trace.request)),
     `[llm:${trace.label}] response`,
-    stringify(trace.response),
+    stringify(sanitizeForTrace(trace.response)),
   ];
-  if (trace.error) lines.push(`[llm:${trace.label}] error ${trace.error}`);
-  if (trace.file) lines.push(`[llm:${trace.label}] wrote ${trace.file}`);
+  if (trace.error) lines.push(`[llm:${trace.label}] error [redacted; see transport codes]`);
+
   return lines.join("\n");
 }
 
@@ -180,17 +183,20 @@ function persistAndPrint(trace: LlmTrace) {
     const userId = accountContext.getStore();
     if (userId) assertSafeUserId(userId);
     const dir = userId ? path.join(LLM_TRACES_DIR, userId) : LLM_TRACES_DIR;
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = path.join(dir, `${trace.id}-${safeLabel(trace.label)}.json`);
-    const written: LlmTrace = { ...trace, userId, file };
-    fs.writeFileSync(file, `${stringify(written)}\n`);
+    const written: LlmTrace = { ...trace, userId, file, url: "[redacted]",
+      request: sanitizeForTrace(trace.request), response: sanitizeForTrace(trace.response),
+      error: trace.error ? "[redacted]" : null, errorDetails: sanitizeForTrace(trace.errorDetails),
+      diagnostics: sanitizeForTrace(trace.diagnostics) as Record<string, unknown> };
+    fs.writeFileSync(file, `${stringify(written)}\n`, { mode: 0o600 });
     console.log(trace.lifecycle === "running"
-      ? `[llm:${trace.label}] started ${trace.id} ${trace.kind} ${trace.model} wrote ${file}`
+      ? `[llm:${trace.label}] started ${trace.id} ${trace.kind} ${trace.model}`
       : formatLlmTraceConsole(written));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = JSON.stringify(safeErrorForLog(err));
     console.warn(`[llm:${trace.label}] failed to write trace: ${message}`);
-    console.log(formatLlmTrace(trace));
+    console.log(formatLlmTraceConsole(trace));
   }
 }
 

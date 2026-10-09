@@ -1,3 +1,4 @@
+import { safeErrorForLog } from "./llmTrace";
 import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
 import { randomUUID } from "node:crypto";
 import { getActivity } from "./activities";
@@ -209,9 +210,9 @@ export function startGenerationWorker() {
       for (let i = 0; i < concurrency(); i++) {
         const job = queue.claim();
         if (!job) break;
-        void queue.run(job).catch(error => console.error("generation job", error));
+        void queue.run(job).catch(error => console.error("generation job", safeErrorForLog(error)));
       }
-    } catch (error) { console.error("generation worker", error); }
+    } catch (error) { console.error("generation worker", safeErrorForLog(error)); }
   };
   const timer = setInterval(tick, 1000);
   tick();

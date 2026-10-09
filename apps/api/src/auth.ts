@@ -47,7 +47,7 @@ export async function sendAuthEmail(data: { email: string; url: string }, kind: 
     if (process.env.NODE_ENV === "production") {
       throw new APIError("SERVICE_UNAVAILABLE", { message: "Email delivery is unavailable. Please try again later." });
     }
-    console.log(`${subject} for ${data.email}: ${data.url}`);
+    console.log(`auth email ${kind}: delivery unconfigured`);
     return;
   }
   const resend = new Resend(apiKey);

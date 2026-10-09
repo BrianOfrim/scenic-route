@@ -1,3 +1,4 @@
+import { safeErrorForLog } from "./llmTrace";
 import { randomBytes } from "node:crypto";
 import { getActivity, listActivities } from "./activities";
 import { getSetting, setSetting } from "./db";
@@ -611,7 +612,7 @@ async function persistPosterThumb(userId: string, posterId: string, png: Buffer)
     await posterStore().put(userId, `${posterId}.thumb.webp`, thumb, "image/webp");
     return thumb;
   } catch (error) {
-    console.warn(`poster thumb failed for ${posterId}`, error instanceof Error ? error.message : error);
+    console.warn(`poster thumb failed for ${posterId}`, safeErrorForLog(error));
     return null;
   }
 }

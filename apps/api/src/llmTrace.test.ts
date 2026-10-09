@@ -24,7 +24,7 @@ test("trace persists unfinished work before sending and finishes with diagnostic
     const finished = JSON.parse(fs.readFileSync(file, "utf8"));
     assert.equal(finished.lifecycle, "finished");
     assert.equal(finished.status, 200);
-    assert.equal(finished.diagnostics.requestId, "provider-id");
+    assert.equal(finished.diagnostics.requestId, "[redacted]");
     assert.equal(finished.errorDetails.cause.code, "ECONNRESET");
   } finally { if (file) fs.rmSync(file, { force: true }); }
 });
@@ -40,14 +40,14 @@ test("error diagnostics retain aggregate connection causes and exclude unrelated
   assert.doesNotThrow(() => JSON.stringify(describeError(circular)));
 });
 
-test("sanitizeForTrace leaves planner messages intact", () => {
+test("sanitizeForTrace redacts planner message content", () => {
   const messages = [
     { role: "system", content: "You write structured prompts." },
     { role: "user", content: JSON.stringify({ title: "Lunch ride" }) },
   ];
   assert.deepEqual(sanitizeForTrace({ model: "anthropic/claude-sonnet-4", messages }), {
     model: "anthropic/claude-sonnet-4",
-    messages,
+    messages: messages.map(message => ({ role: message.role, content: "[redacted]" })),
   });
 });
 
@@ -64,14 +64,14 @@ test("sanitizeForTrace redacts data URLs and image bytes", () => {
     input_references: Array<{ image_url: { url: string } }>;
     data: Array<{ b64_json: string; media_type: string }>;
   };
-  assert.equal(sanitized.prompt, "map poster");
+  assert.equal(sanitized.prompt, "[redacted]");
   assert.match(sanitized.input_references[0].image_url.url, /^\[data-url image\/png \d+ bytes\]$/);
-  assert.equal(sanitized.data[0].b64_json, "[base64 120 chars]");
+  assert.equal(sanitized.data[0].b64_json, "[redacted]");
   assert.equal(sanitized.data[0].media_type, "image/png");
   assert.equal(payload.data[0].b64_json.length, 120);
 });
 
-test("formatLlmTrace includes request, response, and cost", () => {
+test("formatLlmTrace redacts request and response while retaining cost", () => {
   const trace: LlmTrace = {
     id: "20260905T191200Z-abc",
     kind: "chat",
@@ -91,9 +91,9 @@ test("formatLlmTrace includes request, response, and cost", () => {
   const text = formatLlmTrace(trace);
   assert.match(text, /\[llm:plan\] ok 20260905T191200Z-abc/);
   assert.match(text, /1234ms cost=\$0\.0123/);
-  assert.match(text, /"content": "hello"/);
-  assert.match(text, /Lunch ride/);
-  assert.match(text, /wrote \/tmp\/trace\.json/);
+  assert.doesNotMatch(text, /hello/);
+  assert.doesNotMatch(text, /Lunch ride/);
+  assert.doesNotMatch(text, /\/tmp\/trace/);
 });
 
 test("formatLlmTraceConsole stays short", () => {
@@ -113,6 +113,54 @@ test("formatLlmTraceConsole stays short", () => {
     error: "Planner timed out",
     file: "/tmp/trace.json",
   });
-  assert.match(text, /error Planner timed out/);
+  assert.match(text, /error \[redacted/);
   assert.doesNotMatch(text, /hello/);
+});
+
+
+test("redaction fails closed for nested private payloads and signed URLs", () => {
+  const privateValues = ["private-name-123", "private-prompt-123", "private-token-123", "47.123456"];
+  const payload = { title: privateValues[0], messages: [{ content: privateValues[1] }],
+    headers: { authorization: privateValues[2] }, coordinates: [47.123456, -113.456789],
+    url: "https://objects.invalid/private-name-123?X-Amz-Signature=private-token-123",
+    nested: { futureProviderField: privateValues[1] }, status: 503, durationMs: 123 };
+  const redacted = sanitizeForTrace(payload);
+  const text = JSON.stringify(redacted);
+  for (const value of privateValues) assert.ok(!text.includes(value));
+  assert.deepEqual(sanitizeForTrace(redacted), redacted);
+  assert.equal((redacted as any).status, 503);
+});
+
+test("disk failures never fall back to full payload or exception messages", async t => {
+  const logs: string[] = [];
+  t.mock.method(console, "log", (value: string) => logs.push(value));
+  t.mock.method(console, "warn", (value: string) => logs.push(value));
+  t.mock.method(fs, "writeFileSync", () => { throw new Error("private-file-path-123"); });
+  await assert.rejects(withLlmTrace({ kind: "chat", label: "redaction-test", model: "test/model",
+    url: "https://invalid/private-token-123", request: { content: "private-prompt-123" } }, async capture => {
+      capture({ response: { text: "private-name-123" }, diagnostics: { message: "private-prompt-123", elapsedMs: 12 } });
+      throw Object.assign(new Error("private-error-123"), { code: "ECONNRESET" });
+    }));
+  const text = logs.join("\n");
+  assert.doesNotMatch(text, /private-[a-z-]+-123/);
+  assert.match(text, /ECONNRESET/);
+  assert.match(text, /elapsedMs/);
+});
+
+
+test("persisted traces exclude private values and use private file permissions", async t => {
+  let file = "";
+  t.mock.method(console, "log", (message: string) => {
+    const id = message.match(/started (\S+)/)?.[1];
+    if (id) file = path.join(LLM_TRACES_DIR, `${id}-privacy-test.json`);
+  });
+  try {
+    await withLlmTrace({ kind: "image", label: "privacy-test", model: "test/model",
+      url: "https://invalid/private-signed-url-123", request: { prompt: "private-prompt-123", latitude: 47.123456 } },
+      async capture => { capture({ status: 200, response: { title: "private-name-123" } }); });
+    const text = fs.readFileSync(file, "utf8");
+    assert.doesNotMatch(text, /private-(signed-url|prompt|name)-123|47\.123456/);
+    assert.equal(JSON.parse(text).status, 200);
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  } finally { if (file) fs.rmSync(file, { force: true }); }
 });

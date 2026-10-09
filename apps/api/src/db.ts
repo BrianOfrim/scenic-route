@@ -1,3 +1,4 @@
+import { safeErrorForLog } from "./llmTrace";
 import fs from "node:fs";
 import pg from "pg";
 import { DB_PATH } from "./paths";
@@ -73,7 +74,7 @@ export async function getPool() {
     ready = (async () => {
       const created = new Pool({ connectionString: databaseUrl() });
       created.on("error", (error) => {
-        console.error("postgres pool error", error);
+        console.error("postgres pool error", safeErrorForLog(error));
       });
       try {
         await waitForPostgres(created);
@@ -90,7 +91,7 @@ export async function getPool() {
         try {
           await maybeImportSqlite(created);
         } catch (error) {
-          console.warn("sqlite import skipped", error instanceof Error ? error.message : error);
+          console.warn("sqlite import skipped", safeErrorForLog(error));
         }
       } catch (error) {
         await created.end().catch(() => undefined);
