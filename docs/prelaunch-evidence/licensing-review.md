@@ -1,6 +1,7 @@
 # Licensing review evidence — 2026-10-08
 
-Base: `6283736df5be9a4d92a08bef0e84a427e915f89f`.
+Reviewed starting base: `6283736df5be9a4d92a08bef0e84a427e915f89f`.
+Final PR parent: `961d49ae49a9b8c7ea61abc1830916fcaf8487ae` (main). The licensing commit was rebased onto main after submission to exclude two unrelated differences inherited from the requested starting commit.
 Managed isolated worktree: `/Users/brian/.codex/worktrees/a4c3/scenic-route`.
 Attached by successful `create_worktree`; branch `codex/licensing-review` was created there before edits. No applicable nonempty AGENTS.md was found; `/Users/brian/.codex/AGENTS.md` is empty.
 
@@ -31,6 +32,6 @@ No export attribution compositor, OSM server cache, alternate provider, account 
 
 ## Submission and integration
 
-The earlier automatic-approval usage-limit blocker was resolved on continuation. The prepared patch was applied in the managed isolated worktree on branch `codex/licensing-review`; no shared-primary files were edited. Origin authentication was verified outside the sandbox. The focused PR is submitted from this branch and attached to the chat; the PR URL is recorded in the chat's completion message.
+The earlier automatic-approval usage-limit blocker was resolved on continuation. The prepared patch was applied in the managed isolated worktree on branch `codex/licensing-review`; no shared-primary files were edited. Origin authentication was verified outside the sandbox. The focused [PR #147](https://cursor.com/codebase/brianofrim/scenic-route/pull/147) is submitted from this branch and attached to the chat using its Origin URL.
 
-Queue PR [#146](https://cursor.com/codebase/brianofrim/scenic-route/pull/146) exists separately. This review is based on the requested pinned base, not the integrated queue branch. Validate provenance/reference persistence against the final merged queue flow; no queue work was overwritten or folded into this branch. No merge or deployment was performed.
+Queue PR [#146](https://cursor.com/codebase/brianofrim/scenic-route/pull/146) exists separately. This review began on the requested pinned base; the focused licensing commit is based on main for PR submission, not the integrated queue branch. Validate provenance/reference persistence against the final merged queue flow; no queue work was overwritten or folded into this branch. No merge or deployment was performed.
