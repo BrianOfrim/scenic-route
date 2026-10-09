@@ -4,6 +4,7 @@ import type pg from "pg";
 import { Resend } from "resend";
 import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
 import { getPool } from "./db";
+import { getBetaStatus, type BetaStatus } from "./betaAdmission";
 import { maybeBootstrapUser } from "./bootstrap";
 
 export type AuthUser = {
@@ -152,7 +153,10 @@ export async function getSessionUser(headers: Headers): Promise<AuthUser | null>
   return { id: user.id, email: user.email, name: user.name };
 }
 
-export function createRequireUser(lookup: SessionLookup = (headers) => getSessionUser(headers)) {
+export function createRequireUser(
+  lookup: SessionLookup = (headers) => getSessionUser(headers),
+  betaLookup: (id: string) => Promise<BetaStatus> = getBetaStatus,
+) {
   return async (c: Context, next: Next) => {
     if (isPublicApiPath(c.req.path, c.req.method)) return next();
     const user = await lookup(c.req.raw.headers);
@@ -160,9 +164,16 @@ export function createRequireUser(lookup: SessionLookup = (headers) => getSessio
     c.set("user", user);
     try {
       return await withAccountAccess(user.id, c.req.path === "/api/account" && c.req.method === "DELETE", async () => {
-        await maybeBootstrapUser(user);
+        const status = await betaLookup(user.id);
+        if (c.req.path === "/api/beta" && c.req.method === "GET") {
+          return c.json({ status, cap: 100 });
+        }
+        if (status === "waiting" && !(c.req.path === "/api/account" && c.req.method === "DELETE")) {
+          return c.json({ error: "You’re on the public beta waitlist. Imports and poster generation unlock after admission.", code: "BETA_WAITLISTED" }, 403);
+        }
+        if (status === "admitted") await maybeBootstrapUser(user);
         await next();
-      });
+      }, true);
     } catch (error) {
       if (error instanceof AccountUnavailableError) return c.json({ error: error.message }, error.status);
       throw error;
