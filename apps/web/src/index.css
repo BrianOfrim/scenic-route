@@ -4135,6 +4135,22 @@ button.map-schematic-tip-name:focus-visible {
   .theme-example-large { max-height: 65dvh; }
 }
 
+/* Public policy drafts: readable at small widths and with keyboard navigation. */
+.legal-links { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; margin-block: 1rem; }
+.legal-links a { color: var(--accent-2); text-decoration: underline; text-underline-offset: .2em; }
+.legal-page a { color: #315e4d; text-decoration: underline; text-underline-offset: .2em; }
+.legal-links a:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 4px; }
+.legal-page a:focus-visible { outline: 3px solid #315e4d; outline-offset: 4px; }
+.legal-page { font-size: 16px; color-scheme: light; height: 100dvh; overflow: auto; padding: clamp(1rem, 4vw, 3rem); background: #faf8f3; color: #26352d; }
+.legal-page main, .legal-header, .legal-page footer { max-width: 72ch; margin-inline: auto; }
+.legal-page h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.2; }
+.legal-page h2 { margin-top: 2rem; font-size: 1.4rem; line-height: 1.35; }
+.legal-page p { line-height: 1.75; overflow-wrap: anywhere; }
+.legal-draft { padding: 1rem; border: 2px solid #315e4d; line-height: 1.6; }
+.legal-page footer { margin-top: 3rem; border-top: 1px solid #7a877c; }
+.legal-skip { position: fixed; top: -10rem; padding: .75rem; background: #faf8f3; z-index: 100; }
+.legal-skip:focus { top: 1rem; }
+
 .participation-card { max-width: 580px; }
 .participation-card form { display: grid; gap: 16px; }
 .participation-card label { display: block; }

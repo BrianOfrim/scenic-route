@@ -1,3 +1,4 @@
+import { LegalLinks } from "./LegalLinks";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { deleteAccount, fetchPosterQuota, updateAccountName, type PosterQuota } from "./api";
 
@@ -179,6 +180,7 @@ export function ProfileMenu({ email, name, image, waiting = false, onNameSaved, 
           {saveError && <p role="alert">{saveError}</p>}
           <button type="submit" className="button" disabled={saving || deleting}>{saving ? "Saving…" : "Save name"}</button>
         </form>
+        <LegalLinks />
         <section className="account-delete-section" aria-labelledby={`${settingsId}-delete-title`}>
           <h3 id={`${settingsId}-delete-title`}>Delete account</h3>
           <p className="muted">Permanently delete your account, activities, posters, uploaded images, and associated data. This cannot be undone.</p>
