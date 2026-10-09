@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import pg from "pg";
+import { migrateBetaAdmission } from "./betaMigration";
 import { DB_PATH } from "./paths";
 
 const { Pool, types } = pg;
@@ -218,6 +219,8 @@ async function migrate(client: SqlClient) {
 
   `);
 
+  await migrateBetaAdmission(client);
+  await client.query(`ALTER TABLE "user" ADD COLUMN IF NOT EXISTS image_limits JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(image_limits) = 'object')`);
   await client.query('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS poster_monthly_limit INTEGER DEFAULT 50 CHECK (poster_monthly_limit >= 0)');
   await client.query(`
     CREATE TABLE IF NOT EXISTS poster_generation_usage (

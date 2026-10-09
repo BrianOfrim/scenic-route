@@ -319,7 +319,7 @@ export function App() {
       const user = await fetchSession();
       if (cancelled) return;
       setSession(user);
-      if (!user) return;
+      if (!user || user.betaStatus === "waiting") return;
       await refresh();
       if (refineId) {
         const poster = await fetchPoster(refineId);
@@ -464,6 +464,19 @@ export function App() {
 
   if (!session) {
     return <Landing />;
+  }
+
+  if (session.betaStatus === "waiting") {
+    return <div className="sign-in"><div className="auth-card">
+      <ProfileMenu email={session.email} name={session.name} image={session.image} waiting
+        onNameSaved={(name) => setSession(current => current ? { ...current, name } : current)}
+        onSignOut={() => void handleSignOut()} />
+      <h2>You’re on the waitlist</h2>
+      <p>The free public beta has room for 100 accounts. Your account is saved, and imports and poster generation will unlock when an operator admits you.</p>
+      <p>Signed in as {session.email}. Check back here for access.</p>
+      <button className="button" onClick={() => window.location.reload()}>Check access</button>
+      <button className="text-btn" onClick={() => void handleSignOut()}>Sign out</button>
+    </div></div>;
   }
 
   const profileMenu = (

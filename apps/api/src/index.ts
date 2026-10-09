@@ -1,3 +1,4 @@
+import { getImageLimits } from "./imageLimits";
 import { startGenerationWorker, submitGenerationJobs, listGenerationJobs, retryGenerationJob, dismissGenerationJob } from "./generationJobs";
 import fs from "node:fs";
 import path from "node:path";
@@ -28,10 +29,8 @@ import {
 import { databaseUrlSource, initDb, queryOne } from "./db";
 import { sealImportedIdFloors } from "./importedIds";
 import { purgeLegacyApiData } from "./fileFirstMigration";
-import { ImportError } from "./gpx";
 import { sniffImageMime } from "./imageMime";
-import { importTrackFiles } from "./importActivity";
-import { filesFromRequest } from "./importRequest";
+import { createImportHandler } from "./importEndpoint";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
 import { loadGeography, parseGeographyBbox } from "./osm/geography";
 import { loadRouteFeatures } from "./osm/features";
@@ -93,7 +92,7 @@ app.on(["GET", "POST"], "/api/auth/*", async (c) => {
   }
   if (!user) return auth.handler(c.req.raw);
   try {
-    return await withAccountAccess(user.id, false, async () => auth.handler(c.req.raw));
+    return await withAccountAccess(user.id, false, async () => auth.handler(c.req.raw), true);
   } catch (error) {
     if (error instanceof AccountUnavailableError) return c.json({ error: error.message }, error.status);
     throw error;
@@ -146,7 +145,7 @@ app.get("/api/status", async (c) => {
 });
 
 app.get("/api/poster/quota", async c => {
-  try { return c.json(await getPosterQuota(currentUserId(c))); }
+  try { return c.json({ ...await getPosterQuota(currentUserId(c)), imageLimits: await getImageLimits(currentUserId(c)) }); }
   catch (error) { return fail(c, error); }
 });
 
@@ -162,34 +161,7 @@ app.post("/api/activities/remove", async (c) => {
   }
 });
 
-app.post("/api/activities/import", async (c) => {
-  try {
-    const parsed = await filesFromRequest(c.req.raw);
-    if (!parsed.files.length && !parsed.errors.length) {
-      return c.json({ error: "Choose a GPX, FIT, TCX, or account export zip" }, 400);
-    }
-    const imported = parsed.files.length
-      ? await importTrackFiles(currentUserId(c), parsed.files)
-      : { activities: [], errors: [], skipped: 0 };
-    const errors = [...parsed.errors, ...imported.errors];
-    const result = { activities: imported.activities, errors, skipped: imported.skipped };
-    if (!result.activities.length && !result.skipped) {
-      const first = errors[0];
-      return c.json(
-        {
-          error: first ? `${first.filename}: ${first.error}` : "Could not import file",
-          errors,
-          skipped: result.skipped,
-        },
-        400,
-      );
-    }
-    return c.json(result);
-  } catch (error) {
-    if (error instanceof ImportError) return c.json({ error: error.message }, 400);
-    return c.json({ error: error instanceof Error ? error.message : "import failed" }, 400);
-  }
-});
+app.post("/api/activities/import", createImportHandler());
 
 app.get("/api/activities/:id", async (c) => {
   const id = Number(c.req.param("id"));
