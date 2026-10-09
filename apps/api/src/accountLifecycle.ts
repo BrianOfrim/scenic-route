@@ -4,11 +4,12 @@ import { databaseUrl, type SqlClient } from "./db";
 
 export const accountContext = new AsyncLocalStorage<string>();
 export class AccountUnavailableError extends Error {
-  constructor(message: string, public status: 401 | 409) { super(message); }
+  constructor(message: string, public status: 401 | 403 | 409) { super(message); }
 }
 
 // Keep lock leases separate from application queries, which may need their own
 // transactions while the lease is held. Sharing a pool can deadlock under load.
+// Allow 16 other account requests alongside the default 128 active image jobs.
 let locks: pg.Pool | undefined;
 export async function closeAccountLocks() {
   const current = locks;
@@ -17,8 +18,8 @@ export async function closeAccountLocks() {
 }
 
 /** Shared by HTTP requests and workers; exclusive deletion also works across API processes. */
-export async function withAccountAccess<T>(userId: string, exclusive: boolean, work: (client: SqlClient) => Promise<T>) {
-  const client = await (locks ??= new pg.Pool({ connectionString: databaseUrl(), max: 100 })).connect();
+export async function withAccountAccess<T>(userId: string, exclusive: boolean, work: (client: SqlClient) => Promise<T>, allowWaiting = false) {
+  const client = await (locks ??= new pg.Pool({ connectionString: databaseUrl(), max: 144, connectionTimeoutMillis: 10_000 })).connect();
   const mode = exclusive ? "" : "_shared";
   let locked = false;
   try {
@@ -27,8 +28,11 @@ export async function withAccountAccess<T>(userId: string, exclusive: boolean, w
     );
     locked = result.rows[0].locked;
     if (!locked) throw new AccountUnavailableError("Your account has requests in progress. Please wait for them to finish and try again.", 409);
-    const user = await client.query('SELECT id FROM "user" WHERE id = $1', [userId]);
+    const user = await client.query('SELECT id, beta_status FROM "user" WHERE id = $1', [userId]);
     if (!user.rowCount) throw new AccountUnavailableError("sign in required", 401);
+    if (!allowWaiting && user.rows[0].beta_status !== "admitted") {
+      throw new AccountUnavailableError("Your account is on the public beta waitlist.", 403);
+    }
     return await accountContext.run(userId, () => work(client));
   } finally {
     try {

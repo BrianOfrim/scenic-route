@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { zipSync, gzipSync } from "fflate";
 import { after, before, describe, test } from "node:test";
 import { Encoder, Profile, Utils } from "@garmin/fitsdk";
 import type { ActivityMesg, Encodable, FileIdMesg, RecordMesg, SessionMesg } from "@garmin/fitsdk";
@@ -153,6 +154,23 @@ describe("importTrackFiles", { concurrency: 1 }, () => {
       assert.equal(ridge.length, 3);
       assert.ok(Math.abs(ridge[0][0] - 51.044) < 0.0001);
       assert.ok(Math.abs(ridge[0][1] + 114.07) < 0.0001);
+    });
+  });
+
+  test("persists compressed Strava exports with CSV metadata and loose gzip tracks", async () => {
+    await withUser("compressed", async userId => {
+      const exported = new TextEncoder().encode(gpx("Original", 45, -110));
+      const result = await importTrackFiles(userId, [
+        { filename: "export.zip", bytes: zipSync({
+          "export/activities.csv": new TextEncoder().encode("Activity ID,Activity Name,Activity Type,Filename\n123456789,CSV Ride,Ride,activities/123456789.gpx.gz\n"),
+          "export/activities/123456789.gpx.gz": gzipSync(exported),
+        }) },
+        { filename: "loose.tcx.gz", bytes: gzipSync(new TextEncoder().encode(tcx("Compressed TCX", 46, -111))) },
+        { filename: "loose.fit.gz", bytes: gzipSync(fit(47, -112)) },
+      ]);
+      assert.deepEqual(result.errors, []);
+      assert.equal(result.activities.length, 3);
+      assert.equal(result.activities.find(activity => activity.id === 123456789)?.name, "CSV Ride");
     });
   });
 

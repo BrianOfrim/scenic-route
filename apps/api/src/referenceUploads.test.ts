@@ -49,3 +49,22 @@ test("R2 signed GET targets the private user-scoped key and expires after 24 hou
   assert.ok(!JSON.stringify(safe).includes("X-Amz-Signature"));
   assert.ok(!JSON.stringify(safe).includes("X-Amz-Credential"));
 });
+
+test("signed links cannot outlive batch retention or be minted by another owner", async t => {
+  const { store, objects, signed } = memoryStore();
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now);
+  const batch = await uploadReferences("alice", [dataUrl], store);
+  const expiries: number[] = [];
+  store.signedUrl = async (user, name, seconds) => {
+    signed.push(`${user}/${name}`); expiries.push(seconds); return "https://signed.example/image";
+  };
+  objects.set(`alice/${batch.referenceBatchId}/manifest`, Buffer.from(JSON.stringify({ expiresAt: now + 6500, mimes: ["image/png"] })));
+  await assert.rejects(resolveReferences("bob", batch.referenceBatchId, false, store), /not found/);
+  assert.deepEqual(signed, []);
+  await resolveReferences("alice", batch.referenceBatchId, false, store);
+  assert.deepEqual(expiries, [6]);
+  t.mock.method(Date, "now", () => now + 6000);
+  await assert.rejects(resolveReferences("alice", batch.referenceBatchId, false, store), /expired/);
+  assert.deepEqual(expiries, [6]);
+});

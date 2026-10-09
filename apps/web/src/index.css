@@ -4134,3 +4134,8 @@ button.map-schematic-tip-name:focus-visible {
   .theme-example-detail { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .theme-example-large { max-height: 65dvh; }
 }
+
+.participation-card { max-width: 580px; }
+.participation-card form { display: grid; gap: 16px; }
+.participation-card label { display: block; }
+.participation-card input[type="checkbox"] { width: auto; margin-right: 8px; }

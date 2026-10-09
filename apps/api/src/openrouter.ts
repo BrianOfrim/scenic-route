@@ -24,11 +24,11 @@ export function imageGenerationTimeoutMs(n = 1) {
 }
 
 export class OpenRouterError extends Error {
-  readonly status: 400 | 401 | 502 | 504;
+  readonly status: 400 | 401 | 502 | 503 | 504;
   upstreamStatus?: number;
   providerCode?: string;
   retryAfterMs?: number;
-  constructor(message: string, status: 400 | 401 | 502 | 504 = 502, cause?: unknown) {
+  constructor(message: string, status: 400 | 401 | 502 | 503 | 504 = 502, cause?: unknown) {
     super(message, cause === undefined ? undefined : { cause });
     this.name = "OpenRouterError";
     this.status = status;
@@ -42,19 +42,34 @@ export function retryAfterMs(value: string | null, now = Date.now()): number | u
   return Number.isFinite(delay) && delay >= 0 ? delay : undefined;
 }
 
+export const INSUFFICIENT_CREDIT_MESSAGE = "Image generation is unavailable because the service has insufficient provider credit. Please try again manually later or contact support.";
+export const PROVIDER_CAPACITY_MESSAGE = "Image generation is temporarily unavailable because the provider's spending capacity is busy. Please wait and retry manually.";
+
 function upstreamError(response: Response, parsed: unknown) {
-  const error = new OpenRouterError(errorMessage(parsed, `OpenRouter ${response.status}`), response.status === 401 ? 401 : 502);
+  const details = asRecord(asRecord(parsed)?.error);
+  const metadata = asRecord(details?.metadata);
+  // OpenRouter's documented credit contract uses HTTP/error.code 402 and
+  // metadata.limit_source. Do not infer depleted balance from prose or treat
+  // its transient in-flight budget as insufficient prepaid credit.
+  const paymentRequired = response.status === 402 || Number(details?.code) === 402;
+  const capacity = paymentRequired && metadata?.limit_source === "openrouter_in_flight_budget";
+  const insufficientCredit = paymentRequired && !capacity;
+  const error = new OpenRouterError(capacity ? PROVIDER_CAPACITY_MESSAGE : insufficientCredit ? INSUFFICIENT_CREDIT_MESSAGE
+    : errorMessage(parsed, `OpenRouter ${response.status}`),
+    paymentRequired ? 503 : response.status === 401 ? 401 : 502);
   error.upstreamStatus = response.status;
   // Providers sometimes embed their native JSON error inside metadata.raw.
   const raw = JSON.stringify(asRecord(parsed)?.error ?? {});
-  error.providerCode = raw.includes("media_url_not_fetchable") ? "media_url_not_fetchable" : undefined;
+  error.providerCode = capacity ? "in_flight_budget" : insufficientCredit ? "insufficient_credit"
+    : raw.includes("media_url_not_fetchable") ? "media_url_not_fetchable" : undefined;
   error.retryAfterMs = retryAfterMs(response.headers.get("retry-after"));
   return error;
 }
 
 export function isRetryablePlanningError(error: unknown): boolean {
   if (error instanceof OpenRouterError) {
-    return error.upstreamStatus !== undefined && [429, 500, 502, 503, 504].includes(error.upstreamStatus);
+    return error.providerCode !== "insufficient_credit" && error.providerCode !== "in_flight_budget"
+      && error.upstreamStatus !== undefined && [429, 500, 502, 503, 504].includes(error.upstreamStatus);
   }
   // Only known network failures; don't retry JSON parsing or programming errors.
   const item = error as { code?: string; cause?: unknown } | null;
@@ -325,7 +340,7 @@ export async function createImage(options: {
         } finally {
           transport.close();
         }
-      }, imageGenerationTimeoutMs(n) + 60_000);
+      }, imageGenerationTimeoutMs(n) + 60_000, options.user || "anonymous");
     },
   );
 }

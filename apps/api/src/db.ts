@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import pg from "pg";
+import { migrateBetaAdmission } from "./betaMigration";
 import { DB_PATH } from "./paths";
 
 const { Pool, types } = pg;
@@ -218,6 +219,8 @@ async function migrate(client: SqlClient) {
 
   `);
 
+  await migrateBetaAdmission(client);
+  await client.query(`ALTER TABLE "user" ADD COLUMN IF NOT EXISTS image_limits JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(image_limits) = 'object')`);
   await client.query('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS poster_monthly_limit INTEGER DEFAULT 50 CHECK (poster_monthly_limit >= 0)');
   await client.query(`
     CREATE TABLE IF NOT EXISTS poster_generation_usage (
@@ -230,6 +233,19 @@ async function migrate(client: SqlClient) {
     );
     CREATE INDEX IF NOT EXISTS poster_generation_usage_user_month
       ON poster_generation_usage (user_id, month);
+  `);
+
+  await client.query(`
+    ALTER TABLE "user" ADD COLUMN IF NOT EXISTS eligibility_blocked BOOLEAN NOT NULL DEFAULT false;
+    CREATE TABLE IF NOT EXISTS participation_events (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('eligibility', 'terms', 'ai')),
+      version TEXT NOT NULL,
+      accepted BOOLEAN NOT NULL,
+      recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS participation_events_user_kind ON participation_events (user_id, kind, id DESC);
   `);
 
   await ensureActivitiesTenancy(client);

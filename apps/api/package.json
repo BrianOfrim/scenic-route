@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "test": "tsx --test src/geo.test.ts src/gpx.test.ts src/fit.test.ts src/tcx.test.ts src/archive.test.ts src/importRequest.test.ts src/importActivity.test.ts src/osm/location.test.ts src/osm/catalog.test.ts src/osm/geography.test.ts src/osm/corridor.test.ts src/osm/geoExtent.test.ts src/osm/overpassCache.test.ts src/overpass.test.ts src/posterSpec.test.ts src/planner.test.ts src/poster.test.ts src/posterQuota.test.ts src/posterActivityRebind.test.ts src/imageMime.test.ts src/thumb.test.ts src/mapPool.test.ts src/modifyPrompt.test.ts src/openrouter.test.ts src/openrouterTransport.test.ts src/requestQueue.test.ts src/generationJobs.test.ts src/llmTrace.test.ts src/storage.test.ts src/referenceUploads.test.ts src/accountDeletion.test.ts src/authRequired.test.ts src/authFlow.test.ts src/activities.scope.test.ts src/bootstrap.test.ts"
+    "test": "tsx --test src/geo.test.ts src/gpx.test.ts src/fit.test.ts src/tcx.test.ts src/archive.test.ts src/importSecurity.test.ts src/importRequest.test.ts src/importActivity.test.ts src/osm/location.test.ts src/osm/catalog.test.ts src/osm/geography.test.ts src/osm/corridor.test.ts src/osm/geoExtent.test.ts src/osm/overpassCache.test.ts src/overpass.test.ts src/posterSpec.test.ts src/planner.test.ts src/poster.test.ts src/posterQuota.test.ts src/posterCredit.test.ts src/posterActivityRebind.test.ts src/imageMime.test.ts src/thumb.test.ts src/mapPool.test.ts src/modifyPrompt.test.ts src/openrouter.test.ts src/openrouterTransport.test.ts src/requestQueue.test.ts src/generationJobs.test.ts src/llmTrace.test.ts src/storage.test.ts src/referenceUploads.test.ts src/accountDeletion.test.ts src/participation.test.ts src/participation.integration.test.ts src/authRequired.test.ts src/authFlow.test.ts src/activities.scope.test.ts src/bootstrap.test.ts src/authorization.test.ts src/authorizationJobs.test.ts src/betaAdmission.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",
@@ -19,6 +19,7 @@
     "hono": "^4.11.7",
     "pg": "^8.16.3",
     "resend": "^6.28.0",
+    "saxes": "^6.0.0",
     "sharp": "^0.35.5"
   },
   "devDependencies": {
