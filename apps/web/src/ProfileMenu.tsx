@@ -3,13 +3,14 @@ import { deleteAccount, fetchPosterQuota, updateAccountName, type PosterQuota } 
 
 type Props = {
   email: string;
+  waiting?: boolean;
   name?: string | null;
   image?: string | null;
   onNameSaved: (name: string) => void;
   onSignOut: () => void;
 };
 
-export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Props) {
+export function ProfileMenu({ email, name, image, waiting = false, onNameSaved, onSignOut }: Props) {
   const [open, setOpen] = useState(false);
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -31,13 +32,13 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
   const initial = (name?.trim()[0] || email.trim()[0] || "?").toUpperCase();
 
   useEffect(() => {
-    if (!settingsOpen) return;
+    if (!settingsOpen || waiting) return;
     let cancelled = false;
     setQuota(null);
     setQuotaError(false);
     void fetchPosterQuota().then(value => { if (!cancelled) setQuota(value); }, () => { if (!cancelled) setQuotaError(true); });
     return () => { cancelled = true; };
-  }, [settingsOpen]);
+  }, [settingsOpen, waiting]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -165,7 +166,7 @@ export function ProfileMenu({ email, name, image, onNameSaved, onSignOut }: Prop
           </label>
           <p id={`${settingsId}-help`} className="muted">Used to prefill the people list on new posters. You can edit or remove it on each poster.</p>
           <p className="muted" aria-live="polite">
-            {quota ? quota.limit === null ? "Poster generation: unlimited." : <>
+            {waiting ? "Public beta: waitlisted. Poster generation unlocks after admission." : quota ? quota.limit === null ? "Poster generation: unlimited." : <>
               {quota.used} of {quota.limit} posters generated this month. {quota.remaining} remaining.
               {quota.reserved > 0 && ` ${quota.reserved} reserved for requests in progress.`}
               {` Resets ${new Date(quota.resetsAt).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })} (UTC).`}

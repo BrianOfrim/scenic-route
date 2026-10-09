@@ -94,7 +94,7 @@ app.on(["GET", "POST"], "/api/auth/*", async (c) => {
   }
   if (!user) return auth.handler(c.req.raw);
   try {
-    return await withAccountAccess(user.id, false, async () => auth.handler(c.req.raw));
+    return await withAccountAccess(user.id, false, async () => auth.handler(c.req.raw), true);
   } catch (error) {
     if (error instanceof AccountUnavailableError) return c.json({ error: error.message }, error.status);
     throw error;

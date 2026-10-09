@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { GenerationJobQueue, type JobInput } from "./generationJobs";
-import { withAccountAccess } from "./accountLifecycle";
+import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
 import { RequestQueue } from "./requestQueue";
 import { OpenRouterError } from "./openrouter";
 import type { PlannerInput } from "./planner";
@@ -481,6 +481,30 @@ test("manual retry waits for failed attempt cleanup before reserving another pla
   queue.removeUser("owner");
   remaining.forEach(reservation => scheduler.releaseJob(reservation));
   assert.equal(scheduler.reserveJobs("owner", 16).length, 16);
+});
+
+test("waitlisted workers fail the job without generating, and a missing account drops it", async () => {
+  const { input, work } = setup();
+  let generated = 0;
+  work.generate = async () => { generated++; return []; };
+  const scheduler = () => new RequestQueue(128, Infinity, 240_000, 8, 16);
+  const waitlisted = new GenerationJobQueue(work, scheduler(), async () => {
+    throw new AccountUnavailableError("Your account is on the public beta waitlist.", 403);
+  });
+  const [waiting] = await waitlisted.submit("waiting", { submissionId: "wait", jobs: [input] });
+  await Promise.all(waitlisted.dispatch());
+  assert.equal(generated, 0);
+  assert.equal(waitlisted.list("waiting")[0]?.id, waiting.id);
+  assert.equal(waitlisted.list("waiting")[0]?.state, "failed");
+  assert.match(waitlisted.list("waiting")[0]?.error ?? "", /waitlist/);
+
+  const removed = new GenerationJobQueue(work, scheduler(), async () => {
+    throw new AccountUnavailableError("sign in required", 401);
+  });
+  await removed.submit("gone", { submissionId: "gone", jobs: [input] });
+  await Promise.all(removed.dispatch());
+  assert.equal(generated, 0);
+  assert.deepEqual(removed.list("gone"), []);
 });
 
 test("batch selection overrides are resolved per account and enforced on the server", async () => {
