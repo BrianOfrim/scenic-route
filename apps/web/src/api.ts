@@ -377,6 +377,7 @@ export async function fetchActivities(): Promise<ActivitySummary[]> {
 }
 
 export type PosterQuota = {
+  imageLimits: { active: number | null; unfinished: number | null; selections: number | null };
   limit: number | null;
   used: number;
   reserved: number;

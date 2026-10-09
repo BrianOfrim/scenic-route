@@ -1187,9 +1187,19 @@ function styleFor(basemap: Basemap): StyleSpecification {
     };
   }
   if (basemap === "satellite") {
-    return rasterStyle(SATELLITE_TILES, "Esri World Imagery", "#111318", 1);
+    return rasterStyle(
+      SATELLITE_TILES,
+      '<a href="https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9">Esri World Imagery</a> — Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community',
+      "#111318",
+      1,
+    );
   }
-  return rasterStyle(STREET_TILES, "© OpenStreetMap", "#1b1d16", 0.92);
+  return rasterStyle(
+    STREET_TILES,
+    '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+    "#1b1d16",
+    0.92,
+  );
 }
 
 function rasterStyle(
