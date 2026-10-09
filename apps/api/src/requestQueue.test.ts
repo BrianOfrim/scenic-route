@@ -29,35 +29,35 @@ test("queue bounds admission and removes expired waiters", async () => {
   await queue.run(async () => {});
 });
 
-test("100 global slots and four per owner allow other owners through a saturated user's backlog", async () => {
-  const queue = new RequestQueue(100, 100, 240_000, 4);
+test("128 global slots and eight per owner allow other owners through a saturated user's backlog", async () => {
+  const queue = new RequestQueue(128, Infinity, 240_000, 8);
   const releases: (() => void)[] = [];
   const active = new Map<string, number>();
   let total = 0;
   let peak = 0;
   const pending: Promise<void>[] = [];
-  for (let user = 0; user < 26; user++) {
+  for (let user = 0; user < 17; user++) {
     const owner = `user-${user}`;
-    for (let request = 0; request < 5; request++) pending.push(queue.run(async () => {
+    for (let request = 0; request < 9; request++) pending.push(queue.run(async () => {
       active.set(owner, (active.get(owner) || 0) + 1);
       peak = Math.max(peak, ++total);
-      assert.ok(total <= 100);
-      assert.ok(active.get(owner)! <= 4);
+      assert.ok(total <= 128);
+      assert.ok(active.get(owner)! <= 8);
       await new Promise<void>(resolve => releases.push(resolve));
       total--;
       active.set(owner, active.get(owner)! - 1);
     }, null, owner));
   }
   await Promise.resolve();
-  assert.equal(total, 100);
-  assert.equal(active.size, 25);
+  assert.equal(total, 128);
+  assert.equal(active.size, 16);
   while (releases.length) {
     releases.splice(0).forEach(release => release());
     await new Promise(resolve => setImmediate(resolve));
   }
   await Promise.all(pending);
-  assert.equal(peak, 100);
-  assert.equal(active.size, 26);
+  assert.equal(peak, 128);
+  assert.equal(active.size, 17);
   assert.equal(total, 0);
 });
 
@@ -120,24 +120,24 @@ test("expired direct waiters release the shared per-user waiting reservation", a
   assert.equal(reservation.pending, false);
 });
 
-test("global saturation admits more than 100 waiting image requests across users without a global backlog cap", async () => {
-  const queue = new RequestQueue(100, Infinity, 240_000, 4, 8);
+test("global saturation admits more than 128 waiting image requests across users without a global backlog cap", async () => {
+  const queue = new RequestQueue(128, Infinity, 240_000, 8, 8);
   const releases: (() => void)[] = [];
   let started = 0;
   const work = async () => { started++; await new Promise<void>(resolve => releases.push(resolve)); };
-  const pending = Array.from({ length: 25 }, (_, owner) =>
-    Array.from({ length: 4 }, () => queue.run(work, null, `active-${owner}`))).flat();
+  const pending = Array.from({ length: 16 }, (_, owner) =>
+    Array.from({ length: 8 }, () => queue.run(work, null, `active-${owner}`))).flat();
   await Promise.resolve();
-  assert.equal(started, 100);
-  for (let owner = 0; owner < 26; owner++) {
+  assert.equal(started, 128);
+  for (let owner = 0; owner < 17; owner++) {
     for (let request = 0; request < 8; request++) pending.push(queue.run(work, undefined, `waiting-${owner}`));
   }
   await Promise.resolve();
-  assert.equal(started, 100, "global saturation waits rather than exceeding 100 active requests");
+  assert.equal(started, 128, "global saturation waits rather than exceeding 128 active requests");
   while (releases.length) {
     releases.splice(0).forEach(release => release());
     await new Promise(resolve => setImmediate(resolve));
   }
   await Promise.all(pending);
-  assert.equal(started, 308, "208 waiting requests were admitted across distinct owners");
+  assert.equal(started, 264, "136 waiting requests were admitted across distinct owners");
 });

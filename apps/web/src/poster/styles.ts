@@ -398,8 +398,8 @@ export function resolveStyleColor(style: PosterStyle, paletteId?: string | null)
   };
 }
 
-export const MAX_THEME_SELECTIONS = 4;
-export const THEME_SELECTION_LIMIT_MESSAGE = "Choose up to four theme/palette combinations per batch. Remove a selection before adding another.";
+export const MAX_THEME_SELECTIONS = 8;
+export const THEME_SELECTION_LIMIT_MESSAGE = "Choose up to eight theme/palette combinations per batch. Remove a selection before adding another.";
 
 /** Restored setups may exceed the cap: preserve them while allowing removals. */
 export function canChangeThemeSelections(currentCount: number, nextCount: number) {

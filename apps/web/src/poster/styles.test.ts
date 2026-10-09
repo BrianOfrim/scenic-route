@@ -248,14 +248,15 @@ test("themes preserve geometry and permit title wrapping", () => {
   }
 });
 
-test("four theme/palette selections allow replacements and restored setup removals, but reject a fifth", async () => {
+test("eight theme/palette selections allow replacements and restored setup removals, but reject a ninth", async () => {
   const { canChangeThemeSelections, MAX_THEME_SELECTIONS } = await import("./styles");
-  assert.equal(MAX_THEME_SELECTIONS, 4);
-  assert.equal(canChangeThemeSelections(3, 4), true);
-  assert.equal(canChangeThemeSelections(4, 5), false);
-  assert.equal(canChangeThemeSelections(4, 4), true, "palette replacement is permitted");
-  assert.equal(canChangeThemeSelections(7, 6), true, "old setups can be reduced without losing all selections");
-  assert.equal(canChangeThemeSelections(7, 8), false);
+  assert.equal(MAX_THEME_SELECTIONS, 8);
+  assert.equal(canChangeThemeSelections(7, 8), true);
+  assert.equal(canChangeThemeSelections(8, 9), false);
+  assert.equal(canChangeThemeSelections(8, 8), true, "palette replacement is permitted");
+  assert.equal(canChangeThemeSelections(11, 10), true, "old setups can be reduced without losing all selections");
+  assert.equal(canChangeThemeSelections(11, 12), false);
+  assert.equal(stylePlanSlots(POSTER_STYLES.slice(0, 8).map(style => style.id)).length, 8);
   const slots = stylePlanSlots(["swiss"], { "swiss": paletteChoices(styleById("swiss")).slice(0, 4).map(palette => palette.id) });
   assert.equal(slots.length, 4, "four palettes of one theme count as four selections");
 });

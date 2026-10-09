@@ -27,7 +27,7 @@ function setup() {
       return [];
     },
   };
-  return { queue: new GenerationJobQueue(work, new RequestQueue(100, 100, 240_000, 4, 8), unlocked), input, work };
+  return { queue: new GenerationJobQueue(work, new RequestQueue(128, Infinity, 240_000, 8, 8), unlocked), input, work };
 }
 
 test("eight-job batches deduplicate simultaneous submission and limit stage concurrency", async () => {
@@ -44,8 +44,8 @@ test("eight-job batches deduplicate simultaneous submission and limit stage conc
   assert.deepEqual(queue.list("other"), []);
   const pending = queue.dispatch();
   await Promise.resolve();
-  assert.equal(queue.list("owner").filter(job => job.state === "generating").length, 4);
-  assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 4);
+  assert.equal(queue.list("owner").filter(job => job.state === "generating").length, 8);
+  assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 0);
   assert.equal(queue.dispatch().length, 0, "waiting jobs cannot be scheduled twice");
   work.generate = originalGenerate;
   releases.forEach(release => release());
@@ -212,17 +212,19 @@ test("selection cap counts distinct theme/palette pairs, independently of models
   let prepared = 0;
   const prepare = work.prepare;
   work.prepare = (...args) => { prepared++; return prepare(...args); };
-  const jobs = Array.from({ length: 4 }, (_, index) => {
+  const jobs = Array.from({ length: 8 }, (_, index) => {
     const job = structuredClone(input);
     job.generate.paletteId = `palette-${index}`;
     return job;
   });
   await assert.rejects(queue.submit("owner", { submissionId: "selection-cap", jobs: [...jobs,
-    { ...input, generate: { ...input.generate, styleId: "other-theme", paletteId: "palette-0" } }] }), /at most four/);
+    { ...input, generate: { ...input.generate, styleId: "other-theme", paletteId: "palette-0" } }] }), /at most eight/);
   assert.equal(prepared, 0, "reject before any preparation or admission");
   assert.deepEqual(queue.list("owner"), []);
-  const multiModel = jobs.flatMap(job => [job, { ...job, generate: { ...job.generate, model: "other-model", variants: 3 } }]);
-  assert.equal((await queue.submit("owner", { submissionId: "selection-cap", jobs: multiModel })).length, 8);
+  assert.equal((await queue.submit("owner", { submissionId: "selection-cap", jobs })).length, 8);
+  await Promise.all(queue.dispatch());
+  const multiModel = jobs.slice(0, 4).flatMap(job => [job, { ...job, generate: { ...job.generate, model: "other-model", variants: 3 } }]);
+  assert.equal((await queue.submit("owner", { submissionId: "multi-model", jobs: multiModel })).length, 8);
 });
 
 test("gallery and direct requests share owner limits, fairness, and release after failure", async () => {
@@ -269,15 +271,15 @@ test("simultaneous batches atomically enforce eight waiting jobs without partial
     "rejected submission IDs can be retried without leaked capacity");
 });
 
-test("four active jobs do not consume the eight waiting-job admission allowance", async () => {
+test("eight active jobs do not consume the eight waiting-job admission allowance", async () => {
   const { queue, input, work } = setup();
   const releases: (() => void)[] = [];
   const original = work.generate;
   work.generate = async (...args) => { await new Promise<void>(resolve => releases.push(resolve)); return original(...args); };
-  await queue.submit("owner", { submissionId: "active", jobs: Array.from({ length: 4 }, () => input) });
+  await queue.submit("owner", { submissionId: "active", jobs: Array.from({ length: 8 }, () => input) });
   const pending = queue.dispatch();
   await Promise.resolve();
-  assert.equal(queue.list("owner").filter(job => job.state === "generating").length, 4);
+  assert.equal(queue.list("owner").filter(job => job.state === "generating").length, 8);
   await queue.submit("owner", { submissionId: "waiting", jobs: Array.from({ length: 8 }, () => input) });
   await assert.rejects(queue.submit("owner", { submissionId: "overflow", jobs: [input] }), /at most 8 waiting/);
   assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 8);

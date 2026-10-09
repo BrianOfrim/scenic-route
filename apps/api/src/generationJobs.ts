@@ -45,7 +45,7 @@ export class GenerationJobQueue {
     if (!body || !/^[\w-]{1,100}$/.test(body.submissionId) || !Array.isArray(body.jobs) || !body.jobs.length || body.jobs.length > 200)
       throw new Error("submissionId and 1–200 jobs are required");
     const selections = new Set(body.jobs.map(input => JSON.stringify([input?.generate?.styleId, input?.generate?.paletteId || "auto"])));
-    if (selections.size > 4) throw new Error("A generation batch must contain at most four theme/palette combinations");
+    if (selections.size > 8) throw new Error("A generation batch must contain at most eight theme/palette combinations");
     this.prune();
     const key = JSON.stringify([userId, body.submissionId]);
     let submission = this.submissions.get(key);

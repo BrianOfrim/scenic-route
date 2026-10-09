@@ -122,7 +122,7 @@ test("queued batches and direct generation/refinement/variants release quota and
   await Promise.all(queue.dispatch());
 
   const releases: (() => void)[] = [];
-  const busy = Array.from({ length: 4 }, () => providerQueue("image").run(
+  const busy = Array.from({ length: 8 }, () => providerQueue("image").run(
     () => new Promise<void>(resolve => releases.push(resolve)), null, owner));
   await Promise.resolve();
   const app = new Hono();

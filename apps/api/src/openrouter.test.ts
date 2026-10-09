@@ -335,7 +335,7 @@ test("a network interruption retries planning; image failures never retry", asyn
   assert.equal(calls, 1);
 });
 
-test("image provider entry point shares four-per-user admission with gallery work and exceeds four globally", async t => {
+test("image provider entry point shares eight-per-user admission with gallery work and exceeds four globally", async t => {
   const { createImage } = await import("./openrouter");
   const oldKey = process.env.OPENROUTER_API_KEY;
   process.env.OPENROUTER_API_KEY = "test";
@@ -354,18 +354,18 @@ test("image provider entry point shares four-per-user admission with gallery wor
   // Gallery's outer slot must be reused by its provider call. Direct callers
   // go through the same singleton using their authenticated ownership.
   const pending = [providerQueue("image").run(() => generate("image-owner-a"), null, "image-owner-a"),
-    ...Array.from({ length: 5 }, () => generate("image-owner-a")),
-    ...Array.from({ length: 6 }, () => generate("image-owner-b"))];
+    ...Array.from({ length: 9 }, () => generate("image-owner-a")),
+    ...Array.from({ length: 10 }, () => generate("image-owner-b"))];
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(owners.length, 8, "provider no longer has a global four-request bottleneck");
-  assert.equal(owners.filter(owner => owner === "image-owner-a").length, 4);
-  assert.equal(owners.filter(owner => owner === "image-owner-b").length, 4);
+  assert.equal(owners.length, 16, "provider no longer has a global eight-request bottleneck");
+  assert.equal(owners.filter(owner => owner === "image-owner-a").length, 8);
+  assert.equal(owners.filter(owner => owner === "image-owner-b").length, 8);
   while (releases.length) {
     releases.splice(0).forEach(release => release());
     await new Promise(resolve => setImmediate(resolve));
   }
   await Promise.all(pending);
-  assert.equal(owners.length, 12);
+  assert.equal(owners.length, 20);
 });
 
 for (const scenario of [

@@ -18,7 +18,7 @@ export async function closeAccountLocks() {
 
 /** Shared by HTTP requests and workers; exclusive deletion also works across API processes. */
 export async function withAccountAccess<T>(userId: string, exclusive: boolean, work: (client: SqlClient) => Promise<T>) {
-  const client = await (locks ??= new pg.Pool({ connectionString: databaseUrl(), max: 100 })).connect();
+  const client = await (locks ??= new pg.Pool({ connectionString: databaseUrl(), max: 128 })).connect();
   const mode = exclusive ? "" : "_shared";
   let locked = false;
   try {
