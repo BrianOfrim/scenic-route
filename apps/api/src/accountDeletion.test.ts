@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import net from "node:net";
+import pg from "pg";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { deleteAccountRows, purgeAccount, validateAccountDeletion } from "./accountDeletion";
@@ -88,4 +90,33 @@ test("deletion excludes requests and active worker writes in both directions", a
   await withAccountAccess(user.id, true, async () => {
     await assert.rejects(withAccountAccess(user.id, false, async () => assert.fail()), error => error instanceof AccountUnavailableError && error.status === 409);
   });
+});
+
+
+test("account-lock connection acquisition times out against an unresponsive database", { timeout: 20_000 }, async t => {
+  await closeAccountLocks();
+  const sockets = new Set<net.Socket>();
+  const server = net.createServer(socket => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+    // Accept TCP but never complete the Postgres handshake.
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as net.AddressInfo).port;
+  const RealPool = pg.Pool;
+  const replacement = t.mock.method(pg, "Pool", class extends RealPool {
+    constructor(options?: pg.PoolConfig) {
+      super({ ...options, connectionString: `postgres://test:test@127.0.0.1:${port}/test` });
+    }
+  });
+  try {
+    await assert.rejects(withAccountAccess("owner", false, async () => {
+      assert.fail("work must not start without an account lock");
+    }), /timeout/i);
+  } finally {
+    await closeAccountLocks();
+    replacement.mock.restore();
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
 });

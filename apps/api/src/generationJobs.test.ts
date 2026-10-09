@@ -406,3 +406,40 @@ test("account removal cancels queued jobs, releases waiting capacity, and preser
   const results = await done;
   assert.equal(results.filter(result => result.status === "rejected").length, 2);
 });
+
+test("account-lock failures release capacity and leave a manually retryable job without calling the provider", async () => {
+  const { input, work } = setup();
+  const scheduler = new RequestQueue(1, Infinity, 240_000, 1, 8);
+  let unavailable = true;
+  let calls = 0;
+  work.generate = async () => { calls++; return []; };
+  const queue = new GenerationJobQueue(work, scheduler, async (_user, _exclusive, run) => {
+    if (unavailable) throw new Error("database connection timed out");
+    return run({} as any);
+  });
+  const [job] = await queue.submit("owner", { submissionId: "lock-failure", jobs: [input] });
+  const outcomes = await Promise.allSettled(queue.dispatch());
+  assert.equal(outcomes[0].status, "rejected", "retain the infrastructure error for worker logging");
+  assert.equal(queue.list("owner")[0].state, "failed");
+  assert.match(queue.list("owner")[0].error!, /Please retry/);
+  assert.equal(calls, 0);
+  assert.equal(queue.dispatch().length, 0, "do not automatically retry account failures");
+  await scheduler.run(async () => {}, 100, "other");
+  unavailable = false;
+  queue.retry("owner", job.id);
+  await Promise.all(queue.dispatch());
+  assert.equal(calls, 1);
+  assert.equal(queue.list("owner").length, 0);
+});
+
+test("account-lock cleanup failure does not make completed generation retryable", async () => {
+  const { input, work } = setup();
+  const queue = new GenerationJobQueue(work, new RequestQueue(1), async (_user, _exclusive, run) => {
+    await run({} as any);
+    throw new Error("unlock failed");
+  });
+  const [job] = await queue.submit("owner", { submissionId: "unlock-failure", jobs: [input] });
+  await Promise.allSettled(queue.dispatch());
+  assert.equal(queue.list("owner").length, 0);
+  assert.throws(() => queue.retry("owner", job.id), /failed job not found/);
+});

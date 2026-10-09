@@ -137,9 +137,19 @@ export class GenerationJobQueue {
             if (this.jobs.has(job.id)) await this.run(job);
           });
         } catch (error) {
-          if (!(error instanceof AccountUnavailableError)) throw error;
-          // A deleting account must never be allowed to persist a worker result.
-          this.jobs.delete(job.id);
+          if (error instanceof AccountUnavailableError) {
+            // A deleting account must never be allowed to persist a worker result.
+            this.jobs.delete(job.id);
+          } else {
+            // Fail only work that never reached a terminal/retry state. A lease
+            // cleanup failure after successful generation must not invite duplicates.
+            if (this.jobs.has(job.id) && job.state === "generating") {
+              job.state = "failed";
+              job.error = "Unable to access your account for generation. Please retry this job.";
+              job.updatedAt = Date.now();
+            }
+            throw error;
+          }
         }
       }, null, job.userId, job.waiting).finally(() => { this.running.delete(job.id); }));
     }
