@@ -290,6 +290,6 @@ export function posterStore(): ObjectStore {
   return cached;
 }
 
-export function resetPosterStore() {
-  cached = null;
+export function resetPosterStore(store: ObjectStore | null = null) {
+  cached = store;
 }

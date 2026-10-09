@@ -157,6 +157,15 @@ export function createRequireUser(lookup: SessionLookup = (headers) => getSessio
     if (isPublicApiPath(c.req.path, c.req.method)) return next();
     const user = await lookup(c.req.raw.headers);
     if (!user) return c.json({ error: "sign in required" }, 401);
+    // CORS controls response visibility; reject foreign browser mutation origins
+    // before dispatch as cookies can also accompany same-site sibling requests.
+    if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method)) {
+      const origin = c.req.header("Origin");
+      const trusted = [WEB_ORIGIN, new URL(authBaseUrl()).origin];
+      if ((origin && !trusted.includes(origin)) || (!origin && c.req.header("Sec-Fetch-Site") === "cross-site")) {
+        return c.json({ error: "untrusted request origin" }, 403);
+      }
+    }
     c.set("user", user);
     try {
       return await withAccountAccess(user.id, c.req.path === "/api/account" && c.req.method === "DELETE", async () => {

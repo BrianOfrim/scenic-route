@@ -1,6 +1,7 @@
 import { startGenerationWorker, submitGenerationJobs, listGenerationJobs, retryGenerationJob, dismissGenerationJob } from "./generationJobs";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { config } from "dotenv";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -8,7 +9,7 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { purgeAccount, validateAccountDeletion } from "./accountDeletion";
 import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
-import { authBaseUrl, getSessionUser, getAuth, googleSignInEnabled, requireUser, type AuthUser } from "./auth";
+import { authBaseUrl, getSessionUser, getAuth, googleSignInEnabled, createRequireUser, type SessionLookup, type AuthUser } from "./auth";
 import { LLM_TRACES_DIR, REPO_ROOT, isSafePosterId } from "./paths";
 import { posterStore } from "./storage";
 
@@ -66,6 +67,7 @@ type AppEnv = {
   };
 };
 
+export function createApiApp(lookup?: SessionLookup) {
 const app = new Hono<AppEnv>();
 
 app.use(
@@ -100,7 +102,7 @@ app.on(["GET", "POST"], "/api/auth/*", async (c) => {
   }
 });
 
-app.use("/api/*", requireUser);
+app.use("/api/*", createRequireUser(lookup));
 
 function currentUserId(c: Context<AppEnv>) {
   return c.get("user").id;
@@ -468,6 +470,11 @@ function fail(c: Context, error: unknown) {
   return c.json({ error: message }, status);
 }
 
+return app;
+}
+
+async function startApi() {
+const app = createApiApp();
 try {
   await initDb();
   await sealImportedIdFloors();
@@ -490,3 +497,9 @@ serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" }, (info) => {
   console.log(`posters: ${posterStore().kind}`);
   console.log(`llm traces: ${LLM_TRACES_DIR}`);
 });
+
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  await startApi();
+}
