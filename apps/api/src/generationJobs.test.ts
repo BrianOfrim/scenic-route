@@ -27,7 +27,7 @@ function setup() {
       return [];
     },
   };
-  return { queue: new GenerationJobQueue(work, new RequestQueue(128, Infinity, 240_000, 8, 8), unlocked), input, work };
+  return { queue: new GenerationJobQueue(work, new RequestQueue(128, Infinity, 240_000, 8, 16), unlocked), input, work };
 }
 
 test("eight-job batches deduplicate simultaneous submission and limit stage concurrency", async () => {
@@ -254,24 +254,24 @@ test("gallery and direct requests share owner limits, fairness, and release afte
   assert.ok(queue.list("a").every(job => job.state === "failed"));
 });
 
-test("simultaneous batches atomically enforce eight waiting jobs without partial admission", async () => {
+test("simultaneous batches atomically enforce sixteen unfinished jobs without partial admission", async () => {
   const { queue, input } = setup();
   const batches = await Promise.allSettled(["first", "second"].map(submissionId =>
-    queue.submit("owner", { submissionId, jobs: Array.from({ length: 5 }, () => input) })));
+    queue.submit("owner", { submissionId, jobs: Array.from({ length: 9 }, () => input) })));
   assert.equal(batches.filter(result => result.status === "fulfilled").length, 1);
   const rejected = batches.find(result => result.status === "rejected") as PromiseRejectedResult;
-  assert.match(rejected.reason.message, /at most 8 waiting.*wait for existing work/i);
-  assert.equal(queue.list("owner").length, 5);
+  assert.match(rejected.reason.message, /at most 16 unfinished.*wait for existing work/i);
+  assert.equal(queue.list("owner").length, 9);
   assert.equal((await queue.submit("other", { submissionId: "other", jobs: Array.from({ length: 8 }, () => input) })).length, 8,
-    "eight is per user, not global");
-  await assert.rejects(queue.submit("owner", { submissionId: "oversized", jobs: Array.from({ length: 9 }, () => input) }), /at most 8 waiting/);
-  assert.equal(queue.list("owner").length, 5);
+    "admission is per user, not global");
+  await assert.rejects(queue.submit("owner", { submissionId: "oversized", jobs: Array.from({ length: 9 }, () => input) }), /at most 16 unfinished/);
+  assert.equal(queue.list("owner").length, 9);
   await Promise.all(queue.dispatch());
   assert.equal((await queue.submit("owner", { submissionId: "oversized", jobs: [input] })).length, 1,
     "rejected submission IDs can be retried without leaked capacity");
 });
 
-test("eight active jobs do not consume the eight waiting-job admission allowance", async () => {
+test("eight active plus eight waiting jobs fill the unfinished allowance", async () => {
   const { queue, input, work } = setup();
   const releases: (() => void)[] = [];
   const original = work.generate;
@@ -281,7 +281,7 @@ test("eight active jobs do not consume the eight waiting-job admission allowance
   await Promise.resolve();
   assert.equal(queue.list("owner").filter(job => job.state === "generating").length, 8);
   await queue.submit("owner", { submissionId: "waiting", jobs: Array.from({ length: 8 }, () => input) });
-  await assert.rejects(queue.submit("owner", { submissionId: "overflow", jobs: [input] }), /at most 8 waiting/);
+  await assert.rejects(queue.submit("owner", { submissionId: "overflow", jobs: [input] }), /at most 16 unfinished/);
   assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 8);
   work.generate = original;
   releases.forEach(release => release());
@@ -290,16 +290,16 @@ test("eight active jobs do not consume the eight waiting-job admission allowance
   assert.equal(queue.list("owner").length, 0);
 });
 
-test("manual retry checks waiting capacity before changing failed state and releases it on success", async () => {
+test("manual retry checks unfinished capacity before changing failed state and releases it on success", async () => {
   const { queue, input, work } = setup();
   const original = work.generate;
   work.generate = async () => { throw new Error("failed"); };
   const [failed] = await queue.submit("owner", { submissionId: "failed", jobs: [input] });
   await Promise.all(queue.dispatch());
-  await queue.submit("owner", { submissionId: "full", jobs: Array.from({ length: 8 }, () => input) });
-  assert.throws(() => queue.retry("owner", failed.id), /at most 8 waiting/);
+  await queue.submit("owner", { submissionId: "full", jobs: Array.from({ length: 16 }, () => input) });
+  assert.throws(() => queue.retry("owner", failed.id), /at most 16 unfinished/);
   assert.equal(queue.list("owner").find(job => job.id === failed.id)!.state, "failed");
-  assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 8);
+  assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 16);
   work.generate = original;
   await Promise.all(queue.dispatch());
   assert.equal(queue.retry("owner", failed.id)[0].state, "queued");
@@ -308,16 +308,16 @@ test("manual retry checks waiting capacity before changing failed state and rele
   assert.equal(queue.list("owner").length, 0);
 });
 
-test("direct waiting requests and gallery batches share the per-user waiting allowance", async () => {
+test("direct active and waiting requests share unfinished admission with gallery batches", async () => {
   const { input, work } = setup();
-  const scheduler = new RequestQueue(1, 100, 240_000, 1, 8);
+  const scheduler = new RequestQueue(1, 100, 240_000, 1, 16);
   const queue = new GenerationJobQueue(work, scheduler, unlocked);
   let release!: () => void;
   const active = scheduler.run(() => new Promise<void>(resolve => release = resolve), null, "owner");
   const direct = scheduler.run(async () => {}, null, "owner");
-  await queue.submit("owner", { submissionId: "seven", jobs: Array.from({ length: 7 }, () => input) });
-  await assert.rejects(queue.submit("owner", { submissionId: "overflow", jobs: [input] }), /at most 8 waiting/);
-  await assert.rejects(scheduler.run(async () => assert.fail("overflow ran"), undefined, "owner"), /at most 8 waiting/);
+  await queue.submit("owner", { submissionId: "fourteen", jobs: Array.from({ length: 14 }, () => input) });
+  await assert.rejects(queue.submit("owner", { submissionId: "overflow", jobs: [input] }), /at most 16 unfinished/);
+  await assert.rejects(scheduler.run(async () => assert.fail("overflow ran"), undefined, "owner"), /at most 16 unfinished/);
   await Promise.resolve();
   release();
   await Promise.all([active, direct]);
@@ -325,41 +325,37 @@ test("direct waiting requests and gallery batches share the per-user waiting all
   await Promise.all(queue.dispatch());
 });
 
-test("automatic retries preserve the hard waiting ceiling and failed job when waiting work filled the allowance", async t => {
+test("automatic retries retain admission when all sixteen unfinished places are occupied", async t => {
   const { queue, input, work } = setup();
   let now = Date.now();
   t.mock.method(Date, "now", () => now);
   t.mock.method(Math, "random", () => 0);
-  let release!: () => void;
+  const releases: (() => void)[] = [];
   const original = work.generate;
   work.generate = async () => {
-    await new Promise<void>(resolve => release = resolve);
+    await new Promise<void>(resolve => releases.push(resolve));
     const error = new OpenRouterError("temporary failure");
     error.upstreamStatus = 503;
     throw error;
   };
-  const [retry] = await queue.submit("owner", { submissionId: "active-retry", jobs: [input] });
+  const retryJobs = await queue.submit("owner", { submissionId: "active", jobs: Array.from({length: 8}, () => input) });
   const active = queue.dispatch();
   await Promise.resolve();
-  await queue.submit("owner", { submissionId: "full", jobs: Array.from({ length: 8 }, () => input) });
-  release();
+  await queue.submit("owner", { submissionId: "full", jobs: Array.from({length: 8}, () => input) });
+  releases.forEach(release => release());
   await Promise.all(active);
-  assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 8);
-  assert.equal(queue.list("owner").find(job => job.id === retry.id)!.state, "failed");
-  assert.match(queue.list("owner").find(job => job.id === retry.id)!.error!, /Automatic retry could not be queued.*Retry this job manually/);
-  await assert.rejects(queue.submit("owner", { submissionId: "overflow", jobs: [input] }), /at most 8 waiting/);
+  assert.equal(queue.list("owner").filter(job => job.state === "queued").length, 16);
+  await assert.rejects(queue.submit("owner", { submissionId: "overflow", jobs: [input] }), /at most 16 unfinished/);
   work.generate = original;
   await Promise.all(queue.dispatch());
-  assert.deepEqual(queue.list("owner").map(job => job.id), [retry.id], "failed retry remains available after queued jobs complete");
-  assert.equal(queue.list("owner")[0].imageAttempt, 1);
+  assert.equal(queue.list("owner").length, 8, "backoff jobs retain their places while other jobs run");
   now += 5000;
   await Promise.all(queue.dispatch());
-  assert.equal(queue.list("owner")[0].state, "failed", "capacity opening never auto-resumes this failed job");
-  queue.retry("owner", retry.id);
-  await Promise.all(queue.dispatch());
   assert.deepEqual(queue.list("owner"), []);
-  assert.equal((await queue.submit("owner", { submissionId: "overflow", jobs: Array.from({ length: 8 }, () => input) })).length, 8,
-    "manual retry completion clears all reservations");
+  const completed = await queue.submit("owner", {submissionId: "active", jobs: [input]});
+  assert.ok(completed.every(job => job.imageAttempt === 2));
+  assert.equal(completed.length, retryJobs.length);
+  assert.equal((await queue.submit("owner", {submissionId: "overflow", jobs: Array.from({length: 16}, () => input)})).length, 16);
 });
 
 for (const providerCode of ["insufficient_credit", "in_flight_budget"]) {
@@ -388,7 +384,7 @@ for (const providerCode of ["insufficient_credit", "in_flight_budget"]) {
 
 test("account removal cancels queued jobs, releases waiting capacity, and preserves other owners", async () => {
   const { input, work } = setup();
-  const scheduler = new RequestQueue(1, 100, 240_000, 1, 8);
+  const scheduler = new RequestQueue(1, 100, 240_000, 1, 16);
   const queue = new GenerationJobQueue(work, scheduler, unlocked);
   let release!: () => void;
   const active = scheduler.run(() => new Promise<void>(resolve => release = resolve), null, "other");
@@ -400,7 +396,7 @@ test("account removal cancels queued jobs, releases waiting capacity, and preser
   queue.removeUser("owner");
   assert.deepEqual(queue.list("owner"), []);
   assert.equal(queue.list("other").length, 1);
-  assert.equal(scheduler.reserveWaiting("owner", 8).length, 8, "deleted jobs released their capacity");
+  assert.equal(scheduler.reserveJobs("owner", 16).length, 16, "deleted jobs released their capacity");
   release();
   await active;
   const results = await done;
@@ -409,7 +405,7 @@ test("account removal cancels queued jobs, releases waiting capacity, and preser
 
 test("account-lock failures release capacity and leave a manually retryable job without calling the provider", async () => {
   const { input, work } = setup();
-  const scheduler = new RequestQueue(1, Infinity, 240_000, 1, 8);
+  const scheduler = new RequestQueue(1, Infinity, 240_000, 1, 16);
   let unavailable = true;
   let calls = 0;
   work.generate = async () => { calls++; return []; };
@@ -442,4 +438,47 @@ test("account-lock cleanup failure does not make completed generation retryable"
   await Promise.allSettled(queue.dispatch());
   assert.equal(queue.list("owner").length, 0);
   assert.throws(() => queue.retry("owner", job.id), /failed job not found/);
+});
+
+test("account removal releases all reservations held by retry backoff", async () => {
+  const { input, work } = setup();
+  const scheduler = new RequestQueue(128, Infinity, 240_000, 8, 16);
+  const queue = new GenerationJobQueue(work, scheduler, unlocked);
+  work.generate = async () => {
+    const error = new OpenRouterError("temporary failure");
+    error.upstreamStatus = 503;
+    throw error;
+  };
+  await queue.submit("owner", {submissionId: "backoff", jobs: Array.from({length: 16}, () => input)});
+  await Promise.all(queue.dispatch());
+  assert.equal(queue.list("owner").length, 16);
+  assert.throws(() => scheduler.reserveJobs("owner", 1), /16 unfinished/);
+  queue.removeUser("owner");
+  assert.equal(queue.list("owner").length, 0);
+  assert.equal(scheduler.reserveJobs("owner", 16).length, 16);
+});
+
+test("manual retry waits for failed attempt cleanup before reserving another place", async () => {
+  const { input, work } = setup();
+  const scheduler = new RequestQueue(128, Infinity, 240_000, 8, 16);
+  let release!: () => void;
+  work.generate = async () => { throw new Error("failed"); };
+  const queue = new GenerationJobQueue(work, scheduler, async (_user, _exclusive, run) => {
+    const result = await run({} as any);
+    await new Promise<void>(resolve => release = resolve);
+    return result;
+  });
+  const [job] = await queue.submit("owner", {submissionId: "cleanup", jobs: [input]});
+  const pending = queue.dispatch();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(queue.list("owner")[0].state, "failed");
+  assert.throws(() => queue.retry("owner", job.id), /still finishing/);
+  release();
+  await Promise.all(pending);
+  assert.equal(queue.retry("owner", job.id)[0].state, "queued");
+  const remaining = scheduler.reserveJobs("owner", 15);
+  assert.throws(() => scheduler.reserveJobs("owner", 1), /16 unfinished/);
+  queue.removeUser("owner");
+  remaining.forEach(reservation => scheduler.releaseJob(reservation));
+  assert.equal(scheduler.reserveJobs("owner", 16).length, 16);
 });

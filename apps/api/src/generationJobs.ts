@@ -5,7 +5,7 @@ import { buildInitialPoster, type PlannerInput } from "./planner";
 import { generatePoster, type GeneratePosterBody } from "./poster";
 import { maxImageOutputs, OpenRouterError } from "./openrouter";
 import { resolveReferences } from "./referenceUploads";
-import { providerQueue, RequestQueueError, type RequestQueue, type WaitingReservation } from "./requestQueue";
+import { providerQueue, type RequestQueue, type JobReservation } from "./requestQueue";
 
 export type JobInput = { plan: PlannerInput; generate: Omit<GeneratePosterBody, "spec"> };
 type GenerationJob = {
@@ -17,7 +17,7 @@ type GenerationJob = {
   error: string | null;
   imageAttempt: number;
   retryAt?: number;
-  waiting?: WaitingReservation;
+  reservation?: JobReservation;
   createdAt: number;
   updatedAt: number;
 };
@@ -89,9 +89,9 @@ export class GenerationJobQueue {
       input.generate.variants = Math.max(1, Math.min(models.get(model)!, Math.floor(input.generate.variants || 1)));
     }
     // Admit the entire batch synchronously after validation, before yielding again.
-    const reservations = this.scheduler.reserveWaiting(userId, inputs.length);
+    const reservations = this.scheduler.reserveJobs(userId, inputs.length);
     return inputs.map((input, index) => {
-      const job: GenerationJob = { id: randomUUID(), userId, input, waiting: reservations[index], planned: prepared[index], state: "queued", error: null, imageAttempt: 0, createdAt: Date.now(), updatedAt: Date.now() };
+      const job: GenerationJob = { id: randomUUID(), userId, input, reservation: reservations[index], planned: prepared[index], state: "queued", error: null, imageAttempt: 0, createdAt: Date.now(), updatedAt: Date.now() };
       this.jobs.set(job.id, job);
       return job.id;
     });
@@ -105,7 +105,8 @@ export class GenerationJobQueue {
   retry(userId: string, id: string) {
     const job = this.jobs.get(id);
     if (!job || job.userId !== userId || job.state !== "failed") throw new Error("failed job not found");
-    job.waiting = this.scheduler.reserveWaiting(userId, 1)[0];
+    if (this.running.has(id)) throw new Error("This job is still finishing. Please retry shortly.");
+    job.reservation = this.scheduler.reserveJobs(userId, 1)[0];
     job.state = "queued";
     job.error = null;
     job.imageAttempt = 0;
@@ -126,7 +127,6 @@ export class GenerationJobQueue {
       if (job.state !== "queued" || this.running.has(job.id) || (job.retryAt && job.retryAt > Date.now())) continue;
       this.running.add(job.id);
       pending.push(this.scheduler.run(async () => {
-        job.waiting = undefined;
         job.state = "generating";
         job.updatedAt = Date.now();
         job.retryAt = undefined;
@@ -151,7 +151,13 @@ export class GenerationJobQueue {
             throw error;
           }
         }
-      }, null, job.userId, job.waiting).finally(() => { this.running.delete(job.id); }));
+      }, null, job.userId, job.reservation).finally(() => {
+        this.running.delete(job.id);
+        if (job.state !== "queued" || !this.jobs.has(job.id)) {
+          if (job.reservation) this.scheduler.releaseJob(job.reservation);
+          job.reservation = undefined;
+        }
+      }));
     }
     return pending;
   }
@@ -179,15 +185,6 @@ export class GenerationJobQueue {
       if (job.imageAttempt < 3 && error instanceof OpenRouterError
         && error.providerCode !== "insufficient_credit" && error.providerCode !== "in_flight_budget"
         && [502, 503, 504].includes(error.upstreamStatus ?? 0)) {
-        try {
-          job.waiting = this.scheduler.reserveWaiting(job.userId, 1)[0];
-        } catch (capacityError) {
-          if (!(capacityError instanceof RequestQueueError)) throw capacityError;
-          // Keep the failed card and its prepared prompt; do not exceed the
-          // hard waiting ceiling or silently discard an admitted job.
-          job.error += ` Automatic retry could not be queued. ${capacityError.message} Retry this job manually.`;
-          return;
-        }
         job.state = "queued";
         job.error = null;
         job.retryAt = Date.now() + (job.imageAttempt === 1 ? 5000 : 15000) + Math.random() * 2000;
@@ -200,8 +197,8 @@ export class GenerationJobQueue {
   removeUser(userId: string) {
     for (const [id, job] of this.jobs) {
       if (job.userId !== userId) continue;
-      // Dispatched reservations are released by the scheduler when admitted.
-      if (job.waiting && !this.running.has(id)) this.scheduler.releaseWaiting(job.waiting);
+      // Active/dispatched jobs release their reservation when their attempt settles.
+      if (job.reservation && !this.running.has(id)) this.scheduler.releaseJob(job.reservation);
       this.jobs.delete(id);
     }
     this.scheduler.cancelWaiting(userId);

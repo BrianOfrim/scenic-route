@@ -106,17 +106,18 @@ test("an owner blocked at its own limit times out without blocking another owner
 });
 
 test("expired direct waiters release the shared per-user waiting reservation", async () => {
-  const queue = new RequestQueue(1, 100, 10, 1, 1);
+  const queue = new RequestQueue(1, 100, 10, 1, 2);
   let release!: () => void;
   const active = queue.run(() => new Promise<void>(resolve => release = resolve), null, "owner");
   const expired = assert.rejects(queue.run(async () => assert.fail("expired work ran"), undefined, "owner"), /timed out/);
-  assert.throws(() => queue.reserveWaiting("owner", 1), /at most 1 waiting/);
+  assert.throws(() => queue.reserveJobs("owner", 1), /at most 2 unfinished/);
   await expired;
-  const reservation = queue.reserveWaiting("owner", 1)[0];
+  const reservation = queue.reserveJobs("owner", 1)[0];
   const replacement = queue.run(async () => {}, null, "owner", reservation);
   await Promise.resolve();
   release();
   await Promise.all([active, replacement]);
+  queue.releaseJob(reservation);
   assert.equal(reservation.pending, false);
 });
 
@@ -140,4 +141,15 @@ test("global saturation admits more than 128 waiting image requests across users
   }
   await Promise.all(pending);
   assert.equal(started, 264, "136 waiting requests were admitted across distinct owners");
+});
+
+test("retained backoff reservations block direct admission even with free active slots", async () => {
+  const queue = new RequestQueue(128, Infinity, 240_000, 8, 16);
+  const reservations = queue.reserveJobs("owner", 16);
+  await queue.run(async () => {}, null, "owner", reservations[0]);
+  await assert.rejects(queue.run(async () => assert.fail("overflow ran"), undefined, "owner"), /16 unfinished/);
+  await queue.run(async () => {}, undefined, "other");
+  reservations.forEach(reservation => queue.releaseJob(reservation));
+  await queue.run(async () => { throw new Error("failed"); }, undefined, "owner").catch(() => {});
+  assert.equal(queue.reserveJobs("owner", 16).length, 16, "direct failure releases admission");
 });
