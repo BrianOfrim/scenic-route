@@ -1,0 +1,28 @@
+# Privacy and security incident response
+
+Lead/accountable operator: **Brian Ofrim, Alberta, Canada**. Customer/privacy contact: **info@scenic-route.ca**. Official sources checked 2026-10-08; reassess facts and current law during an incident. This workflow does not establish an incident or replace case-specific legal advice.
+
+## Contain, preserve, assess
+
+1. Record incident ID, discovery time (UTC plus local timezone), reporter, service/version and known facts. For credible unauthorized access, isolate affected endpoints/processes and revoke compromised provider credentials after preserving essential evidence. Brian controls production changes and communications.
+2. Preserve available private logs, trace/request IDs, provider DB/object access evidence, deployment history and backup manifests. Record collector, timestamps, hashes and actions. Do not destroy the only evidence or invent audit logs the app does not collect. Never commit raw evidence/customer data to Git or public PRs.
+3. Establish exposure window, accounts/residence, data elements, attacker access and misuse probability. Include GPS endpoints/home/work, dates, route/person names, images/reference sheets, emails, session/auth/provider tokens and account metadata. Assess responsibility/control for incidents at Neon/R2/OpenRouter/Resend. Provider outreach requires approved contacts; this documentation task sends nothing.
+4. Assess plausible physical safety/stalking, embarrassment/relationship/employment harm, account/identity compromise and financial loss. Encryption helps only if relevant keys were safe. Record unknowns, sensitivity, misuse probability and threshold rationale. Lack of observed misuse is not proof of no risk; reassess new facts.
+
+## Jurisdiction decisions
+
+**Alberta PIPA:** For information under the organization's control, report loss/unauthorized access/disclosure presenting real risk of significant harm to the OIPC **without unreasonable delay** under section 34.1 using its PIPA form. The Commissioner can require individual notice under section 37.1; voluntary notice can precede that decision and should meet Regulation 19.1 contents. Record risk rationale, report time, individual-notice plan and regulator directions. See [OIPC current requirements/forms](https://oipc.ab.ca/breach-notification/). Do not automatically apply public-body POPA or health-custodian HIA to this private business.
+
+**Canadian applicability:** Alberta location does not by itself exclude PIPEDA. Assess commercial activity and interprovincial/international flows; record which processing falls under which law. See [OPC privacy-law overview](https://www.priv.gc.ca/en/privacy-topics/privacy-laws-in-canada/02_05_d_15/). Escalate overlap to Canadian privacy counsel/OPC; other provincial laws may apply.
+
+**Where PIPEDA applies:** A real risk of significant harm triggers OPC reporting and affected-person notification as soon as feasible after determination. Assess sensitivity and misuse probability; notify other organizations/government able to mitigate harm where required. Keep records of **all** covered security-safeguard breaches, even below reporting threshold, for at least 24 months after determining the breach occurred, longer if legally required. This statutory incident-record duty does not approve a general log/backup schedule. Use [OPC report/notice/record guidance and forms](https://www.priv.gc.ca/en/privacy-topics/privacy-for-businesses/privacy-breaches-at-your-business/gd_pb_201810/).
+
+**US users:** Identify residents' states/data categories and consult each current statute/Attorney General instructions. Record coverage, access/acquisition trigger, encryption exception, timing, law-enforcement delay, notice contents and individual/AG/consumer-reporting recipients/thresholds. Do not infer obligations from Fly's Texas region or assume one national deadline. The [FTC business breach guide](https://www.ftc.gov/business-guidance/resources/data-breach-response-guide-business) directs review of state/federal requirements. As one example, [California AG reporting guidance](https://oag.ca.gov/privacy/databreach/reporting) describes resident notice and submission of a sample notice if more than 500 California residents are notified; verify statute/timing for the case. California is not an all-state rule. Ask US counsel about sector-specific coverage, including the [FTC Health Breach Notification Rule](https://www.ftc.gov/business-guidance/resources/complying-ftcs-health-breach-notification-rule-0) if actual product/data meet its definitions. Fitness-route import alone does not establish coverage.
+
+## Record, communicate, close
+
+For each applicable jurisdiction record source/statute/version, applicability rationale, data/harm test, discovery/determination dates, deadline calculation, regulator/form, notice method/content/recipients, Brian/counsel reviewer, submission evidence and reassessment trigger. Below-threshold decisions still need supporting facts. Do not wait for perfect certainty after a legal reporting trigger/deadline arises.
+
+Draft notices privately: dates, known categories, what happened, containment, practical protective steps and info@scenic-route.ca, plus jurisdiction-required fields. Avoid unsupported assurances or raw GPS/tokens/other people's details. Brian reviews and authorizes actual regulator/customer/provider messages; none were sent here.
+
+Recover with [recovery.md](recovery.md), preserving evidence and deletion requests. Verify containment/remediation, scope and submissions; test the corrected path, assign preventive actions and record residual risk before closure. Brian approves general log/backup retention separately from legally required incident records.
