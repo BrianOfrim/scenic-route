@@ -4155,3 +4155,23 @@ button.map-schematic-tip-name:focus-visible {
 .participation-card form { display: grid; gap: 16px; }
 .participation-card label { display: block; }
 .participation-card input[type="checkbox"] { width: auto; margin-right: 8px; }
+
+/* Keep map credits above the mobile poster sheet and annotation overlays. */
+.map-root .maplibregl-ctrl-bottom-right {
+  bottom: calc(8px + var(--poster-sheet-h, 0px));
+  max-width: calc(100% - 16px);
+  pointer-events: auto;
+}
+.map-root .maplibregl-ctrl-attrib { white-space: normal; }
+.map-osm-unavailable {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 56px;
+  z-index: 4;
+  padding: 8px 12px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}

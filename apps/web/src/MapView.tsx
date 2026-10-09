@@ -155,6 +155,7 @@ export function MapView({
   const [resetViewNonce, setResetViewNonce] = useState(0);
   const [canResetView, setCanResetView] = useState(false);
   const defaultViewRef = useRef<{ center: LngLat; zoom: number; bearing: number; pitch: number } | null>(null);
+  const [osmUnavailable, setOsmUnavailable] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [draft, setDraft] = useState<NameDraft | null>(null);
   const [selectedHit, setSelectedHit] = useState<SchematicHover | null>(null);
@@ -299,7 +300,30 @@ export function MapView({
       style: styleFor(basemapRef.current),
       center: DEFAULT_CENTER,
       zoom: 10,
+      attributionControl: { compact: false },
     });
+    const failedTiles = new Set<unknown>();
+    const onTileError = (event: { error: unknown }) => {
+      const sourceId = "sourceId" in event ? event.sourceId : undefined;
+      if (basemapRef.current !== "osm" || sourceId !== "tiles") return;
+      const tile = "tile" in event ? event.tile as { tileID?: { key: unknown } } : undefined;
+      failedTiles.add(tile?.tileID?.key ?? "source");
+      setOsmUnavailable(true);
+    };
+    const onTileData = (event: { sourceId?: string; tile?: unknown }) => {
+      if (event.sourceId !== "tiles" || !event.tile) return;
+      const tile = event.tile as { tileID?: { key: unknown }; state?: string };
+      if (tile.state === "loaded") failedTiles.delete(tile.tileID?.key);
+    };
+    const onTileIdle = () => {
+      if (basemapRef.current === "osm" && map.getSource("tiles") && !failedTiles.size && map.isSourceLoaded("tiles") && map.areTilesLoaded()) setOsmUnavailable(false);
+    };
+    const resetTileFailures = () => { failedTiles.clear(); };
+    map.on("error", onTileError);
+    map.on("sourcedata", onTileData);
+    map.on("idle", onTileIdle);
+    map.on("movestart", resetTileFailures);
+    map.on("style.load", resetTileFailures);
     map.addControl(new NavigationControl({ showCompass: false }), "top-right");
     for (const stale of map.getContainer().querySelectorAll("canvas.map-schematic")) stale.remove();
     const overlay = document.createElement("canvas");
@@ -658,6 +682,11 @@ export function MapView({
     map.on("mouseout", onHoverLeave);
     window.addEventListener("pointerup", finishLandmarkDrag);
     return () => {
+      map.off("error", onTileError);
+      map.off("sourcedata", onTileData);
+      map.off("idle", onTileIdle);
+      map.off("movestart", resetTileFailures);
+      map.off("style.load", resetTileFailures);
       map.off("load", markStyleReady);
       map.off("moveend", syncResetView);
       map.off("style.load", markStyleReady);
@@ -971,6 +1000,9 @@ export function MapView({
   return (
     <div className={`map-root${mode !== "browse" ? ` is-annotate-${mode}` : ""}${touchUi ? " is-touch" : ""}`}>
       <div ref={containerRef} className="map" />
+      {basemap === "osm" && osmUnavailable && (
+        <p className="map-osm-unavailable" role="status">Street maps are temporarily unavailable. Please try again later or choose another map.</p>
+      )}
       <div className="map-reset-view maplibregl-ctrl-group">
         <button
           type="button"
@@ -1196,7 +1228,7 @@ function styleFor(basemap: Basemap): StyleSpecification {
   }
   return rasterStyle(
     STREET_TILES,
-    '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+    '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> · <a href="https://www.openstreetmap.org/fixthemap">Report a map issue</a>',
     "#1b1d16",
     0.92,
   );
@@ -1216,6 +1248,7 @@ function rasterStyle(
         type: "raster",
         tiles: [tiles],
         tileSize: 256,
+        ...(tiles === STREET_TILES ? { maxzoom: 19 } : {}),
         attribution,
       },
     },

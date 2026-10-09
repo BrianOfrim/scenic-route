@@ -56,7 +56,7 @@ import {
   readPosterThumb,
   setPosterFavorite,
 } from "./poster";
-import { fetchTile, isTileSource } from "./tiles";
+import { tileHandler } from "./tileRoute";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? "http://localhost:5174";
 const PORT = Number(process.env.PORT ?? 8790);
@@ -69,6 +69,11 @@ type AppEnv = {
 
 export function createApiApp(lookup?: SessionLookup) {
 const app = new Hono<AppEnv>();
+app.use("*", async (c, next) => {
+  c.header("Referrer-Policy", "origin");
+  if (c.req.path.startsWith("/api/tiles/")) c.header("Cache-Control", "no-store");
+  await next();
+});
 
 app.use(
   "*",
@@ -405,21 +410,7 @@ app.delete("/api/posters/:id", async (c) => {
   }
 });
 
-app.get("/api/tiles/:source/:z/:x/:y", async (c) => {
-  const { source, z, x, y } = c.req.param();
-  if (!isTileSource(source)) return c.json({ error: "unknown tile source" }, 404);
-  try {
-    const tile = await fetchTile(source, z, x, y.replace(/\.png$/, ""));
-    return new Response(new Uint8Array(tile.bytes), {
-      headers: {
-        "content-type": tile.contentType,
-        "cache-control": "public, max-age=86400",
-      },
-    });
-  } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : "tile failed" }, 502);
-  }
-});
+app.get("/api/tiles/:source/:z/:x/:y", tileHandler());
 
 const WEB_DIST = path.join(REPO_ROOT, "apps/web/dist");
 if (fs.existsSync(path.join(WEB_DIST, "index.html"))) {
