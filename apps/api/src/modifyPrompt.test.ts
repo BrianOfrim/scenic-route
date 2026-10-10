@@ -4,6 +4,16 @@ import { buildModifyPrompt, buildVariantPrompt, posterDesignHistory, MODIFY_SOUR
 
 const request = "Make the title larger and warm the paper.";
 
+test("annotation guidance links image 2 to the edit and shifts geographic references", () => {
+  const prompt = buildModifyPrompt({ request: "Make this darker", annotated: true, grounding: [{ role: "schematic" }] });
+  assert.match(prompt, /Images 3 onward are geographic grounding/);
+  assert.match(prompt, /Image 2 is an annotated copy of Image 1/);
+  assert.match(prompt, /magenta outlines with white borders mark the area referred to by the requested change/);
+  assert.match(prompt, /Do not reproduce any outlines/);
+  assert.match(prompt, /Image 3: schematic/);
+  assert.ok(prompt.endsWith("Make this darker"));
+});
+
 test("direct editing preserves the source and geometry and passes the request unchanged", () => {
   const prompt = buildModifyPrompt({ request, grounding: [{ role: "route-only" }, { role: "schematic" }, { role: "satellite" }] });
   assert.ok(prompt.startsWith(MODIFY_SOURCE_RULE));

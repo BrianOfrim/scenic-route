@@ -5,6 +5,7 @@ import { ReadyImage } from "./GalleryViewer";
 import { lineageFamily } from "./galleryRuns";
 import { ShareButton } from "../share";
 import { MOBILE_QUERY, useMediaQuery } from "../useMediaQuery";
+import { EditAnnotation, type AnnotationStrokes } from "./EditAnnotation";
 
 type Props = {
   source: PosterRecord;
@@ -32,6 +33,13 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
   const [request, setRequest] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [marking, setMarking] = useState(false);
+  const [annotation, setAnnotation] = useState<AnnotationStrokes>([]);
+
+  useEffect(() => {
+    setAnnotation([]);
+    setMarking(false);
+  }, [selected.posterId]);
 
   useEffect(() => {
     if (family.some((item) => item.posterId === selectedId)) return;
@@ -49,6 +57,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
         posterId: selected.posterId,
         activityId: selected.activityId, title: selected.title, styleId: selected.styleId, paletteId: selected.paletteId,
         request: text,
+        ...(annotation.length ? { annotation } : {}),
         variants: 1,
         model: selected.model,
       });
@@ -95,9 +104,20 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
         </p>
         <div className="refine-studio-stage single">
           <figure>
-            <ReadyImage src={selected.url} previewSrc={selected.thumbDataUrl} alt={selected.title} />
+            <div className="edit-annotation-stage">
+              <ReadyImage src={selected.url} previewSrc={selected.thumbDataUrl} alt={selected.title} />
+              <EditAnnotation key={`${selected.posterId}-${marking}-${busy}`} strokes={annotation} onChange={setAnnotation} disabled={busy || !marking} />
+            </div>
             <figcaption>{versionLabel(selected, original?.posterId)}</figcaption>
           </figure>
+        </div>
+        <div className="edit-annotation-tools">
+          <button type="button" className="text-btn" aria-pressed={marking} disabled={busy} onClick={() => setMarking(!marking)}>
+            {marking ? "Done marking" : "Mark an area"}
+          </button>
+          <button type="button" className="text-btn" disabled={busy || !annotation.length} onClick={() => setAnnotation(annotation.slice(0, -1))}>Undo mark</button>
+          <button type="button" className="text-btn" disabled={busy || !annotation.length} onClick={() => setAnnotation([])}>Clear marks</button>
+          <p className="muted">{marking ? "Circle or outline an area, then describe the change below." : "Optionally mark the area your edit refers to."}</p>
         </div>
         <form
           className="refine-studio-compose"
@@ -131,6 +151,9 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
               Download selected
             </a>
             <ShareButton url={selected.url} filename={`${selected.posterId}.png`} />
+            {selected.annotationUrl && (
+              <a className="text-btn" href={selected.annotationUrl} target="_blank" rel="noopener noreferrer">View saved annotation</a>
+            )}
           </div>
         </form>
         <div className="subheading">Versions</div>
