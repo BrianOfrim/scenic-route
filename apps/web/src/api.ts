@@ -200,6 +200,7 @@ export type PosterRecord = {
   createdAt: string;
   previousPosterId?: string;
   refineNotes?: string;
+  annotationUrl?: string;
   featureIds?: string[];
   labels?: string[];
   stats?: Array<{ label: string; value: string }>;
@@ -617,6 +618,7 @@ export async function modifyPoster(body: {
   paletteId?: string;
   variants?: number;
   model?: string;
+  annotation?: Array<Array<{ x: number; y: number }>>;
 }): Promise<PosterRecord[]> {
   return trackGeneration({ ...body, previousPosterId: body.posterId, title: body.title || "Refining image" }, async () => {
     const payload = await readJson<{ posters?: PosterRecord[] }>(

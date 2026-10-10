@@ -38,12 +38,14 @@ export async function posterDesignHistory(
 export function buildModifyPrompt(input: {
   request: string;
   grounding: Array<{ role: string }>;
+  annotated?: boolean;
 }): string {
   const request = input.request.trim();
   if (!request) throw new Error("a modification request is required");
   return [
-    MODIFY_SOURCE_RULE,
-    input.grounding.map((image, index) => `Image ${index + 2}: ${image.role}.`).join("\n"),
+    input.annotated ? MODIFY_SOURCE_RULE.replace("Later images are", "Images 3 onward are") : MODIFY_SOURCE_RULE,
+    input.annotated ? "Image 2 is an annotated copy of Image 1. The magenta outlines with white borders mark the area referred to by the requested change below. Apply that change to the indicated content in Image 1. These marks are guidance, not artwork or a strict pixel mask. Do not reproduce any outlines or annotation marks in the result. Preserve unrelated content." : "",
+    input.grounding.map((image, index) => `Image ${index + (input.annotated ? 3 : 2)}: ${image.role}.`).join("\n"),
     "Preserve the exact GPS route geometry, every segment, bend, crossing, out-and-back and gap, and its position relative to the geography. Do not add, omit, straighten or move route segments or geographic features. Keep the route continuous, unobscured and clearly contrasted against its background. Preserve north-up orientation. Do not invent place names.",
     "Keep the existing title, other text, landmarks, palette and style unless the requested change explicitly changes them. Do not print the edit instructions or reference-image headings.",
     TITLE_BLOCK_LAYOUT_RULE,

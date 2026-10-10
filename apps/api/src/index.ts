@@ -54,6 +54,7 @@ import {
   readPosterPng,
   readPosterRecord,
   readPosterRef,
+  readPosterAnnotation,
   readPosterThumb,
   setPosterFavorite,
 } from "./poster";
@@ -384,9 +385,17 @@ app.get("/api/posters/:id/thumb.webp", async (c) => {
   }
 });
 
-app.get("/api/posters/:id/ref-:n", async (c) => {
+app.get("/api/posters/:id/annotation.png", async (c) => {
   try {
-    const index = Number(String(c.req.param("n")).replace(/\.png$/i, ""));
+    return png(await readPosterAnnotation(currentUserId(c), c.req.param("id")));
+  } catch (error) {
+    return fail(c, error);
+  }
+});
+
+app.get("/api/posters/:id/:reference{ref-[0-9]+(?:[.]png)?}", async (c) => {
+  try {
+    const index = Number(c.req.param("reference").replace(/^ref-/, "").replace(/\.png$/i, ""));
     return png(await readPosterRef(currentUserId(c), c.req.param("id"), index));
   } catch (error) {
     return fail(c, error);

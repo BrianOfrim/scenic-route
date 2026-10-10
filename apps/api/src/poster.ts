@@ -15,6 +15,7 @@ import { posterStore } from "./storage";
 import { resolveReferences } from "./referenceUploads";
 import { encodePosterThumb } from "./thumb";
 import { withPosterQuota } from "./posterQuota";
+import { annotatedPoster, validateEditAnnotation, type EditAnnotation } from "./refinementAnnotation";
 
 export class PosterError extends Error {
   readonly status: 400 | 401 | 404 | 502 | 504;
@@ -50,6 +51,8 @@ export type PosterRecord = {
   createdAt: string;
   previousPosterId?: string;
   refineNotes?: string;
+  /** Exact annotated source image sent for this refinement, when present. */
+  annotationUrl?: string;
   featureIds?: string[];
   labels?: string[];
   stats?: Array<{ label: string; value: string }>;
@@ -195,6 +198,7 @@ export type ModifyPosterBody = {
   request: string;
   variants?: number;
   model?: string;
+  annotation?: EditAnnotation;
 };
 
 export type VariantPosterBody = {
@@ -271,12 +275,12 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
 }
 
 /** Only edits/variants may supply links minted from an owned poster. */
-async function generatePosterWithReferences(userId: string, body: GeneratePosterBody, source?: PosterRecord): Promise<PosterRecord[]> {
+async function generatePosterWithReferences(userId: string, body: GeneratePosterBody, source?: PosterRecord, annotationBytes?: Buffer): Promise<PosterRecord[]> {
   await requireGenerationConsent(userId);
-  return providerQueue("image").run(() => generateScheduledPoster(userId, body, source), undefined, userId);
+  return providerQueue("image").run(() => generateScheduledPoster(userId, body, source, annotationBytes), undefined, userId);
 }
 
-async function generateScheduledPoster(userId: string, body: GeneratePosterBody, source?: PosterRecord): Promise<PosterRecord[]> {
+async function generateScheduledPoster(userId: string, body: GeneratePosterBody, source?: PosterRecord, annotationBytes?: Buffer): Promise<PosterRecord[]> {
   const activityId = Number(body.activityId);
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new PosterError("activityId is required");
@@ -352,6 +356,7 @@ async function generateScheduledPoster(userId: string, body: GeneratePosterBody,
         createdAt: new Date().toISOString(),
         previousPosterId: body.previousPosterId,
         refineNotes: body.refineNotes?.trim() || undefined,
+        annotationUrl: annotationBytes ? `/api/posters/${posterId}/annotation.png` : undefined,
         featureIds: body.featureIds ?? [],
         labels: body.labels ?? [],
         stats: body.stats ?? spec.text.stats,
@@ -367,6 +372,7 @@ async function generateScheduledPoster(userId: string, body: GeneratePosterBody,
       };
       const posterBytes = Buffer.from(image.b64, "base64");
       await store.put(userId, `${posterId}.png`, posterBytes, sniffImageMime(posterBytes) || image.mediaType || "image/png");
+      if (annotationBytes) await store.put(userId, `${posterId}.annotation.png`, annotationBytes, "image/png");
       await Promise.all(
         decoded.map((ref, refIndex) =>
           store.put(userId, `${posterId}.ref-${refIndex + 1}.png`, ref.bytes, sniffImageMime(ref.bytes) || ref.mime),
@@ -383,6 +389,9 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
   await requireGenerationConsent(userId);
   const request = body.request?.trim() ?? "";
   if (!request) throw new PosterError("a modification request is required");
+  let annotation: EditAnnotation;
+  try { annotation = validateEditAnnotation(body.annotation); }
+  catch { throw new PosterError("Invalid edit annotation"); }
   const source = await readPosterRecord(userId, body.posterId);
   if (!source) throw new PosterError("image not found", 404);
   if (!source.spec || source.prompt == null) throw new PosterError("image is missing prompt data", 502);
@@ -398,11 +407,16 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
   const history = await posterDesignHistory(source, id => readPosterRecord(userId, id));
   history.editRequests.push(request);
   const model = resolveImageModel(body.model ?? source.model);
-  const references = modifyImageReferences(previousUrl, groundingLinks, await maxImageReferences(model));
+  const maxRefs = await maxImageReferences(model);
+  if (annotation.length && maxRefs < 3) throw new PosterError("This model cannot accept an annotation alongside the poster and geographic reference. Clear the annotation to continue.");
+  const annotationBytes = annotation.length ? await annotatedPoster(previousBytes, annotation) : undefined;
+  const annotatedUrl = annotationBytes ? pngDataUrl(annotationBytes) : null;
+  const references = modifyImageReferences(previousUrl, annotatedUrl ? [annotatedUrl, ...groundingLinks] : groundingLinks, maxRefs);
   const groundingImages = source.spec.grounding.images;
   const prompt = buildModifyPrompt({
     request,
-    grounding: references.slice(1).map((_, index) => ({
+    annotated: Boolean(annotatedUrl),
+    grounding: references.slice(annotatedUrl ? 2 : 1).map((_, index) => ({
       role: groundingImages[index]?.role || "geographic grounding",
     })),
   });
@@ -430,7 +444,7 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
     promptCost: 0,
     editor: source.editor,
     label: "modify",
-  }, source);
+  }, source, annotationBytes);
 }
 
 /** Another image from the original brief plus edits and grounding. */
@@ -495,6 +509,7 @@ export function toPosterListItem(record: PosterRecord): PosterRecord {
     createdAt: record.createdAt,
     previousPosterId: record.previousPosterId,
     refineNotes: record.refineNotes,
+    annotationUrl: record.annotationUrl ? `/api/posters/${record.posterId}/annotation.png` : undefined,
     styleId: record.styleId,
     styleName,
     paletteId: record.paletteId,
@@ -626,6 +641,13 @@ export async function readPosterRef(userId: string, posterId: string, index: num
   if (!isSafePosterId(posterId) || index < 1) throw new PosterError("reference not found", 404);
   const bytes = await posterStore().get(userId, `${posterId}.ref-${index}.png`);
   if (!bytes) throw new PosterError("reference not found", 404);
+  return bytes;
+}
+
+export async function readPosterAnnotation(userId: string, posterId: string): Promise<Buffer> {
+  if (!isSafePosterId(posterId)) throw new PosterError("annotation not found", 404);
+  const bytes = await posterStore().get(userId, `${posterId}.annotation.png`);
+  if (!bytes) throw new PosterError("annotation not found", 404);
   return bytes;
 }
 

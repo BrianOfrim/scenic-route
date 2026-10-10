@@ -12,6 +12,7 @@ import { createLocalStore, resetPosterStore } from "./storage";
 import { getActivity, deleteImportedByIds } from "./activities";
 import { buildInitialPoster } from "./planner";
 import type { AuthUser } from "./auth";
+import sharp from "sharp";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "scenic-authorization-"));
 const store = createLocalStore(root);
@@ -45,6 +46,7 @@ before(async () => {
   await store.put(alice.id, `${posterId}.png`, Buffer.from("private image"), "image/png");
   await store.put(alice.id, `${posterId}.thumb.webp`, Buffer.from("private thumbnail"), "image/webp");
   await store.put(alice.id, `${posterId}.ref-1.png`, Buffer.from("private grounding"), "image/png");
+  await store.put(alice.id, `${posterId}.annotation.png`, Buffer.from("private annotation"), "image/png");
 });
 after(async () => {
   policyEnv.forEach((name, index) => {
@@ -103,10 +105,10 @@ test("activity IDs are resolved inside the session account, including overlappin
 });
 
 test("guessed poster IDs cannot read, share/download, edit, delete or generate from another account", async () => {
-  for (const suffix of ["", "/image.png", "/thumb.webp", "/ref-1.png"]) {
+  for (const suffix of ["", "/image.png", "/thumb.webp", "/ref-1.png", "/annotation.png"]) {
     const url = `/api/posters/${posterId}${suffix}`;
     assert.equal((await request(null, url)).status, 401);
-    assert.equal((await request(bob, url)).status, 404);
+    assert.equal((await request(bob, url)).status, 404, url);
     const own = await request(alice, url);
     assert.equal(own.status, 200);
     if (suffix) assert.equal(own.headers.get("cache-control"), "private, no-store");
@@ -135,6 +137,59 @@ test("persisted images cannot authorize client-supplied remote references", asyn
   });
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /base64 data URLs/);
+});
+
+test("annotated refinement retains the exact provider input independently of its source", async t => {
+  const sourceId = "20261010T140000Z-ab1234";
+  const originalKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const png = await sharp({ create: { width: 100, height: 150, channels: 3, background: "white" } }).png().toBuffer();
+  let annotatedInput: Buffer | undefined;
+  let outputId: string | undefined;
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/images/models")) return Response.json({ data: [{ id: "google/gemini-test-image", max_input_references: 3, max_images: 1 }] });
+    if (url.endsWith("/endpoints")) return Response.json({ data: { max_input_references: 3 } });
+    assert.equal(url, "https://openrouter.ai/api/v1/images");
+    const body = JSON.parse(String(init?.body));
+    annotatedInput = Buffer.from(body.input_references[1].image_url.url.split(",")[1], "base64");
+    return Response.json({ data: [{ b64_json: png.toString("base64"), media_type: "image/png" }] });
+  });
+  try {
+    await store.put(alice.id, `${sourceId}.json`, Buffer.from(JSON.stringify({
+      posterId: sourceId, userId: alice.id, activityId: 42, title: "Saved ride", subtitle: "",
+      spec, prompt: "Saved brief", referenceCount: 1, model: "google/gemini-test-image", aspectRatio: "3:4",
+    })), "application/json");
+    await store.put(alice.id, `${sourceId}.png`, png, "image/png");
+    await store.put(alice.id, `${sourceId}.ref-1.png`, png, "image/png");
+    const response = await request(alice, "/api/poster/modify", "POST", {
+      posterId: sourceId, request: "Darken this area", variants: 1,
+      annotation: [[{ x: 0.25, y: 0.5 }, { x: 0.75, y: 0.5 }]],
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(payload));
+    const output = payload.posters[0];
+    outputId = output.posterId;
+    assert.equal(output.annotationUrl, `/api/posters/${outputId}/annotation.png`);
+    assert.equal(output.referenceCount, 1, "annotation is not a geographic reference");
+    const record = JSON.parse((await store.get(alice.id, `${outputId}.json`))!.toString());
+    assert.equal(record.annotationUrl, output.annotationUrl);
+    const page = await (await request(alice, "/api/posters/page")).json();
+    assert.equal(page.posters.find((p: { posterId: string }) => p.posterId === outputId).annotationUrl, output.annotationUrl);
+    await store.removeByPosterId(alice.id, sourceId);
+    const saved = await request(alice, output.annotationUrl);
+    assert.equal(saved.status, 200);
+    assert.deepEqual(Buffer.from(await saved.arrayBuffer()), annotatedInput);
+    assert.equal((await request(bob, output.annotationUrl)).status, 404);
+    assert.equal((await request(null, output.annotationUrl)).status, 401);
+    await store.removeByPosterId(alice.id, outputId!);
+    assert.equal((await request(alice, output.annotationUrl)).status, 404);
+  } finally {
+    await store.removeByPosterId(alice.id, sourceId);
+    if (outputId) await store.removeByPosterId(alice.id, outputId);
+    if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalKey;
+  }
 });
 
 test("gallery pages are account scoped and return only slim poster metadata", async () => {
