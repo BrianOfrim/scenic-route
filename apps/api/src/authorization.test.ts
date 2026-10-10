@@ -136,3 +136,47 @@ test("persisted images cannot authorize client-supplied remote references", asyn
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /base64 data URLs/);
 });
+
+test("gallery pages are account scoped and return only slim poster metadata", async () => {
+  assert.equal((await request(null, "/api/posters/page")).status, 401);
+  const foreign = await request(bob, "/api/posters/page");
+  assert.equal(foreign.status, 200);
+  assert.deepEqual(await foreign.json(), { posters: [], nextCursor: null });
+  const own = await request(alice, "/api/posters/page");
+  assert.equal(own.status, 200);
+  assert.equal(own.headers.get("cache-control"), "private, no-store");
+  const page = await own.json();
+  assert.deepEqual(page.posters.map((p: { posterId: string }) => p.posterId), [posterId]);
+  assert.equal(page.posters[0].spec, undefined);
+  assert.equal(page.posters[0].prompt, undefined);
+  assert.equal(page.nextCursor, null);
+  assert.equal((await request(alice, "/api/posters/page?before=..%2Fbad")).status, 400);
+});
+
+test("gallery first page reads only 24 records and older pages have no duplicates", async () => {
+  const ids = Array.from({ length: 30 }, (_, index) => `20261010T${String(index).padStart(6, "0")}Z-abcdef`);
+  let reads = 0;
+  try {
+    for (const id of ids) {
+      await store.put(alice.id, `${id}.json`, Buffer.from(JSON.stringify({
+        posterId: id, userId: alice.id, activityId: 42, title: "Test page", createdAt: id,
+      })), "application/json");
+    }
+    resetPosterStore({ ...store, async get(userId, name) {
+      if (name.endsWith(".json")) reads += 1;
+      return store.get(userId, name);
+    } });
+    const first = await (await request(alice, "/api/posters/page")).json();
+    assert.equal(first.posters.length, 24);
+    assert.equal(reads, 24);
+    const second = await (await request(alice, `/api/posters/page?before=${first.nextCursor}`)).json();
+    assert.equal(second.posters.length, 7);
+    assert.equal(second.nextCursor, null);
+    const allIds = [...first.posters, ...second.posters].map(p => p.posterId);
+    assert.equal(new Set(allIds).size, 31);
+    assert.ok(allIds.includes(posterId));
+  } finally {
+    resetPosterStore(store);
+    for (const id of ids) await store.removeByPosterId(alice.id, id);
+  }
+});

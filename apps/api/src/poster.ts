@@ -519,6 +519,28 @@ export async function listPosters(userId: string, activityId?: number): Promise<
   return rows.map(toPosterListItem);
 }
 
+export const POSTER_LIST_PAGE_SIZE = 24;
+
+/** Poster IDs begin with their creation timestamp; page newest first without reading every record. */
+export function posterPageIds(names: string[], before?: string) {
+  const ids = names
+    .filter(name => name.endsWith(".json"))
+    .map(name => name.slice(0, -".json".length))
+    .filter(id => isSafePosterId(id) && (!before || id < before))
+    .sort().reverse();
+  const page = ids.slice(0, POSTER_LIST_PAGE_SIZE);
+  return { ids: page, nextCursor: ids.length > page.length ? page.at(-1)! : null };
+}
+
+export async function listPosterPage(userId: string, before?: string) {
+  await rebindReusedActivityPosters(userId);
+  const page = posterPageIds(await posterStore().listJsonNames(userId), before);
+  const loaded = await mapWithConcurrency(page.ids, LIST_POSTER_CONCURRENCY, id => readPosterRecord(userId, id));
+  const posters = loaded.filter((record): record is PosterRecord => record != null).map(toPosterListItem);
+  posters.sort((a, b) => a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0);
+  return { posters, nextCursor: page.nextCursor };
+}
+
 const REBIND_FLAG_PREFIX = "poster_activity_rebind_v1:";
 
 /** Move posters off an activity id that was recycled for a different route. Runs once per user. */

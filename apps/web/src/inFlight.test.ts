@@ -50,3 +50,29 @@ test("an older in-flight call is not joined after the window", async () => {
   assert.equal(await first, 1);
   assert.equal(await second, 2);
 });
+
+test("shared requests publish progress to every subscriber, including a StrictMode remount", async () => {
+  let publish!: (value: number) => void;
+  let finish!: () => void;
+  const gate = new Promise<void>(resolve => { finish = resolve; });
+  let calls = 0;
+  const load = shareRecentRequests(1_000, async (_key: string, progress: (value: number) => void) => {
+    calls += 1;
+    publish = progress;
+    await gate;
+    return 3;
+  });
+  const firstProgress: number[] = [];
+  const secondProgress: number[] = [];
+  const first = load("gallery", value => firstProgress.push(value));
+  await Promise.resolve();
+  publish(1);
+  const second = load("gallery", value => secondProgress.push(value));
+  publish(2);
+  assert.equal(first, second);
+  assert.deepEqual(firstProgress, [1, 2]);
+  assert.deepEqual(secondProgress, [1, 2]);
+  finish();
+  assert.equal(await second, 3);
+  assert.equal(calls, 1);
+});

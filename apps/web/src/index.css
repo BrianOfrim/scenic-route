@@ -2736,9 +2736,9 @@ button.map-schematic-tip-name:focus-visible {
   scroll-snap-align: start;
 }
 
-.gallery-run-row .gallery-card img {
+.gallery-run-row .gallery-thumbnail {
   height: 220px;
-  object-fit: contain;
+  aspect-ratio: auto;
 }
 
 .gallery-grid {
@@ -2852,7 +2852,7 @@ button.map-schematic-tip-name:focus-visible {
   transform: rotate(-5deg);
 }
 
-.gallery-stack > img {
+.gallery-stack > .gallery-thumbnail {
   position: relative;
   z-index: 1;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
@@ -2887,6 +2887,70 @@ button.map-schematic-tip-name:focus-visible {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.gallery-thumbnail {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #0c0e0a;
+}
+
+.gallery-thumbnail img {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+}
+
+.gallery-thumbnail.loaded img {
+  opacity: 1;
+}
+
+.gallery-thumbnail-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+  background: linear-gradient(135deg, var(--panel), color-mix(in srgb, var(--panel) 75%, var(--line)));
+}
+
+.gallery-thumbnail-placeholder svg {
+  width: 44px;
+  height: 44px;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.5;
+}
+
+.gallery-thumbnail-placeholder small {
+  font-size: var(--text-caption);
+}
+
+.gallery-loading-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 10px;
+  min-height: 56px;
+}
+
+.gallery-loading-caption i {
+  width: 75%;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line);
+}
+
+.gallery-loading-caption i:last-child {
+  width: 45%;
 }
 
 .gallery-fav {
@@ -3939,7 +4003,7 @@ button.map-schematic-tip-name:focus-visible {
     gap: 10px;
   }
 
-  .gallery-run-row .gallery-card img {
+  .gallery-run-row .gallery-thumbnail {
     height: 180px;
   }
 

@@ -3,7 +3,7 @@ import { pollPosterJobs } from "../api";
 import { forgetArrivedPoster, getArrivedEpoch, getArrivedPosters, useArrivedEpoch } from "./arrivedPosters";
 import { clearFailedImage, generationPhaseLabels, useGenerationState, type PendingImage } from "./generationState";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { deletePoster, fetchActivities, fetchPoster, fetchPosterImage, fetchPosters, setPosterFavorite, variantPoster, type PosterRecord } from "../api";
+import { deletePoster, fetchActivities, fetchPoster, fetchPosterImage, fetchGalleryPosters, setPosterFavorite, variantPoster, type PosterRecord } from "../api";
 import { posterVariantLabel, shortQualityLabel } from "../poster/imageModels";
 import { AUTO_PALETTE_ID, paletteChoiceLabel, showsPalettePicker, styleById, styleLabel } from "../poster/styles";
 import { galleryRuns, gallerySections, lineageFamily, runHeadline, sortGalleryRuns, viewerSiblings, viewerThumbStacks, type GallerySort } from "./galleryRuns";
@@ -13,6 +13,7 @@ import { GalleryViewer, type GalleryImage } from "./GalleryViewer";
 import { RefineStudio } from "./RefineStudio";
 import { GalleryActionBar } from "./GalleryActionBar";
 import { MOBILE_QUERY, useMediaQuery } from "../useMediaQuery";
+import { GalleryLoadingCards, GalleryThumbnail } from "./GalleryThumbnail";
 
 type Props = {
   onEditSetup: (poster: PosterRecord) => void;
@@ -92,6 +93,7 @@ function GalleryCard({
 }) {
   const favorited = Boolean(poster.favorited);
   const stacked = versionCount > 1;
+  const imageSrc = posterCardSrc(poster);
   return (
     <div className={`gallery-card${stacked ? " stacked" : ""}${selected ? " selected" : ""}`}>
       <button
@@ -106,13 +108,13 @@ function GalleryCard({
           <div className="gallery-stack">
             {versionCount > 2 ? <span className="gallery-stack-sheet a" aria-hidden="true" /> : null}
             <span className="gallery-stack-sheet b" aria-hidden="true" />
-            <img src={posterCardSrc(poster)} alt="" />
+            <GalleryThumbnail key={imageSrc} src={imageSrc} alt="" />
             <span className="gallery-stack-count" title={`${versionCount} versions`}>
               {versionCount}
             </span>
           </div>
         ) : (
-          <img src={posterCardSrc(poster)} alt={poster.title} />
+          <GalleryThumbnail key={imageSrc} src={imageSrc} alt={poster.title} />
         )}
         <span>
           {title ? <strong>{title}</strong> : null}
@@ -164,6 +166,7 @@ function GalleryPendingCard({ image }: { image: PendingImage }) {
 
 function GalleryRun({
   posters,
+  loading,
   allPosters,
   versionCount,
   onOpen,
@@ -174,6 +177,7 @@ function GalleryRun({
   onToggleSelection,
 }: {
   posters: GalleryPoster[];
+  loading: boolean;
   allPosters: PosterRecord[];
   versionCount: (poster: PosterRecord) => number;
   onOpen: (poster: PosterRecord) => void;
@@ -226,6 +230,7 @@ function GalleryRun({
             />
           );
         })}
+        <GalleryLoadingCards knownCount={posters.length} loading={loading} />
       </div>
     </section>
   );
@@ -275,7 +280,10 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     const startedEpoch = getArrivedEpoch();
     let cancelled = false;
     if (postersRef.current.length === 0 && startedEpoch === 0) setLoading(true);
-    fetchPosters()
+    fetchGalleryPosters((items) => {
+      if (cancelled || startedEpoch !== getArrivedEpoch()) return;
+      setPosters(current => unionPosters(current, items).filter(image => !removedIds.current.has(image.posterId)));
+    })
       .then((items) => {
         if (cancelled) return;
         setPosters((current) => refreshPosterList(current, items, startedEpoch, getArrivedEpoch()).filter(image => !removedIds.current.has(image.posterId)));
@@ -656,6 +664,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
             <GalleryRun
               key={section.run.key}
               posters={section.run.posters}
+              loading={loading}
               allPosters={posters}
               versionCount={versionCount}
               selecting={selecting}
@@ -670,7 +679,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         {loading ? (
           <p className="muted feature-query-block">
             <span className="spinner" aria-hidden="true" />
-            Loading images…
+            {posters.length ? "Loading more images…" : "Loading activities…"}
           </p>
         ) : !visible.length && !generation.pending.length && !generation.failed.length ? (
           <p className="muted">{favoritesOnly ? "No favourited images yet." : "No images yet."}</p>
