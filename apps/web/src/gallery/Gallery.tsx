@@ -246,6 +246,8 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
   const postersRef = useRef(posters);
   postersRef.current = posters;
   const [error, setError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [studioFrom, setStudioFrom] = useState<PosterRecord | null>(null);
   const [active, setActive] = useState<PosterRecord | null>(null);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -283,16 +285,15 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     fetchGalleryPosters((items) => {
       if (cancelled || startedEpoch !== getArrivedEpoch()) return;
       setPosters(current => unionPosters(current, items).filter(image => !removedIds.current.has(image.posterId)));
+      setListError(null);
     })
       .then((items) => {
         if (cancelled) return;
         setPosters((current) => refreshPosterList(current, items, startedEpoch, getArrivedEpoch()).filter(image => !removedIds.current.has(image.posterId)));
-        setError((current) =>
-          current === "Failed to fetch" || current === "Could not load images" ? null : current,
-        );
+        setListError(null);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(galleryLoadError(err));
+        if (!cancelled) setListError(galleryLoadError(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -300,7 +301,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
     return () => {
       cancelled = true;
     };
-  }, [generation.revision]);
+  }, [generation.revision, loadAttempt]);
 
   useEffect(() => {
     if (!openPosterId || loading) return;
@@ -600,6 +601,16 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         </section>
       )}
       {selectionNotice && <p className="muted banner" role="status">{selectionNotice}</p>}
+      {listError && (
+        <p className="error banner" role="alert">
+          {listError}{" "}
+          <button type="button" className="text-btn" onClick={() => {
+            setListError(null);
+            setLoading(true);
+            setLoadAttempt(attempt => attempt + 1);
+          }}>Retry loading images</button>
+        </p>
+      )}
       {error && <p className="error banner">{error}</p>}
       {generation.error && <p className="error banner">{generation.error}</p>}
       <div className="gallery-runs">
