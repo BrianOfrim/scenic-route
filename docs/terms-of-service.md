@@ -1,26 +1,28 @@
 # Terms of Service
 
-Draft for review — October 9, 2026. Not yet effective. This incomplete draft describes proposed beta terms and is not an agreement users are asked to accept. Publication and legal review remain pending.
+Effective date: October 10, 2026.
 
-## Operator and contact
+## About Scenic Route
 
-Scenic Route is operated by Brian Ofrim in Alberta, Canada. Contact [info@scenic-route.ca](mailto:info@scenic-route.ca) for service questions or concerns. See the [draft Privacy Policy](/privacy) for data practices.
+Scenic Route turns GPS activities into artwork and is operated by Brian Ofrim in Alberta, Canada. Contact [info@scenic-route.ca](mailto:info@scenic-route.ca) with questions or concerns. Our [Privacy Policy](/privacy) explains how we handle your information.
 
-## Proposed beta and eligibility
+## Your account and the free beta
 
-The planned free public beta is for residents of Canada and the United States. The application admits up to 100 accounts. When that capacity is full, new email and Google signups are waitlisted until an operator admits them. A waitlisted account can sign in, manage the account, and request deletion; imports and poster generation stay unavailable until admission. You must be at least 13 years old to use Scenic Route. Keep your account credentials secure and provide accurate account information. One combined agreement checkbox confirms that you are at least 13, accepts the configured Terms, and consents to the described AI processing. Age confirmation, Terms acceptance, and AI consent are recorded separately with their relevant versions. Those checks stay inactive until approved versions and routes are configured, and they do not collect a birth date or place of residence. Canada and United States residency are not checked. This draft is not an approved Terms version and is not a request to accept terms.
+The free public beta is for residents of Canada and the United States aged 13 and older. By agreeing to these Terms, you confirm that you meet that age requirement. Keep your account credentials secure and provide accurate account information.
 
-The planned allowance is 50 generated images per account per UTC calendar month, including edits and variants. Each generated image counts individually; a request for multiple variants can use multiple images. The allowance resets at the beginning of each UTC month and does not roll over. Availability and limits may change with notice; no payment is required for this beta.
+The beta has space for 100 accounts. If it is full, you can join the waitlist. While waiting, you can sign in, manage your account, or delete it, but you cannot import activities or generate artwork until you are admitted.
+
+Each account can generate 50 images per UTC calendar month, including edits and variants. Each generated image counts individually, so creating multiple variants uses multiple images from your allowance. The allowance resets at the beginning of each UTC month and does not roll over. We may change availability or limits with notice. No payment is required for this beta.
 
 ## Uploads and permission
 
 Only upload activity files, photographs, names, and other content you have the right and permission to use and disclose for this service. Obtain any necessary permission from people depicted or identified and from rights holders. Route files can reveal homes, routines, and precise locations; review them before upload and before sharing artwork. Do not upload sensitive information you do not want processed by the service and its providers.
 
-You retain any rights you already have in your uploads. You grant Brian Ofrim a non-exclusive license to store, copy, transform, and transmit your submitted content to service providers as needed to operate, secure, troubleshoot, and provide the requested service, including generating and editing artwork. This is not a license to use your uploads in public advertising. Retention and deletion limitations are described in the Privacy Policy.
+You retain any rights you already have in your uploads. You give Brian Ofrim a non-exclusive permission to store, copy, transform, and send your content to service providers as needed to provide, protect, and troubleshoot Scenic Route, including generating and editing artwork. This permission does not allow us to use your uploads in public advertising. Our [Privacy Policy](/privacy) explains retention and deletion.
 
 ## AI processing for poster creation
 
-Generating and refining posters uses external AI services. To provide those features, we send selected route context, route-derived reference images, your selected text and prompts to OpenRouter and the model providers it routes to. Refinement also sends the current poster. The combined agreement checkbox covers age confirmation, acceptance of these Terms, and consent to this processing, with a visible explanation before agreement. See the [Privacy Policy](/privacy) for provider practices, retention limitations, and how to withdraw consent.
+We use OpenRouter and Meta’s Muse Image model to generate and edit artwork. They receive the route images, selected route details, text, and prompts needed for your request, including your current poster when refining it. Your agreement includes consent to this processing. Our [Privacy Policy](/privacy) explains provider practices, retention, and how to withdraw consent.
 
 ## Acceptable use
 
@@ -40,6 +42,8 @@ This experimental beta may have errors, delays, interruptions, or lost work. Kee
 
 To the extent permitted by applicable law, the beta is provided as available without a promise that output is accurate or service is uninterrupted. Each party remains responsible for its own conduct. To the extent permitted by law, Brian Ofrim will not be liable for indirect or consequential losses arising from the beta, such as lost profits or lost opportunities. Nothing excludes liability that cannot lawfully be excluded, including fraud, wilful misconduct, or applicable mandatory consumer or privacy rights.
 
-## Applicable law and future terms
+## Applicable law and changes to these Terms
 
-The proposed terms are governed by the laws of Alberta and applicable federal Canadian law, subject to mandatory protections and rights in your place of residence. Contact us first if you have a concern; this does not limit access to courts or regulators. Final terms will identify their effective date and material changes before users are asked to accept them.
+These Terms are governed by the laws of Alberta and applicable federal Canadian law, subject to mandatory protections and rights where you live. Contact us if you have a concern; this does not limit your access to courts or regulators.
+
+We will publish updated [Terms of Service](/terms) on this page with an effective date and give notice of material changes. When renewed acceptance is required, we will ask you to agree before continuing to use the service.

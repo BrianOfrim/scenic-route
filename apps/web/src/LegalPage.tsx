@@ -28,7 +28,6 @@ export function LegalPage({ document }: { document: string }) {
     <main id="policy-content" tabIndex={-1}>
       <article aria-labelledby="policy-title">
         <h1 id="policy-title">{title}</h1>
-        <aside className="legal-draft" aria-label="Draft status">Draft for review. Not yet effective. Publication and legal review are pending.</aside>
         {blocks.slice(1).map((block, index) => block.startsWith("## ")
           ? <h2 key={index}>{block.slice(3)}</h2>
           : <p key={index}>{inline(block.replace(/\n/g, " "))}</p>)}
