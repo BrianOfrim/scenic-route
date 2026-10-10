@@ -2336,6 +2336,10 @@ button.map-schematic-tip-name:focus-visible {
 }
 
 .refine-studio-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-width: 0;
   margin: 0;
   padding: 0;
   border: 1px solid var(--line);
@@ -2353,6 +2357,7 @@ button.map-schematic-tip-name:focus-visible {
 }
 
 .refine-studio-card img {
+  flex-shrink: 0;
   width: 100%;
   height: 200px;
   display: block;
@@ -2365,6 +2370,9 @@ button.map-schematic-tip-name:focus-visible {
   padding: 8px 10px;
   font-size: var(--text-caption);
   color: var(--accent-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .refine-studio-card.on {
