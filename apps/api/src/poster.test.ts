@@ -11,8 +11,24 @@ import {
   toPosterListItem,
   variantCount,
   type PosterRecord,
+  posterPageIds,
+  POSTER_LIST_PAGE_SIZE,
 } from "./poster";
 import { MARKER_PLACEMENT_RULE, SINGLE_ROUTE_RULE, specToImagePrompt, validatePosterSpec } from "./posterSpec";
+
+test("poster pagination reads a bounded newest-first slice and continues even if the cursor was deleted", () => {
+  const ids = Array.from({ length: 30 }, (_, index) => `20261010T${String(index).padStart(6, "0")}Z-abcdef`);
+  const names = [...ids.map(id => `${id}.json`), "unrelated.txt", "../unsafe.json"];
+  const first = posterPageIds(names);
+  assert.equal(first.ids.length, POSTER_LIST_PAGE_SIZE);
+  assert.deepEqual(first.ids, [...ids].reverse().slice(0, POSTER_LIST_PAGE_SIZE));
+  assert.equal(first.nextCursor, first.ids.at(-1));
+  const remainingNames = names.filter(name => name !== `${first.nextCursor}.json`);
+  const second = posterPageIds(remainingNames, first.nextCursor!);
+  assert.deepEqual(second.ids, ids.slice(0, 6).reverse());
+  assert.equal(second.nextCursor, null);
+  assert.deepEqual(posterPageIds([], first.nextCursor!), { ids: [], nextCursor: null });
+});
 
 test("clampVariants keeps requests in 1–10 and defaults to 4", () => {
   assert.equal(DEFAULT_VARIANTS, 4);

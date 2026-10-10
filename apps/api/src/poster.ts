@@ -271,17 +271,20 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
 }
 
 /** Only edits/variants may supply links minted from an owned poster. */
-async function generatePosterWithReferences(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
+async function generatePosterWithReferences(userId: string, body: GeneratePosterBody, source?: PosterRecord): Promise<PosterRecord[]> {
   await requireGenerationConsent(userId);
-  return providerQueue("image").run(() => generateScheduledPoster(userId, body), undefined, userId);
+  return providerQueue("image").run(() => generateScheduledPoster(userId, body, source), undefined, userId);
 }
 
-async function generateScheduledPoster(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
+async function generateScheduledPoster(userId: string, body: GeneratePosterBody, source?: PosterRecord): Promise<PosterRecord[]> {
   const activityId = Number(body.activityId);
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new PosterError("activityId is required");
   }
-  if (!(await getActivity(userId, activityId))) {
+  // Edits and variants already loaded an owned poster with its saved grounding.
+  // Its activity may have been removed; new generation still needs an owned activity.
+  const ownedSource = source?.userId === userId && source.activityId === activityId;
+  if (!ownedSource && !(await getActivity(userId, activityId))) {
     throw new PosterError("activity not found", 404);
   }
   const spec = validatePosterSpec(body.spec);
@@ -427,7 +430,7 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
     promptCost: 0,
     editor: source.editor,
     label: "modify",
-  });
+  }, source);
 }
 
 /** Another image from the original brief plus edits and grounding. */
@@ -465,7 +468,7 @@ export async function variantPoster(userId: string, body: VariantPosterBody): Pr
     promptCost: 0,
     editor: source.editor,
     label: "variant",
-  });
+  }, source);
 }
 
 function newBatchId() {
@@ -517,6 +520,28 @@ export async function listPosters(userId: string, activityId?: number): Promise<
   });
   rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   return rows.map(toPosterListItem);
+}
+
+export const POSTER_LIST_PAGE_SIZE = 24;
+
+/** Poster IDs begin with their creation timestamp; page newest first without reading every record. */
+export function posterPageIds(names: string[], before?: string) {
+  const ids = names
+    .filter(name => name.endsWith(".json"))
+    .map(name => name.slice(0, -".json".length))
+    .filter(id => isSafePosterId(id) && (!before || id < before))
+    .sort().reverse();
+  const page = ids.slice(0, POSTER_LIST_PAGE_SIZE);
+  return { ids: page, nextCursor: ids.length > page.length ? page.at(-1)! : null };
+}
+
+export async function listPosterPage(userId: string, before?: string) {
+  await rebindReusedActivityPosters(userId);
+  const page = posterPageIds(await posterStore().listJsonNames(userId), before);
+  const loaded = await mapWithConcurrency(page.ids, LIST_POSTER_CONCURRENCY, id => readPosterRecord(userId, id));
+  const posters = loaded.filter((record): record is PosterRecord => record != null).map(toPosterListItem);
+  posters.sort((a, b) => a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0);
+  return { posters, nextCursor: page.nextCursor };
 }
 
 const REBIND_FLAG_PREFIX = "poster_activity_rebind_v1:";

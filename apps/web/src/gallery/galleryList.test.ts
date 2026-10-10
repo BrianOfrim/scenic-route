@@ -4,6 +4,7 @@ import type { PosterRecord } from "../api";
 import { galleryPosters, isPendingPoster, mergePosterList, posterCardSrc, refreshPosterList, unionPosters } from "./galleryList";
 import { galleryRuns, gallerySections, sortGalleryRuns } from "./galleryRuns";
 import { unzipSync } from "fflate";
+import { loadPosterPages } from "./posterPages";
 import { deleteGalleryImages, galleryArchive, selectedGalleryImages } from "./gallerySelection";
 
 function item(overrides: Partial<PosterRecord> = {}): PosterRecord {
@@ -23,6 +24,35 @@ function item(overrides: Partial<PosterRecord> = {}): PosterRecord {
     ...overrides,
   };
 }
+
+test("gallery publishes the first page while the rest of the metadata is still loading", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const cursors: (string | undefined)[] = [];
+  const updates: string[][] = [];
+  const loaded = loadPosterPages(async before => {
+    cursors.push(before);
+    if (!before) return { posters: [item({ posterId: "new" })], nextCursor: "new" };
+    await gate;
+    return { posters: [item({ posterId: "old", createdAt: "2026-09-23T00:00:00Z" })], nextCursor: null };
+  }, posters => updates.push(posters.map(p => p.posterId)));
+  await Promise.resolve();
+  assert.deepEqual(updates, [["new"]]);
+  assert.deepEqual(cursors, [undefined, "new"]);
+  release();
+  assert.deepEqual((await loaded).map(p => p.posterId), ["new", "old"]);
+  assert.deepEqual(updates, [["new"], ["new", "old"]]);
+});
+
+test("gallery pagination keeps progress when a later page fails and rejects repeated cursors", async () => {
+  const updates: string[][] = [];
+  await assert.rejects(loadPosterPages(async before => {
+    if (before) throw new Error("Network unavailable");
+    return { posters: [item()], nextCursor: "next" };
+  }, posters => updates.push(posters.map(p => p.posterId))), /Network unavailable/);
+  assert.deepEqual(updates, [["p1"]]);
+  await assert.rejects(loadPosterPages(async () => ({ posters: [], nextCursor: "repeated" }), () => {}), /Could not finish loading/);
+});
 
 test("bulk selection only targets displayed images, never hidden versions or filtered images", () => {
   const visible = [item({ posterId: "latest" }), item({ posterId: "other" })];

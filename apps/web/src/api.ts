@@ -3,6 +3,7 @@ import { noteArrivedPosters } from "./gallery/arrivedPosters";
 import { trackGeneration, setServerGenerationJobs, mergeServerGenerationJobs, type ServerGenerationJob, type GenerationTask } from "./gallery/generationState";
 import type { FeatureCollection, LineString } from "geojson";
 import { coalesceRequests, shareRecentRequests } from "./inFlight";
+import { loadPosterPages, type PosterPage } from "./gallery/posterPages";
 
 export type ActivityOrigin = "upload" | "archive";
 export type ActivityFormat = "gpx" | "fit" | "tcx";
@@ -653,6 +654,22 @@ const loadRecentPosterList = shareRecentRequests(100, async (qs: string) => {
 export function fetchPosters(activityId?: number): Promise<PosterRecord[]> {
   const qs = activityId != null ? `?activityId=${activityId}` : "";
   return loadRecentPosterList(qs);
+}
+
+const loadRecentGalleryList = shareRecentRequests(100, async (_key: string, publish: (posters: PosterRecord[]) => void) => {
+  return loadPosterPages(async before => {
+    const url = `/api/posters/page${before ? `?before=${encodeURIComponent(before)}` : ""}`;
+    try {
+      return await readJson<PosterPage>(await apiFetch(url));
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      return readJson<PosterPage>(await apiFetch(url));
+    }
+  }, publish);
+});
+
+export function fetchGalleryPosters(onProgress: (posters: PosterRecord[]) => void) {
+  return loadRecentGalleryList("gallery", onProgress);
 }
 
 export async function fetchPoster(id: string): Promise<PosterRecord> {

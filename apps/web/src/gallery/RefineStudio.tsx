@@ -144,7 +144,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
               disabled={busy}
             >
               <img src={posterCardSrc(poster)} alt={poster.title} />
-              <span>{versionLabel(poster, original?.posterId)}</span>
+              <span title={versionLabel(poster, original?.posterId)}>{versionLabel(poster, original?.posterId)}</span>
             </button>
           ))}
         </div>

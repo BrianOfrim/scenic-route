@@ -48,6 +48,7 @@ import {
   deletePoster,
   generatePoster,
   listPosters,
+  listPosterPage,
   modifyPoster,
   variantPoster,
   readPosterPng,
@@ -352,6 +353,13 @@ app.get("/api/posters", async (c) => {
     return c.json({ error: "activityId must be a number" }, 400);
   }
   return c.json({ posters: await listPosters(currentUserId(c), activityId) });
+});
+
+app.get("/api/posters/page", async (c) => {
+  const before = c.req.query("before");
+  if (before != null && !isSafePosterId(before)) return c.json({ error: "Invalid poster cursor" }, 400);
+  c.header("Cache-Control", "private, no-store");
+  return c.json(await listPosterPage(currentUserId(c), before));
 });
 
 app.get("/api/posters/:id", async (c) => {
