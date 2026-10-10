@@ -180,3 +180,49 @@ test("gallery first page reads only 24 records and older pages have no duplicate
     for (const id of ids) await store.removeByPosterId(alice.id, id);
   }
 });
+
+test("owned saved posters can be refined or varied after their activity is removed", async t => {
+  const sourceId = "20261010T120000Z-ab1234";
+  const originalKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const providerCalls: { prompt: string; input_references: unknown[] }[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/images/models")) return Response.json({ data: [{ id: "google/gemini-test-image", max_input_references: 3, max_images: 1 }] });
+    if (url.endsWith("/endpoints")) return Response.json({ data: { max_input_references: 3 } });
+    assert.equal(url, "https://openrouter.ai/api/v1/images");
+    providerCalls.push(JSON.parse(String(init?.body)));
+    // Stop at the provider boundary: no real generation, costs, or saved outputs.
+    return Response.json({ error: { message: "Test provider reached" } }, { status: 400 });
+  });
+  try {
+    await store.put(alice.id, `${sourceId}.json`, Buffer.from(JSON.stringify({
+      posterId: sourceId, userId: alice.id, activityId: 999999, title: "Saved ride", subtitle: "",
+      spec, prompt: "Saved brief", referenceCount: 1, model: "google/gemini-test-image", aspectRatio: "3:4",
+    })), "application/json");
+    await store.put(alice.id, `${sourceId}.png`, Buffer.from("saved artwork"), "image/png");
+    await store.put(alice.id, `${sourceId}.ref-1.png`, Buffer.from("saved grounding"), "image/png");
+    for (const endpoint of ["modify", "variant"]) {
+      const body = { posterId: sourceId, request: "Make the route green", variants: 1 };
+      assert.equal((await request(bob, `/api/poster/${endpoint}`, "POST", body)).status, 404);
+      const own = await request(alice, `/api/poster/${endpoint}`, "POST", body);
+      assert.equal(own.status, 502);
+      assert.match((await own.json()).error, /Test provider reached/);
+    }
+    assert.equal(providerCalls.length, 2);
+    assert.equal(providerCalls[0].input_references.length, 2);
+    assert.match(providerCalls[0].prompt, /Make the route green/);
+    assert.equal(providerCalls[1].input_references.length, 1);
+    const fresh = await request(alice, "/api/poster/generate", "POST", {
+      activityId: 999999, spec, references: ["data:image/png;base64,c2F2ZWQ="],
+      source: { userId: alice.id, activityId: 999999 },
+    });
+    assert.equal(fresh.status, 404);
+    assert.match((await fresh.json()).error, /activity not found/);
+    assert.equal(providerCalls.length, 2);
+  } finally {
+    if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalKey;
+    await store.removeByPosterId(alice.id, sourceId);
+  }
+});

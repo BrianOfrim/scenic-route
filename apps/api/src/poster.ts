@@ -271,17 +271,20 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
 }
 
 /** Only edits/variants may supply links minted from an owned poster. */
-async function generatePosterWithReferences(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
+async function generatePosterWithReferences(userId: string, body: GeneratePosterBody, source?: PosterRecord): Promise<PosterRecord[]> {
   await requireGenerationConsent(userId);
-  return providerQueue("image").run(() => generateScheduledPoster(userId, body), undefined, userId);
+  return providerQueue("image").run(() => generateScheduledPoster(userId, body, source), undefined, userId);
 }
 
-async function generateScheduledPoster(userId: string, body: GeneratePosterBody): Promise<PosterRecord[]> {
+async function generateScheduledPoster(userId: string, body: GeneratePosterBody, source?: PosterRecord): Promise<PosterRecord[]> {
   const activityId = Number(body.activityId);
   if (!Number.isFinite(activityId) || activityId <= 0) {
     throw new PosterError("activityId is required");
   }
-  if (!(await getActivity(userId, activityId))) {
+  // Edits and variants already loaded an owned poster with its saved grounding.
+  // Its activity may have been removed; new generation still needs an owned activity.
+  const ownedSource = source?.userId === userId && source.activityId === activityId;
+  if (!ownedSource && !(await getActivity(userId, activityId))) {
     throw new PosterError("activity not found", 404);
   }
   const spec = validatePosterSpec(body.spec);
@@ -427,7 +430,7 @@ export async function modifyPoster(userId: string, body: ModifyPosterBody): Prom
     promptCost: 0,
     editor: source.editor,
     label: "modify",
-  });
+  }, source);
 }
 
 /** Another image from the original brief plus edits and grounding. */
@@ -465,7 +468,7 @@ export async function variantPoster(userId: string, body: VariantPosterBody): Pr
     promptCost: 0,
     editor: source.editor,
     label: "variant",
-  });
+  }, source);
 }
 
 function newBatchId() {
