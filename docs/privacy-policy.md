@@ -1,47 +1,69 @@
 # Privacy Policy
 
-Draft for review — October 9, 2026. Not yet effective. This incomplete draft describes inspected code and intended practices. Provider settings, retention periods, and publication review remain unresolved; it is not a final privacy notice or a request for consent.
+Effective date: October 10, 2026.
 
-## Who is responsible
+## Who we are
 
-Brian Ofrim operates Scenic Route from Alberta, Canada. Contact [info@scenic-route.ca](mailto:info@scenic-route.ca) with privacy questions, access or correction requests, deletion requests, or concerns. The [draft Terms of Service](/terms) describe the proposed Canada/US beta for users aged 13 and older.
+Scenic Route turns your GPS activities into artwork. Brian Ofrim operates the service from Alberta, Canada. If you have a privacy question or want to make a request about your information, contact [info@scenic-route.ca](mailto:info@scenic-route.ca). Our [Terms of Service](/terms) describe how you can use Scenic Route.
 
-## Information processed and why
+## Information we collect
 
-Account information includes email address, name, optional profile image, verification status, public-beta admission status (admitted or waiting), and account identifiers. When approved policy versions are configured, the combined age confirmation, Terms, and AI-processing agreement is stored with the relevant versions and timestamps. The combined checkbox records age confirmation, Terms acceptance, and AI consent as separate audit events. Account deletion removes those choice records with the account. Email/password authentication stores password credentials in hashed form; Google sign-in, when enabled, stores linked provider credentials and profile information. Sessions include technical information such as IP address and user agent. These support sign-in, account security, and account management. Verification and password reset emails contain your email address and authentication links.
+When you create an account, we collect your email address, name, and account details. If you sign in with Google, we also receive the profile information needed to sign you in, which may include your profile photo. We store password credentials in hashed form when you use email and password sign-in. We record your beta admission status and your agreement to our Terms and AI processing, including the versions and dates of those choices.
 
-Uploaded GPX, FIT, TCX, and archive activity files are processed to extract GPS coordinates, routes, dates, activity names, and available statistics such as distance, duration, elevation, and speed. Imported activity records and tracks are stored for your account. Routes may reveal homes, routines, or other sensitive locations.
+When you import an activity, we collect the route coordinates, activity name, date, and available statistics, such as distance, duration, elevation, and speed. Routes can reveal your home, routines, or other sensitive locations.
 
-Images, reference uploads, prompts, poster settings, selected names and places, generated images, and generation usage records are processed and stored to create, edit, organize, and download artwork, enforce quotas, and diagnose failures. Diagnostic traces can include prompts, model responses, and route-related content; removing image payloads from a trace does not remove all personal information. Information you send by email is used to respond to your request.
+When you create or edit artwork, we collect the images, prompts, selected names and places, and settings you provide. We store your generated artwork and reference images so you can view, download, and edit your posters.
 
-## Providers and external resources
+We also collect technical information needed to operate and protect the service, such as IP addresses, browser information, sign-in records, generation usage, and error logs. Generation logs may contain prompts, model responses, and route-related information. If you contact us, we use the information in your message to respond.
 
-The code sends selected route context, prompts, reference images, and generated-image edit inputs to OpenRouter and the model providers it routes to. Requests can include a stable pseudonymous account identifier for abuse isolation; this does not make the content anonymous. The example configuration selects meta/muse-image for image generation; planning uses a separately configured model, and image model selection can vary.
+## How we use your information
 
-[OpenRouter's provider listing](https://openrouter.ai/providers/) describes Meta as not training on requests and retaining data for 30 days. This listing is not a verified promise about every request or model. [OpenRouter's privacy policy](https://openrouter.ai/privacy) and provider policies also apply. Actual routing, training controls, retention, and processing countries remain unconfirmed for this deployment. We cannot currently promise no training, zero retention, deletion from all providers, or Canada-only processing.
+We use your information to manage your account, import and display your activities, generate and edit artwork, maintain your gallery, and deliver verification and password-reset emails. We also use it to manage the beta waitlist and image allowances, prevent abuse, investigate errors, and respond to support and privacy requests.
 
-The repository uses PostgreSQL for accounts and activities, supports local or Cloudflare R2 image storage, includes Fly.io hosting configuration, and uses Resend for authentication email when configured. These services receive the information needed for storage, hosting, authentication email, and delivery. Production configuration, contracts, and processing locations need verification before final publication.
+## AI image generation
 
-Mapping requests use OpenStreetMap tiles, OpenTopoMap, Esri imagery, Nominatim, and Overpass services as needed. Server requests convey geographic areas, coordinates, place searches, or tile locations, rather than forwarding the full account profile. Browser resources include Google Fonts, MapLibre font resources, and Google-hosted profile images when available. Direct browser requests can expose IP address, browser information, and request metadata to those resource providers. [Google Fonts privacy information](https://developers.google.com/fonts/faq/privacy) describes its font-request handling. We found no analytics or advertising trackers in the inspected application code; external providers have their own practices.
+We use OpenRouter and Meta’s Muse Image model to generate and edit artwork. They receive the route images, selected route details, text, and prompts needed for your request, including your current poster when refining it. Requests may also include an account identifier to help prevent abuse.
 
-## Cookies and device storage
+Their retention and data-use practices depend on the provider and the applicable service arrangements. See [OpenRouter's privacy policy](https://openrouter.ai/privacy) and its [provider information](https://openrouter.ai/providers/). Deleting your Scenic Route account does not necessarily remove records retained by these providers.
 
-Necessary Better Auth cookies support sign-in and security. The default session duration is seven days and may refresh with activity; sign-out ends the session. Temporary OAuth cookies support the Google sign-in flow. Cookie names and duration can depend on the authentication library and configuration. Blocking necessary cookies can prevent sign-in. See [Better Auth session documentation](https://better-auth.com/docs/concepts/session-management) and [cookie documentation](https://better-auth.com/docs/concepts/cookies).
+## Service providers
 
-The browser stores your preferred number of image variants in localStorage under scenic-route.variants. It persists until replaced or cleared in your browser and is not an analytics identifier. Account deletion does not currently clear this device preference. Downloads and copies you share or keep on your device are outside the account deletion process.
+We use service providers to host Scenic Route, store account information and images, and deliver account emails. They receive the information needed to provide those services on our behalf. If you choose Google sign-in, Google also handles that sign-in process under its [privacy policy](https://policies.google.com/privacy).
 
-## Retention and deletion
+Map and geographic services receive the locations, geographic areas, or place searches needed to display maps and prepare artwork. These services include OpenStreetMap-related services, OpenTopoMap, and Esri imagery. Some resources, such as fonts and Google profile photos, load directly from external providers, which can receive your IP address, browser information, and details of the resource requested.
 
-The intended policy is to retain account data while the account exists and purge associated service data when the account is deleted. Account settings implement deletion of stored activities, account records, sessions, provider credentials, usage records, posters, reference uploads, and account-specific diagnostic traces and scene caches. A storage failure can interrupt deletion and require retry. This describes the application deletion path, not a verified end-to-end production erasure guarantee.
+Service providers may process information outside Canada, where different privacy laws may apply. Contact [info@scenic-route.ca](mailto:info@scenic-route.ca) for information about our service-provider practices.
 
-Infrastructure logs, backups, independent provider records, caches, and legal retention may follow different lifecycles. Their retention periods and deletion procedures have not been approved or verified, so this draft gives no deadline for complete erasure and does not promise deletion from all third-party systems. Those facts must be resolved before final publication.
+## Cookies and saved preferences
 
-## Your choices and requests
+We use cookies to keep you signed in and protect the sign-in process. Sign-in cookies normally last up to seven days and may renew when you use the service. Temporary cookies help complete Google sign-in. Blocking these cookies can prevent you from signing in.
 
-You can edit your account name, remove activities or posters, download generated artwork, and request account deletion in settings. Contact us for access to or correction of personal information, consent withdrawal, deletion assistance, or a privacy complaint. We may need to verify your identity. Withdrawal may prevent us from providing features that require the information, subject to applicable legal obligations. Applicable privacy rights and access to regulators are preserved.
+Your browser also saves your preferred number of image variants. This preference stays on your device until you change it or clear your browser's saved data. Deleting your account does not automatically clear this device preference.
 
-Avoid submitting other people's personal information without permission. The proposed beta is for people aged 13 and older. The application can store a combined age confirmation, Terms, and AI-processing agreement once approved policy versions are configured. It does not collect a birth date or verify age independently. This draft is not that approved text. The service is not intended for children under 13. Notices and consent processes for teenage users should account for their understanding and the sensitivity of route and location information.
+Scenic Route does not currently use advertising trackers or product analytics tools. External services you interact with have their own privacy practices.
 
-## Security, disclosure, and updates
+## How long we keep information
 
-The code uses account-scoped access controls and authentication protections, but no system can guarantee complete security. We may need to disclose information where required by law or to address abuse or protect safety, subject to applicable law. Final publication must confirm these practices, provider arrangements, and any additional legal disclosures. A final notice will identify its effective date and explain material updates.
+We retain your account information, imported activities, and artwork while your account exists. You can remove activities and posters individually or delete your account in settings.
+
+Our account-deletion process removes your account records, imported activities, artwork, stored reference images, and account-specific generation records. If deletion cannot be completed, you may need to retry or contact us for help.
+
+Some information may remain in operational logs, recovery backups, or records retained by service providers. Specific records may also need to be kept to meet legal obligations. These copies follow separate retention and deletion processes. Downloads and copies you have shared or saved outside Scenic Route are not removed when you delete your account.
+
+## Your choices and privacy requests
+
+You can update your account name, remove activities or posters, download artwork, and delete your account through settings. You can also contact [info@scenic-route.ca](mailto:info@scenic-route.ca) to request access to or correction of your personal information, withdraw consent, ask for deletion assistance, or raise a privacy concern. We may ask for information to verify your identity before acting on a request.
+
+Withdrawing consent may prevent us from providing features that need your information. It does not undo processing that has already taken place. Your rights under applicable privacy laws are preserved.
+
+## Younger users
+
+Scenic Route is for people aged 13 and older and is not intended for children under 13. We ask you to confirm your age eligibility; we do not collect a full birth date or independently verify your age. If you believe a child under 13 has provided information to us, contact [info@scenic-route.ca](mailto:info@scenic-route.ca).
+
+## Protecting your information
+
+We use authentication and access controls to restrict access to your account information and artwork. No online service can guarantee complete security. We may disclose information when required by law or when reasonably necessary to investigate abuse or protect safety, subject to applicable law.
+
+## Changes to this policy
+
+We will publish updates on this page and identify the effective date. If a change requires renewed consent, we will ask for it before using your information for that purpose.

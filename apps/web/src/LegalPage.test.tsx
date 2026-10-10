@@ -11,15 +11,17 @@ test("public policy routes accept trailing slashes without catching unrelated ro
 });
 
 for (const file of ["terms-of-service", "privacy-policy"]) {
-  test(`${file} renders source headings, draft status, and links`, () => {
+  test(`${file} renders source headings, publication status, and links`, () => {
     const document = readFileSync(new URL(`../../../docs/${file}.md`, import.meta.url), "utf8");
     const html = renderToStaticMarkup(<LegalPage document={document} />);
     assert.equal((html.match(/<h1/g) ?? []).length, 1);
     assert.equal((html.match(/<h2/g) ?? []).length, (document.match(/^## /gm) ?? []).length);
     assert.ok(html.includes('href="#policy-content"'));
     assert.ok(html.includes('aria-labelledby="policy-title"'));
-    assert.ok(html.includes('aria-label="Draft status"'));
-    assert.ok(html.includes("Not yet effective"));
+    assert.ok(!html.includes('aria-label="Draft status"'));
+    assert.ok(!html.includes("Not yet effective"));
+    assert.ok(!html.includes("(draft)"));
+    assert.ok(html.includes("Effective date: October 10, 2026."));
     assert.ok(html.includes('href="mailto:info@scenic-route.ca"'));
     assert.ok(html.includes('href="/terms"'));
     assert.ok(html.includes('href="/privacy"'));

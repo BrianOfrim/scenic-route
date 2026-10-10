@@ -8,7 +8,9 @@ import terms from "../../../docs/terms-of-service.md?raw";
 import privacy from "../../../docs/privacy-policy.md?raw";
 
 const policy = legalDocumentPath(window.location.pathname);
-if (policy) document.title = `${policy === "terms" ? "Terms of Service" : "Privacy Policy"} (draft) — Scenic Route`;
+if (policy) {
+  document.title = `${policy === "terms" ? "Terms of Service" : "Privacy Policy"} — Scenic Route`;
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
