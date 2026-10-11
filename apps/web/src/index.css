@@ -220,6 +220,9 @@ a {
 .account-settings-dialog p { margin: 0; }
 .account-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .account-settings-header h2 { margin: 0; }
+.feedback-dialog { width: min(520px, calc(100vw - 32px)); }
+.feedback-dialog textarea { width: 100%; resize: vertical; min-height: 140px; }
+.feedback-dialog .feedback-count { text-align: right; font-size: var(--text-caption); }
 .account-delete-section { display: grid; gap: 16px; margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
 .account-delete-section h3 { margin: 0; }
 .account-delete-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
