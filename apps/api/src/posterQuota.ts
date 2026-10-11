@@ -1,3 +1,5 @@
+import { imageAttemptContext } from "./jobContext";
+import { OpenRouterError } from "./openrouter";
 import { randomUUID } from "node:crypto";
 import { query, queryOne, withTransaction, type SqlClient } from "./db";
 import { imageGenerationTimeoutMs } from "./openrouter";
@@ -36,6 +38,7 @@ export async function getPosterQuota(userId: string) {
 export async function reservePosterQuota(userId: string, count: number) {
   if (!Number.isSafeInteger(count) || count < 1) throw new Error("poster count must be a positive integer");
   const id = randomUUID();
+  const attempt = imageAttemptContext.getStore();
   // Cover both the provider queue wait and generation deadline, with time for settlement.
   const lifetimeMs = Math.max(24 * 60 * 60 * 1000, 2 * imageGenerationTimeoutMs(count) + 60 * 60 * 1000);
   await withTransaction(async client => {
@@ -43,6 +46,12 @@ export async function reservePosterQuota(userId: string, count: number) {
       'SELECT poster_monthly_limit FROM "user" WHERE id = $1 FOR UPDATE', [userId], client,
     );
     if (!user) throw new Error("user not found");
+    if (attempt) {
+      const owned = await client.query(`SELECT j.id FROM image_jobs j JOIN image_attempts a ON a.id=j.attempt_id
+        JOIN "user" u ON u.id=j.user_id WHERE a.id=$1 AND a.execution_token=$2 AND a.lease_until>now()
+        AND a.terminal_at IS NULL AND j.state='generating' AND NOT u.image_deleting FOR UPDATE OF j,a`, [attempt.id,attempt.token]);
+      if (!owned.rowCount) throw new Error("Image attempt ownership was lost before quota reservation");
+    }
     const { month, resetsAt } = posterQuotaMonth();
     const { used, reserved } = await usage(userId, month, client);
     const limit = user.poster_monthly_limit;
@@ -53,8 +62,10 @@ export async function reservePosterQuota(userId: string, count: number) {
     // Interrupted processes must not hold capacity forever.
     await query(`INSERT INTO poster_generation_usage (id, user_id, month, reserved, expires_at)
       VALUES ($1, $2, $3::date, $4, now() + $5 * interval '1 millisecond')`, [id, userId, month, count, lifetimeMs], client);
+    if (attempt) await client.query("UPDATE image_attempts SET quota_id=$2 WHERE id=$1", [attempt.id,id]);
   });
   return {
+    id,
     async settle(generated: number) {
       if (!Number.isSafeInteger(generated) || generated < 0 || generated > count) throw new Error("invalid generated poster count");
       await query("UPDATE poster_generation_usage SET generated = $2 WHERE id = $1 AND generated IS NULL", [id, generated]);
@@ -65,14 +76,22 @@ export async function reservePosterQuota(userId: string, count: number) {
 /** Only successful provider outputs consume quota, including outputs whose storage subsequently fails. */
 export async function withPosterQuota<T extends { images: unknown[] }>(userId: string, count: number, generate: () => Promise<T>) {
   const reservation = await reservePosterQuota(userId, count);
+  const attempt = imageAttemptContext.getStore();
+  if (attempt) await attempt.quota(reservation.id);
   let generated = 0;
+  let settle = !attempt;
   try {
     const result = await generate();
     // Do not publish unexpected extra outputs beyond the capacity admitted for this request.
     result.images = result.images.slice(0, count);
     generated = result.images.length;
+    if (attempt) await attempt.received(generated);
+    settle = true;
     return result;
+  } catch (error) {
+    if (error instanceof OpenRouterError && error.upstreamStatus !== undefined) settle = true;
+    throw error;
   } finally {
-    await reservation.settle(generated);
+    if (settle) await reservation.settle(generated);
   }
 }

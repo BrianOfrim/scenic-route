@@ -1,0 +1,54 @@
+app = "scenic-route"
+primary_region = "dfw"
+
+kill_signal = "SIGTERM"
+kill_timeout = 300
+
+[build]
+
+[deploy]
+  release_command = "npm run jobs:migrate"
+
+[processes]
+  api = "node --import tsx apps/api/src/runtime.ts api"
+  worker = "node --import tsx apps/api/src/runtime.ts worker"
+
+[http_service]
+  internal_port = 8790
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["api"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 10
+    hard_limit = 25
+
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/health"
+
+[http_service.http_options]
+  idle_timeout = 300
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[env]
+  OSM_TILES_ENABLED = "true"
+  OSM_TILE_CACHE_DIR = "/tile-cache"
+  OSM_TILE_CACHE_MAX_BYTES = "2147483648"
+  OSM_TILE_CACHE_MAX_ENTRIES = "50000"
+  OSM_TILE_ALLOWED_ORIGINS = "https://scenic-route.ca,https://scenic-route.fly.dev"
+
+[[mounts]]
+  source = "osm_tile_cache"
+  destination = "/tile-cache"
+  processes = ["api"]

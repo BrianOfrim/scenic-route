@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { sniffImageMime } from "./imageMime";
-import { createR2Store, r2Config, type ObjectStore } from "./storage";
+import path from "node:path";
+import { DATA_DIR } from "./paths";
+import { createLocalStore, createR2Store, r2Config, type ObjectStore } from "./storage";
 
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const URL_SECONDS = 24 * 60 * 60;
@@ -10,8 +12,9 @@ export class ReferenceUploadError extends Error {
 
 function referenceStore() {
   const config = r2Config();
-  if (!config) throw new ReferenceUploadError("R2 must be configured to upload reference images", 503);
-  return createR2Store(config, "references/");
+  if (config) return createR2Store(config, "references/");
+  if (process.env.NODE_ENV === "production") throw new ReferenceUploadError("R2 must be configured to upload reference images", 503);
+  return createLocalStore(path.join(DATA_DIR, "references"));
 }
 
 export async function uploadReferences(userId: string, references: unknown, store = referenceStore()) {
@@ -48,11 +51,12 @@ export async function resolveReferences(userId: string, batchId: string, include
   const manifest = JSON.parse(bytes.toString()) as { expiresAt: number; mimes: string[] };
   const remainingSeconds = Math.floor((manifest.expiresAt - Date.now()) / 1000);
   if (!Number.isFinite(remainingSeconds) || remainingSeconds < 1) throw new ReferenceUploadError("reference batch expired; upload the images again");
-  if (!store.signedUrl) throw new ReferenceUploadError("R2 signed URLs are unavailable", 503);
+  if (!store.signedUrl && store.kind !== "local") throw new ReferenceUploadError("R2 signed URLs are unavailable", 503);
   return Promise.all(manifest.mimes.map(async (mime, index) => {
     const name = `${batchId}/${index}`;
-    const url = await store.signedUrl!(userId, name, Math.min(URL_SECONDS, remainingSeconds));
-    const image = includeBytes ? await store.get(userId, name) : null;
+    const image = includeBytes || !store.signedUrl ? await store.get(userId, name) : null;
+    if (!store.signedUrl && !image) throw new ReferenceUploadError("reference image not found", 404);
+    const url = store.signedUrl ? await store.signedUrl(userId, name, Math.min(URL_SECONDS, remainingSeconds)) : `data:${mime};base64,${image!.toString("base64")}`;
     if (includeBytes && !image) throw new ReferenceUploadError("reference image not found", 404);
     return { url, mime, bytes: image };
   }));
