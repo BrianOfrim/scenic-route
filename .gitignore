@@ -16,3 +16,4 @@ examples/canadian-routes/
 !.env.example
 
 data/tile-cache/
+data/logs/

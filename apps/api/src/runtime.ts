@@ -1,8 +1,10 @@
 import path from "node:path";
 import { config } from "dotenv";
 import { REPO_ROOT } from "./paths";
+import { installConsoleLogging } from "./logger";
 config({ path: path.join(REPO_ROOT, ".env.local"), quiet: true });
 config({ path: path.join(REPO_ROOT, ".env"), quiet: true });
+installConsoleLogging();
 const role = process.argv[2] || process.env.APP_ROLE || "combined";
 if (!["api", "worker", "combined"].includes(role))
     throw new Error("APP_ROLE must be api, worker, or combined");

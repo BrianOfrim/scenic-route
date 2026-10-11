@@ -1,3 +1,4 @@
+import { logger } from "./logger";
 import { createHash, randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { accountContext, AccountUnavailableError } from "./accountLifecycle";
@@ -399,7 +400,7 @@ export function startGenerationWorker() {
     const timer = setInterval(() => { void tick(); }, 1000);
     void tick();
     const stop = async () => { stopped = true; clearInterval(timer); await ready; await query("UPDATE image_workers SET draining=true WHERE id=$1", [id]); await Promise.allSettled([...running]); };
-    process.once("SIGTERM", () => { void stop().then(() => process.exit(0)); });
-    process.once("SIGINT", () => { void stop().then(() => process.exit(0)); });
+    process.once("SIGTERM", () => { void stop().then(async () => { await logger.flush(); process.exit(0); }); });
+    process.once("SIGINT", () => { void stop().then(async () => { await logger.flush(); process.exit(0); }); });
     return stop;
 }
