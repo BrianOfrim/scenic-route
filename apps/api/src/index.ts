@@ -9,6 +9,8 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
+import { bodyLimit } from "hono/body-limit";
+import { createFeedbackHandler } from "./feedback";
 import { purgeAccount, validateAccountDeletion } from "./accountDeletion";
 import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
 import { authBaseUrl, getSessionUser, getAuth, googleSignInEnabled, createRequireUser, type SessionLookup, type AuthUser } from "./auth";
@@ -114,6 +116,10 @@ app.on(["GET", "POST"], "/api/auth/*", async (c) => {
 });
 
 app.use("/api/*", createRequireUser(lookup));
+
+app.post("/api/feedback", bodyLimit({ maxSize: 32 * 1024,
+  onError: c => c.json({ error: "Your feedback message is too large." }, 413),
+}), createFeedbackHandler());
 
 function currentUserId(c: Context<AppEnv>) {
   return c.get("user").id;

@@ -292,6 +292,13 @@ async function readJson<T>(response: Response, onBody?: (body: string) => void):
   return body;
 }
 
+export async function submitFeedback(message: string): Promise<void> {
+  await readJson(await apiFetch("/api/feedback", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  }));
+}
+
 export async function fetchSession(): Promise<SessionUser | null> {
   const response = await apiFetch("/api/auth/get-session");
   if (!response.ok) return null;

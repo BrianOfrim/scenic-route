@@ -30,7 +30,8 @@ export function assertParticipation(status: Participation, ai = false) {
 }
 export async function requireGenerationConsent(userId: string) { assertParticipation(await participationStatus(userId), true); }
 export function recoveryPath(path: string, method: string) {
-  return (path === "/api/participation" && ["GET", "POST"].includes(method)) || (path === "/api/account" && method === "DELETE");
+  return (path === "/api/participation" && ["GET", "POST"].includes(method)) || (path === "/api/account" && method === "DELETE")
+    || (path === "/api/feedback" && method === "POST");
 }
 export function generationPath(path: string, method: string) {
   return method === "POST" && (['/api/poster/generate', '/api/poster/modify', '/api/poster/variant'].includes(path)

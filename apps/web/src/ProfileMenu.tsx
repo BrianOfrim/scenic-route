@@ -1,4 +1,5 @@
 import { LegalLinks } from "./LegalLinks";
+import { FeedbackDialog } from "./FeedbackDialog";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { deleteAccount, fetchPosterQuota, updateAccountName, type PosterQuota } from "./api";
 
@@ -15,6 +16,7 @@ export function ProfileMenu({ email, name, image, waiting = false, onNameSaved, 
   const [open, setOpen] = useState(false);
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [quota, setQuota] = useState<PosterQuota | null>(null);
   const [quotaError, setQuotaError] = useState(false);
   const [nameDraft, setNameDraft] = useState(name ?? "");
@@ -139,6 +141,10 @@ export function ProfileMenu({ email, name, image, waiting = false, onNameSaved, 
             setSaveError(null);
             setSettingsOpen(true);
           }}>Settings</button>
+          <button type="button" className="text-btn" role="menuitem" onClick={() => {
+            setOpen(false);
+            setFeedbackOpen(true);
+          }}>Feedback &amp; suggestions</button>
           <button
             type="button"
             className="text-btn"
@@ -152,6 +158,10 @@ export function ProfileMenu({ email, name, image, waiting = false, onNameSaved, 
           </button>
         </div>
       )}
+      {feedbackOpen && <FeedbackDialog email={email} onClose={() => {
+        setFeedbackOpen(false);
+        trigger.current?.focus();
+      }} />}
       {settingsOpen && <dialog ref={settingsDialog} className="account-settings-dialog" aria-labelledby={`${settingsId}-title`}
         onCancel={(event) => { event.preventDefault(); closeSettings(); }}>
         <form onSubmit={(event) => void saveName(event)}>

@@ -141,6 +141,8 @@ The reset-password page is `/reset-password`. Verification and Google callbacks 
 
 Google profile photos are shown in the account menu and refreshed when Google accounts are linked or used to sign in. Accounts without a working photo display an initial instead.
 
+The account menu includes **Feedback & suggestions**, available to admitted and waitlisted users. Messages (up to 5,000 characters) are emailed to `info@scenic-route.ca` using the existing `RESEND_API_KEY` and `RESEND_FROM` configuration, with the account email as reply-to. Delivery failures keep the message available for retry and offer a direct email link. `POST /api/feedback` requires an authenticated session and a trusted browser origin; submission attempts are limited to three per account per ten minutes in each API process. Feedback is optional and is not saved in the application database.
+
 Account settings includes **Delete account**. Users confirm by entering their account email. Authenticated `DELETE /api/account` requires a trusted Origin and `{ "email": "account@example.com" }`. Deletion purges activities, file fingerprints, per-account settings, poster files (including orphaned files), reference uploads, generation jobs, traces, saved geography scenes, quota usage, credentials, and sessions. Active requests or generations return 409; retry after they finish. Storage errors return 503 and retain the account so the purge can be retried. Account access uses shared Postgres advisory locks; deletion uses an exclusive lock to prevent late writes across processes. Older unscoped diagnostic and scene-cache files are discarded on deletion because their ownership cannot be recovered. New traces and scenes are stored per account.
 
 ### Per-account generation limits
