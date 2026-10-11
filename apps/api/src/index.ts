@@ -1,4 +1,5 @@
 import { JobConflictError } from "./durableJobs";
+import { logger } from "./logger";
 import { backfillPosterIndex } from "./publication";
 import { getImageLimits } from "./imageLimits";
 import { participationStatus, recordParticipation, ParticipationError, assertParticipation, authRecoveryPath } from "./participation";
@@ -489,6 +490,7 @@ try {
   process.env.POSTER_INDEX_ENABLED = "true";
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
+  await logger.flush();
   process.exit(1);
 }
 

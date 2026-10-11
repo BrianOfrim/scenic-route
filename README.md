@@ -85,6 +85,19 @@ npm test
 npm run build
 ```
 
+## Application logging
+
+API and worker logs are appended as JSONL to `data/logs/api-YYYY-MM-DD.jsonl`
+using UTC dates. Existing `console.log`/`info` messages use info severity;
+`debug`, `warn`, and `error` keep their corresponding severity. File writes run asynchronously in order.
+
+`LOG_FILE_LEVEL=debug` and `LOG_CONSOLE_LEVEL=info` are the defaults, so detailed
+timings are kept in files while the terminal displays normal information,
+warnings, and errors. Configure either threshold independently with `debug`,
+`info`, `warn`, `error`, or `off`; `LOG_DIR` changes the output directory. Restart
+the process after editing environment configuration. Log files are ignored by
+Git, rotate by UTC day, and are retained until removed or archived externally.
+
 ## Schematic performance diagnostics
 
 The editor retains all geography layers for its current activity. Geography visibility changes redraw locally; landmark selections and distance changes still request updated context. Identical pending context requests in the browser and OSM requests in the API share their work. Successful OSM responses, including empty results, use the existing seven-day disk cache; incomplete/error responses are rejected.
