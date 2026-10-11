@@ -437,7 +437,7 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
       styleId: poster.styleId,
       paletteId: poster.paletteId,
     }).catch(() => {
-      /* trackGeneration publishes the error on the gallery */
+      /* Submission failures appear on the gallery. */
     });
   }
 
@@ -518,7 +518,6 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         source={studioFrom}
         posters={posters}
         onBack={() => setStudioFrom(null)}
-        onPostersChange={setPosters}
         tabs={tabs}
       />
     );

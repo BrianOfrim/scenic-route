@@ -34,7 +34,7 @@ export function recoveryPath(path: string, method: string) {
     || (path === "/api/feedback" && method === "POST");
 }
 export function generationPath(path: string, method: string) {
-  return method === "POST" && (['/api/poster/generate', '/api/poster/modify', '/api/poster/variant'].includes(path)
+  return method === "POST" && (['/api/poster/modify', '/api/poster/variant'].includes(path)
     || path === '/api/poster/jobs' || /^\/api\/poster\/jobs\/[^/]+\/retry$/.test(path));
 }
 export function createParticipationGate(lookup = participationStatus) {

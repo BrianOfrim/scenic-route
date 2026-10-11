@@ -5,7 +5,7 @@ import type pg from "pg";
 import { Resend } from "resend";
 import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
 import { createParticipationGate, recoveryPath } from "./participation";
-import { providerQueue, RequestQueueError } from "./requestQueue";
+import { RequestQueueError } from "./requestQueue";
 import { getPool } from "./db";
 import { getBetaStatus, type BetaStatus } from "./betaAdmission";
 import { maybeBootstrapUser } from "./bootstrap";
@@ -181,9 +181,6 @@ export function createRequireUser(
     }
     c.set("user", user);
     try {
-      const imageRequest = c.req.method === "POST" && /^\/api\/poster\/(generate|modify|variant)$/.test(c.req.path);
-      // Reject before taking a scheduler slot. The locked check below stays authoritative.
-      if (imageRequest && await betaLookup(user.id) === "waiting") return waitlistedResponse(c);
       if (c.req.path.startsWith("/api/poster/")) await configureImageLimits(user.id);
       const run = () => withAccountAccess(user.id, (c.req.path === "/api/account" && c.req.method === "DELETE") || (c.req.path === "/api/participation" && c.req.method === "POST"), async () => {
         const status = await betaLookup(user.id);
@@ -196,9 +193,7 @@ export function createRequireUser(
           await next();
         });
       }, true);
-      // Match the worker's lock order. Image HTTP waiters must not hold all
-      // account-lock connections while workers hold the image scheduler slots.
-      return await (imageRequest ? providerQueue("image").run(run, undefined, user.id) : run());
+      return await run();
     } catch (error) {
       if (error instanceof AccountUnavailableError || error instanceof RequestQueueError) return c.json({ error: error.message }, error.status);
       throw error;

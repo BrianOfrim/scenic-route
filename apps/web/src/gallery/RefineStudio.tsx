@@ -11,7 +11,6 @@ type Props = {
   source: PosterRecord;
   posters: PosterRecord[];
   onBack: () => void;
-  onPostersChange: (next: PosterRecord[] | ((current: PosterRecord[]) => PosterRecord[])) => void;
   tabs?: ReactNode;
 };
 
@@ -21,7 +20,7 @@ function versionLabel(item: PosterRecord, originalId?: string) {
   return item.title;
 }
 
-export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }: Props) {
+export function RefineStudio({ source, posters, onBack, tabs }: Props) {
   const isMobile = useMediaQuery(MOBILE_QUERY);
   const family = useMemo(() => {
     const found = lineageFamily(posters, source.posterId);
@@ -53,7 +52,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
     setBusy(true);
     setError(null);
     try {
-      const records = await modifyPoster({
+      await modifyPoster({
         posterId: selected.posterId,
         activityId: selected.activityId, title: selected.title, styleId: selected.styleId, paletteId: selected.paletteId,
         request: text,
@@ -61,13 +60,8 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
         variants: 1,
         model: selected.model,
       });
-      if (!records.length) throw new Error("Image refinement failed");
-      onPostersChange((current) => {
-        const seen = new Set(records.map((item) => item.posterId));
-        return [...records, ...current.filter((item) => !seen.has(item.posterId))];
-      });
-      setSelectedId(records[0].posterId);
       setRequest("");
+      onBack();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Image refinement failed");
     } finally {
@@ -145,7 +139,7 @@ export function RefineStudio({ source, posters, onBack, onPostersChange, tabs }:
           </label>
           <div className="poster-actions">
             <button className="button" type="submit" disabled={busy || !request.trim()}>
-              {busy ? "Applying change…" : "Apply change"}
+              {busy ? "Submitting change…" : "Apply change"}
             </button>
             <a className="text-btn" href={selected.url} download={`${selected.posterId}.png`}>
               Download selected

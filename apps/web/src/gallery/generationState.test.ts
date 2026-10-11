@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { generatePoster, pollPosterJobs } from "../api";
+import { pollPosterJobs } from "../api";
 import { getArrivedPosters } from "./arrivedPosters";
 import { beginGeneration, clearFailedImage, getGenerationState, trackGeneration } from "./generationState";
 
@@ -11,79 +11,23 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test("background requests keep independent placeholders through preparation, completion and failure", async (t) => {
-  const first = deferred<string[]>();
-  const second = deferred<string[]>();
-  const revision = getGenerationState().revision;
-  const bodies: any[] = [];
-  t.mock.method(globalThis, "fetch", async (_url: string, init: RequestInit) => {
-    const body = JSON.parse(init.body as string);
-    bodies.push(body);
-    return new Response(JSON.stringify({ posters: [{ posterId: body.spec.text.title }] }));
-  });
-  const a = generatePoster({ activityId: 1, spec: { text: { title: "First" } }, variants: 2 }, 2, () => first.promise);
-  const b = generatePoster({ activityId: 2, spec: { text: { title: "Second" } } }, 1, () => second.promise);
-  assert.equal(getGenerationState().pending.length, 3);
-  assert.deepEqual(getGenerationState().pending.map(image => image.activityId), [1, 1, 2]);
-  assert.ok(getGenerationState().pending.every(image => Number.isFinite(Date.parse(image.createdAt))));
-  assert.equal(new Set(getGenerationState().pending.map((image) => image.id)).size, 3);
-  assert.equal(bodies.length, 0, "placeholders appear before reference preparation finishes");
-  assert.ok(getGenerationState().pending.every(image => image.phase === "queued"));
-
-  second.resolve(["second reference"]);
-  await b;
-  assert.deepEqual(getGenerationState().pending.map((image) => image.title), ["First", "First"]);
-  assert.equal(bodies[0].activityId, 2);
-  assert.deepEqual(bodies[0].references, ["second reference"]);
-  assert.equal(getGenerationState().revision, revision + 1);
-
-  const c = generatePoster({ spec: { text: { title: "Third" } } }, 1);
-  await c;
-  assert.equal(getGenerationState().pending.length, 2, "new work can finish while an older request is pending");
-  first.reject(new Error("Could not prepare image"));
-  await assert.rejects(a, /Could not prepare image/);
-  assert.equal(getGenerationState().pending.length, 0);
-  assert.equal(getGenerationState().error, "Could not prepare image");
-  assert.equal(getGenerationState().revision, revision + 3);
-});
-
-
-test("a finished image is published while another request in the batch is still running", async (t) => {
-  const gate = deferred<void>();
-  t.mock.method(globalThis, "fetch", async (_url: string, init: RequestInit) => {
-    const body = JSON.parse(init.body as string);
-    if (body.spec.text.title === "Second") await gate.promise;
-    return new Response(JSON.stringify({ posters: [{ posterId: body.spec.text.title }] }));
-  });
-  const first = generatePoster({ spec: { text: { title: "First" } } }, 1);
-  const second = generatePoster({ spec: { text: { title: "Second" } } }, 1);
-  await first;
-  assert.ok(getArrivedPosters().some((poster) => poster.posterId === "First"));
-  assert.deepEqual(getGenerationState().pending.map((image) => image.title), ["Second"]);
-  gate.resolve();
-  await second;
-  assert.ok(getArrivedPosters().some((poster) => poster.posterId === "Second"));
-  assert.equal(getGenerationState().pending.length, 0);
-});
-
-test("prompt and image generation share placeholders without duplicating or clearing other tasks", async (t) => {
+test("prompt and image generation share placeholders without duplicating or clearing other tasks", async () => {
   const task = beginGeneration({ title: "Full poster", variants: 2 });
   const other = beginGeneration({ title: "Another poster" });
   const ids = getGenerationState().pending.map((image) => image.id);
   assert.equal(ids.length, 3, "all placeholders exist before prompt generation");
   const prompt = deferred<void>();
-  const image = deferred<Response>();
-  t.mock.method(globalThis, "fetch", () => image.promise);
+  const image = deferred<void>();
   const work = (async () => {
     await prompt.promise;
-    return generatePoster({ spec: { text: { title: "Full poster" } } }, 2, undefined, task);
+    return trackGeneration({ title: "Full poster", variants: 2 }, () => image.promise, task);
   })();
   assert.deepEqual(getGenerationState().pending.map((item) => item.id), ids);
   prompt.resolve();
   await Promise.resolve();
   assert.deepEqual(getGenerationState().pending.map((item) => item.id), ids, "same placeholders persist into image generation");
   assert.ok(getGenerationState().pending.filter(item => item.title === "Full poster").every(item => item.phase === "generating"));
-  image.resolve(new Response(JSON.stringify({ posters: [{ posterId: "completed" }] })));
+  image.resolve();
   await work;
   assert.deepEqual(getGenerationState().pending.map((item) => item.title), ["Another poster"]);
   const revision = getGenerationState().revision;
@@ -245,4 +189,50 @@ test("job polling publishes completed images before removing activity placeholde
     assert.ok(getArrivedPosters().some(poster => poster.posterId === "handoff-completed"));
     assert.ok(!getGenerationState().pending.some(image => image.id === "server:handoff:0"));
   } finally { stop(); }
+});
+
+for (const kind of ["modify", "variant"] as const) {
+  test(`${kind} submits a background job and hands its placeholder to server polling`, async t => {
+    const { modifyPoster, variantPoster } = await import("../api");
+    const { setServerGenerationJobs } = await import("./generationState");
+    setServerGenerationJobs([], async () => {}, async () => {});
+    const annotation = [[{ x: 0.2, y: 0.3 }, { x: 0.6, y: 0.7 }]];
+    let submitted: any;
+    t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+      assert.equal(url, `/api/poster/${kind}`);
+      submitted = JSON.parse(String(init.body));
+      assert.ok(getGenerationState().pending.some(image => image.previousPosterId === "source"));
+      return Response.json({ jobs: [{ id: `saved-${kind}`, state: "queued", title: "Saved ride", model: "model", variants: 1,
+        activityId: 4, previousPosterId: "source", error: null }] }, { status: 202 });
+    });
+    const body = { posterId: "source", activityId: 4, title: "Saved ride", request: "Use blue", annotation };
+    await (kind === "modify" ? modifyPoster(body) : variantPoster(body));
+    assert.equal(typeof submitted.submissionId, "string");
+    if (kind === "modify") assert.deepEqual(submitted.annotation, annotation);
+    const pending = getGenerationState().pending;
+    assert.equal(pending.length, 1, "local submission placeholder is replaced, not duplicated");
+    assert.equal(pending[0].id, `server:saved-${kind}:0`);
+    assert.equal(pending[0].previousPosterId, "source");
+    assert.equal(pending[0].phase, "queued");
+    setServerGenerationJobs([], async () => {}, async () => {});
+  });
+}
+
+test("retrying a lost refinement submission retains its deduplication ID and annotation", async t => {
+  const { modifyPoster } = await import("../api");
+  const { setServerGenerationJobs } = await import("./generationState");
+  setServerGenerationJobs([], async () => {}, async () => {});
+  const bodies: any[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: string, init: RequestInit) => {
+    bodies.push(JSON.parse(String(init.body)));
+    if (bodies.length === 1) throw new TypeError("Failed to fetch");
+    return Response.json({ jobs: [{ id: "retried-edit", state: "queued", title: "Edit", model: "model", variants: 1, error: null }] });
+  });
+  const annotation = [[{ x: 0, y: 0 }, { x: 1, y: 1 }]];
+  await assert.rejects(modifyPoster({ posterId: "source", request: "Use blue", annotation }), /Failed to fetch/);
+  await getGenerationState().failed.find(image => image.previousPosterId === "source")!.retry();
+  assert.deepEqual(bodies[0], bodies[1]);
+  assert.equal(getGenerationState().pending.length, 1);
+  assert.ok(getGenerationState().pending[0].id.startsWith("server:"));
+  setServerGenerationJobs([], async () => {}, async () => {});
 });

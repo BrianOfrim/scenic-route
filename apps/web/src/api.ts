@@ -1,6 +1,6 @@
 import type { GeographyScene } from "../../api/src/osm/geographyPolicy";
 import { noteArrivedPosters } from "./gallery/arrivedPosters";
-import { trackGeneration, setServerGenerationJobs, mergeServerGenerationJobs, type ServerGenerationJob, type GenerationTask } from "./gallery/generationState";
+import { beginGeneration, setServerGenerationJobs, mergeServerGenerationJobs, type ServerGenerationJob } from "./gallery/generationState";
 import type { FeatureCollection, LineString } from "geojson";
 import { coalesceRequests, shareRecentRequests } from "./inFlight";
 import { loadPosterPages, type PosterPage } from "./gallery/posterPages";
@@ -559,86 +559,36 @@ export async function planPoster(body: unknown): Promise<{ spec: PosterSpec; cos
   );
 }
 
-export async function generatePoster(
-  body: unknown,
-  pendingCount?: number,
-  prepareReferences?: () => Promise<string[] | { referenceBatchId: string }>,
-  task?: GenerationTask,
-): Promise<PosterRecord[]> {
-  const details = body as { activityId?: number; spec?: PosterSpec; model?: string; styleId?: string; paletteId?: string; variants?: number };
-  return trackGeneration({ ...details, variants: pendingCount ?? details.variants, title: details.spec?.text.title || "New image" }, async (generationTask) => {
-    // Register placeholders before preparing references; preparation also runs in the background.
-    const prepared = prepareReferences ? await prepareReferences() : undefined;
-    const requestBody = prepared
-      ? { ...details, ...(Array.isArray(prepared) ? { references: prepared } : { referenceBatchId: prepared.referenceBatchId }) }
-      : body;
-    generationTask.setPhase("generating");
-    const payload = await readJson<{ posters?: PosterRecord[] } & Partial<PosterRecord>>(
-      await apiFetch("/api/poster/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      }),
-    );
-    const records = Array.isArray(payload.posters) && payload.posters.length
-      ? payload.posters
-      : payload.posterId
-        ? [payload as PosterRecord]
-        : [];
-    if (!records.length) throw new Error("Image generation returned no images");
-    noteArrivedPosters(records);
-    return records;
-  }, task, null);
+async function submitSavedPosterJob(kind: "modify" | "variant", body: {
+  posterId: string; model?: string; title?: string; activityId?: number; styleId?: string; paletteId?: string; variants?: number;
+  request?: string; annotation?: Array<Array<{ x: number; y: number }>>;
+}): Promise<void> {
+  const requestBody = structuredClone({ ...body, submissionId: crypto.randomUUID() });
+  const task = beginGeneration({ ...body, previousPosterId: body.posterId, variants: kind === "variant" ? 1 : body.variants,
+    title: body.title || (kind === "modify" ? "Refining image" : "New variant") });
+  const submit = async () => {
+    const { jobs } = await readJson<{ jobs: ServerGenerationJob[] }>(await apiFetch(`/api/poster/${kind}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody),
+    }));
+    mergeServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
+    task.dismiss();
+  };
+  task.setRetry(submit);
+  try { await submit(); }
+  catch (error) { task.finish(error); throw error; }
 }
 
 export async function variantPoster(body: {
-  posterId: string;
-  model?: string;
-  title?: string;
-  activityId?: number;
-  styleId?: string;
-  paletteId?: string;
-}): Promise<PosterRecord[]> {
-  return trackGeneration(
-    { activityId: body.activityId, previousPosterId: body.posterId, title: body.title || "New variant", model: body.model, styleId: body.styleId, paletteId: body.paletteId, variants: 1 },
-    async () => {
-      const payload = await readJson<{ posters?: PosterRecord[] }>(
-        await apiFetch("/api/poster/variant", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ posterId: body.posterId, model: body.model }),
-        }),
-      );
-      const records = payload.posters ?? [];
-      noteArrivedPosters(records);
-      return records;
-    },
-  );
+  posterId: string; model?: string; title?: string; activityId?: number; styleId?: string; paletteId?: string;
+}): Promise<void> {
+  await submitSavedPosterJob("variant", body);
 }
 
 export async function modifyPoster(body: {
-  posterId: string;
-  request: string;
-  activityId?: number;
-  title?: string;
-  styleId?: string;
-  paletteId?: string;
-  variants?: number;
-  model?: string;
-  annotation?: Array<Array<{ x: number; y: number }>>;
-}): Promise<PosterRecord[]> {
-  return trackGeneration({ ...body, previousPosterId: body.posterId, title: body.title || "Refining image" }, async () => {
-    const payload = await readJson<{ posters?: PosterRecord[] }>(
-      await apiFetch("/api/poster/modify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    );
-    const records = payload.posters ?? [];
-    noteArrivedPosters(records);
-    return records;
-  });
+  posterId: string; request: string; activityId?: number; title?: string; styleId?: string; paletteId?: string;
+  variants?: number; model?: string; annotation?: Array<Array<{ x: number; y: number }>>;
+}): Promise<void> {
+  await submitSavedPosterJob("modify", body);
 }
 
 async function fetchPosterList(qs: string): Promise<PosterRecord[]> {

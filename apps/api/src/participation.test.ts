@@ -23,7 +23,7 @@ test('all HTTP generation paths require AI, recovery exceptions are exact', asyn
   app.use('*', async (c, next) => { c.set('user', { id: 'existing-user' }); await next(); });
   app.use('*', createParticipationGate(async () => ({ ...current, aiConsented: false })));
   app.all('*', c => c.json({ ok: true }));
-  for (const path of ['/api/poster/generate', '/api/poster/modify', '/api/poster/variant', '/api/poster/jobs', '/api/poster/jobs/abc/retry']) {
+  for (const path of ['/api/poster/modify', '/api/poster/variant', '/api/poster/jobs', '/api/poster/jobs/abc/retry']) {
     assert.equal(generationPath(path, 'POST'), true);
     assert.equal((await app.request(path, { method: 'POST' })).status, 403);
   }
