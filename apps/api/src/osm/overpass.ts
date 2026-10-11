@@ -9,6 +9,8 @@ import {
   type BBox,
 } from "../geo";
 import { OSM_CACHE_DIR } from "../paths";
+import { geographyTiming, logGeographyTiming } from "./geographyTiming";
+import { logger } from "../logger";
 
 const DEFAULT_ENDPOINTS = [
   "https://overpass.openstreetmap.fr/api/interpreter",
@@ -17,6 +19,8 @@ const DEFAULT_ENDPOINTS = [
 const USER_AGENT = "scenic-route/overpass (https://github.com/scenic-route)";
 const RETRYABLE = new Set([429, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
+const ENDPOINT_FAILURE_THRESHOLD = 2;
+const ENDPOINT_COOLDOWN_MS = 60_000;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Safety stop for one response. A tile past this is failed, not split. */
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
@@ -95,6 +99,7 @@ export async function queryOverpass(
   budget?: { maxTiles: number; timeoutMs: number; maxBytes: number; queryTimeoutS: number },
   stats?: OverpassQueryStats,
 ): Promise<FeatureCollection> {
+  const queryStarted = performance.now();
   // Fail before allocating a continent-sized grid. The automatic provider switches sources much earlier.
   const estimatedTiles = Math.ceil(Math.abs(bbox[3] - bbox[1]) * 111320 / 35000)
     * Math.ceil(Math.abs(bbox[2] - bbox[0]) * 111320 * Math.max(.2, Math.cos(Math.min(Math.abs(bbox[1]), Math.abs(bbox[3])) * Math.PI / 180)) / 35000);
@@ -177,6 +182,9 @@ export async function queryOverpass(
 
   await runWithConcurrency(tiles, TILE_CONCURRENCY, loadTile);
   timing("query", { label, tiles: fetchedTiles, features: merged.length, fetchMs, convertMs });
+  logGeographyTiming("query", { label, totalMs: performance.now() - queryStarted,
+    tiles: fetchedTiles, features: merged.length, fetchMs, convertMs, responseBytes: totalBytes,
+    warningCount: warnings.length });
   return collection(merged);
 }
 
@@ -285,62 +293,167 @@ export function elementsToFeatures(elements: unknown[]): OverpassFeature[] {
 }
 
 type OverpassPayload = { elements: unknown[]; remark?: string };
+type TransportTiming = { queryKey: string; attempts: number; queueMs: number; networkMs: number; retryMs: number };
+type EndpointHealth = { attempts: number; successes: number; failures: number;
+  successNetworkMs: number; consecutiveFailures: number; cooldownUntil: number };
+
+function endpointHostname(endpoint: string): string {
+  try { return new URL(endpoint).hostname; } catch { return "invalid-endpoint"; }
+}
 
 function timing(event: string, fields: Record<string, unknown>) {
-  if (process.env.OSM_TIMING === "1") console.info("osm.timing", { event, ...fields });
+  if (process.env.OSM_TIMING === "1") logger.debug("osm.timing", { event, ...fields });
 }
 
 /** Isolated clients let tests exercise cache and transport behavior without live OSM. */
-export function createOverpassClient(options: { cacheDir?: string; fetch?: typeof fetch } = {}) {
+export function createOverpassClient(options: { cacheDir?: string; fetch?: typeof fetch; now?: () => number } = {}) {
   const cacheDir = options.cacheDir ?? OSM_CACHE_DIR;
   const fetchResponse = options.fetch ?? fetch;
   const pending = new Map<string, Promise<OverpassPayload>>();
+  const now = options.now ?? Date.now;
+  // The default singleton shares health across geography and other OSM requests.
+  // Isolated clients keep their own health, just like their in-flight requests.
+  const health = new Map<string, EndpointHealth>();
+
+  function endpointHealth(endpoint: string): EndpointHealth {
+    let state = health.get(endpoint);
+    if (!state) {
+      state = { attempts: 0, successes: 0, failures: 0, successNetworkMs: 0,
+        consecutiveFailures: 0, cooldownUntil: 0 };
+      health.set(endpoint, state);
+    }
+    return state;
+  }
 
   async function load(query: string): Promise<OverpassPayload> {
+    const started = performance.now();
+    const context = geographyTiming.getStore();
+    const queryKey = createHash("sha1").update(query).digest("hex");
     const cached = readCache(query);
+    const cacheReadMs = performance.now() - started;
     if (cached) {
+      if (context) context.cacheHits++;
+      logGeographyTiming("overpass-cache", { status: "hit", queryKey, cacheReadMs });
       timing("cache", { status: "hit" });
       return cached;
     }
+    if (context) context.cacheMisses++;
+    logGeographyTiming("overpass-cache", { status: "miss", queryKey, cacheReadMs });
     timing("cache", { status: "miss" });
-    let lastError: Error | null = null;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      try {
-        const payload = await postOnce(query);
-        writeCache(query, payload);
-        return payload;
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        const status = (error as { status?: number }).status;
-        if (!status || !RETRYABLE.has(status) || attempt === MAX_ATTEMPTS - 1) {
-          throw lastError;
+    const metrics: TransportTiming = { queryKey, attempts: 0, queueMs: 0, networkMs: 0, retryMs: 0 };
+    let outcome = "failed";
+    let cacheWriteMs = 0;
+    try {
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+        try {
+          const payload = await postOnce(query, metrics);
+          const writeStarted = performance.now();
+          writeCache(query, payload);
+          cacheWriteMs = performance.now() - writeStarted;
+          outcome = "complete";
+          return payload;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          const status = (error as { status?: number }).status;
+          if (!status || !RETRYABLE.has(status) || attempt === MAX_ATTEMPTS - 1) {
+            throw lastError;
+          }
+          const retryAfterMs = (error as { retryAfterMs?: number }).retryAfterMs;
+          const delayMs = status === 429 ? Math.min(30_000, Math.max(15_000, retryAfterMs ?? 0)) : 1500 * (attempt + 1);
+          logGeographyTiming("overpass-retry", { queryKey, status, delayMs, attempt: attempt + 1 });
+          const retryStarted = performance.now();
+          await sleep(delayMs);
+          metrics.retryMs += performance.now() - retryStarted;
         }
-        const retryAfterMs = (error as { retryAfterMs?: number }).retryAfterMs;
-        await sleep(status === 429 ? Math.min(30_000, Math.max(15_000, retryAfterMs ?? 0)) : 1500 * (attempt + 1));
       }
+      throw lastError ?? new Error("Overpass request failed");
+    } finally {
+      logGeographyTiming("overpass-miss", { ...metrics, outcome,
+        totalMs: performance.now() - started, cacheReadMs, cacheWriteMs });
     }
-    throw lastError ?? new Error("Overpass request failed");
   }
 
-  async function postOnce(query: string): Promise<OverpassPayload> {
+  async function postOnce(query: string, metrics: TransportTiming): Promise<OverpassPayload> {
     const configured = process.env.OVERPASS_URL?.trim();
     const endpoints = configured ? [configured] : DEFAULT_ENDPOINTS;
-    let lastError: Error | null = null;
+    const available = configured ? endpoints : endpoints.filter(endpoint => endpointHealth(endpoint).cooldownUntil <= now());
+    // If every endpoint is cooling down, probe only the one due to recover first.
+    // Keep an explicit override usable, even when its sole endpoint is unhealthy.
+    const selected = available.length ? available : [endpoints.reduce((earliest, endpoint) =>
+      endpointHealth(endpoint).cooldownUntil < endpointHealth(earliest).cooldownUntil ? endpoint : earliest)];
     for (const endpoint of endpoints) {
+      if (!selected.includes(endpoint)) logGeographyTiming("overpass-endpoint-skip", {
+        queryKey: metrics.queryKey, endpoint: endpointHostname(endpoint),
+        cooldownMs: Math.max(0, endpointHealth(endpoint).cooldownUntil - now()),
+      });
+    }
+    let lastError: Error | null = null;
+    for (const endpoint of selected) {
       try {
-        return await postToEndpoint(endpoint, query);
+        return await postToEndpoint(endpoint, query, metrics);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         const status = (lastError as Error & { status?: number }).status;
         if (status && status >= 400 && status < 500) throw lastError;
-        if (lastError.message.includes("exceeded") || lastError.name === "TimeoutError" || lastError.message.startsWith("Overpass remark:")) throw lastError;
+        if (lastError.message.includes("exceeded") || lastError.message.startsWith("Overpass remark:")) throw lastError;
       }
     }
     throw lastError ?? new Error("Overpass request failed");
   }
 
-  async function postToEndpoint(endpoint: string, query: string): Promise<OverpassPayload> {
-    return withOverpassSlot(() => sendToEndpoint(endpoint, query));
+  async function postToEndpoint(endpoint: string, query: string, metrics: TransportTiming): Promise<OverpassPayload> {
+    const queued = performance.now();
+    return withOverpassSlot(async () => {
+      const started = performance.now();
+      const queueMs = started - queued;
+      metrics.queueMs += queueMs;
+      metrics.attempts++;
+      let outcome = "failed";
+      let status: number | undefined;
+      let errorType: string | undefined;
+      let healthFailure = false;
+      try {
+        const payload = await sendToEndpoint(endpoint, query);
+        outcome = "complete";
+        return payload;
+      } catch (error) {
+        status = (error as { status?: number }).status;
+        errorType = error instanceof Error ? error.name : "unknown";
+        // Query errors, response-size limits and Overpass remarks are not proof
+        // that an endpoint is unhealthy. Count rate limits and transport faults.
+        healthFailure = status === 429 || (status !== undefined && status >= 500)
+          || errorType === "TimeoutError" || errorType === "TypeError";
+        throw error;
+      } finally {
+        const networkMs = performance.now() - started;
+        metrics.networkMs += networkMs;
+        const state = endpointHealth(endpoint);
+        state.attempts++;
+        if (outcome === "complete") {
+          state.successes++;
+          state.successNetworkMs += networkMs;
+          state.consecutiveFailures = 0;
+          state.cooldownUntil = 0;
+        } else {
+          state.failures++;
+          if (healthFailure) {
+            state.consecutiveFailures++;
+            if (state.consecutiveFailures >= ENDPOINT_FAILURE_THRESHOLD) state.cooldownUntil = now() + ENDPOINT_COOLDOWN_MS;
+          } else {
+            state.consecutiveFailures = 0;
+          }
+        }
+        logGeographyTiming("overpass-attempt", { queryKey: metrics.queryKey,
+          endpoint: endpointHostname(endpoint), attempt: metrics.attempts, queueMs, networkMs, outcome, status, errorType });
+        logGeographyTiming("overpass-endpoint-health", { endpoint: endpointHostname(endpoint),
+          attempts: state.attempts, successes: state.successes, failures: state.failures,
+          failureRate: state.failures / state.attempts,
+          averageSuccessMs: state.successes ? state.successNetworkMs / state.successes : null,
+          consecutiveFailures: state.consecutiveFailures,
+          cooldownMs: Math.max(0, state.cooldownUntil - now()) });
+      }
+    });
   }
 
   async function sendToEndpoint(endpoint: string, query: string): Promise<OverpassPayload> {
@@ -406,6 +519,9 @@ export function createOverpassClient(options: { cacheDir?: string; fetch?: typeo
   return (query: string): Promise<OverpassPayload> => {
     const existing = pending.get(query);
     if (existing) {
+      const context = geographyTiming.getStore();
+      if (context) context.inFlight++;
+      logGeographyTiming("overpass-cache", { status: "in-flight", queryKey: createHash("sha1").update(query).digest("hex") });
       timing("cache", { status: "in-flight" });
       return existing;
     }

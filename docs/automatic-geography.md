@@ -5,6 +5,54 @@ zoom, device pixel ratio, and export resolution do not change content. The share
 policy uses a logical 1,024-pixel short side and the same aspect fit and 3% margin
 as schematic rendering; parity tests cover every aspect and high latitudes.
 
+## Loading time logs
+
+Geography loads emit `geography.timing` records at debug level. By default they
+are written to `data/logs/api-YYYY-MM-DD.jsonl` (UTC date) and hidden from the
+terminal. `LOG_FILE_LEVEL` defaults to `debug`; `LOG_CONSOLE_LEVEL` defaults to
+`info`. Set `LOG_DIR` to change the directory. Both thresholds accept `debug`,
+`info`, `warn`, `error`, or `off`. Filter by `scope: "geography.timing"` and `loadId` to
+follow one load; `start` and `complete`/`failed` bracket its total server loading
+time. Completion includes source, profile, completeness, warnings count, and
+Overpass cache hit, miss, and shared in-flight counts. Saved-scene cache status,
+source loading, processing, and scene writing are separate events.
+
+For cache misses, `overpass-miss` reports `totalMs`, `cacheReadMs`, `cacheWriteMs`,
+`queueMs`, `networkMs`, `retryMs`, attempt count, and outcome. `overpass-attempt`
+records each attempt, including failures; `overpass-retry` records HTTP status and
+planned backoff. `queryKey` is a hash identifying the tile query; raw queries,
+coordinates, and user IDs are not logged. Network time includes reading and
+parsing the response. `query` includes conversion time and response bytes;
+its `fetchMs` is summed across tiles, whereas `totalMs` is wall-clock time.
+Parallel tile timings should not be added to the overall load duration.
+The API also records a debug `response` event with the scene ID,
+`queryResponseBytes`, and `apiResponseBytes` (uncompressed UTF-8 JSON sent to the
+browser). These diagnostics are omitted from the editor UI.
+
+These are server timings through scene persistence, excluding API response
+serialization, browser transfer, and rendering. Files append in event order and rotate daily; retention is managed externally.
+They are separate from geography cache files. `OSM_TIMING=1` still
+enables the existing optional diagnostics for other OSM queries.
+
+Each `overpass-attempt` includes the endpoint hostname, HTTP failure status, and
+error type. `overpass-endpoint-health` reports cumulative attempts, successes,
+failures, `failureRate` (0–1), `averageSuccessMs` (successful response time,
+excluding queueing), consecutive health failures, and remaining cooldown time.
+These statistics include all OSM traffic through the default client and reset
+when the API process restarts. Raw endpoint URLs and credentials are not logged.
+
+The default order is `overpass.openstreetmap.fr`, then
+`overpass-api.de`. Two consecutive rate-limit, HTTP 5xx, transport, or
+request-timeout failures put an endpoint on cooldown for 60 seconds. During that
+time it is skipped when another endpoint is available; skips emit
+`overpass-endpoint-skip`. After expiry it becomes eligible again, and success
+clears its failure streak. Query errors, Overpass remarks, and response-size
+limits do not trigger cooldown. Request timeouts can fall back to another endpoint.
+If every endpoint is cooling down, only the endpoint due to recover first is
+probed. A configured `OVERPASS_URL` remains the sole endpoint and is still tried
+during cooldown. Selection uses cooldown health rather than ranking by latency;
+the logged failure rates and successful response times allow that comparison.
+
 ## Policy version 1
 
 - Below 10 ground meters per logical pixel: local roads, streets, paths, water,

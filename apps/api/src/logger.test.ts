@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { createLogger, installConsoleLogging, logger } from "./logger";
+import { geographyTiming, logGeographyTiming, newGeographyTiming } from "./osm/geographyTiming";
 
 test("debug timing records reach files while the info terminal threshold hides them", async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scenic-logger-"));
@@ -34,6 +35,36 @@ test("terminal and file thresholds can be configured independently", async t => 
   await log.flush();
   assert.equal(debug.mock.callCount(), 1);
   assert.deepEqual(await fs.readdir(directory), []);
+});
+
+test("environment defaults retain actual geography events without terminal output", async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "scenic-geography-log-file-"));
+  const keys = ["LOG_DIR", "LOG_CONSOLE_LEVEL", "LOG_FILE_LEVEL"] as const;
+  const previous = keys.map(key => process.env[key]);
+  t.after(async () => {
+    keys.forEach((key, index) => {
+      if (previous[index] === undefined) delete process.env[key];
+      else process.env[key] = previous[index];
+    });
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+  process.env.LOG_DIR = directory;
+  delete process.env.LOG_CONSOLE_LEVEL;
+  delete process.env.LOG_FILE_LEVEL;
+  const debug = t.mock.method(console, "debug", () => {});
+  const info = t.mock.method(console, "info", () => {});
+  const { logger } = await import("./logger");
+  const context = newGeographyTiming();
+  geographyTiming.run(context, () => logGeographyTiming("overpass-miss", { totalMs: 1234 }));
+  await logger.flush();
+  const file = (await fs.readdir(directory))[0];
+  const record = JSON.parse((await fs.readFile(path.join(directory, file), "utf8")).trim());
+  assert.equal(record.level, "debug");
+  assert.equal(record.event, "overpass-miss");
+  assert.equal(record.loadId, context.loadId);
+  assert.equal(record.totalMs, 1234);
+  assert.equal(debug.mock.callCount(), 0);
+  assert.equal(info.mock.callCount(), 0);
 });
 
 test("file errors do not reject requests and the writer recovers", async t => {

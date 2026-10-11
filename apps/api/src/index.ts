@@ -259,7 +259,11 @@ app.get("/api/poster/geography/:activityId", async (c) => {
       c.req.query("mode") === "manual" ? "manual" : "auto", c.req.query("scene"),
       { detailScope: "none" },
     );
-    return c.json(scene);
+    const body = JSON.stringify(scene);
+    logger.debug("geography.timing", { event: "response", sceneId: scene.sceneId,
+      source: scene.source, queryResponseBytes: scene.queryResponseBytes,
+      apiResponseBytes: Buffer.byteLength(body) });
+    return c.body(body, 200, { "Content-Type": "application/json" });
   } catch (error) { return fail(c, error); }
 });
 
