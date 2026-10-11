@@ -1,3 +1,5 @@
+import { indexedPosterStore } from "./publication";
+import { imageAttemptContext } from "./jobContext";
 import fs from "node:fs";
 import path from "node:path";
 import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
@@ -10,6 +12,7 @@ export type ObjectStore = {
   put(userId: string, name: string, body: Buffer, contentType: string): Promise<void>;
   get(userId: string, name: string): Promise<Buffer | null>;
   listJsonNames(userId: string): Promise<string[]>;
+  removePrefix?(userId: string, prefix: string): Promise<void>;
   removeUser(userId: string): Promise<void>;
   removeByPosterId(userId: string, posterId: string): Promise<void>;
   removeByActivityIds(userId: string, activityIds: Set<number>): Promise<number>;
@@ -66,6 +69,7 @@ export function createLocalStore(root = POSTERS_DIR): ObjectStore {
     async put(userId, name, body) {
       const dir = userDir(userId);
       fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
       fs.writeFileSync(path.join(dir, name), body);
     },
     async get(userId, name) {
@@ -78,14 +82,16 @@ export function createLocalStore(root = POSTERS_DIR): ObjectStore {
       if (!fs.existsSync(dir)) return [];
       return fs.readdirSync(dir).filter((name) => name.endsWith(".json"));
     },
+    async removePrefix(userId, prefix) { fs.rmSync(path.join(userDir(userId), prefix), { recursive: true, force: true }); },
     async removeUser(userId) {
       fs.rmSync(userDir(userId), { recursive: true, force: true });
     },
     async removeByPosterId(userId, posterId) {
-      const dir = userDir(userId);
+      const dir = path.dirname(path.join(userDir(userId), posterId));
+      const base = path.basename(posterId);
       if (!fs.existsSync(dir)) return;
       for (const name of fs.readdirSync(dir)) {
-        if (name.startsWith(`${posterId}.`)) fs.unlinkSync(path.join(dir, name));
+        if (name.startsWith(`${base}.`)) fs.unlinkSync(path.join(dir, name));
       }
     },
     async removeByActivityIds(userId, activityIds) {
@@ -131,6 +137,7 @@ export function createLocalStore(root = POSTERS_DIR): ObjectStore {
 
 export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>, prefix = "posters/"): ObjectStore {
   const client = new S3Client({
+    maxAttempts: 1,
     region: "auto",
     endpoint: config.endpoint,
     forcePathStyle: true,
@@ -191,6 +198,7 @@ export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>, 
         Body: body,
         ContentType: contentType,
       }),
+      { abortSignal: AbortSignal.timeout(120_000) },
     );
   }
 
@@ -225,6 +233,7 @@ export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>, 
         .filter((name) => name.startsWith(prefixName) && name.endsWith(".json"))
         .map((name) => name.slice(prefixName.length));
     },
+    async removePrefix(userId, startsWith) { await removeNames(await listNames(scopedName(userId, startsWith))); },
     async removeUser(userId) {
       assertSafeUserId(userId);
       await removeNames(await listNames(`${userId}/`));
@@ -283,11 +292,16 @@ export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>, 
 
 let cached: ObjectStore | null = null;
 
-export function posterStore(): ObjectStore {
+export function rawPosterStore(): ObjectStore {
   if (cached) return cached;
   const remote = r2Config();
   cached = remote ? createR2Store(remote) : createLocalStore();
   return cached;
+}
+
+export function posterStore(): ObjectStore {
+  const raw = rawPosterStore();
+  return process.env.POSTER_INDEX_ENABLED === "true" || imageAttemptContext.getStore() ? indexedPosterStore(raw) : raw;
 }
 
 export function resetPosterStore(store: ObjectStore | null = null) {

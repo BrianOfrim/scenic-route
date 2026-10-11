@@ -1,3 +1,6 @@
+import { imageAttemptContext } from "./jobContext";
+import { createR2Store, r2Config } from "./storage";
+import { queryOne, query } from "./db";
 import { accountContext } from "./accountLifecycle";
 import { assertSafeUserId } from "./storage";
 import { randomBytes } from "node:crypto";
@@ -135,7 +138,7 @@ export async function withLlmTrace<T>(
   let errorDetails: unknown;
   let diagnostics: Record<string, unknown> = {};
   // Persist before sending, so a process exit leaves evidence of unfinished work.
-  persistAndPrint({ ...meta, id, startedAt: startedAt.toISOString(), durationMs: 0,
+  await persistAndPrint({ ...meta, id, startedAt: startedAt.toISOString(), durationMs: 0,
     ok: false, status, response, cost, error, file: null, lifecycle: "running",
     request: sanitizeForTrace(meta.request), diagnostics });
   const capture: LlmTraceCapture = (info) => {
@@ -153,7 +156,7 @@ export async function withLlmTrace<T>(
     errorDetails = describeError(err);
     throw err;
   } finally {
-    persistAndPrint({
+    await persistAndPrint({
       id,
       kind: meta.kind,
       label: meta.label,
@@ -175,10 +178,22 @@ export async function withLlmTrace<T>(
   }
 }
 
-function persistAndPrint(trace: LlmTrace) {
+async function persistAndPrint(trace: LlmTrace) {
   try {
     const userId = accountContext.getStore();
     if (userId) assertSafeUserId(userId);
+    const attempt = imageAttemptContext.getStore();
+    const remote = r2Config();
+    if (attempt || process.env.APP_ROLE === "worker" || process.env.NODE_ENV === "production") {
+      if (!remote || !userId) { console.log(`[llm:${trace.label}] ${trace.id} trace storage unavailable`); return; }
+      if (attempt) {
+        await attempt.check();
+        await query("INSERT INTO image_storage_attempts(attempt_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [attempt.id,userId]);
+      } else if (!await queryOne('SELECT 1 FROM "user" WHERE id=$1 AND NOT image_deleting', [userId])) return;
+      await createR2Store(remote,"traces/").put(userId,`${attempt ? attempt.id + "/" : ""}${trace.id}.json`,Buffer.from(stringify({...trace,userId})),"application/json");
+      console.log(`[llm:${trace.label}] ${trace.id} ${trace.lifecycle}`);
+      return;
+    }
     const dir = userId ? path.join(LLM_TRACES_DIR, userId) : LLM_TRACES_DIR;
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `${trace.id}-${safeLabel(trace.label)}.json`);
@@ -189,8 +204,8 @@ function persistAndPrint(trace: LlmTrace) {
       : formatLlmTraceConsole(written));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[llm:${trace.label}] failed to write trace: ${message}`);
-    console.log(formatLlmTrace(trace));
+    console.warn(`[llm:${trace.label}] failed to write trace ${trace.id}`);
+    // Never fall back to printing private request/response payloads.
   }
 }
 

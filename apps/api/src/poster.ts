@@ -1,3 +1,5 @@
+import { imageAttemptContext } from "./jobContext";
+import { registerStagedRecord } from "./publication";
 import { requireGenerationConsent } from "./participation";
 import { providerQueue } from "./requestQueue";
 import { randomBytes } from "node:crypto";
@@ -262,6 +264,8 @@ export function decodeDataUrl(url: string): { mime: string; bytes: Buffer } {
 }
 
 export function newPosterId() {
+  const attempt = imageAttemptContext.getStore();
+  if (attempt) return attempt.nextPosterId();
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
   return `${stamp}-${randomBytes(3).toString("hex")}`;
 }
@@ -277,6 +281,7 @@ export async function generatePoster(userId: string, body: GeneratePosterBody): 
 /** Only edits/variants may supply links minted from an owned poster. */
 async function generatePosterWithReferences(userId: string, body: GeneratePosterBody, source?: PosterRecord, annotationBytes?: Buffer): Promise<PosterRecord[]> {
   await requireGenerationConsent(userId);
+  if (imageAttemptContext.getStore()) return generateScheduledPoster(userId, body, source, annotationBytes);
   return providerQueue("image").run(() => generateScheduledPoster(userId, body, source, annotationBytes), undefined, userId);
 }
 
@@ -370,6 +375,7 @@ async function generateScheduledPoster(userId: string, body: GeneratePosterBody,
         thumbUrl: `/api/posters/${posterId}/thumb.webp`,
         editor: sanitizePosterEditor(body.editor),
       };
+      await registerStagedRecord(record);
       const posterBytes = Buffer.from(image.b64, "base64");
       await store.put(userId, `${posterId}.png`, posterBytes, sniffImageMime(posterBytes) || image.mediaType || "image/png");
       if (annotationBytes) await store.put(userId, `${posterId}.annotation.png`, annotationBytes, "image/png");

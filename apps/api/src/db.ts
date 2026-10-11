@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import pg from "pg";
+import { migrateImageJobs } from "./jobMigration";
 import { migrateBetaAdmission } from "./betaMigration";
 import { DB_PATH } from "./paths";
 
@@ -72,18 +73,20 @@ export async function withTransaction<T>(fn: (client: pg.PoolClient) => Promise<
 export async function getPool() {
   if (!ready) {
     ready = (async () => {
-      const created = new Pool({ connectionString: databaseUrl() });
+      const created = new Pool({ connectionString: databaseUrl(), max: Number(process.env.PG_QUERY_POOL_SIZE || 10), connectionTimeoutMillis: 10_000 });
       created.on("error", (error) => {
         console.error("postgres pool error", error);
       });
       try {
         await waitForPostgres(created);
+        if (process.env.DB_MIGRATIONS !== "off") {
         const migration = await created.connect();
         try {
           // Multiple API/test processes can initialize together. Serialize DDL,
           // including CREATE TABLE IF NOT EXISTS, which can still race in Postgres.
           await migration.query("SELECT pg_advisory_lock(hashtextextended('scenic-route:migrations', 0))");
           await migrate(migration);
+          await migrateImageJobs(migration);
         } finally {
           try { await migration.query("SELECT pg_advisory_unlock(hashtextextended('scenic-route:migrations', 0))"); }
           finally { migration.release(); }
@@ -92,6 +95,10 @@ export async function getPool() {
           await maybeImportSqlite(created);
         } catch (error) {
           console.warn("sqlite import skipped", error instanceof Error ? error.message : error);
+        }
+        } else {
+          const version = await created.query("SELECT version FROM image_schema_versions WHERE version=1");
+          if (!version.rowCount) throw new Error("Run npm run jobs:migrate before starting API or workers");
         }
       } catch (error) {
         await created.end().catch(() => undefined);

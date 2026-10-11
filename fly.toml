@@ -1,7 +1,16 @@
 app = "scenic-route"
 primary_region = "dfw"
 
+kill_signal = "SIGTERM"
+kill_timeout = 300
+
 [build]
+
+[deploy]
+  release_command = "npm run jobs:migrate"
+
+[processes]
+  app = "node --import tsx apps/api/src/runtime.ts combined"
 
 [http_service]
   internal_port = 8790
@@ -41,3 +50,4 @@ primary_region = "dfw"
 [[mounts]]
   source = "osm_tile_cache"
   destination = "/tile-cache"
+  processes = ["app"]

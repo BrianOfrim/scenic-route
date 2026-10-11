@@ -1,3 +1,4 @@
+import { imageAttemptContext } from "./jobContext";
 import { alignDataUrlMime } from "./imageMime";
 import { withLlmTrace } from "./llmTrace";
 import { openRouterTransport } from "./openrouterTransport";
@@ -312,7 +313,9 @@ export async function createImage(options: {
     },
     async (capture) => {
       const queuedAt = Date.now();
-      return providerQueue("image").run(async () => {
+      const execute = async () => {
+        const attempt = imageAttemptContext.getStore();
+        if (attempt) { await attempt.check(); await attempt.dispatch(imageGenerationTimeoutMs(n)); }
         const queueWaitMs = Date.now() - queuedAt;
         const transport = openRouterTransport("image", imageGenerationTimeoutMs(n), info => capture({
           ...info, ...(info.diagnostics ? { diagnostics: { ...info.diagnostics, queueWaitMs } } : {}),
@@ -340,7 +343,8 @@ export async function createImage(options: {
         } finally {
           transport.close();
         }
-      }, imageGenerationTimeoutMs(n) + 60_000, options.user || "anonymous");
+      };
+      return imageAttemptContext.getStore() ? execute() : providerQueue("image").run(execute, imageGenerationTimeoutMs(n) + 60_000, options.user || "anonymous");
     },
   );
 }

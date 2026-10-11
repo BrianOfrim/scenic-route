@@ -16,4 +16,4 @@ ENV NODE_ENV=production
 ENV PORT=8790
 EXPOSE 8790
 
-CMD ["npm", "run", "start", "-w", "@scenic-route/api"]
+CMD ["node", "--import", "tsx", "apps/api/src/runtime.ts"]

@@ -1,3 +1,5 @@
+import { JobConflictError } from "./durableJobs";
+import { backfillPosterIndex } from "./publication";
 import { getImageLimits } from "./imageLimits";
 import { participationStatus, recordParticipation, ParticipationError, assertParticipation, authRecoveryPath } from "./participation";
 import { startGenerationWorker, submitGenerationJobs, submitSavedGenerationJob, listGenerationJobs, retryGenerationJob, dismissGenerationJob } from "./generationJobs";
@@ -139,6 +141,7 @@ app.delete("/api/account", async c => {
   try {
     await purgeAccount(user);
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return c.json({ error: error.message }, error.status);
     console.error("account deletion failed", error instanceof Error ? error.message : "unknown error");
     return c.json({ error: "Could not finish deleting your account. Please retry to complete the purge." }, 503);
   }
@@ -450,8 +453,8 @@ function webp(bytes: Buffer) {
 
 function fail(c: Context, error: unknown) {
   if (error instanceof ParticipationError) return c.json({ error: error.message, code: error.code }, 403);
-  if (error instanceof PosterError || error instanceof OpenRouterError || error instanceof ReferenceUploadError || error instanceof RequestQueueError || error instanceof PosterQuotaError) {
-    return c.json({ error: error.message }, error.status);
+  if (error instanceof JobConflictError || error instanceof PosterError || error instanceof OpenRouterError || error instanceof ReferenceUploadError || error instanceof RequestQueueError || error instanceof PosterQuotaError) {
+    return c.json({ error: error.message }, (error as { status: 400 | 401 | 403 | 404 | 409 | 429 | 502 | 503 | 504 }).status);
   }
   const message = error instanceof Error ? error.message : "request failed";
   const status = /not found|required|must be/i.test(message) ? 400 : 500;
@@ -461,10 +464,11 @@ function fail(c: Context, error: unknown) {
 return app;
 }
 
-async function startApi() {
+export async function startApi() {
 const app = createApiApp();
 try {
   await initDb();
+  if (process.env.DB_MIGRATIONS !== "off") {
   await sealImportedIdFloors();
   const purge = await purgeLegacyApiData();
   if (purge.activities || purge.posters || purge.traces) {
@@ -472,12 +476,15 @@ try {
       `file-first migration purged ${purge.activities} activities, ${purge.posters} posters, and ${purge.traces} traces`,
     );
   }
+  }
+  await backfillPosterIndex();
+  process.env.POSTER_INDEX_ENABLED = "true";
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 }
 
-startGenerationWorker();
+if ((process.env.APP_ROLE || "combined") === "combined") startGenerationWorker();
 
 serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" }, (info) => {
   console.log(`scenic-route api http://${info.address}:${info.port}`);

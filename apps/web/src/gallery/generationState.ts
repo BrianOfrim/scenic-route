@@ -5,7 +5,7 @@ export const generationPhaseLabels: Record<GenerationPhase, string> = {
   queued: "Queued", generating: "Generating",
 };
 export type PendingImage = { activityId?: number; previousPosterId?: string; createdAt: string; id: string; title: string; model: string; styleId?: string; paletteId?: string; phase: GenerationPhase; imageAttempt?: number };
-type FailedImage = PendingImage & { error: string; retry: () => Promise<void> };
+type FailedImage = PendingImage & { retryAllowedAt?: string; failureReason?: string; error: string; retry: () => Promise<void> };
 let snapshot: { failed: FailedImage[]; pending: PendingImage[]; revision: number; error: string | null } = {
   failed: [], pending: [], revision: 0, error: null,
 };
@@ -121,6 +121,7 @@ export function useGenerationState() {
 export type ServerGenerationJob = {
   id: string; state: "queued" | "generating" | "completed" | "failed";
   title: string; model: string; styleId?: string; paletteId?: string; variants: number; error: string | null;
+  failureReason?: string; retryAllowedAt?: string; resultPosterIds?: string[];
   imageAttempt?: number; activityId?: number; previousPosterId?: string; createdAt?: string;
 };
 let serverJobs: ServerGenerationJob[] = [];
@@ -144,7 +145,7 @@ export function setServerGenerationJobs(jobs: ServerGenerationJob[], retryJob: (
         imageAttempt: job.state === "queued" && job.imageAttempt ? job.imageAttempt + 1 : job.imageAttempt,
         phase: (job.state === "generating" ? "generating" : "queued") as GenerationPhase };
       if (job.state === "failed") {
-        if (!dismissedServerImages.has(image.id)) failed.push({ ...image, error: job.error || "Generation failed", retry: async () => {
+        if (!dismissedServerImages.has(image.id)) failed.push({ ...image, retryAllowedAt: job.retryAllowedAt, failureReason: job.failureReason, error: job.error || "Generation failed", retry: async () => {
           if (retryingServerJobs.has(job.id)) return;
           retryingServerJobs.add(job.id);
           try { await retryJob(job.id); }

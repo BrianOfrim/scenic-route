@@ -7,7 +7,7 @@
   "scripts": {
     "image:limits": "tsx scripts/set-image-limits.mts",
     "poster:limit": "tsx scripts/set-poster-limit.mts",
-    "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev -w @scenic-route/api\" \"npm run dev -w @scenic-route/web\"",
+    "dev": "npm run jobs:migrate && concurrently -n api,worker,web -c cyan,magenta,green \"npm run dev -w @scenic-route/api\" \"npm run dev:worker -w @scenic-route/api\" \"npm run dev -w @scenic-route/web\"",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
     "dev:api": "npm run dev -w @scenic-route/api",
@@ -16,7 +16,13 @@
     "test:api": "npm test -w @scenic-route/api",
     "test:web": "npm test -w @scenic-route/web",
     "build": "npm run build -w @scenic-route/web",
-    "beta:admit": "tsx scripts/admit-beta.mts"
+    "beta:admit": "tsx scripts/admit-beta.mts",
+    "dev:worker": "npm run dev:worker -w @scenic-route/api",
+    "jobs:migrate": "tsx scripts/image-jobs.mts migrate",
+    "jobs:status": "tsx scripts/image-jobs.mts status",
+    "jobs:drain": "tsx scripts/image-jobs.mts drain",
+    "jobs:control": "tsx scripts/image-jobs.mts",
+    "jobs:reconcile": "tsx scripts/image-jobs.mts reconcile"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
