@@ -2114,6 +2114,13 @@ button.map-schematic-tip-name:focus-visible {
   row-gap: 8px;
 }
 
+.poster-geo-note {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .poster-geo-grid .check {
   min-width: 0;
   margin: 0;

@@ -1,5 +1,5 @@
 import type { GeographyScene } from "../../../api/src/osm/geographyPolicy";
-import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, automaticGeographyAllowance, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
+import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, automaticGeographyAllowance, loadedGeographyIds, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
 import { beginGeneration } from "../gallery/generationState";
 import { ThemeExamples } from "./ThemeExamples";
 import { locationCaption, locationInput } from "./location";
@@ -51,6 +51,7 @@ import {
 } from "./polygonEdit";
 
 type GeoScope = "all" | "corridor" | "ends" | "box" | "hull" | "loop" | "rectangle" | "polygon";
+
 
 function formatDataSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -801,6 +802,9 @@ export function PosterPanel({
   const [geographyResult, setGeographyResult] = useState<{ key: string; scene: GeographyScene } | null>(null);
   const [geographyError, setGeographyError] = useState<string | null>(null);
   const [geographyRetry, setGeographyRetry] = useState(0);
+  const [geographyLayerLoading, setGeographyLayerLoading] = useState<string | null>(null);
+  const [geographyLayerErrors, setGeographyLayerErrors] = useState<Record<string, string>>({});
+  const automaticScene = useRef<{ key: string; scene: GeographyScene } | null>(null);
   const [featureIds, setFeatureIds] = useState<string[]>(() => seeded?.featureIds ?? DEFAULT_FEATURE_IDS);
   const [landmarkNearM, setLandmarkNearM] = useState<Record<string, number>>(() => ({
     ...defaultLandmarkNearM(),
@@ -1267,22 +1271,49 @@ export function PosterPanel({
   const geographyFrameKey = groundingBbox ? JSON.stringify([activityId, groundingBbox.flat().map(n => Number(n.toFixed(7))), aspectRatio, geographyMode]) : "";
   const geographyScene = geographyResult?.key === geographyFrameKey ? geographyResult.scene : null;
   const geographyAllowance = geographyScene ? automaticGeographyAllowance(geographyScene.profile, geographyScene.source) : null;
-  const geographyPending = Boolean(geographyFrameKey && !geographyScene && !geographyError);
+  const geographyPending = Boolean(geographyLayerLoading || (geographyFrameKey && !geographyScene && !geographyError));
   useEffect(() => {
     if (!geographyFrameKey) return;
+    setGeographyLayerErrors({});
+    if (geographyResult?.key === geographyFrameKey) return;
     let cancelled = false;
     setGeographyError(null);
     const timer = window.setTimeout(() => {
       const [id, bbox, aspect, mode] = JSON.parse(geographyFrameKey);
-      const savedScene = seeded?.geographyFrameKey === geographyFrameKey ? seeded.geographySceneId : undefined;
-      void fetchPosterGeography(id, bbox, aspect, mode, savedScene).then(scene => {
-        if (!cancelled) setGeographyResult({ key: geographyFrameKey, scene });
+      // An explicit retry must rebuild instead of restoring the saved fallback again.
+      const savedScene = geographyRetry === 0 && seeded?.geographyFrameKey === geographyFrameKey ? seeded.geographySceneId : undefined;
+      void fetchPosterGeography(id, bbox, aspect, mode, savedScene, mode === "manual" && !savedScene
+        ? { layers: featureIds.filter(id => id in GEOGRAPHY_BUCKETS && id !== "cemeteries") } : undefined).then(scene => {
+        if (!cancelled) {
+          if (mode === "auto") automaticScene.current = { key: geographyFrameKey, scene };
+          setGeographyResult({ key: geographyFrameKey, scene });
+        }
       }).catch((err: unknown) => {
         if (!cancelled) setGeographyError(err instanceof Error ? err.message : "Could not load geography");
       });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [geographyFrameKey, geographyRetry, GEOGRAPHY_VERSION]);
+  useEffect(() => {
+    setGeographyLayerLoading(null);
+    if (geographyMode !== "manual" || !geographyScene) return;
+    const loaded = loadedGeographyIds(geographyScene);
+    const id = featureIds.find(id => id in GEOGRAPHY_BUCKETS && id !== "cemeteries"
+      && !loaded.includes(id) && !geographyLayerErrors[id]);
+    if (!id) return;
+    let cancelled = false;
+    const [activity, bbox, aspect] = JSON.parse(geographyFrameKey);
+    setGeographyLayerLoading(id);
+    void fetchPosterGeography(activity, bbox, aspect, "manual", undefined, {
+      layers: [id], baseSceneId: geographyScene.sceneId,
+    }).then(scene => {
+      if (!cancelled) setGeographyResult({ key: geographyFrameKey, scene });
+    }).catch((err: unknown) => {
+      if (!cancelled) setGeographyLayerErrors(current => ({ ...current,
+        [id]: err instanceof Error ? err.message : "Could not load this layer" }));
+    }).finally(() => { if (!cancelled) setGeographyLayerLoading(null); });
+    return () => { cancelled = true; };
+  }, [geographyFrameKey, geographyScene, geographyMode, featureIds, geographyLayerErrors]);
   const geographyWays = useMemo(() => geographyScene
     ? { ...geographyScene.ways, cemeteries: context?.ways.cemeteries ?? { type: "FeatureCollection" as const, features: [] } }
     : null, [geographyScene, context?.ways.cemeteries]);
@@ -1886,7 +1917,7 @@ export function PosterPanel({
   }
 
   async function handleGenerate() {
-    if (!geographyScene || !context || !activeImageModelIds.length) return;
+    if (!geographyScene || geographyIncomplete || !context || !activeImageModelIds.length) return;
     const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
     if (!slots.length) return;
     if (slots.length > selectionLimit) { setSelectionError(selectionLimitMessage); return; }
@@ -1986,6 +2017,19 @@ export function PosterPanel({
     setFeatureIds((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
+  }
+
+  function changeGeographyMode(mode: "auto" | "manual") {
+    if (!geographyFrameKey) { setGeographyMode(mode); return; }
+    if (mode === "manual" && geographyScene) {
+      const key = JSON.stringify([...JSON.parse(geographyFrameKey).slice(0, 3), "manual"]);
+      setFeatureIds(current => [...current.filter(id => !(id in GEOGRAPHY_BUCKETS)), ...resolvedFeatureIds]);
+      setGeographyResult({ key, scene: geographyScene });
+    } else if (mode === "auto") {
+      const key = JSON.stringify([...JSON.parse(geographyFrameKey).slice(0, 3), "auto"]);
+      if (automaticScene.current?.key === key) setGeographyResult(automaticScene.current);
+    }
+    setGeographyMode(mode);
   }
 
   function landmarkNearValue(id: string, fallback?: number) {
@@ -2157,7 +2201,8 @@ export function PosterPanel({
   const lastIndex = Math.max(1, (context?.latlng.length ?? 2) - 1);
   const croppedKm = trackDistanceM(croppedLatLng, croppedRouteBreaks);
   const busy = generating;
-  const planDisabledHint = geographyError ? "Map detail could not load. Open Geography to retry." : !geographyScene ? "Preparing map detail…" : generating
+  const geographyIncomplete = geographyPending || Object.keys(geographyLayerErrors).some(id => featureIds.includes(id));
+  const planDisabledHint = geographyIncomplete ? geographyLayerLoading ? "Map layers are loading…" : "A selected map layer could not load. Retry it in Geography." : geographyError ? "Map detail could not load. Open Geography to retry." : !geographyScene ? "Preparing map detail…" : generating
       ? "Uploading references and submitting the batch…"
       : !styleIds.length && !title.trim()
         ? "Select a theme and add a title in Stats before generating."
@@ -2426,7 +2471,7 @@ export function PosterPanel({
             <button
               className="button"
               type="button"
-              disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
+              disabled={busy || geographyIncomplete || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
               onClick={() => void handleGenerate()}
             >
               {generating
@@ -2571,7 +2616,7 @@ export function PosterPanel({
             <p className="muted">{geographyMode === "auto" ? <>
               Map detail adapts to the poster scale.
               {geographyScene && <> Scale: <strong>{geographyScene.profile.charAt(0).toUpperCase() + geographyScene.profile.slice(1)}</strong>.</>}
-            </> : "Choose map layers."}</p>
+            </> : "Choose map layers. Detail adapts to the poster scale."}</p>
             {geographyScene?.source === "natural-earth" && <p className="muted">Overview map: small local features may be missing.</p>}
             {geographyPending && <p role="status" className="muted">Preparing map detail…</p>}
             {geographyError && <p role="alert">{geographyError} <button type="button" className="text-btn" onClick={() => setGeographyRetry(n => n + 1)}>Retry</button></p>}
@@ -2591,8 +2636,8 @@ export function PosterPanel({
             </p>}
             <details open={geographyMode === "manual" || undefined}>
               <summary>Advanced geography</summary>
-              <label className="check"><input type="checkbox" checked={geographyMode === "auto"} onChange={event => setGeographyMode(event.target.checked ? "auto" : "manual")} />Choose map detail automatically</label>
-              {geographyMode === "manual" && <button type="button" className="text-btn" onClick={() => setGeographyMode("auto")}>Reset to automatic</button>}
+              <label className="check"><input type="checkbox" checked={geographyMode === "auto"} disabled={!geographyScene} onChange={event => changeGeographyMode(event.target.checked ? "auto" : "manual")} />Choose map detail automatically</label>
+              {geographyMode === "manual" && <button type="button" className="text-btn" onClick={() => changeGeographyMode("auto")}>Reset to automatic</button>}
               {geographyMode === "auto" ? (
                 <>
                   <p className="muted">Wide maps use simplified detail. Extent sets the map boundary.</p>
@@ -2608,10 +2653,21 @@ export function PosterPanel({
                       <label key={item.id} className="check">
                         <input
                           type="checkbox"
+                          aria-label={item.label}
                           checked={featureIds.includes(item.id)}
                           onChange={() => toggleFeature(item.id)}
                         />
-                        {item.label}
+                        <span>{item.label}
+                        {geographyLayerLoading === item.id && <span role="status" className="poster-geo-note muted">Loading…</span>}
+                        {geographyScene && featureIds.includes(item.id) && loadedGeographyIds(geographyScene).includes(item.id)
+                          && !visibleGeographyIds(geographyScene.ways, [item.id]).length
+                          && <span className="poster-geo-note muted">No features at this scale.</span>}
+                        {geographyLayerErrors[item.id] && <span role="alert" className="poster-geo-note muted">
+                          {geographyLayerErrors[item.id]} <button type="button" onClick={() => setGeographyLayerErrors(current => {
+                            const next = { ...current }; delete next[item.id]; return next;
+                          })}>Retry</button>
+                        </span>}
+                        </span>
                       </label>
                     ))}
                 </div>
@@ -3153,7 +3209,7 @@ export function PosterPanel({
                 <button
                   className="button"
                   type="button"
-                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
+                  disabled={busy || geographyIncomplete || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
                   onClick={() => void handleGenerate()}
                 >
                   {generating ? "Submitting…" : generateCount > 1 ? `Generate ${generateCount} images` : "Generate image"}
@@ -3171,7 +3227,7 @@ export function PosterPanel({
                 <button
                   className="button"
                   type="button"
-                  disabled={busy || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
+                  disabled={busy || geographyIncomplete || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
                   onClick={() => void handleGenerate()}
                 >
                   {generating

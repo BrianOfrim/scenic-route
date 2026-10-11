@@ -36,7 +36,8 @@ import { purgeLegacyApiData } from "./fileFirstMigration";
 import { sniffImageMime } from "./imageMime";
 import { createImportHandler } from "./importEndpoint";
 import { catalogPublic, parseFeatureSelection } from "./osm/catalog";
-import { loadGeography, parseGeographyBbox } from "./osm/geography";
+import { extendGeography, loadGeography, parseGeographyBbox } from "./osm/geography";
+import { GEOGRAPHY_BUCKETS } from "./osm/geographyPolicy";
 import { loadRouteFeatures } from "./osm/features";
 import { reverseLocation } from "./osm/location";
 import { lookupLandmark } from "./osm/landmark";
@@ -243,11 +244,18 @@ app.get("/api/poster/geography/:activityId", async (c) => {
     let bbox;
     try { bbox = parseGeographyBbox(JSON.parse(c.req.query("bbox") ?? "null")); }
     catch { return c.json({ error: "Invalid geography frame" }, 400); }
-    return c.json(await loadGeography(
+    const features = c.req.query("layers");
+    let scene;
+    if (features !== undefined) {
+      const ids = [...new Set(features.split(",").filter(Boolean))];
+      if (ids.length > 18 || ids.some(id => !Object.hasOwn(GEOGRAPHY_BUCKETS, id) || id === "cemeteries")) return c.json({ error: "Invalid geography layers" }, 400);
+      scene = await extendGeography(bbox, c.req.query("aspect") ?? "3:4", c.req.query("base"), ids);
+    } else scene = await loadGeography(
       bbox, c.req.query("aspect") ?? "3:4",
       c.req.query("mode") === "manual" ? "manual" : "auto", c.req.query("scene"),
       { detailScope: "none" },
-    ));
+    );
+    return c.json(scene);
   } catch (error) { return fail(c, error); }
 });
 
