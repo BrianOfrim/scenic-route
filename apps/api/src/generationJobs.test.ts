@@ -515,3 +515,78 @@ test("batch selection overrides are resolved per account and enforced on the ser
   assert.equal((await queue.submit("tester", {submissionId: "batch", jobs})).length, 9);
   await Promise.all(queue.dispatch());
 });
+
+for (const kind of ["modify", "variant"] as const) {
+  test(`${kind} jobs defer execution, deduplicate submissions and preserve source metadata`, async () => {
+    const { work, input } = setup();
+    const calls: { user: string; body: any }[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const annotation = [[{ x: 0.1, y: 0.2 }, { x: 0.8, y: 0.9 }]];
+    const savedWork = { ...work,
+      readPoster: async (user: string, id: string) => user === "owner" && id === "source" ? {
+        posterId: id, title: "Saved ride", activityId: 77, styleId: "saved-style", paletteId: "saved-palette",
+        model: "saved-model", prompt: "Saved prompt", spec: {} as PosterSpec,
+      } as any : null,
+      modify: async (user: string, body: any) => { calls.push({ user, body }); await gate; return []; },
+      variant: async (user: string, body: any) => { calls.push({ user, body }); await gate; return []; },
+    };
+    const queue = new GenerationJobQueue(savedWork, new RequestQueue(1, Infinity, 240_000, 1, 16), unlocked);
+    const body = { posterId: "source", submissionId: "saved-job", request: " Use blue ", variants: 8, annotation };
+    const [first, duplicate] = await Promise.all([queue.submitSaved("owner", kind, body), queue.submitSaved("owner", kind, body)]);
+    assert.deepEqual(first, duplicate);
+    assert.equal(calls.length, 0, "HTTP admission does not execute provider work");
+    assert.equal(first[0].state, "queued");
+    assert.equal(first[0].previousPosterId, "source");
+    assert.equal(first[0].activityId, 77);
+    assert.equal(first[0].model, "saved-model");
+    assert.equal(first[0].variants, 1);
+    assert.deepEqual(queue.list("other"), []);
+    await assert.rejects(queue.submitSaved("other", kind, body), /image not found/);
+    // Existing generation batches share this same scheduler and cannot pass the saved job.
+    await queue.submit("owner", { submissionId: "batch-after-saved", jobs: [input] });
+    const pending = queue.dispatch();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(calls.length, 1);
+    assert.equal(queue.list("owner")[1].state, "queued");
+    assert.equal(calls[0].user, "owner");
+    if (kind === "modify") {
+      assert.deepEqual(calls[0].body.annotation, annotation);
+      assert.equal(calls[0].body.request, "Use blue");
+    }
+    release();
+    await Promise.all(pending);
+    assert.deepEqual(queue.list("owner"), []);
+    assert.equal((await queue.submitSaved("owner", kind, body))[0].state, "completed");
+    assert.equal(calls.length, 1, "completed submissions cannot generate twice");
+  });
+}
+
+test("saved jobs validate before admission, retain failed edits for retry, and release unfinished capacity", async () => {
+  const { work } = setup();
+  let attempts = 0;
+  const savedWork = { ...work, readPoster: async () => ({ posterId: "source", title: "Ride", activityId: 1, prompt: "prompt", spec: {} }) as any,
+    modify: async () => { if (++attempts === 1) throw new Error("Consent was revoked"); return []; },
+  };
+  const scheduler = new RequestQueue(1, Infinity, 240_000, 1, 1);
+  const queue = new GenerationJobQueue(savedWork, scheduler, unlocked);
+  const body = { posterId: "source", submissionId: "edit", request: "Use blue" };
+  await assert.rejects(queue.submitSaved("owner", "modify", { ...body, request: " " }), /modification request/);
+  await assert.rejects(queue.submitSaved("owner", "modify", { ...body, annotation: [[{ x: 2, y: 0 }]] }), /Invalid edit annotation/);
+  const [job] = await queue.submitSaved("owner", "modify", body);
+  await assert.rejects(queue.submitSaved("owner", "variant", { ...body, submissionId: "overflow" }), /unfinished/);
+  await Promise.all(queue.dispatch());
+  assert.equal(queue.list("owner")[0].state, "failed");
+  assert.match(queue.list("owner")[0].error!, /Consent was revoked/);
+  assert.throws(() => queue.retry("other", job.id), /not found/);
+  queue.retry("owner", job.id);
+  await Promise.all(queue.dispatch());
+  assert.equal(attempts, 2);
+  assert.deepEqual(queue.list("owner"), []);
+  const reservations = scheduler.reserveJobs("owner", 1);
+  reservations.forEach(reservation => scheduler.releaseJob(reservation));
+  await queue.submitSaved("owner", "modify", { ...body, submissionId: "cancel" });
+  queue.removeUser("owner");
+  assert.deepEqual(queue.list("owner"), []);
+  scheduler.reserveJobs("owner", 1);
+});

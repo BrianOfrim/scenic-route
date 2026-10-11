@@ -7,9 +7,10 @@ import { after, before, test } from "node:test";
 import { createApiApp } from "./index";
 import { recordParticipation } from "./participation";
 import { closeDb, initDb, query } from "./db";
-import { closeAccountLocks } from "./accountLifecycle";
+import { closeAccountLocks, withAccountAccess } from "./accountLifecycle";
 import { createLocalStore, resetPosterStore } from "./storage";
 import { getActivity, deleteImportedByIds } from "./activities";
+import { generatePoster, modifyPoster, variantPoster, PosterError } from "./poster";
 import { buildInitialPoster } from "./planner";
 import type { AuthUser } from "./auth";
 import sharp from "sharp";
@@ -66,7 +67,7 @@ after(async () => {
 const mutations: [string, string][] = [
   ["POST", "/api/activities/import"], ["POST", "/api/activities/remove"],
   ["POST", "/api/poster/landmark"], ["POST", "/api/poster/references"], ["POST", "/api/poster/plan"],
-  ["POST", "/api/poster/generate"], ["POST", "/api/poster/modify"], ["POST", "/api/poster/variant"],
+  ["POST", "/api/poster/modify"], ["POST", "/api/poster/variant"],
   ["POST", "/api/poster/jobs"], ["POST", "/api/poster/jobs/guessed/retry"], ["DELETE", "/api/poster/jobs/guessed"],
   ["PATCH", `/api/posters/${posterId}`], ["DELETE", `/api/posters/${posterId}`], ["DELETE", "/api/account"],
 ];
@@ -94,8 +95,10 @@ test("activity IDs are resolved inside the session account, including overlappin
   const landmark = await request(bob, "/api/poster/landmark", "POST", { activityId: 99, query: "peak" });
   assert.equal(landmark.status, 400);
   assert.match((await landmark.json()).error, /not found/);
-  const generation = await request(bob, "/api/poster/generate", "POST", { activityId: 99, spec, references: ["data:image/png;base64,iVBORw0KGgo="] });
-  assert.equal(generation.status, 404);
+  await assert.rejects(
+    generatePoster(bob.id, { activityId: 99, spec, references: ["data:image/png;base64,iVBORw0KGgo="] }),
+    error => error instanceof PosterError && error.status === 404,
+  );
   assert.deepEqual((await deleteImportedByIds(bob.id, [99])).deleted, []);
   assert.ok(await getActivity(alice.id, 99));
   const removed = await request(bob, "/api/activities/remove", "POST", { ids: [42, 99], userId: alice.id });
@@ -116,7 +119,7 @@ test("guessed poster IDs cannot read, share/download, edit, delete or generate f
   assert.equal((await request(bob, `/api/posters/${posterId}`, "PATCH", { favorited: true, userId: alice.id })).status, 404);
   assert.equal((await request(bob, `/api/posters/${posterId}`, "DELETE")).status, 404);
   for (const endpoint of ["modify", "variant"]) {
-    assert.equal((await request(bob, `/api/poster/${endpoint}`, "POST", { posterId, request: "steal", userId: alice.id })).status, 404);
+    assert.equal((await request(bob, `/api/poster/${endpoint}`, "POST", { posterId, request: "steal", userId: alice.id, submissionId: `foreign-${endpoint}` })).status, 404);
   }
   assert.ok(await store.get(alice.id, `${posterId}.png`));
   assert.equal(JSON.parse((await store.get(alice.id, `${posterId}.json`))!.toString()).favorited, undefined);
@@ -131,12 +134,10 @@ test("guessed poster IDs cannot read, share/download, edit, delete or generate f
 });
 
 test("persisted images cannot authorize client-supplied remote references", async () => {
-  const response = await request(alice, "/api/poster/generate", "POST", {
+  await assert.rejects(generatePoster(alice.id, {
     activityId: 42, spec, references: ["https://private.example/guessed-image.png"],
     persistReferences: ["data:image/png;base64,iVBORw0KGgo="],
-  });
-  assert.equal(response.status, 400);
-  assert.match((await response.json()).error, /base64 data URLs/);
+  }), /base64 data URLs/);
 });
 
 test("annotated refinement retains the exact provider input independently of its source", async t => {
@@ -162,13 +163,10 @@ test("annotated refinement retains the exact provider input independently of its
     })), "application/json");
     await store.put(alice.id, `${sourceId}.png`, png, "image/png");
     await store.put(alice.id, `${sourceId}.ref-1.png`, png, "image/png");
-    const response = await request(alice, "/api/poster/modify", "POST", {
+    const [output] = await withAccountAccess(alice.id, false, () => modifyPoster(alice.id, {
       posterId: sourceId, request: "Darken this area", variants: 1,
       annotation: [[{ x: 0.25, y: 0.5 }, { x: 0.75, y: 0.5 }]],
-    });
-    const payload = await response.json();
-    assert.equal(response.status, 200, JSON.stringify(payload));
-    const output = payload.posters[0];
+    }));
     outputId = output.posterId;
     assert.equal(output.annotationUrl, `/api/posters/${outputId}/annotation.png`);
     assert.equal(output.referenceCount, 1, "annotation is not a geographic reference");
@@ -259,25 +257,45 @@ test("owned saved posters can be refined or varied after their activity is remov
     await store.put(alice.id, `${sourceId}.ref-1.png`, Buffer.from("saved grounding"), "image/png");
     for (const endpoint of ["modify", "variant"]) {
       const body = { posterId: sourceId, request: "Make the route green", variants: 1 };
-      assert.equal((await request(bob, `/api/poster/${endpoint}`, "POST", body)).status, 404);
-      const own = await request(alice, `/api/poster/${endpoint}`, "POST", body);
-      assert.equal(own.status, 502);
-      assert.match((await own.json()).error, /Test provider reached/);
+      assert.equal((await request(bob, `/api/poster/${endpoint}`, "POST", { ...body, submissionId: `foreign-saved-${endpoint}` })).status, 404);
+      await assert.rejects(withAccountAccess(alice.id, false, () =>
+        endpoint === "modify" ? modifyPoster(alice.id, body) : variantPoster(alice.id, body)), /Test provider reached/);
     }
     assert.equal(providerCalls.length, 2);
     assert.equal(providerCalls[0].input_references.length, 2);
     assert.match(providerCalls[0].prompt, /Make the route green/);
     assert.equal(providerCalls[1].input_references.length, 1);
-    const fresh = await request(alice, "/api/poster/generate", "POST", {
+    await assert.rejects(generatePoster(alice.id, {
       activityId: 999999, spec, references: ["data:image/png;base64,c2F2ZWQ="],
-      source: { userId: alice.id, activityId: 999999 },
-    });
-    assert.equal(fresh.status, 404);
-    assert.match((await fresh.json()).error, /activity not found/);
+    }), /activity not found/);
     assert.equal(providerCalls.length, 2);
   } finally {
     if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
     else process.env.OPENROUTER_API_KEY = originalKey;
     await store.removeByPosterId(alice.id, sourceId);
   }
+});
+
+test("unused synchronous generation endpoint is removed", async () => {
+  assert.equal((await request(alice, "/api/poster/generate", "POST", {})).status, 404);
+});
+
+test("refinement and variant endpoints return queued jobs before provider execution", async t => {
+  const { removeUserGenerationJobs } = await import("./generationJobs");
+  t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    assert.ok(String(url).endsWith("/images/models"), "submission must not call the image generation provider");
+    return Response.json({ data: [{ id: "test/model", max_images: 1 }] });
+  });
+  try {
+    for (const kind of ["modify", "variant"]) {
+      const response = await request(alice, `/api/poster/${kind}`, "POST", {
+        posterId, request: "Make the route blue", submissionId: `saved-${kind}`,
+      });
+      assert.equal(response.status, 202);
+      const payload = await response.json();
+      assert.equal(payload.jobs[0].state, "queued");
+      assert.equal(payload.jobs[0].previousPosterId, posterId);
+      assert.equal(payload.posters, undefined);
+    }
+  } finally { removeUserGenerationJobs(alice.id); }
 });

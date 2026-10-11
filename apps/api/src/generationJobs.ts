@@ -3,18 +3,23 @@ import { AccountUnavailableError, withAccountAccess } from "./accountLifecycle";
 import { randomUUID } from "node:crypto";
 import { getActivity } from "./activities";
 import { buildInitialPoster, type PlannerInput } from "./planner";
-import { generatePoster, type GeneratePosterBody } from "./poster";
+import { generatePoster, modifyPoster, variantPoster, readPosterRecord, PosterError, type GeneratePosterBody, type ModifyPosterBody, type VariantPosterBody } from "./poster";
+import { validateEditAnnotation } from "./refinementAnnotation";
 import { maxImageOutputs, OpenRouterError } from "./openrouter";
 import { resolveReferences } from "./referenceUploads";
 import { providerQueue, type RequestQueue, type JobReservation } from "./requestQueue";
 
 export type JobInput = { plan: PlannerInput; generate: Omit<GeneratePosterBody, "spec"> };
+type JobWork = { kind: "generate"; input: JobInput; planned: ReturnType<typeof buildInitialPoster> }
+  | { kind: "modify"; body: ModifyPosterBody }
+  | { kind: "variant"; body: VariantPosterBody };
+type JobDetails = { title: string; model: string; styleId?: string; paletteId?: string; variants: number; activityId: number; previousPosterId?: string };
 type GenerationJob = {
   id: string;
   userId: string;
   state: "queued" | "generating" | "completed" | "failed";
-  input: JobInput;
-  planned: ReturnType<typeof buildInitialPoster>;
+  work: JobWork;
+  details: JobDetails;
   error: string | null;
   imageAttempt: number;
   retryAt?: number;
@@ -27,11 +32,9 @@ const RETENTION_MS = 24 * 60 * 60 * 1000;
 
 function publicJobs(jobs: GenerationJob[]) {
   return jobs.map(job => ({
-    id: job.id, state: job.state, title: job.input.plan.title,
-    model: job.input.generate.model || "", styleId: job.input.generate.styleId,
-    paletteId: job.input.generate.paletteId, variants: job.input.generate.variants || 1,
+    id: job.id, state: job.state, ...job.details,
     error: job.error, imageAttempt: job.imageAttempt,
-    activityId: Number(job.input.generate.activityId), createdAt: new Date(job.createdAt).toISOString(),
+    createdAt: new Date(job.createdAt).toISOString(),
   }));
 }
 /** Backend-owned jobs for one API process. Restarting intentionally discards them. */
@@ -40,7 +43,7 @@ export class GenerationJobQueue {
   private submissions = new Map<string, { result: Promise<string[]>; ids?: string[]; createdAt: number }>();
   private running = new Set<string>();
 
-  constructor(private work: Omit<typeof services, "limits"> & { limits?: (userId: string) => Promise<ImageLimits> } = services, private scheduler: RequestQueue = providerQueue("image"), private access = withAccountAccess) {}
+  constructor(private work: Omit<typeof services, "limits"> & { limits?: (userId: string) => Promise<ImageLimits>; readPoster?: typeof readPosterRecord; modify?: typeof modifyPoster; variant?: typeof variantPoster } = services, private scheduler: RequestQueue = providerQueue("image"), private access = withAccountAccess) {}
 
   async submit(userId: string, body: { submissionId: string; jobs: JobInput[] }) {
     if (!body || !/^[\w-]{1,100}$/.test(body.submissionId) || !Array.isArray(body.jobs) || !body.jobs.length || body.jobs.length > 200)
@@ -51,7 +54,7 @@ export class GenerationJobQueue {
     const selections = new Set(body.jobs.map(input => JSON.stringify([input?.generate?.styleId, input?.generate?.paletteId || "auto"])));
     if (selections.size > selectionLimit) throw new Error(`A generation batch must contain at most ${selectionLimit} theme/palette combinations`);
     this.prune();
-    const key = JSON.stringify([userId, body.submissionId]);
+    const key = JSON.stringify([userId, "generate", body.submissionId]);
     let submission = this.submissions.get(key);
     if (!submission) {
       const entry: { result: Promise<string[]>; ids?: string[]; createdAt: number } = {
@@ -95,10 +98,60 @@ export class GenerationJobQueue {
     // Admit the entire batch synchronously after validation, before yielding again.
     const reservations = this.scheduler.reserveJobs(userId, inputs.length);
     return inputs.map((input, index) => {
-      const job: GenerationJob = { id: randomUUID(), userId, input, reservation: reservations[index], planned: prepared[index], state: "queued", error: null, imageAttempt: 0, createdAt: Date.now(), updatedAt: Date.now() };
+      const job: GenerationJob = { id: randomUUID(), userId, work: { kind: "generate", input, planned: prepared[index] }, details: { title: input.plan.title, model: input.generate.model || "", styleId: input.generate.styleId, paletteId: input.generate.paletteId, variants: input.generate.variants || 1, activityId: Number(input.generate.activityId) }, reservation: reservations[index], state: "queued", error: null, imageAttempt: 0, createdAt: Date.now(), updatedAt: Date.now() };
       this.jobs.set(job.id, job);
       return job.id;
     });
+  }
+
+  async submitSaved(userId: string, kind: "modify" | "variant", body: (ModifyPosterBody | VariantPosterBody) & { submissionId: string }) {
+    if (!body || !/^[\w-]{1,100}$/.test(body.submissionId) || typeof body.posterId !== "string")
+      throw new PosterError("submissionId and posterId are required");
+    const limits = await this.work.limits?.(userId);
+    if (limits) this.scheduler.setOwnerLimits(userId, limits.active ?? Infinity, limits.unfinished ?? Infinity);
+    this.prune();
+    const key = JSON.stringify([userId, kind, body.submissionId]);
+    let submission = this.submissions.get(key);
+    if (!submission) {
+      const entry: { result: Promise<string[]>; ids?: string[]; createdAt: number } = {
+        result: this.prepareSaved(userId, kind, structuredClone(body)), createdAt: Date.now(),
+      };
+      submission = entry;
+      this.submissions.set(key, entry);
+      void entry.result.then(ids => { entry.ids = ids; }, () => { this.submissions.delete(key); });
+    }
+    return publicJobs((await submission.result).flatMap(id => {
+      const job = this.jobs.get(id);
+      return job ? [job] : [];
+    }));
+  }
+
+  private async prepareSaved(userId: string, kind: "modify" | "variant", body: ModifyPosterBody | VariantPosterBody) {
+    const source = await (this.work.readPoster ?? readPosterRecord)(userId, body.posterId);
+    if (!source) throw new PosterError("image not found", 404);
+    if (!source.spec || !source.prompt?.trim()) throw new PosterError("image is missing prompt data", 502);
+    const model = body.model ?? source.model;
+    let work: JobWork;
+    let variants = 1;
+    if (kind === "modify") {
+      const modify = body as ModifyPosterBody;
+      if (typeof modify.request !== "string" || !modify.request.trim()) throw new PosterError("a modification request is required");
+      let annotation;
+      try { annotation = validateEditAnnotation(modify.annotation); }
+      catch { throw new PosterError("Invalid edit annotation"); }
+      variants = Math.max(1, Math.min(await this.work.maxImageOutputs(model), Math.floor(modify.variants || 1)));
+      if (!Number.isFinite(variants)) throw new PosterError("Invalid variant count");
+      work = { kind, body: { posterId: source.posterId, model, request: modify.request.trim(), variants, annotation } };
+    } else work = { kind, body: { posterId: source.posterId, model } };
+    const reservation = this.scheduler.reserveJobs(userId, 1)[0];
+    const job: GenerationJob = {
+      id: randomUUID(), userId, work, reservation,
+      details: { title: source.title, model: model || "", styleId: source.styleId, paletteId: source.paletteId,
+        variants, activityId: source.activityId, previousPosterId: source.posterId },
+      state: "queued", error: null, imageAttempt: 0, createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    this.jobs.set(job.id, job);
+    return [job.id];
   }
 
   list(userId: string) {
@@ -173,18 +226,24 @@ export class GenerationJobQueue {
 
   private async run(job: GenerationJob) {
     try {
-      const planned = job.planned;
-      const body = job.input.generate;
-      const editor = body.editor as Record<string, unknown> | undefined;
-      const slot = `${body.styleId}::${body.paletteId}`;
-      await this.work.generate(job.userId, {
-        ...body, spec: planned.spec, prompt: planned.spec.finalPrompt, promptCost: 0, promptModel: undefined,
-        editor: editor ? {
-          ...editor,
-          specs: { ...(editor.specs as object), [slot]: planned.spec },
-          planCosts: { ...(editor.planCosts as object), [slot]: planned.cost },
-        } : undefined,
-      });
+      if (job.work.kind === "modify") {
+        await (this.work.modify ?? modifyPoster)(job.userId, job.work.body);
+      } else if (job.work.kind === "variant") {
+        await (this.work.variant ?? variantPoster)(job.userId, job.work.body);
+      } else {
+        const planned = job.work.planned;
+        const body = job.work.input.generate;
+        const editor = body.editor as Record<string, unknown> | undefined;
+        const slot = `${body.styleId}::${body.paletteId}`;
+        await this.work.generate(job.userId, {
+          ...body, spec: planned.spec, prompt: planned.spec.finalPrompt, promptCost: 0, promptModel: undefined,
+          editor: editor ? {
+            ...editor,
+            specs: { ...(editor.specs as object), [slot]: planned.spec },
+            planCosts: { ...(editor.planCosts as object), [slot]: planned.cost },
+          } : undefined,
+        });
+      }
       job.state = "completed";
     } catch (error) {
       // Only a completed upstream HTTP error is eligible. Local 502/504
@@ -229,6 +288,7 @@ export class GenerationJobQueue {
 
 const queue = new GenerationJobQueue();
 export const submitGenerationJobs = (userId: string, body: Parameters<GenerationJobQueue["submit"]>[1]) => queue.submit(userId, body);
+export const submitSavedGenerationJob = (userId: string, kind: "modify" | "variant", body: Parameters<GenerationJobQueue["submitSaved"]>[2]) => queue.submitSaved(userId, kind, body);
 export const listGenerationJobs = (userId: string) => queue.list(userId);
 export const retryGenerationJob = (userId: string, id: string) => queue.retry(userId, id);
 export const dismissGenerationJob = (userId: string, id: string) => queue.dismiss(userId, id);

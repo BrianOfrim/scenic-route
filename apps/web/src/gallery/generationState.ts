@@ -121,7 +121,7 @@ export function useGenerationState() {
 export type ServerGenerationJob = {
   id: string; state: "queued" | "generating" | "completed" | "failed";
   title: string; model: string; styleId?: string; paletteId?: string; variants: number; error: string | null;
-  imageAttempt?: number; activityId?: number; createdAt?: string;
+  imageAttempt?: number; activityId?: number; previousPosterId?: string; createdAt?: string;
 };
 let serverJobs: ServerGenerationJob[] = [];
 let serverFingerprint = "";
@@ -139,7 +139,7 @@ export function setServerGenerationJobs(jobs: ServerGenerationJob[], retryJob: (
   for (const job of jobs) {
     for (let i=0;i<job.variants;i++) {
       const image = { id: `server:${job.id}:${i}`, title: job.title, model: job.model,
-        styleId: job.styleId, paletteId: job.paletteId, activityId: job.activityId,
+        styleId: job.styleId, paletteId: job.paletteId, activityId: job.activityId, previousPosterId: job.previousPosterId,
         createdAt: job.createdAt ?? snapshot.pending.find(image => image.id === `server:${job.id}:${i}`)?.createdAt ?? new Date().toISOString(),
         imageAttempt: job.state === "queued" && job.imageAttempt ? job.imageAttempt + 1 : job.imageAttempt,
         phase: (job.state === "generating" ? "generating" : "queued") as GenerationPhase };

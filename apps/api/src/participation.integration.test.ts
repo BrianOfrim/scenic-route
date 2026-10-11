@@ -56,8 +56,8 @@ for (const provider of ['email', 'google']) test(`${provider} authenticated new 
   assert.equal((await request('/api/account', 'POST')).status, 403);
   await recordParticipation(id, choices(false));
   assert.equal((await request()).status, 200);
-  for (const path of ['/api/poster/generate', '/api/poster/modify', '/api/poster/variant', '/api/poster/jobs', '/api/poster/jobs/job/retry']) assert.equal((await request(path, 'POST')).status, 403);
-  await recordParticipation(id, choices()); assert.equal((await request('/api/poster/generate', 'POST')).status, 200);
+  for (const path of ['/api/poster/modify', '/api/poster/variant', '/api/poster/jobs', '/api/poster/jobs/job/retry']) assert.equal((await request(path, 'POST')).status, 403);
+  await recordParticipation(id, choices()); assert.equal((await request('/api/poster/jobs', 'POST')).status, 200);
   process.env.TERMS_VERSION = 'test-reviewed-terms-v2'; assert.equal((await request()).status, 403);
   await assert.rejects(recordParticipation(id, { ...choices(), termsVersion: 'test-reviewed-terms-v1' }), ParticipationError);
   await recordParticipation(id, choices()); assert.equal((await request()).status, 200);

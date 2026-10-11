@@ -135,11 +135,8 @@ test("queued batches and direct generation/refinement/variants release quota and
   app.use("/api/*", createRequireUser(async () => ({ id: owner, email: `${owner}@example.com`, name: owner }), async () => {}));
   app.post("/api/poster/variant", c => c.json({ ok: true }));
   const request = app.request("/api/poster/variant", { method: "POST" });
-  // The handler loads account image limits before waiting for a scheduler slot.
-  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal((await request).status, 200, "job submissions do not wait for busy image slots");
   await withAccountAccess(owner, true, async () => {});
-  // Exclusive access succeeded: the image request waiting for a slot does
-  // not hold an account lock, avoiding inversion against gallery workers.
   releases.forEach(release => release());
   await Promise.all(busy);
   assert.equal((await request).status, 200);

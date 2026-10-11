@@ -1,6 +1,6 @@
 import { getImageLimits } from "./imageLimits";
 import { participationStatus, recordParticipation, ParticipationError, assertParticipation, authRecoveryPath } from "./participation";
-import { startGenerationWorker, submitGenerationJobs, listGenerationJobs, retryGenerationJob, dismissGenerationJob } from "./generationJobs";
+import { startGenerationWorker, submitGenerationJobs, submitSavedGenerationJob, listGenerationJobs, retryGenerationJob, dismissGenerationJob } from "./generationJobs";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -48,11 +48,8 @@ import { getPosterQuota, PosterQuotaError } from "./posterQuota";
 import {
   PosterError,
   deletePoster,
-  generatePoster,
   listPosters,
   listPosterPage,
-  modifyPoster,
-  variantPoster,
   readPosterPng,
   readPosterRecord,
   readPosterRef,
@@ -297,17 +294,9 @@ app.post("/api/poster/plan", async (c) => {
   }
 });
 
-app.post("/api/poster/generate", async (c) => {
-  try {
-    return c.json({ posters: await generatePoster(currentUserId(c), await c.req.json()) });
-  } catch (error) {
-    return fail(c, error);
-  }
-});
-
 app.post("/api/poster/modify", async (c) => {
   try {
-    return c.json({ posters: await modifyPoster(currentUserId(c), await c.req.json()) });
+    return c.json({ jobs: await submitSavedGenerationJob(currentUserId(c), "modify", await c.req.json()) }, 202);
   } catch (error) {
     return fail(c, error);
   }
@@ -315,7 +304,7 @@ app.post("/api/poster/modify", async (c) => {
 
 app.post("/api/poster/variant", async (c) => {
   try {
-    return c.json({ posters: await variantPoster(currentUserId(c), await c.req.json()) });
+    return c.json({ jobs: await submitSavedGenerationJob(currentUserId(c), "variant", await c.req.json()) }, 202);
   } catch (error) {
     return fail(c, error);
   }

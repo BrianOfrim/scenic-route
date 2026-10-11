@@ -151,7 +151,7 @@ test("waitlisted sessions cannot import, generate, or read another account; stat
   })));
   app.all("/api/*", c => { called++; return c.json({ ok: true }); });
   for (const [route, method] of [
-    ["/api/activities/import", "POST"], ["/api/poster/jobs", "POST"], ["/api/poster/generate", "POST"],
+    ["/api/activities/import", "POST"], ["/api/poster/jobs", "POST"],
     ["/api/poster/jobs/job/retry", "POST"], ["/api/poster/variant", "POST"], ["/api/poster/plan", "POST"],
     ["/api/activities", "GET"], ["/api/posters", "GET"], ["/api/status", "GET"],
     ["/api/beta/admit", "POST"],
