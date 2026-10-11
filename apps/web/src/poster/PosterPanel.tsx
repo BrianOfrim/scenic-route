@@ -52,12 +52,6 @@ import {
 
 type GeoScope = "all" | "corridor" | "ends" | "box" | "hull" | "loop" | "rectangle" | "polygon";
 
-function formatDataSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
-}
-
 const GEO_SCOPES: { id: GeoScope; label: string; hint: string }[] = [
   { id: "all", label: "All", hint: "Full map area." },
   { id: "corridor", label: "Corridor", hint: "A band around the route." },
@@ -2582,13 +2576,6 @@ export function PosterPanel({
                 setGeographyRetry(n => n + 1);
               }}>Retry detailed map</button></>}
             </p> : null}
-            {geographyScene && <p className="muted">
-              Overpass query results: {geographyScene.queryResponseBytes === undefined
-                ? geographyScene.completeness === "generalized" ? "not queried" : "unavailable"
-                : formatDataSize(geographyScene.queryResponseBytes)}
-              {" · "}API to browser: {geographyScene.apiResponseBytes === undefined ? "unavailable" : formatDataSize(geographyScene.apiResponseBytes)}
-              {" (uncompressed JSON)"}
-            </p>}
             <details open={geographyMode === "manual" || undefined}>
               <summary>Advanced geography</summary>
               <label className="check"><input type="checkbox" checked={geographyMode === "auto"} onChange={event => setGeographyMode(event.target.checked ? "auto" : "manual")} />Choose map detail automatically</label>

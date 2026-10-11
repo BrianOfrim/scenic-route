@@ -13,6 +13,7 @@ import { clipWaysToQueryFrame } from "./geoExtent";
 import { emptyCollection, queryOverpass, type OverpassQueryStats } from "./overpass";
 import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, geographyPolicy, geographySelectors, resolveGeographyScene, visibleGeographyIds, type GeographyDetailScope, type GeographyMode, type GeographyWays, type GeographyScene } from "./geographyPolicy";
 import { isAreaFeature, waterClass } from "./waterClasses";
+import { geographyTiming, logGeographyTiming, newGeographyTiming } from "./geographyTiming";
 
 export type { GeographyScene } from "./geographyPolicy";
 
@@ -100,6 +101,25 @@ export function parseGeographyBbox(raw: unknown): BBox {
 }
 
 export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyMode = "auto", savedSceneId?: string, options: { route?: [number, number][]; detailScope?: GeographyDetailScope; routeDetail?: boolean; sceneDir?: string; query?: typeof queryOverpass } = {}): Promise<GeographyScene> {
+  return geographyTiming.run(newGeographyTiming(), async () => {
+    const started = performance.now();
+    logGeographyTiming("start", { mode, aspect });
+    try {
+      const scene = await loadGeographyScene(bbox, aspect, mode, savedSceneId, options);
+      logGeographyTiming("complete", { totalMs: performance.now() - started, mode,
+        source: scene.source, profile: scene.profile, completeness: scene.completeness,
+        warningCount: scene.warnings.length, queryResponseBytes: scene.queryResponseBytes,
+        sceneId: scene.sceneId });
+      return scene;
+    } catch (error) {
+      logGeographyTiming("failed", { totalMs: performance.now() - started, mode,
+        errorType: error instanceof Error ? error.name : "unknown" });
+      throw error;
+    }
+  });
+}
+
+async function loadGeographyScene(bbox: BBox, aspect: string, mode: GeographyMode, savedSceneId: string | undefined, options: Parameters<typeof loadGeography>[4] = {}): Promise<GeographyScene> {
   parseGeographyBbox(bbox);
   const detailScope = options.detailScope ?? (options.routeDetail === true ? "route" : "none");
   const requestKey = JSON.stringify([bbox, aspect, mode, detailScope === "route" ? options.route ?? [] : [], detailScope]);
@@ -107,15 +127,19 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
   if (userId) assertSafeUserId(userId);
   const sceneDir = options.sceneDir ?? path.join(OSM_CACHE_DIR, "scenes", ...(userId ? [userId] : []));
   const warnings: string[] = [];
+  const sceneReadStarted = performance.now();
   if (savedSceneId && /^[a-f0-9]{64}$/.test(savedSceneId)) {
     try {
       const saved = JSON.parse(await fs.readFile(path.join(sceneDir, `${savedSceneId}.json`), "utf8"));
       if (saved.requestKey === requestKey && saved.scene?.policyVersion === GEOGRAPHY_VERSION
         && (saved.scene.source !== "overpass" || Number.isFinite(saved.scene.queryResponseBytes))) {
+        logGeographyTiming("scene-cache", { status: "hit", ms: performance.now() - sceneReadStarted });
         return { ...saved.scene, sceneId: savedSceneId };
       }
     } catch { warnings.push("Saved map data is unavailable; geography has been refreshed."); }
   }
+  logGeographyTiming("scene-cache", { status: savedSceneId ? "miss" : "not-requested", ms: performance.now() - sceneReadStarted });
+  const sourceStarted = performance.now();
   const policy = geographyPolicy(bbox, aspect);
   const latitude = (y: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180 / Math.PI;
   // Fetch the aspect-fitted poster window, including its margin, rather than just the route box.
@@ -160,6 +184,8 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
       warnings.push("Detailed geography is unavailable. A generalized map is shown; small local features may be absent.");
     }
   }
+  logGeographyTiming("source", { source, ms: performance.now() - sourceStarted });
+  const processingStarted = performance.now();
   const omittedElements = queryStats.omittedElements ?? [];
   if (source === "overpass" && omittedElements.length) {
     completeness = "partial";
@@ -192,7 +218,10 @@ export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyM
     completeness, warnings, ...(omittedElements.length ? { omittedElements } : {}), ...(queryStats.responseBytes > 0 ? { queryResponseBytes: queryStats.responseBytes } : {}) };
   const encoded = JSON.stringify({ requestKey, scene });
   const sceneId = createHash("sha256").update(encoded).digest("hex");
+  logGeographyTiming("processing", { ms: performance.now() - processingStarted });
+  const writeStarted = performance.now();
   await fs.mkdir(sceneDir, { recursive: true });
   await fs.writeFile(path.join(sceneDir, `${sceneId}.json`), encoded);
+  logGeographyTiming("scene-write", { ms: performance.now() - writeStarted, bytes: Buffer.byteLength(encoded) });
   return { ...scene, sceneId };
 }

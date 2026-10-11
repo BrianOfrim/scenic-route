@@ -1,3 +1,4 @@
+import { logger } from "../logger";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs/promises";
@@ -15,6 +16,30 @@ const country: BBox = [-125, 44, -65, 56];
 const collection = (features: Feature[]): FeatureCollection => ({ type: "FeatureCollection", features });
 const square = (x: number, y: number, d: number): Feature => ({ type: "Feature", properties: {},
   geometry: { type: "Polygon", coordinates: [[[x,y],[x+d,y],[x+d,y+d],[x,y+d],[x,y]]] } });
+
+test("geography load logs stages, saved scene hits, and failures with distinct load IDs", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "scenic-geography-timing-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const events: Record<string, any>[] = [];
+  t.mock.method(logger, "debug", (scope: string, fields: Record<string, unknown>) => {
+    if (scope === "geography.timing") events.push(fields);
+  });
+  let calls = 0;
+  const options = { sceneDir: dir, query: async () => { calls++; return collection([]); } };
+  const scene = await loadGeography(city, "3:4", "auto", undefined, options);
+  await loadGeography(city, "3:4", "auto", scene.sceneId, options);
+  await assert.rejects(loadGeography([0, 0, 0, 0], "3:4", "auto", undefined, options), /Invalid geography frame/);
+  assert.equal(calls, 1);
+  const starts = events.filter(event => event.event === "start");
+  assert.equal(new Set(starts.map(event => event.loadId)).size, 3);
+  const first = events.filter(event => event.loadId === starts[0].loadId);
+  assert.deepEqual(first.map(event => event.event), ["start", "scene-cache", "source", "processing", "scene-write", "complete"]);
+  assert.ok(first.at(-1)!.totalMs >= 0);
+  assert.equal(first.at(-1)!.source, "overpass");
+  const second = events.filter(event => event.loadId === starts[1].loadId);
+  assert.equal(second.find(event => event.event === "scene-cache")!.status, "hit");
+  assert.equal(events.at(-1)!.event, "failed");
+});
 
 test("OSM and bundled water sources retain subtype identity", () => {
   const tagged = (tags: Record<string, string>): Feature => ({ ...square(0, 0, .01), properties: { tags } });

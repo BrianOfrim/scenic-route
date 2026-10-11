@@ -89,7 +89,8 @@ npm run build
 
 API and worker logs are appended as JSONL to `data/logs/api-YYYY-MM-DD.jsonl`
 using UTC dates. Existing `console.log`/`info` messages use info severity;
-`debug`, `warn`, and `error` keep their corresponding severity. File writes run asynchronously in order.
+`debug`, `warn`, and `error` keep their corresponding severity. Structured
+geography timing records use debug. File writes run asynchronously in order.
 
 `LOG_FILE_LEVEL=debug` and `LOG_CONSOLE_LEVEL=info` are the defaults, so detailed
 timings are kept in files while the terminal displays normal information,
@@ -106,7 +107,7 @@ To inspect performance:
 
 - In browser DevTools, inspect `/api/poster/context/...` and its `Server-Timing` header: `prepare` covers activity loading and track preparation, `sources` covers OpenStreetMap loading and geometry conversion, `process` covers layer splitting and annotation calculations, and `serialize` covers response serialization. The Network panel also reports response size and transfer time.
 - Browser User Timing entries retain the latest `schematic.context.fetch`, `schematic.context.body-and-parse`, and `schematic.render-and-png` measurements. Inspect them with `performance.getEntriesByType("measure").filter(entry => entry.name.startsWith("schematic."))` in DevTools.
-- Start the API with `OSM_TIMING=1` for cache hit/miss/in-flight events, successful request durations and bytes, and per-query fetch/conversion durations. These logs omit coordinates, query strings, and activity IDs. Fetch time includes disk-cache access or endpoint retries; query groups can overlap, so their durations should not be summed as total request latency.
+- Start the API with `OSM_TIMING=1` for cache hit/miss/in-flight events, successful request durations and bytes, and per-query fetch/conversion durations. These debug records go to the log file by default; use `LOG_CONSOLE_LEVEL=debug` to display them too. They omit coordinates, query strings, and activity IDs. Fetch time includes disk-cache access or endpoint retries; query groups can overlap, so their durations should not be summed as total request latency.
 
 Image generation allows ten minutes per image by default. Set `OPENROUTER_IMAGE_TIMEOUT_MS` to a positive integer in milliseconds to change the per-image deadline; multi-image requests multiply it by the requested image count. Restart the API after changing the environment setting.
 

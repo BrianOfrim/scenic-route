@@ -247,11 +247,16 @@ app.get("/api/poster/geography/:activityId", async (c) => {
     let bbox;
     try { bbox = parseGeographyBbox(JSON.parse(c.req.query("bbox") ?? "null")); }
     catch { return c.json({ error: "Invalid geography frame" }, 400); }
-    return c.json(await loadGeography(
+    const scene = await loadGeography(
       bbox, c.req.query("aspect") ?? "3:4",
       c.req.query("mode") === "manual" ? "manual" : "auto", c.req.query("scene"),
       { detailScope: "none" },
-    ));
+    );
+    const body = JSON.stringify(scene);
+    logger.debug("geography.timing", { event: "response", sceneId: scene.sceneId,
+      source: scene.source, queryResponseBytes: scene.queryResponseBytes,
+      apiResponseBytes: Buffer.byteLength(body) });
+    return c.body(body, 200, { "Content-Type": "application/json" });
   } catch (error) { return fail(c, error); }
 });
 
