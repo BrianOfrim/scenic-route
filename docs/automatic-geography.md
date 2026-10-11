@@ -69,6 +69,10 @@ uses the bundled `scenic-ne-2` Natural Earth provider. A frame requiring more th
 32 query tiles also uses the generalized provider. Budget exhaustion or source
 failures produce an explicit fallback warning.
 
+Overpass requests try `https://overpass.openstreetmap.fr/api/interpreter` first,
+with `https://overpass-api.de/api/interpreter` as the fallback. Setting
+`OVERPASS_URL` overrides both defaults and uses only the configured endpoint.
+
 Geometry is clipped to the aspect-fitted frame, then filtered by visible polygon
 area. Ordinary areas need 12 pixels² locally or 24 pixels² at other scales. Areas
 near the route can survive down to 3 pixels². Dense minor streets/paths away from
@@ -117,16 +121,32 @@ under `data/osm-cache/scenes/` and can be restored independently of OSM cache ex
 Keep this directory on persistent storage if exact regeneration matters. If a saved
 scene has been removed, the API refreshes it and reports that fact. Legacy snapshots
 without a scene ID preserve selections but cannot reproduce historical upstream data.
+Explicit Retry actions omit the saved scene ID so a reopened fallback is rebuilt
+instead of being restored again. Valid raw Overpass cache entries remain reusable.
 
-Advanced geography allows manual layers and Reset to automatic. Manual mode always
-queries Overpass for the poster frame, including Regional and Wide scales. It
-preserves all fetched features, while retaining a 64-tile, 90-second and 256 MiB
-request budget. When the frame exceeds that budget or Overpass fails, the editor
-shows an error and asks for a smaller frame or retry; it does not substitute
-Natural Earth. Previously saved manual scenes from older policy versions refresh.
-In automatic mode the read-only summary describes the classes allowed by the current
-scale policy and source, even when no matching feature exists in the poster frame.
-Editable checkboxes appear only after switching to manual.
+Advanced geography allows manual layers and Reset to automatic. Switching from
+automatic to manual keeps the current scene and selects its visible layers;
+it makes no geography request. Loaded layers can be hidden and shown locally.
+Enabling an unloaded layer requests only that category, with the same polygon
+thresholds and line simplification as the poster's scale. Explicitly selected
+paths can be present at larger scales, while retaining scale-based simplification.
+Each scene records `loadedFeatureIds`, including successfully queried empty
+categories, so toggling an empty layer does not repeatedly request it.
+
+Category additions are merged into the saved scene without replacing existing
+layers. Requests use owned scene IDs and reject a base from a different frame or
+policy version. Failures are shown beside the affected layer with Retry; the
+existing scene remains available. Image generation waits for selected layers to
+finish loading or for failed layers to be retried or deselected. Changing the
+frame in manual mode loads only selected geography categories. Older full-manual
+saved scenes still restore their original geometry.
+
+New category loads reuse raw Overpass responses when available, with the normal
+90-second, 64-tile, and 256 MiB budgets. Newly loaded manual layers use scale-based
+processing rather than full-detail processing. Urban footprints are loaded from
+the bundled overview dataset and can be enabled individually; an empty result
+shows an explanation in the controls. Returning to automatic reuses the previous
+automatic scene for the same frame when available.
 
 ## Resource limits
 

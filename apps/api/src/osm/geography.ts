@@ -11,7 +11,7 @@ import { FEATURE_CATALOG } from "./catalog";
 import { splitWays } from "./features";
 import { clipWaysToQueryFrame } from "./geoExtent";
 import { emptyCollection, queryOverpass, type OverpassQueryStats } from "./overpass";
-import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, geographyPolicy, geographySelectors, resolveGeographyScene, visibleGeographyIds, type GeographyDetailScope, type GeographyMode, type GeographyWays, type GeographyScene } from "./geographyPolicy";
+import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, geographyPolicy, geographySelectors, loadedGeographyIds, resolveGeographyScene, visibleGeographyIds, type GeographyDetailScope, type GeographyMode, type GeographyWays, type GeographyScene } from "./geographyPolicy";
 import { isAreaFeature, waterClass } from "./waterClasses";
 import { geographyTiming, logGeographyTiming, newGeographyTiming } from "./geographyTiming";
 
@@ -100,7 +100,7 @@ export function parseGeographyBbox(raw: unknown): BBox {
   return raw as BBox;
 }
 
-export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyMode = "auto", savedSceneId?: string, options: { route?: [number, number][]; detailScope?: GeographyDetailScope; routeDetail?: boolean; sceneDir?: string; query?: typeof queryOverpass } = {}): Promise<GeographyScene> {
+export async function loadGeography(bbox: BBox, aspect: string, mode: GeographyMode = "auto", savedSceneId?: string, options: { route?: [number, number][]; detailScope?: GeographyDetailScope; routeDetail?: boolean; sceneDir?: string; query?: typeof queryOverpass; featureIds?: string[] } = {}): Promise<GeographyScene> {
   return geographyTiming.run(newGeographyTiming(), async () => {
     const started = performance.now();
     logGeographyTiming("start", { mode, aspect });
@@ -131,7 +131,11 @@ async function loadGeographyScene(bbox: BBox, aspect: string, mode: GeographyMod
   if (savedSceneId && /^[a-f0-9]{64}$/.test(savedSceneId)) {
     try {
       const saved = JSON.parse(await fs.readFile(path.join(sceneDir, `${savedSceneId}.json`), "utf8"));
-      if (saved.requestKey === requestKey && saved.scene?.policyVersion === GEOGRAPHY_VERSION
+      const savedKey = JSON.parse(saved.requestKey);
+      const inheritedAutoScene = mode === "manual" && savedKey[2] === "auto"
+        && JSON.stringify([savedKey[0], savedKey[1], "manual", savedKey[3], savedKey[4]]) === requestKey;
+      if ((saved.requestKey === requestKey || inheritedAutoScene) && saved.scene?.policyVersion === GEOGRAPHY_VERSION
+        && (!options.featureIds || options.featureIds.every(id => loadedGeographyIds(saved.scene).includes(id)))
         && (saved.scene.source !== "overpass" || Number.isFinite(saved.scene.queryResponseBytes))) {
         logGeographyTiming("scene-cache", { status: "hit", ms: performance.now() - sceneReadStarted });
         return { ...saved.scene, sceneId: savedSceneId };
@@ -159,23 +163,27 @@ async function loadGeographyScene(bbox: BBox, aspect: string, mode: GeographyMod
     completeness = "generalized";
     ways = await naturalEarth(bbox, zoom);
   } else {
-    const features = FEATURE_CATALOG.filter(f => f.group === "geography");
-    const selectors = mode === "manual" ? features.flatMap(f => f.selectors)
+    const features = FEATURE_CATALOG.filter(f => f.group === "geography" && (!options.featureIds || options.featureIds.includes(f.id)));
+    const selectors = mode === "manual" ? features.flatMap(f => options.featureIds && f.id === "rivers"
+      ? [...f.selectors, 'nwr[water~"^(river|stream|canal)$"]', 'way[waterway=riverbank]'] : f.selectors)
       : geographySelectors(policy.profile);
     const previousWarnings = warnings.length;
     let raw: FeatureCollection;
     try {
-      raw = await (options.query ?? queryOverpass)(geographyQuery(selectors), bbox, warnings,
+      raw = selectors.length ? await (options.query ?? queryOverpass)(geographyQuery(selectors), bbox, warnings,
         mode === "manual" ? "manual geography" : "automatic geography", undefined,
-        { maxTiles: mode === "manual" ? 64 : 32, timeoutMs: 90_000, maxBytes: 256 * 1024 * 1024, queryTimeoutS: 25 }, queryStats);
-      if (queryStats.responseBytes === 0 && warnings.length === previousWarnings) {
+        { maxTiles: mode === "manual" ? 64 : 32, timeoutMs: 90_000, maxBytes: 256 * 1024 * 1024, queryTimeoutS: 25 }, queryStats) : emptyCollection();
+      if (selectors.length && queryStats.responseBytes === 0 && warnings.length === previousWarnings) {
         queryStats.responseBytes = Buffer.byteLength(JSON.stringify(raw));
       }
     } catch (error) {
       warnings.push(`Overpass geography failed: ${error instanceof Error ? error.message : String(error)}`);
       raw = emptyCollection();
     }
-    ways = splitWays(raw, features);
+    // River polygons are initially classified as water, then separated below.
+    // Keep that intermediate bucket when Rivers is loaded without Lakes.
+    ways = splitWays(raw, options.featureIds?.includes("rivers")
+      ? [...features, FEATURE_CATALOG.find(feature => feature.id === "lakes")!] : features);
     if (warnings.length > previousWarnings) {
       if (mode === "manual") throw new Error(`OpenStreetMap could not cover this poster frame: ${warnings.slice(previousWarnings).join("; ")}. Try a smaller frame or retry.`);
       source = "natural-earth";
@@ -210,12 +218,15 @@ async function loadGeographyScene(bbox: BBox, aspect: string, mode: GeographyMod
     const base = await naturalEarth(bbox, zoom, ["ocean"]);
     separated = { ...separated, ...clipWaysToQueryFrame(base, bbox, 0, false) };
   }
-  const resolved = mode === "auto" ? resolveGeographyScene(separated, policy, options.route, detailScope) : separated;
+  if (options.featureIds?.includes("urban")) separated = { ...separated,
+    ...clipWaysToQueryFrame(await naturalEarth(bbox, zoom, ["urban"]), bbox, 0, false) };
+  const resolved = mode === "auto" || options.featureIds ? resolveGeographyScene(separated, policy, options.route, detailScope, options.featureIds) : separated;
   const scene: GeographyScene = { bbox, ways: resolved, featureIds: visibleGeographyIds(resolved, Object.keys(GEOGRAPHY_BUCKETS)),
     policyVersion: policy.version, profile: policy.profile, metersPerPixel: policy.metersPerPixel,
     source, sourceVersion: source === "natural-earth" ? "scenic-ne-2"
       : regionalOsmBase || coastalFallback ? "osm-query-cache-7d+scenic-ne-2-base" : "osm-query-cache-7d",
     completeness, warnings, ...(omittedElements.length ? { omittedElements } : {}), ...(queryStats.responseBytes > 0 ? { queryResponseBytes: queryStats.responseBytes } : {}) };
+  scene.loadedFeatureIds = options.featureIds ?? (mode === "manual" ? Object.keys(GEOGRAPHY_BUCKETS).filter(id => id !== "cemeteries" && id !== "urban") : loadedGeographyIds(scene));
   const encoded = JSON.stringify({ requestKey, scene });
   const sceneId = createHash("sha256").update(encoded).digest("hex");
   logGeographyTiming("processing", { ms: performance.now() - processingStarted });
@@ -223,5 +234,44 @@ async function loadGeographyScene(bbox: BBox, aspect: string, mode: GeographyMod
   await fs.mkdir(sceneDir, { recursive: true });
   await fs.writeFile(path.join(sceneDir, `${sceneId}.json`), encoded);
   logGeographyTiming("scene-write", { ms: performance.now() - writeStarted, bytes: Buffer.byteLength(encoded) });
+  return { ...scene, sceneId };
+}
+
+/** Add categories to an owned scene without replacing its existing map detail. */
+export async function extendGeography(bbox: BBox, aspect: string, baseSceneId: string | undefined, featureIds: string[], options: { sceneDir?: string; query?: typeof queryOverpass } = {}): Promise<GeographyScene> {
+  parseGeographyBbox(bbox);
+  if (featureIds.some(id => !Object.hasOwn(GEOGRAPHY_BUCKETS, id) || id === "cemeteries")) throw new Error("Invalid geography layers");
+  let base: GeographyScene | undefined;
+  const userId = accountContext.getStore();
+  if (userId) assertSafeUserId(userId);
+  const sceneDir = options.sceneDir ?? path.join(OSM_CACHE_DIR, "scenes", ...(userId ? [userId] : []));
+  if (baseSceneId) {
+    if (!/^[a-f0-9]{64}$/.test(baseSceneId)) throw new Error("Invalid geography scene");
+    const saved = JSON.parse(await fs.readFile(path.join(sceneDir, `${baseSceneId}.json`), "utf8"));
+    const key = JSON.parse(saved.requestKey);
+    if (JSON.stringify(key[0]) !== JSON.stringify(bbox) || key[1] !== aspect || saved.scene?.policyVersion !== GEOGRAPHY_VERSION) throw new Error("Geography scene frame has changed");
+    base = { ...saved.scene, sceneId: baseSceneId };
+  }
+  const missing = featureIds.filter(id => !base || !loadedGeographyIds(base).includes(id));
+  if (base && !missing.length) return base;
+  const added = await loadGeography(bbox, aspect, "manual", undefined, { ...options, sceneDir, featureIds: missing });
+  if (!base) return added;
+  const ways = { ...base.ways };
+  for (const id of missing) {
+    const bucket = GEOGRAPHY_BUCKETS[id];
+    ways[bucket] = added.ways[bucket] ?? emptyCollection();
+    if (id === "rivers") ways.riverAreas = added.ways.riverAreas ?? emptyCollection();
+  }
+  const scene: GeographyScene = { ...base, sceneId: undefined, ways,
+    featureIds: visibleGeographyIds(ways, Object.keys(GEOGRAPHY_BUCKETS)),
+    loadedFeatureIds: [...new Set([...loadedGeographyIds(base), ...missing])],
+    queryResponseBytes: (base.queryResponseBytes ?? 0) + (added.queryResponseBytes ?? 0),
+    warnings: [...new Set([...base.warnings, ...added.warnings])],
+    completeness: base.completeness === "fallback" ? "fallback" : added.completeness === "partial" ? "partial" : base.completeness,
+  };
+  const encoded = JSON.stringify({ requestKey: JSON.stringify([bbox, aspect, "manual", [], "none"]), scene });
+  const sceneId = createHash("sha256").update(encoded).digest("hex");
+  await fs.mkdir(sceneDir, { recursive: true });
+  await fs.writeFile(path.join(sceneDir, `${sceneId}.json`), encoded);
   return { ...scene, sceneId };
 }

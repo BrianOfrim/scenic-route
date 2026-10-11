@@ -510,9 +510,11 @@ export async function fetchPosterContext(
 
 const loadPosterGeography = coalesceRequests(async (url: string) =>
   readJson<GeographyScene>(await apiFetch(url)));
-export function fetchPosterGeography(activityId: number, bbox: number[], aspect: string, mode: "auto" | "manual", sceneId?: string) {
+export function fetchPosterGeography(activityId: number, bbox: number[], aspect: string, mode: "auto" | "manual", sceneId?: string, options?: { layers?: string[]; baseSceneId?: string }) {
   const query = new URLSearchParams({ bbox: JSON.stringify(bbox), aspect, mode });
   if (sceneId) query.set("scene", sceneId);
+  if (options?.layers) query.set("layers", options.layers.join(","));
+  if (options?.baseSceneId) query.set("base", options.baseSceneId);
   return loadPosterGeography(`/api/poster/geography/${activityId}?${query}`);
 }
 
