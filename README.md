@@ -85,6 +85,12 @@ npm test
 npm run build
 ```
 
+`npm run test:geography:live -- --strict` runs live geography API smoke tests across
+eight locations and six map scales, with cold, warm, and saved-scene cache phases.
+It needs local PostgreSQL and internet access; results and timing logs are saved
+under `data/geography-smoke/`. See [the geography smoke-test runbook](docs/runbooks/geography-smoke.md)
+for coverage, options, and fixture isolation.
+
 ## Application logging
 
 API and worker logs are appended as JSONL to `data/logs/api-YYYY-MM-DD.jsonl`

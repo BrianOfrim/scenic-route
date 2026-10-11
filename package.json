@@ -5,6 +5,7 @@
     "apps/*"
   ],
   "scripts": {
+    "test:geography:live": "node --import tsx scripts/geography-smoke.mts",
     "image:limits": "tsx scripts/set-image-limits.mts",
     "poster:limit": "tsx scripts/set-poster-limit.mts",
     "dev": "npm run jobs:migrate && concurrently -n api,worker,web -c cyan,magenta,green \"npm run dev -w @scenic-route/api\" \"npm run dev:worker -w @scenic-route/api\" \"npm run dev -w @scenic-route/web\"",
