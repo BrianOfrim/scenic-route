@@ -10,6 +10,8 @@ export type GeographyProfile = "close-up" | "local" | "town" | "district" | "reg
 export type GeographyPolicy = ReturnType<typeof geographyPolicy>;
 export type GeographyWays = Record<string, FeatureCollection>;
 export type GeographyScene = {
+  /** Successfully loaded categories, including categories with zero visible features. */
+  loadedFeatureIds?: string[];
   sceneId?: string;
   queryResponseBytes?: number;
   apiResponseBytes?: number;
@@ -185,7 +187,7 @@ function lines(geometry: Geometry): Position[][] {
 }
 
 /** Input is frame-clipped. Preserve polygon topology; generalized providers simplify polygons upstream. */
-export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPolicy, route: [number, number][] = [], detailScope: GeographyDetailScope = "none"): GeographyWays {
+export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPolicy, route: [number, number][] = [], detailScope: GeographyDetailScope = "none", requestedIds: string[] = []): GeographyWays {
   const routePixels = (detailScope === "route" ? route : []).filter((_, i) => i % Math.max(1, Math.ceil(route.length / 256)) === 0)
     .map(([lat, lng]) => geographyProject(policy, [lng, lat]));
   const nearRoute = (coordinates: Position[], radius: number) => coordinates.some((p, i) => {
@@ -219,7 +221,7 @@ export function resolveGeographyScene(ways: GeographyWays, policy: GeographyPoli
       const kind = (key === "water" || key === "waterways" || key === "riverAreas") ? waterClass(feature) : null;
       if (detailScope !== "all" && key === "waterways" && kind === "stream" && !["close-up", "local"].includes(policy.profile)
         && !nearRoute(lines(g).flat(), 32)) return [];
-      if (detailScope !== "all" && !["close-up", "local", "town"].includes(policy.profile) && key === "paths") return [];
+      if (detailScope !== "all" && !requestedIds.includes("paths") && !["close-up", "local", "town"].includes(policy.profile) && key === "paths") return [];
       if (detailScope !== "all" && !["close-up", "local"].includes(policy.profile)
         && key === "streets" && /^(residential|service|living_street)$/.test(tags.highway ?? "")) return [];
       if (detailScope !== "all" && (key === "streets" || key === "paths") && /^(service|residential|living_street|footway|path)$/.test(tags.highway ?? "")) {
@@ -250,4 +252,14 @@ export function visibleGeographyIds(ways: GeographyWays, ids: readonly string[])
   return ids.filter(id => id === "rivers"
     ? (ways.waterways?.features.length ?? 0) + (ways.riverAreas?.features.length ?? 0) > 0
     : (ways[GEOGRAPHY_BUCKETS[id]]?.features.length ?? 0) > 0);
+}
+
+export function loadedGeographyIds(scene: GeographyScene): string[] {
+  if (scene.loadedFeatureIds) return scene.loadedFeatureIds;
+  if (scene.source === "natural-earth") return ["major-roads", "lakes", "rivers", "urban", "coastline"];
+  const common = ["major-roads", "streets", "rail", "lakes", "rivers", "forest", "coastline", "glaciers"];
+  if (scene.profile === "regional" || scene.profile === "wide") return common;
+  if (scene.profile === "district") return [...common, "parks"];
+  if (scene.profile === "town") return [...common, "parks", "paths"];
+  return Object.keys(GEOGRAPHY_BUCKETS).filter(id => id !== "urban" && id !== "cemeteries");
 }

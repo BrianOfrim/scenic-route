@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Feature, FeatureCollection } from "geojson";
 import { automaticGeographyAllowance, geographyPolicy, geographyProfileForScale, geographySelectors, resolveGeographyScene } from "./geographyPolicy";
-import { geographyQuery, loadGeography, parseGeographyBbox } from "./geography";
+import { extendGeography, geographyQuery, loadGeography, parseGeographyBbox } from "./geography";
 import { queryOverpass, type OverpassQueryStats } from "./overpass";
 import { tileBboxes, type BBox } from "../geo";
 import { waterClass } from "./waterClasses";
@@ -15,6 +15,109 @@ const country: BBox = [-125, 44, -65, 56];
 const collection = (features: Feature[]): FeatureCollection => ({ type: "FeatureCollection", features });
 const square = (x: number, y: number, d: number): Feature => ({ type: "Feature", properties: {},
   geometry: { type: "Polygon", coordinates: [[[x,y],[x+d,y],[x+d,y+d],[x,y+d],[x,y]]] } });
+
+test("selective manual layers follow scale thresholds and load only requested categories", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "scenic-manual-scale-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const pond = { ...square(-113.5, 53.52, .001), properties: { tags: { natural: "water", water: "pond" } } };
+  const forest = { ...square(-113.5, 53.52, .001), properties: { tags: { landuse: "forest" } } };
+  const seen: string[] = [];
+  const query = async (body: string) => { seen.push(body); return collection([pond, forest]); };
+  const small = await loadGeography(city, "3:4", "manual", undefined, { sceneDir: dir, query, featureIds: ["lakes"] });
+  const large = await loadGeography([-114, 53, -113, 54], "3:4", "manual", undefined, { sceneDir: dir, query, featureIds: ["lakes"] });
+  assert.equal(small.ways.water.features.length, 1, "local pond is legible");
+  assert.equal(large.ways.water.features.length, 0, "same pond is too small in regional view");
+  assert.equal(small.ways.forest.features.length, 0, "unrequested category is not included");
+  assert.deepEqual(small.loadedFeatureIds, ["lakes"]);
+  assert.deepEqual(large.loadedFeatureIds, ["lakes"], "empty results count as loaded");
+  assert.ok(seen.every(body => body.includes("nwr[natural=water]") && !body.includes("landuse=forest")));
+});
+
+test("manually enabled paths retain scale-based line simplification", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "scenic-manual-line-scale-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const coordinates = Array.from({ length: 101 }, (_, index) =>
+    [-113.5 + index * .00006, 53.52 + index * .00004 + (index % 2 ? .0001 : -.0001)]);
+  const feature: Feature = { type: "Feature", properties: { tags: { highway: "path" } }, geometry: { type: "LineString", coordinates } };
+  const options = { sceneDir: dir, featureIds: ["paths"], query: async () => collection([feature]) };
+  const small = await loadGeography(city, "3:4", "manual", undefined, options);
+  const large = await loadGeography([-114, 53, -113, 54], "3:4", "manual", undefined, options);
+  const a = small.ways.paths.features[0].geometry;
+  const b = large.ways.paths.features[0].geometry;
+  assert.equal(a.type, "LineString"); assert.equal(b.type, "LineString");
+  if (a.type !== "LineString" || b.type !== "LineString") return;
+  assert.ok(b.coordinates.length < a.coordinates.length, "larger scale removes detail smaller than a pixel");
+  for (const index of [0, a.coordinates.length - 1]) {
+    const left = index === 0 ? a.coordinates[0] : a.coordinates.at(-1)!;
+    const right = index === 0 ? b.coordinates[0] : b.coordinates.at(-1)!;
+    assert.ok(left.every((value, axis) => Math.abs(value - right[axis]) < 1e-9), "endpoints survive projection rounding");
+  }
+});
+
+test("rivers load their filled areas without requiring the Lakes layer", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "scenic-manual-river-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const scene = await loadGeography(city, "3:4", "manual", undefined, { sceneDir: dir, featureIds: ["rivers"],
+    query: async body => {
+      assert.ok(body.includes('nwr[water~"^(river|stream|canal)$"]'));
+      return collection([{ ...square(-113.51, 53.52, .01), properties: { tags: { natural: "water", water: "river" } } }]);
+    } });
+  assert.equal(scene.ways.riverAreas.features.length, 1);
+  assert.ok(scene.featureIds.includes("rivers"));
+});
+
+test("extending a scene preserves existing geography, caches empty coverage, and restores in manual mode", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "scenic-manual-extension-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const bbox: BBox = [-113.7, 53.4, -113.3, 53.6];
+  const base = await loadGeography(bbox, "3:4", "auto", undefined, { sceneDir: dir,
+    query: async () => collection([{ ...square(-113.55, 53.5, .02), properties: { tags: { landuse: "forest" } } }]) });
+  let calls = 0;
+  const options = { sceneDir: dir, query: async (body: string) => {
+    calls++;
+    assert.ok(body.includes("highway"));
+    assert.ok(!body.includes("landuse=forest"));
+    return collection([]);
+  } };
+  const restoredBase = await loadGeography(bbox, "3:4", "manual", base.sceneId, { sceneDir: dir,
+    query: async () => { throw new Error("restoration should not query"); } });
+  assert.deepEqual(restoredBase, base, "manual can inherit the existing automatic scene");
+  const extended = await extendGeography(bbox, "3:4", base.sceneId, ["paths"], options);
+  assert.equal(calls, 1);
+  assert.deepEqual(extended.ways.forest, base.ways.forest);
+  assert.ok(extended.loadedFeatureIds?.includes("paths"));
+  assert.equal(extended.ways.paths.features.length, 0);
+  assert.equal((await extendGeography(bbox, "3:4", extended.sceneId, ["paths"], options)).sceneId, extended.sceneId);
+  assert.equal(calls, 1, "an empty category is not fetched again");
+  const restored = await loadGeography(bbox, "3:4", "manual", extended.sceneId, { sceneDir: dir,
+    query: async () => { throw new Error("restoration should not query"); } });
+  assert.deepEqual(restored, extended);
+  await assert.rejects(extendGeography(city, "3:4", extended.sceneId, ["paths"], options), /frame has changed/);
+  await assert.rejects(extendGeography(bbox, "3:4", base.sceneId, ["paths"], { sceneDir: dir,
+    query: async () => { throw new Error("provider down"); } }), /provider down/);
+  assert.deepEqual(await loadGeography(bbox, "3:4", "auto", base.sceneId, { sceneDir: dir }), base, "failed layer fetch leaves original intact");
+});
+
+test("reopening a saved fallback preserves it, while retry without its scene ID rebuilds detail", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "scenic-geography-fallback-retry-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  let calls = 0;
+  const options = { sceneDir: dir, query: async () => {
+    calls++;
+    if (calls === 1) throw new Error("temporary provider failure");
+    return collection([{ ...square(-113.51, 53.52, .01), properties: { tags: { landuse: "forest" } } }]);
+  } };
+  const fallback = await loadGeography(city, "3:4", "auto", undefined, options);
+  assert.equal(fallback.completeness, "fallback");
+  assert.deepEqual(await loadGeography(city, "3:4", "auto", fallback.sceneId, options), fallback);
+  assert.equal(calls, 1, "ordinary reopening restores saved geography");
+  const detailed = await loadGeography(city, "3:4", "auto", undefined, options);
+  assert.equal(calls, 2, "retry without the saved scene ID requests detail again");
+  assert.equal(detailed.source, "overpass");
+  assert.equal(detailed.completeness, "complete");
+  assert.ok(detailed.ways.forest.features.length > 0);
+  assert.notEqual(detailed.sceneId, fallback.sceneId);
+});
 
 test("OSM and bundled water sources retain subtype identity", () => {
   const tagged = (tags: Record<string, string>): Feature => ({ ...square(0, 0, .01), properties: { tags } });
