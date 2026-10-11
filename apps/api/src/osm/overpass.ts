@@ -11,8 +11,8 @@ import {
 import { OSM_CACHE_DIR } from "../paths";
 
 const DEFAULT_ENDPOINTS = [
-  "https://overpass-api.de/api/interpreter",
   "https://overpass.openstreetmap.fr/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
 ];
 const USER_AGENT = "scenic-route/overpass (https://github.com/scenic-route)";
 const RETRYABLE = new Set([429, 502, 503, 504]);

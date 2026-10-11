@@ -12,6 +12,37 @@ function cacheDir(t: TestContext) {
   return dir;
 }
 
+test("France is preferred, Germany is the fallback, and OVERPASS_URL overrides both", async (t) => {
+  const original = process.env.OVERPASS_URL;
+  t.after(() => {
+    if (original === undefined) delete process.env.OVERPASS_URL;
+    else process.env.OVERPASS_URL = original;
+  });
+  delete process.env.OVERPASS_URL;
+  const urls: string[] = [];
+  let failFrance = false;
+  const client = createOverpassClient({ cacheDir: cacheDir(t), fetch: async (url) => {
+    urls.push(String(url));
+    if (failFrance && String(url).includes("openstreetmap.fr")) {
+      return new Response("unavailable", { status: 504 });
+    }
+    return Response.json({ elements: [] });
+  } });
+  await client("preferred");
+  assert.deepEqual(urls, ["https://overpass.openstreetmap.fr/api/interpreter"]);
+  urls.length = 0;
+  failFrance = true;
+  await client("fallback");
+  assert.deepEqual(urls, [
+    "https://overpass.openstreetmap.fr/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+  ]);
+  urls.length = 0;
+  process.env.OVERPASS_URL = "https://example.test/api/interpreter";
+  await client("override");
+  assert.deepEqual(urls, ["https://example.test/api/interpreter"]);
+});
+
 test("a successful empty result stops endpoint fallback and survives a fresh client", async (t) => {
   const dir = cacheDir(t);
   let calls = 0;

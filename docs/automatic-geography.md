@@ -21,6 +21,10 @@ uses the bundled `scenic-ne-2` Natural Earth provider. A frame requiring more th
 32 query tiles also uses the generalized provider. Budget exhaustion or source
 failures produce an explicit fallback warning.
 
+Overpass requests try `https://overpass.openstreetmap.fr/api/interpreter` first,
+with `https://overpass-api.de/api/interpreter` as the fallback. Setting
+`OVERPASS_URL` overrides both defaults and uses only the configured endpoint.
+
 Geometry is clipped to the aspect-fitted frame, then filtered by visible polygon
 area. Ordinary areas need 12 pixels² locally or 24 pixels² at other scales. Areas
 near the route can survive down to 3 pixels². Dense minor streets/paths away from
