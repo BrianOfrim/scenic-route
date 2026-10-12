@@ -18,8 +18,14 @@ type Entry = {
   groupLabel: string;
 };
 
-/** Every theme + palette combination, in the same browsing order the app uses. */
-const ENTRIES: Entry[] = THEME_GROUPS.flatMap((group) =>
+/** Lead the landing gallery with Classic, preserving the remaining category order. */
+const LANDING_THEME_GROUPS = [
+  ...THEME_GROUPS.filter((group) => group.id === "classic"),
+  ...THEME_GROUPS.filter((group) => group.id !== "classic"),
+];
+
+/** Every theme + palette combination in landing gallery order. */
+const ENTRIES: Entry[] = LANDING_THEME_GROUPS.flatMap((group) =>
   group.styles.flatMap((style) =>
     examplesForTheme(style.id).map((example) => ({
       example,
