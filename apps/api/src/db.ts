@@ -138,6 +138,23 @@ async function waitForPostgres(client: SqlClient, attempts = 20) {
   throw lastError;
 }
 
+export async function migratePosterMonthlyLimit(client: SqlClient) {
+  // Upgrade the previous beta default once, preserving usage and other overrides.
+  // Checking the schema default also preserves later operator overrides to 50.
+  await client.query(`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'user'
+          AND column_name = 'poster_monthly_limit' AND column_default = '50'
+      ) THEN
+        UPDATE "user" SET poster_monthly_limit = 40 WHERE poster_monthly_limit = 50;
+        ALTER TABLE "user" ALTER COLUMN poster_monthly_limit SET DEFAULT 40;
+      END IF;
+    END $$;
+  `);
+}
+
 async function migrate(client: SqlClient) {
   await client.query(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -228,7 +245,8 @@ async function migrate(client: SqlClient) {
 
   await migrateBetaAdmission(client);
   await client.query(`ALTER TABLE "user" ADD COLUMN IF NOT EXISTS image_limits JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(image_limits) = 'object')`);
-  await client.query('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS poster_monthly_limit INTEGER DEFAULT 50 CHECK (poster_monthly_limit >= 0)');
+  await client.query('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS poster_monthly_limit INTEGER DEFAULT 40 CHECK (poster_monthly_limit >= 0)');
+  await migratePosterMonthlyLimit(client);
   await client.query(`
     CREATE TABLE IF NOT EXISTS poster_generation_usage (
       id TEXT PRIMARY KEY,

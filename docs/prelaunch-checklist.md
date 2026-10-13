@@ -4,7 +4,7 @@ Updated October 10, 2026. This checklist contains outstanding work only. Impleme
 
 ## Agreed launch scope
 
-Brian Ofrim operates Scenic Route from Alberta, Canada, with support and privacy requests handled at [info@scenic-route.ca](mailto:info@scenic-route.ca). The free public beta targets Canada and the United States, accepts users aged 13+, and admits up to 100 accounts with a waitlist. The default allowance is 50 generated images per account per UTC calendar month.
+Brian Ofrim operates Scenic Route from Alberta, Canada, with support and privacy requests handled at [info@scenic-route.ca](mailto:info@scenic-route.ca). The free public beta targets Canada and the United States, accepts users aged 13+, and admits up to 100 accounts with a waitlist. The default allowance is 40 generated images per account per UTC calendar month.
 
 The AI budget target is $75/month, controlled through prepaid OpenRouter credit, with no daily cap. Brian will configure the $50 monthly spending alert directly through cloud services. Current scheduler defaults are 128 active requests globally, eight active per user, and 16 unfinished jobs per user; generation batches allow eight theme/palette combinations. Verify deployed settings and admission behaviour before relying on these limits.
 
