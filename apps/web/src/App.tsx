@@ -20,6 +20,7 @@ import {
   type PosterWays,
   type SessionUser,
 } from "./api";
+import type { ImportStatus } from "./importProgress";
 import { ActivityList } from "./ActivityList";
 import { formatImportNotice, type ImportNotice } from "./importNotice";
 import { BasemapControl } from "./BasemapControl";
@@ -174,6 +175,7 @@ export function App() {
   } | null>(null);
   const [session, setSession] = useState<SessionUser | null | undefined>(undefined);
   const [importing, setImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
   const [importNotice, setImportNotice] = useState<ImportNotice | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [posterOpen, setPosterOpen] = useState(false);
@@ -407,10 +409,13 @@ export function App() {
 
   async function handleImport(files: File[]) {
     setImporting(true);
+    setImportStatus({ phase: "preparing" });
+    if (isMobile) openMobilePane("activities");
     setError(null);
     setImportNotice(null);
     try {
-      const result = await importActivityFiles(files);
+      const result = await importActivityFiles(files, setImportStatus);
+      setImportStatus(current => ({ phase: "refreshing", progress: current?.progress }));
       await refresh();
       const notice = formatImportNotice({
         imported: result.activities.length,
@@ -418,18 +423,10 @@ export function App() {
         errors: result.errors,
       });
       setImportNotice(notice);
-      const first = result.activities[0];
-      const cleanSingle = Boolean(first && result.activities.length === 1 && !result.skipped && !result.errors.length);
-      if (cleanSingle && first) {
-        selectActivity(first.id, first);
-      } else if (first) {
-        setSelectedLatLng(null);
-        setTrackLoading(true);
-        clearPosterMapState();
-        setSelectedId(first.id);
-        setRefineFrom(null);
-      }
-      if (notice && isMobile) openMobilePane("activities");
+      const latest = result.activities.reduce<ActivitySummary | undefined>((current, activity) =>
+        !current || activity.startDate > current.startDate ? activity : current, undefined);
+      if (latest) selectActivity(latest.id, latest);
+      else if (notice && isMobile) openMobilePane("activities");
     } catch (err) {
       if (err instanceof ImportRequestError && (err.failures.length || err.skipped)) {
         setImportNotice(formatImportNotice({ imported: 0, skipped: err.skipped, errors: err.failures }));
@@ -439,6 +436,7 @@ export function App() {
       }
     } finally {
       setImporting(false);
+      setImportStatus(null);
     }
   }
 
@@ -562,6 +560,7 @@ export function App() {
             loading={activitiesLoading}
             selectedId={selectedId}
             importing={importing}
+            importStatus={importStatus}
             importNotice={importNotice}
             onDismissImportNotice={() => setImportNotice(null)}
             onSelect={selectActivity}

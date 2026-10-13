@@ -4,6 +4,7 @@ import {
   formatKm,
   type ActivitySummary,
 } from "./api";
+import type { ImportStatus } from "./importProgress";
 import type { ImportNotice } from "./importNotice";
 import { TrackImportHelp } from "./TrackImportHelp";
 
@@ -12,6 +13,7 @@ type Props = {
   loading: boolean;
   selectedId: number | null;
   importing: boolean;
+  importStatus: ImportStatus | null;
   importNotice: ImportNotice | null;
   onDismissImportNotice: () => void;
   onSelect: (id: number) => void;
@@ -24,6 +26,7 @@ export function ActivityList({
   loading,
   selectedId,
   importing,
+  importStatus,
   importNotice,
   onDismissImportNotice,
   onSelect,
@@ -287,7 +290,37 @@ export function ActivityList({
           </div>
         )}
       </div>
-      {importNotice && (
+      {importing && importStatus && (
+        <div className="import-progress" role="status" aria-live="polite" aria-atomic="true">
+          <div className="import-progress-heading">
+            <span className="spinner" aria-hidden="true" />
+            <strong>{importStatus.phase === "preparing" ? "Preparing your import…"
+              : importStatus.phase === "refreshing" ? "Loading your activities…" : "Importing activities…"}</strong>
+          </div>
+          <progress
+            aria-label="Activity import progress"
+            max={importStatus.progress?.total || 1}
+            value={importStatus.progress ? importStatus.progress.processed : undefined}
+          />
+          {importStatus.progress && (
+            <>
+              <div className="import-progress-count">
+                <strong>{importStatus.progress.processed} / {importStatus.progress.total}</strong>
+                <span>activities processed</span>
+              </div>
+              <p>{importStatus.progress.imported} imported
+                {importStatus.progress.skipped > 0 && ` · ${importStatus.progress.skipped} already imported`}
+                {importStatus.progress.failed > 0 && ` · ${importStatus.progress.failed} failed`}
+              </p>
+            </>
+          )}
+          <p className="muted">{importStatus.phase === "preparing"
+            ? "Uploading files and finding activities. Large exports may take a moment."
+            : importStatus.phase === "refreshing" ? "Finishing up and updating your activity list."
+            : "Keep this page open while your activities are saved."}</p>
+        </div>
+      )}
+      {importNotice && !importing && (
         <div className="import-result" data-tone={importNotice.tone} role="status">
           <div className="import-result-head">
             <p>{importNotice.summary}</p>
@@ -344,7 +377,7 @@ export function ActivityList({
             </button>
           </div>
         ))}
-        {!loading && !filtered.length && (activities.length ? (
+        {!loading && !importing && !filtered.length && (activities.length ? (
           <p className="muted activity-empty">No matching activities.</p>
         ) : (
           <section className="activity-empty track-import-empty" aria-labelledby="track-import-empty-title">

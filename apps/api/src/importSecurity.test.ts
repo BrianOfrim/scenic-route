@@ -261,3 +261,68 @@ test("ZIP supports streaming data descriptors and Unicode activity filenames", (
 test("XML point count is rejected during validation using a bounded 2.3 MiB fixture", () => {
   assert.throws(() => parseGpx('<gpx>' + '<trkpt/>'.repeat(MAX_XML_POINTS + 1) + '</gpx>'), /too many GPS points/);
 });
+
+
+test("archive progress counts expanded activities and advances after failed tracks", async () => {
+  const progress: unknown[] = [];
+  const result = await importTrackFiles("unused-test-user", [
+    { filename: "export.zip", bytes: zip({ "a.gpx": "bad", "b.fit": "bad" }) },
+  ], async value => { progress.push(value); });
+  assert.deepEqual(progress, [
+    { processed: 0, total: 2, imported: 0, skipped: 0, failed: 0 },
+    { processed: 1, total: 2, imported: 0, skipped: 0, failed: 1 },
+    { processed: 2, total: 2, imported: 0, skipped: 0, failed: 2 },
+  ]);
+  assert.equal(result.errors.length, 2);
+});
+
+test("streaming import holds the concurrency guard until the final result", async () => {
+  const acquire = createImportGuard();
+  let finish!: () => void;
+  const pending = new Promise<void>(resolve => { finish = resolve; });
+  const app = new Hono<ImportEnv>();
+  app.use("*", async (c, next) => { c.set("user", { id: "stream-user" }); await next(); });
+  app.post("/import", createImportHandler({
+    acquire,
+    parse: async () => ({ files: [{ filename: "a.gpx", bytes: encode(GPX) }], errors: [] }),
+    importFiles: async (_user, _files, report) => {
+      await report?.({ processed: 0, total: 1, imported: 0, skipped: 0, failed: 0 });
+      await pending;
+      await report?.({ processed: 1, total: 1, imported: 0, skipped: 1, failed: 0 });
+      return { activities: [], errors: [], skipped: 1 };
+    },
+  }));
+  const response = await app.request("/import", { method: "POST", headers: { Accept: "application/x-ndjson" } });
+  assert.match(response.headers.get("Content-Type")!, /ndjson/);
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let text = decoder.decode((await reader.read()).value);
+  assert.match(text, /preparing/);
+  assert.throws(() => acquire("stream-user"), ImportGuardError);
+  finish();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value);
+  }
+  const events = text.trim().split("\n").map(line => JSON.parse(line));
+  assert.deepEqual(events.map(event => event.type), ["preparing", "progress", "progress", "result"]);
+  assert.equal(events[2].processed, 1);
+  assert.equal(events[3].skipped, 1);
+  acquire("stream-user")();
+});
+
+test("streaming import reports errors and releases the guard", async () => {
+  const acquire = createImportGuard();
+  const app = new Hono<ImportEnv>();
+  app.use("*", async (c, next) => { c.set("user", { id: "stream-failure" }); await next(); });
+  app.post("/import", createImportHandler({
+    acquire,
+    parse: async () => ({ files: [{ filename: "a.gpx", bytes: encode(GPX) }], errors: [] }),
+    importFiles: async () => { throw new Error("Persistence failed"); },
+  }));
+  const response = await app.request("/import", { method: "POST", headers: { Accept: "application/x-ndjson" } });
+  const events = (await response.text()).trim().split("\n").map(line => JSON.parse(line));
+  assert.equal(events.at(-1).error, "Persistence failed");
+  acquire("stream-failure")();
+});

@@ -21,11 +21,29 @@ export type ImportResult = {
   skipped: number;
 };
 
-export async function importTrackFiles(userId: string, files: ImportFile[]): Promise<ImportResult> {
+export type ImportProgress = {
+  processed: number;
+  total: number;
+  imported: number;
+  skipped: number;
+  failed: number;
+};
+
+export async function importTrackFiles(
+  userId: string,
+  files: ImportFile[],
+  onProgress?: (progress: ImportProgress) => Promise<void>,
+): Promise<ImportResult> {
   const activities: ActivitySummary[] = [];
   const expanded = expandUploads(files);
   const errors = [...expanded.errors];
   let skipped = 0;
+  let processed = 0;
+  const report = async () => onProgress?.({
+    processed, total: expanded.tracks.length, imported: activities.length,
+    skipped, failed: errors.length,
+  });
+  await report();
   for (const file of expanded.tracks) {
     try {
       const imported = await insertImportedTrack(userId, file, file.filename);
@@ -37,6 +55,8 @@ export async function importTrackFiles(userId: string, files: ImportFile[]): Pro
         error: error instanceof Error ? error.message : "import failed",
       });
     }
+    processed += 1;
+    await report();
   }
   return { activities, errors, skipped };
 }

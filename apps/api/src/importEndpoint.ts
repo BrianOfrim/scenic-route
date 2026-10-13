@@ -1,4 +1,5 @@
 import type { Handler } from "hono";
+import { stream } from "hono/streaming";
 import { ImportError } from "./gpx";
 import { importTrackFiles } from "./importActivity";
 import { acquireImport, ImportGuardError } from "./importGuard";
@@ -16,6 +17,34 @@ export function createImportHandler(dependencies = {
       const parsed = await dependencies.parse(c.req.raw);
       if (!parsed.files.length && !parsed.errors.length) {
         return c.json({ error: "Choose a GPX, FIT, TCX, or account export zip" }, 400);
+      }
+      if (c.req.header("Accept")?.includes("application/x-ndjson")) {
+        const releaseStream = release;
+        release = undefined; // The streaming callback owns the guard until persistence finishes.
+        c.header("Content-Type", "application/x-ndjson");
+        c.header("Cache-Control", "no-store");
+        c.header("X-Accel-Buffering", "no");
+        return stream(c, async output => {
+          const send = async (event: unknown) => { await output.writeln(JSON.stringify(event)); };
+          try {
+            await send({ type: "preparing" });
+            const imported = parsed.files.length
+              ? await dependencies.importFiles(c.get("user").id, parsed.files, async progress => {
+                  await send({ type: "progress", ...progress, failed: progress.failed + parsed.errors.length });
+                })
+              : { activities: [], errors: [], skipped: 0 };
+            const result = { ...imported, errors: [...parsed.errors, ...imported.errors] };
+            if (!result.activities.length && !result.skipped) {
+              const first = result.errors[0];
+              await send({ type: "error", ...result,
+                error: first ? `${first.filename}: ${first.error}` : "Could not import file" });
+            } else {
+              await send({ type: "result", ...result });
+            }
+          } catch (error) {
+            await send({ type: "error", error: error instanceof Error ? error.message : "import failed" });
+          } finally { releaseStream(); }
+        });
       }
       const imported = parsed.files.length
         ? await dependencies.importFiles(c.get("user").id, parsed.files)
