@@ -1,5 +1,4 @@
 import { imageAttemptContext } from "./jobContext";
-import { OpenRouterError } from "./openrouter";
 import { randomUUID } from "node:crypto";
 import { query, queryOne, withTransaction, type SqlClient } from "./db";
 import { imageGenerationTimeoutMs } from "./openrouter";
@@ -73,25 +72,24 @@ export async function reservePosterQuota(userId: string, count: number) {
   };
 }
 
-/** Only successful provider outputs consume quota, including outputs whose storage subsequently fails. */
-export async function withPosterQuota<T extends { images: unknown[] }>(userId: string, count: number, generate: () => Promise<T>) {
+/** Hold capacity while generating; charge only after saving succeeds (or durable publication). */
+export function withPosterQuota<T extends { images: unknown[] }>(userId: string, count: number, generate: () => Promise<T>): Promise<T>;
+export function withPosterQuota<T extends { images: unknown[] }, R>(userId: string, count: number, generate: () => Promise<T>, save: (result: T) => Promise<R>): Promise<R>;
+export async function withPosterQuota<T extends { images: unknown[] }, R>(userId: string, count: number, generate: () => Promise<T>, save?: (result: T) => Promise<R>): Promise<T | R> {
   const reservation = await reservePosterQuota(userId, count);
   const attempt = imageAttemptContext.getStore();
-  if (attempt) await attempt.quota(reservation.id);
   let generated = 0;
-  let settle = !attempt;
   try {
+    if (attempt) await attempt.quota(reservation.id);
     const result = await generate();
     // Do not publish unexpected extra outputs beyond the capacity admitted for this request.
     result.images = result.images.slice(0, count);
+    if (attempt) await attempt.received(result.images.length);
+    const saved = save ? await save(result) : result;
     generated = result.images.length;
-    if (attempt) await attempt.received(generated);
-    settle = true;
-    return result;
-  } catch (error) {
-    if (error instanceof OpenRouterError && error.upstreamStatus !== undefined) settle = true;
-    throw error;
+    return saved;
   } finally {
-    if (settle) await reservation.settle(generated);
+    // Durable attempts settle atomically with publication or failure, including worker recovery.
+    if (!attempt) await reservation.settle(generated);
   }
 }
