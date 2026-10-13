@@ -14,7 +14,7 @@ import {
   posterPageIds,
   POSTER_LIST_PAGE_SIZE,
 } from "./poster";
-import { MARKER_PLACEMENT_RULE, SINGLE_ROUTE_RULE, specToImagePrompt, validatePosterSpec } from "./posterSpec";
+import { EXPLICIT_TEXT_RULE, MARKER_PLACEMENT_RULE, SINGLE_ROUTE_RULE, specToImagePrompt, validatePosterSpec } from "./posterSpec";
 
 test("poster pagination reads a bounded newest-first slice and continues even if the cursor was deleted", () => {
   const ids = Array.from({ length: 30 }, (_, index) => `20261010T${String(index).padStart(6, "0")}Z-abcdef`);
@@ -215,7 +215,7 @@ test("resolveImagePrompt prefers a non-empty override", () => {
     negative: [],
     finalPrompt: "assembled from spec",
   });
-  assert.equal(resolveImagePrompt(spec, "  warmer paper  "), `${SINGLE_ROUTE_RULE}\n\n${MARKER_PLACEMENT_RULE}\n\nwarmer paper`);
+  assert.equal(resolveImagePrompt(spec, "  warmer paper  "), `${SINGLE_ROUTE_RULE}\n\n${MARKER_PLACEMENT_RULE}\n\n${EXPLICIT_TEXT_RULE}\n\nwarmer paper`);
   const savedPrompt = resolveImagePrompt(spec, "warmer paper");
   assert.equal(resolveImagePrompt(spec, savedPrompt), savedPrompt);
   assert.equal(resolveImagePrompt(spec, "   "), specToImagePrompt(spec));

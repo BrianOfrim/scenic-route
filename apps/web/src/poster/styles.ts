@@ -146,9 +146,9 @@ export const POSTER_STYLES: PosterStyle[] = [
     id: "linen-postcard",
     label: "Linen postcard",
     prompt:
-      "1950s American linen postcard: faded canvas weave, stacked Greetings-from lettering for the title, a highway-shield cartouche. The route is a bold road-trip line. Mid-century roadside Americana, no parchment and no neon.",
+      "1950s American linen postcard: faded canvas weave, stacked vintage display lettering for the explicitly supplied title, a highway-shield cartouche. Print only the supplied text, without adding a greeting, slogan, prefix, or suffix. The route is a bold road-trip line. Mid-century roadside Americana, no parchment and no neon.",
     palette: ["linen-cream", "chrome-teal", "bumper-red"],
-    typography: titleFace("stacked greetings-from"),
+    typography: titleFace("stacked vintage display lettering using only the supplied title"),
     colorMode: "canonical",
     palettes: [
       { id: "chrome", label: "Chrome", colors: ["linen-cream", "chrome-teal", "bumper-red"] },

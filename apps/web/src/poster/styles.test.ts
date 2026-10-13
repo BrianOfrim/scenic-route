@@ -271,3 +271,10 @@ test("account selection limits can be raised or unlimited while retaining defaul
   assert.equal(canChangeThemeSelections(32, 33, 32), false);
   assert.equal(canChangeThemeSelections(32, 33, Infinity), true);
 });
+
+test("linen postcard lettering uses supplied words without prompting for a greeting", () => {
+  const style = styleById("linen-postcard");
+  assert.doesNotMatch(`${style.prompt} ${style.typography}`, /greetings[- ]from/i);
+  assert.match(style.prompt, /Print only the supplied text/);
+  assert.match(style.typography, /only the supplied title/);
+});

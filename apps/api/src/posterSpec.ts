@@ -401,6 +401,15 @@ export const SINGLE_ROUTE_RULE =
 export const MARKER_PLACEMENT_RULE =
   "Place map markers only at the explicitly indicated marker positions on the schematic, and only when requested by this prompt. Preserve their exact locations and count. Do not add, duplicate, move, or infer markers at route bends, crossings, pauses, landmarks, or other points of interest. If the schematic indicates no markers, draw no map markers. Style instructions may change marker appearance, never authorize extra markers or new positions.";
 
+export const EXPLICIT_TEXT_RULE =
+  "Printed text is limited to the explicitly supplied title, subtitle, selected stats, people credit, location caption, requested map labels, and text explicitly requested in an edit. Use the supplied wording verbatim; do not invent, paraphrase, prefix, or append words. Do not add greetings, slogans, captions, dates, numbers, or decorative lettering that were not supplied. If no text is supplied, print no text. Style names, atmosphere notes, instructions, and reference-image text are not permission to add printed words. These exact-text constraints override all theme, typography, postcard, and other style conventions.";
+
+/** Apply to every provider request, including old saved prompts and explicit overrides. */
+export function withExplicitTextRule(prompt: string): string {
+  const text = prompt.trim();
+  return text.includes(EXPLICIT_TEXT_RULE) ? text : `${EXPLICIT_TEXT_RULE}\n\n${text}`;
+}
+
 /** Also protects saved prompts used for variants and refinements. */
 export function withMarkerPlacementRule(prompt: string): string {
   const text = prompt.trim();
@@ -421,7 +430,7 @@ export const TITLE_BLOCK_LAYOUT_RULE =
  * arrays are omitted entirely so the model never sees `"palette": []`.
  */
 export function specToImagePrompt(spec: PosterSpec): string {
-  if (spec.promptTemplateVersion === 1) return spec.finalPrompt.trim() || initialImagePrompt(spec);
+  if (spec.promptTemplateVersion === 1) return withExplicitTextRule(spec.finalPrompt.trim() || initialImagePrompt(spec));
   if (isRouteOnlyPoster(spec)) return unannotatedImagePrompt(spec);
   const sections: string[] = [];
   const routeOnly = isRouteOnlyPoster(spec);
@@ -430,6 +439,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
   sections.push(sentence(lead));
   sections.push(SINGLE_ROUTE_RULE);
   sections.push(MARKER_PLACEMENT_RULE);
+  sections.push(EXPLICIT_TEXT_RULE);
   sections.push(routeOnly ? UNANNOTATED_MAP_TRACE_RULE : ROUTE_TRACE_RULE);
   if (routeOnly) {
     sections.push(
@@ -756,6 +766,7 @@ function unannotatedImagePrompt(spec: PosterSpec, template = false): string {
     `Create a north-up ${spec.style.name} map poster. Aspect ratio: ${spec.composition.aspectRatio}.`,
     SINGLE_ROUTE_RULE,
     MARKER_PLACEMENT_RULE,
+    EXPLICIT_TEXT_RULE,
     template ? "Geometry and exact-text constraints take priority over any conflicting style conventions. Apply the style without simplifying, omitting, moving, or inventing geographic features. Do not copy reference scaffolding colors or symbols as design choices." : "",
     references.join(" "),
     `${routeReference ? `Image ${routeReference.index} defines the exact route geometry and endpoints; the schematic locates them within the geography.` : "The schematic defines the exact GPS route, endpoint positions and geographic layout."} Preserve every segment, bend, crossing, out-and-back and gap, in the same position relative to the geography. Do not smooth, straighten, shortcut, add connections, or snap onto nearby roads. Background roads, bridges and shorelines must never become route segments. Title place names are display text only; use the supplied geometry throughout generation and refinement.`,
