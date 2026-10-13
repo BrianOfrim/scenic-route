@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { specToImagePrompt, titleFontSizePx, TITLE_CAP_WIDTH_RATIO, validatePosterSpec } from "./posterSpec";
+import { EXPLICIT_TEXT_RULE, initialImagePrompt, specToImagePrompt, titleFontSizePx, TITLE_CAP_WIDTH_RATIO, validatePosterSpec } from "./posterSpec";
 
 const sample = {
   style: {
@@ -491,4 +491,21 @@ test("location is an exact standalone caption in annotated and unannotated poste
 
 test("no location caption is requested when the location option is absent", () => {
   assert.doesNotMatch(specToImagePrompt(validatePosterSpec({ ...sample, landmarks: [], geography: [] })), /Location caption, exactly:/);
+});
+
+test("all prompt paths restrict printed text even when style conventions request extra words", () => {
+  const spec = validatePosterSpec({
+    ...sample,
+    style: { ...sample.style, name: "Linen postcard", typography: "stacked greetings-from" },
+    finalPrompt: "Add traditional postcard greetings above the title.",
+  });
+  for (const prompt of [
+    specToImagePrompt(spec),
+    initialImagePrompt(spec),
+    specToImagePrompt({ ...spec, promptTemplateVersion: 1 }),
+  ]) {
+    assert.ok(prompt.includes(EXPLICIT_TEXT_RULE));
+    assert.match(prompt, /Use the supplied wording verbatim/);
+    assert.match(prompt, /constraints override all theme/);
+  }
 });
