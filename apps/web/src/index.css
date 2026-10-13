@@ -359,15 +359,16 @@ a {
 
 .landing-hero-art {
   position: relative;
+  container-type: inline-size;
   height: clamp(420px, 44vw, 560px);
 }
 
 .landing-hero-image {
   position: absolute;
   top: 50%;
-  left: 50%;
+  left: 56%;
   width: auto;
-  height: 82%;
+  height: min(82%, 68cqw);
   aspect-ratio: 2 / 3;
   border-radius: 4px;
   box-shadow:
@@ -382,7 +383,7 @@ a {
 
 .landing-hero-image:nth-child(2) {
   z-index: 1;
-  height: 92%;
+  height: min(92%, 80cqw);
   transform: translate(-50%, -50%);
 }
 
@@ -824,6 +825,7 @@ a {
   }
 
   .landing-hero-image {
+    left: 50%;
     height: 70%;
   }
 
