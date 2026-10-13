@@ -170,6 +170,13 @@ export function ProfileMenu({ email, name, image, waiting = false, onNameSaved, 
             <button type="button" className="text-btn" disabled={saving || deleting} onClick={closeSettings}>Close</button>
           </div>
           <p className="profile-menu-email">{email}</p>
+          <p className="muted" aria-live="polite">
+            {waiting ? "Public beta: waitlisted. Poster generation unlocks after admission." : quota ? quota.limit === null ? "Poster generation: unlimited." : <>
+              {quota.used} of {quota.limit} posters generated this month. {quota.remaining} remaining.
+              {quota.reserved > 0 && ` ${quota.reserved} reserved for requests in progress.`}
+              {` Resets ${new Date(quota.resetsAt).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })} (UTC).`}
+            </> : quotaError ? "Could not load poster usage." : "Loading poster usage…"}
+          </p>
           <button type="button" className="text-btn" onClick={() => {
             setSettingsOpen(false);
             window.dispatchEvent(new Event("participation-required"));
@@ -180,13 +187,6 @@ export function ProfileMenu({ email, name, image, waiting = false, onNameSaved, 
               onChange={(event) => { setNameDraft(event.target.value); setSaveError(null); }} />
           </label>
           <p id={`${settingsId}-help`} className="muted">Used to prefill the people list on new posters. You can edit or remove it on each poster.</p>
-          <p className="muted" aria-live="polite">
-            {waiting ? "Public beta: waitlisted. Poster generation unlocks after admission." : quota ? quota.limit === null ? "Poster generation: unlimited." : <>
-              {quota.used} of {quota.limit} posters generated this month. {quota.remaining} remaining.
-              {quota.reserved > 0 && ` ${quota.reserved} reserved for requests in progress.`}
-              {` Resets ${new Date(quota.resetsAt).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })} (UTC).`}
-            </> : quotaError ? "Could not load poster usage." : "Loading poster usage…"}
-          </p>
           {saveError && <p role="alert">{saveError}</p>}
           <button type="submit" className="button" disabled={saving || deleting}>{saving ? "Saving…" : "Save name"}</button>
         </form>
