@@ -232,8 +232,8 @@ export const POSTER_STYLES: PosterStyle[] = [
 
 /** Shared browsing order for theme pickers and the example gallery. */
 export const THEME_GROUPS = [
-  { id: "modern", label: "Modern", styleIds: ["swiss", "modernist", "bauhaus", "risograph"] },
   { id: "classic", label: "Classic", styleIds: ["wpa", "linen-postcard", "art-deco", "art-nouveau"] },
+  { id: "modern", label: "Modern", styleIds: ["risograph", "modernist", "bauhaus", "swiss"] },
   { id: "technical", label: "Technical", styleIds: ["vintage-topo", "blueprint"] },
   { id: "whimsical", label: "Whimsical", styleIds: ["watercolour", "middle-earth", "rpg"] },
 ].map(({ styleIds, ...group }) => ({
@@ -242,7 +242,7 @@ export const THEME_GROUPS = [
 }));
 
 /** Product default for new poster setups (one-tap generate). */
-export const DEFAULT_STYLE_ID = "swiss";
+export const DEFAULT_STYLE_ID = "wpa";
 
 export const DEFAULT_POSTER_STYLE =
   POSTER_STYLES.find((item) => item.id === DEFAULT_STYLE_ID) ?? POSTER_STYLES[0];
