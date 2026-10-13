@@ -9,7 +9,7 @@ config({ path: path.join(REPO_ROOT, ".env"), quiet: true });
 const [email, value, ...extra] = process.argv.slice(2);
 const limit = value === "unlimited" ? null : Number(value);
 if (!email || !value || extra.length || (limit !== null && (!/^\d+$/.test(value) || !Number.isSafeInteger(limit) || limit > 2_147_483_647))) {
-  console.error("Usage: npm run poster:limit -- user@example.com <unlimited|50>");
+  console.error("Usage: npm run poster:limit -- user@example.com <unlimited|40>");
   process.exitCode = 1;
 } else {
   try {

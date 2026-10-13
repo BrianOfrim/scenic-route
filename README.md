@@ -55,7 +55,7 @@ Configure an R2 lifecycle rule to delete objects under `references/` after seven
 
 ## Monthly poster limits
 
-Accounts can generate **50 posters per UTC calendar month** by default. Each image counts, including edits and variants. The API reserves capacity before an image request, so simultaneous requests cannot exceed the allowance. Failed requests and missing outputs release their unused capacity; deleting a poster does not restore allowance. Successful image outputs count even if saving them subsequently fails. Usage starts when this feature is deployed; previously generated posters are not counted. Interrupted reservations expire after 24 hours (longer if a custom image deadline requires it).
+Accounts can generate **40 posters per UTC calendar month** by default. Each image counts, including edits and variants. The API reserves capacity before an image request, so simultaneous requests cannot exceed the allowance. Failed requests and missing outputs release their unused capacity; deleting a poster does not restore allowance. Successful image outputs count even if saving them subsequently fails. Usage starts when this feature is deployed; previously generated posters are not counted. Interrupted reservations expire after 24 hours (longer if a custom image deadline requires it).
 
 Account settings show usage, remaining capacity, and the reset date. Requests that exceed the remaining allowance return HTTP 429; background jobs show the same message on their failed card. Quota is checked when a queued job starts generation.
 
@@ -63,10 +63,12 @@ To grant unlimited access to an existing account, run against the desired databa
 
 ```bash
 npm run poster:limit -- user@example.com unlimited
-npm run poster:limit -- user@example.com 50
+npm run poster:limit -- user@example.com 40
 ```
 
-The second command restores the default limit. Other nonnegative integer limits are also supported. Overrides take effect immediately and preserve existing usage. This is a server-side operator command; users cannot change their own allowance. The database field is `"user".poster_monthly_limit`: `50` by default, `NULL` for unlimited.
+On upgrade, accounts with the previous 50-poster limit move to 40; other custom limits and unlimited access are preserved, along with all existing usage.
+
+The second command restores the default limit. Other nonnegative integer limits are also supported. Overrides take effect immediately and preserve existing usage. This is a server-side operator command; users cannot change their own allowance. The database field is `"user".poster_monthly_limit`: `40` by default, `NULL` for unlimited.
 
 ## Layout
 
