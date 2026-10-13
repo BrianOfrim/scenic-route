@@ -16,6 +16,8 @@
     "test": "npm test -w @scenic-route/api && npm test -w @scenic-route/web",
     "test:api": "npm test -w @scenic-route/api",
     "test:web": "npm test -w @scenic-route/web",
+    "deploy": "node scripts/deploy.mjs",
+    "test:deploy": "node --test scripts/deploy.test.mjs",
     "build": "npm run build -w @scenic-route/web",
     "beta:admit": "tsx scripts/admit-beta.mts",
     "dev:worker": "npm run dev:worker -w @scenic-route/api",
