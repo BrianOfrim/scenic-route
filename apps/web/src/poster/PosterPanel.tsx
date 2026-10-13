@@ -2235,6 +2235,7 @@ export function PosterPanel({
   const themeSelection = (
     <>
       <p>{planSlots.length}/{Number.isFinite(selectionLimit) ? selectionLimit : "unlimited"} theme/palette selections</p>
+      <p className="muted">One image will be generated for each theme/palette selection.</p>
       {(selectionError || planSlots.length > selectionLimit) &&
         <p className="error" role="alert">{selectionError || selectionLimitMessage}</p>}
       <div className="theme-selection-groups">

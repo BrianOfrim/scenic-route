@@ -54,9 +54,12 @@ test("preset typography leaves title sizing to the shared prompt", () => {
   }
 });
 
-test("default poster style is Minimal", () => {
-  assert.equal(DEFAULT_POSTER_STYLE.id, "swiss");
-  assert.equal(DEFAULT_POSTER_STYLE.label, "Minimal");
+test("default poster selection is WPA park with the Park palette", () => {
+  assert.equal(DEFAULT_POSTER_STYLE.id, "wpa");
+  assert.equal(DEFAULT_POSTER_STYLE.label, "WPA park");
+  assert.deepEqual(stylePlanSlots([DEFAULT_POSTER_STYLE.id]), [{
+    key: "wpa::park", styleId: "wpa", paletteId: "park",
+  }]);
 });
 
 test("retired themes are not available as new-poster styles", () => {
