@@ -1,5 +1,7 @@
 # Operator runbooks evidence
 
+Historical validation record for the dates below. Runtime, quota, and deployment behavior has since changed; use [current runbooks](../runbooks/operations.md) for operational instructions.
+
 Date: 2026-10-08 (America/Edmonton), merge reconciliation 2026-10-09. Owner: Brian Ofrim, Alberta, Canada, info@scenic-route.ca. Original draft baseline `6283736df5be9a4d92a08bef0e84a427e915f89f`. Procedures now describe merged main `55e18db476d4e1b8c0450f87fc24ddddd68f9e33`. Branch `codex/operator-runbooks`. Shared primary checkout preserved.
 
 ## Implemented
