@@ -1,3 +1,4 @@
+import { readImportEvents, type ImportProgress, type ImportStatus } from "./importProgress";
 import type { GeographyScene } from "../../api/src/osm/geographyPolicy";
 import { noteArrivedPosters } from "./gallery/arrivedPosters";
 import { beginGeneration, setServerGenerationJobs, mergeServerGenerationJobs, type ServerGenerationJob } from "./gallery/generationState";
@@ -419,15 +420,39 @@ export class ImportRequestError extends Error {
   }
 }
 
-export async function importActivityFiles(files: File[] | FileList): Promise<{
+export async function importActivityFiles(
+  files: File[] | FileList,
+  onProgress?: (status: ImportStatus) => void,
+): Promise<{
   activities: ActivitySummary[];
   errors: ImportFailure[];
   skipped: number;
 }> {
   const form = new FormData();
   for (const file of Array.from(files)) form.append("file", file);
-  const response = await apiFetch("/api/activities/import", { method: "POST", body: form });
+  onProgress?.({ phase: "preparing" });
+  const response = await apiFetch("/api/activities/import", {
+    method: "POST", body: form, headers: { Accept: "application/x-ndjson" },
+  });
   if (response.status === 401) throw new AuthRequiredError();
+  if (response.ok && response.headers.get("Content-Type")?.includes("application/x-ndjson")) {
+    if (!response.body) throw new Error("Import response was empty");
+    for await (const value of readImportEvents(response.body)) {
+      const event = value as ImportProgress & {
+        type: "preparing" | "progress" | "result" | "error";
+        activities?: ActivitySummary[]; errors?: ImportFailure[]; error?: string;
+      };
+      if (event.type === "preparing") onProgress?.({ phase: "preparing" });
+      if (event.type === "progress") onProgress?.({ phase: "importing", progress: event });
+      if (event.type === "error") {
+        throw new ImportRequestError(event.error ?? "Import failed", event.errors ?? [], event.skipped ?? 0);
+      }
+      if (event.type === "result") {
+        return { activities: event.activities ?? [], errors: event.errors ?? [], skipped: event.skipped ?? 0 };
+      }
+    }
+    throw new Error("Import connection ended before completion. Refresh your activities before retrying.");
+  }
   const text = await response.text();
   let body: {
     activities?: ActivitySummary[];
