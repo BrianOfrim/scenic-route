@@ -490,8 +490,6 @@ export function App() {
     }
     if (path.startsWith("/gallery")) {
       go("/");
-      // Workspace was display:none under gallery; nudge the map to reflow.
-      setViewNonce((value) => value + 1);
     }
     if (isMobile) {
       if (tab === "map" && activityReadyForPoster(selectedId)) {
@@ -585,6 +583,7 @@ export function App() {
               ways={posterOpen ? ways : null}
               schematicLayers={posterOpen ? schematicLayers : null}
               basemap={basemap}
+              visible={!showGallery && (!isMobile || mobilePane === "map")}
               viewNonce={viewNonce}
               labelingEnabled={posterOpen && !routeOnly}
               highlight={posterOpen ? mapHighlight : null}
@@ -644,7 +643,6 @@ export function App() {
               onBindGeoEdit={bindGeoEdit}
               onRouteOnlyChange={setRouteOnly}
               onGenerationStarted={() => {
-                closePoster();
                 go("/gallery");
               }}
               dismissPoi={dismissPoi}

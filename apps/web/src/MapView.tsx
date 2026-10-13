@@ -82,6 +82,8 @@ type Props = {
   ways?: PosterWays | null;
   schematicLayers?: SchematicLayers | null;
   basemap: Basemap;
+  /** Refresh the canvas when returning to the map without resetting its camera. */
+  visible?: boolean;
   viewNonce?: number;
   labelingEnabled?: boolean;
   highlight?: LandmarkHighlight | null;
@@ -126,6 +128,7 @@ export function MapView({
   ways,
   schematicLayers,
   basemap,
+  visible = true,
   viewNonce = 0,
   labelingEnabled = false,
   highlight = null,
@@ -715,6 +718,13 @@ export function MapView({
       if (mapRef.current === map) mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !visible) return;
+    resizeMap(map);
+    map.triggerRepaint();
+  }, [visible]);
 
   useEffect(() => {
     const map = mapRef.current;
