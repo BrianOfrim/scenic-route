@@ -55,6 +55,8 @@ async function commitPublication(id: string, client: SqlClient, token?: string) 
     const ids = records.map(r => r.poster_id);
     for (const r of records)
         await client.query("INSERT INTO poster_publications(user_id,poster_id,object_prefix,record,attempt_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id,poster_id) DO NOTHING", [a.user_id, r.poster_id, `_attempts/${id}/`, r.record, id]);
+    if (a.quota_id)
+        await client.query("UPDATE poster_generation_usage SET generated=$2 WHERE id=$1 AND generated IS NULL", [a.quota_id, records.length]);
     await client.query("UPDATE image_attempts SET terminal_at=now(),phase='published',manifest_ready=true,poster_ids=$2,capacity_until=now() WHERE id=$1", [id, JSON.stringify(ids)]);
     await client.query("UPDATE image_jobs SET state='completed',result_ids=$2,error=null,failure_reason=null,updated_at=now() WHERE id=$1", [a.job_id, JSON.stringify(ids)]);
     await client.query(`UPDATE image_submissions s SET terminal_at=now() WHERE user_id=$1 AND submission_id=$2 AND terminal_at IS NULL

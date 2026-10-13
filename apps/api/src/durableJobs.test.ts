@@ -11,7 +11,7 @@ import { imageAttemptContext } from "./jobContext";
 import { registerStagedRecord, publishAttempt, recoverPublication, backfillPosterIndex, cleanupImageStorage } from "./publication";
 import { createLocalStore, posterStore, rawPosterStore, resetPosterStore } from "./storage";
 import { ELIGIBILITY_VERSION } from "./participation";
-import { reservePosterQuota, getPosterQuota } from "./posterQuota";
+import { reservePosterQuota, getPosterQuota, withPosterQuota } from "./posterQuota";
 import { OpenRouterError } from "./openrouter";
 const users: string[] = [];
 const workers: string[] = [];
@@ -131,7 +131,7 @@ test("expired pre-dispatch jobs requeue, stale ownership is rejected, draining s
     assert.notEqual(next.attempt_id, j.attempt_id);
     await failAttempt(next, new Error("preparation failure"));
 });
-test("unknown paid outcomes retain quota, block early retry, survive API process restart", async () => {
+test("unknown paid outcomes release quota while blocking early retry", async () => {
     const u = await user();
     const j = await job(u);
     const ctx = attemptContext(j);
@@ -143,7 +143,9 @@ test("unknown paid outcomes retain quota, block early retry, survive API process
     const state = await queryOne<any>("SELECT * FROM image_jobs WHERE id=$1", [j.id]);
     assert.equal(state.state, "failed");
     assert.equal(state.failure_reason, "uncertain");
-    assert.equal((await getPosterQuota(u)).reserved, 1);
+    assert.equal((await getPosterQuota(u)).reserved, 0);
+    assert.equal((await getPosterQuota(u)).used, 0);
+    assert.equal((await getPosterQuota(u)).remaining, 40);
     await assert.rejects(retryGenerationJob(u, j.id), /still be running/);
     await query("UPDATE image_attempts SET capacity_until=now() WHERE id=$1", [j.attempt_id]);
     await query("UPDATE image_jobs SET retry_allowed_at=now() WHERE id=$1", [j.id]);
@@ -152,6 +154,25 @@ test("unknown paid outcomes retain quota, block early retry, survive API process
     assert.equal(next.id, j.id);
     assert.notEqual(next.attempt_id, j.attempt_id);
     await failAttempt(next, new Error("test end"));
+});
+test("durable provider failures release reservations for explicit errors and timeouts", async () => {
+    for (const explicit of [false, true]) {
+        const u = await user();
+        const j = await job(u);
+        const ctx = attemptContext(j);
+        const error = explicit ? new OpenRouterError("provider rejected", 502) : new Error("provider timeout");
+        if (error instanceof OpenRouterError) error.upstreamStatus = 400;
+        await assert.rejects(imageAttemptContext.run(ctx, () => withPosterQuota(u, 4, async () => {
+            await ctx.dispatch(1000);
+            throw error;
+        })), /provider/);
+        await failAttempt(j, error);
+        const quota = await getPosterQuota(u);
+        assert.equal(quota.used, 0);
+        assert.equal(quota.reserved, 0);
+        assert.equal(quota.remaining, 40);
+        await query("UPDATE image_attempts SET capacity_until=now() WHERE id=$1", [j.attempt_id]);
+    }
 });
 test("explicit 429 retries honor provider hints without reserving active capacity", async () => {
     const u = await user();
@@ -189,6 +210,8 @@ test("private uploads become visible only after complete atomic publication; rec
     const u = await user();
     const j = await job(u);
     const id = await stage(j);
+    assert.equal((await getPosterQuota(u)).used, 0);
+    assert.equal((await getPosterQuota(u)).reserved, 1);
     assert.equal(await posterStore().get(u, `${id}.png`), null);
     assert.deepEqual(await posterStore().listJsonNames(u), []);
     await expire(j.attempt_id);
@@ -208,6 +231,9 @@ test("partial uploads never publish, stale late uploads stay private and are swe
     await expire(j.attempt_id);
     await recoverJobs();
     assert.equal((await queryOne<any>("SELECT failure_reason FROM image_jobs WHERE id=$1", [j.id]))!.failure_reason, "incomplete");
+    assert.equal((await getPosterQuota(u)).used, 0);
+    assert.equal((await getPosterQuota(u)).reserved, 0);
+    assert.equal((await getPosterQuota(u)).remaining, 40);
     await rawPosterStore().put(u, `_attempts/${j.attempt_id}/${id}.ref-1.png`, Buffer.from("late"), "image/png");
     assert.equal(await posterStore().get(u, `${id}.png`), null);
     await query("UPDATE image_storage_attempts SET created_at=now()-interval '25 hours' WHERE attempt_id=$1", [j.attempt_id]);

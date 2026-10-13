@@ -318,7 +318,7 @@ async function generateScheduledPoster(userId: string, body: GeneratePosterBody,
     : hosted.slice(0, maxRefs).map(ref => ({ bytes: ref.bytes!, mime: ref.mime }));
   const prompt = resolveImagePrompt(spec, body.prompt);
   const startedAt = Date.now();
-  const result = await withPosterQuota(userId, count, () => createImage({
+  return withPosterQuota(userId, count, () => createImage({
     prompt,
     aspectRatio,
     references,
@@ -326,69 +326,70 @@ async function generateScheduledPoster(userId: string, body: GeneratePosterBody,
     n: count,
     label: body.label ?? "generate",
     user: userId,
-  }));
-  const durationMs = Date.now() - startedAt;
-  const share = result.images.length;
-  const images = result.images.map((image) => ({
-    ...image,
-    cost: result.cost == null || !share ? null : result.cost / share,
-    durationMs,
-  }));
-  if (!images.length) throw new PosterError("OpenRouter did not return image bytes", 502);
+  }), async (result) => {
+    const durationMs = Date.now() - startedAt;
+    const share = result.images.length;
+    const images = result.images.map((image) => ({
+      ...image,
+      cost: result.cost == null || !share ? null : result.cost / share,
+      durationMs,
+    }));
+    if (!images.length) throw new PosterError("OpenRouter did not return image bytes", 502);
 
-  const store = posterStore();
-  return Promise.all(
-    images.map(async (image, index) => {
-      const posterId = newPosterId();
-      const record: PosterRecord = {
-        posterId,
-        userId,
-        activityId,
-        title: spec.text.title,
-        subtitle: spec.text.subtitle,
-        spec,
-        prompt,
-        basePrompt: body.basePrompt ?? prompt,
-        editRequests: body.editRequests ?? [],
-        model,
-        modelName,
-        batchId,
-        aspectRatio,
-        cost: image.cost,
-        promptCost: finiteCost(body.promptCost),
-        promptModel: body.promptModel?.trim() || undefined,
-        durationMs: image.durationMs,
-        createdAt: new Date().toISOString(),
-        previousPosterId: body.previousPosterId,
-        refineNotes: body.refineNotes?.trim() || undefined,
-        annotationUrl: annotationBytes ? `/api/posters/${posterId}/annotation.png` : undefined,
-        featureIds: body.featureIds ?? [],
-        labels: body.labels ?? [],
-        stats: body.stats ?? spec.text.stats,
-        styleId: body.styleId ?? "",
-        styleName: spec.style.name || undefined,
-        stylePrompt: body.stylePrompt ?? spec.style.medium,
-        paletteId: body.paletteId?.trim() || undefined,
-        referenceCount: decoded.length,
-        variant: index + 1,
-        url: `/api/posters/${posterId}/image.png`,
-        thumbUrl: `/api/posters/${posterId}/thumb.webp`,
-        editor: sanitizePosterEditor(body.editor),
-      };
-      await registerStagedRecord(record);
-      const posterBytes = Buffer.from(image.b64, "base64");
-      await store.put(userId, `${posterId}.png`, posterBytes, sniffImageMime(posterBytes) || image.mediaType || "image/png");
-      if (annotationBytes) await store.put(userId, `${posterId}.annotation.png`, annotationBytes, "image/png");
-      await Promise.all(
-        decoded.map((ref, refIndex) =>
-          store.put(userId, `${posterId}.ref-${refIndex + 1}.png`, ref.bytes, sniffImageMime(ref.bytes) || ref.mime),
-        ),
-      );
-      const thumb = await persistPosterThumb(userId, posterId, posterBytes);
-      await store.put(userId, `${posterId}.json`, Buffer.from(JSON.stringify(record, null, 2)), "application/json");
-      return thumb ? { ...record, thumbDataUrl: imageDataUrl(thumb, "image/webp") } : record;
-    }),
-  );
+    const store = posterStore();
+    return Promise.all(
+      images.map(async (image, index) => {
+        const posterId = newPosterId();
+        const record: PosterRecord = {
+          posterId,
+          userId,
+          activityId,
+          title: spec.text.title,
+          subtitle: spec.text.subtitle,
+          spec,
+          prompt,
+          basePrompt: body.basePrompt ?? prompt,
+          editRequests: body.editRequests ?? [],
+          model,
+          modelName,
+          batchId,
+          aspectRatio,
+          cost: image.cost,
+          promptCost: finiteCost(body.promptCost),
+          promptModel: body.promptModel?.trim() || undefined,
+          durationMs: image.durationMs,
+          createdAt: new Date().toISOString(),
+          previousPosterId: body.previousPosterId,
+          refineNotes: body.refineNotes?.trim() || undefined,
+          annotationUrl: annotationBytes ? `/api/posters/${posterId}/annotation.png` : undefined,
+          featureIds: body.featureIds ?? [],
+          labels: body.labels ?? [],
+          stats: body.stats ?? spec.text.stats,
+          styleId: body.styleId ?? "",
+          styleName: spec.style.name || undefined,
+          stylePrompt: body.stylePrompt ?? spec.style.medium,
+          paletteId: body.paletteId?.trim() || undefined,
+          referenceCount: decoded.length,
+          variant: index + 1,
+          url: `/api/posters/${posterId}/image.png`,
+          thumbUrl: `/api/posters/${posterId}/thumb.webp`,
+          editor: sanitizePosterEditor(body.editor),
+        };
+        await registerStagedRecord(record);
+        const posterBytes = Buffer.from(image.b64, "base64");
+        await store.put(userId, `${posterId}.png`, posterBytes, sniffImageMime(posterBytes) || image.mediaType || "image/png");
+        if (annotationBytes) await store.put(userId, `${posterId}.annotation.png`, annotationBytes, "image/png");
+        await Promise.all(
+          decoded.map((ref, refIndex) =>
+            store.put(userId, `${posterId}.ref-${refIndex + 1}.png`, ref.bytes, sniffImageMime(ref.bytes) || ref.mime),
+          ),
+        );
+        const thumb = await persistPosterThumb(userId, posterId, posterBytes);
+        await store.put(userId, `${posterId}.json`, Buffer.from(JSON.stringify(record, null, 2)), "application/json");
+        return thumb ? { ...record, thumbDataUrl: imageDataUrl(thumb, "image/webp") } : record;
+      }),
+    );
+  });
 }
 
 export async function modifyPoster(userId: string, body: ModifyPosterBody): Promise<PosterRecord[]> {

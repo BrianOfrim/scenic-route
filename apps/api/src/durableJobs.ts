@@ -214,11 +214,9 @@ export function attemptContext(j: ClaimedJob): ImageAttemptContext {
         },
         received: async (count) => {
             await withTransaction(async (client) => {
-                const a = await checkAttempt(j.attempt_id, client, true, j.execution_token);
+                await checkAttempt(j.attempt_id, client, true, j.execution_token);
                 const received = await client.query("UPDATE image_attempts SET phase='received',output_count=$2,output_stamp=COALESCE(output_stamp,to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYYMMDD\"T\"HH24MISS\"Z\"')) WHERE id=$1 RETURNING output_stamp", [j.attempt_id, count]);
                 outputStamp = received.rows[0].output_stamp;
-                if (a.quota_id)
-                    await client.query("UPDATE poster_generation_usage SET generated=$2 WHERE id=$1 AND generated IS NULL", [a.quota_id, count]);
             });
         }
     };
@@ -238,9 +236,9 @@ export async function failAttempt(j: ClaimedJob, error: unknown) {
         const retry = explicit && j.retry_count < 2 && !["insufficient_credit", "in_flight_budget"].includes(error.providerCode || "") && [429, 502, 503, 504].includes(error.upstreamStatus!);
         const delay = retry ? Math.max(error.retryAfterMs || 0, (j.retry_count ? 15000 : 5000) + Math.random() * 2000) : 0;
         const reason = uncertain ? "uncertain" : a.output_count !== null ? "incomplete" : "failed";
-        const message = uncertain ? "The paid request may have completed. Check your gallery before retrying; regeneration may incur another charge and the earlier image allowance remains reserved until expiry." : error instanceof Error ? error.message : "Generation failed";
+        const message = uncertain ? "The paid request may have completed. Check your gallery before retrying; regeneration may incur another charge." : error instanceof Error ? error.message : "Generation failed";
         await client.query("UPDATE image_attempts SET terminal_at=now(),phase=$2,capacity_until=CASE WHEN $3 THEN capacity_until ELSE now() END WHERE id=$1", [a.id, reason, uncertain]);
-        if (!uncertain && a.quota_id && a.output_count === null)
+        if (a.quota_id)
             await client.query("UPDATE poster_generation_usage SET generated=0 WHERE id=$1 AND generated IS NULL", [a.quota_id]);
         await client.query(`UPDATE image_jobs SET state=$2,error=$3,failure_reason=$4,retry_count=retry_count+$5,
       retry_at=now()+$6*interval '1 millisecond',retry_allowed_at=CASE WHEN $7 THEN $8::timestamptz ELSE null END,updated_at=now() WHERE id=$1`, [j.id, retry ? "queued" : "failed", retry ? null : message, retry ? null : reason, retry ? 1 : 0, delay, uncertain, a.capacity_until]);

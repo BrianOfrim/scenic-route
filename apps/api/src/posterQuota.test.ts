@@ -66,6 +66,23 @@ test("failed requests and absent outputs refund capacity; partial results count 
   assert.equal(quota.remaining, 38);
 });
 
+test("saving failures release capacity and successful saves count actual outputs", async () => {
+  const id = await user();
+  await assert.rejects(withPosterQuota(id, 4, async () => ({ images: ["one", "two"] }), async () => {
+    const pending = await getPosterQuota(id);
+    assert.equal(pending.used, 0);
+    assert.equal(pending.reserved, 4);
+    throw new Error("storage failure");
+  }), /storage failure/);
+  assert.equal((await getPosterQuota(id)).used, 0);
+  assert.equal((await getPosterQuota(id)).reserved, 0);
+  assert.equal((await getPosterQuota(id)).remaining, 40);
+  const saved = await withPosterQuota(id, 4, async () => ({ images: ["one", "two"] }), async result => result.images);
+  assert.deepEqual(saved, ["one", "two"]);
+  assert.equal((await getPosterQuota(id)).used, 2);
+  assert.equal((await getPosterQuota(id)).reserved, 0);
+});
+
 test("unexpected extra provider outputs are capped at the reserved count", async () => {
   const id = await user();
   const result = await withPosterQuota(id, 1, async () => ({ images: ["one", "two"] }));
