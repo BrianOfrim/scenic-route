@@ -15,6 +15,7 @@ if (process.env.NODE_ENV === "production") {
     if (!r2Config())
         throw new Error("Production API and workers require shared R2 storage");
 }
+console.log(`image generation model: ${process.env.OPENROUTER_IMAGE_MODEL?.trim() || "(not configured)"}`);
 if (role === "worker") {
     const { initDb } = await import("./db");
     await initDb();
