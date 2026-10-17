@@ -126,7 +126,6 @@ import {
   paletteIdsForStyle,
   parsePlanSlotKey,
   planSlotKey,
-  planSlotLabel,
   resolveStyleColor,
   showsPalettePicker,
   styleById,
@@ -682,9 +681,6 @@ type PosterWorkflowStep =
   | "stats"
   | "output";
 
-/** Mobile sheet: one-tap launch vs full Customize editor. Desktop ignores this. */
-type MobileSurface = "launch" | "customize";
-
 const MAP_WORKFLOW_STEPS = new Set<PosterWorkflowStep>(["crop", "on-map"]);
 
 type Props = {
@@ -874,8 +870,8 @@ export function PosterPanel({
   const [, setModelRefs] = useState<ModelRef[]>([]);
   const [maxRefs, setMaxRefs] = useState(3);
   const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
-  const [workflowStep, setWorkflowStep] = useState<PosterWorkflowStep>("crop");
-  const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() => (refineFrom ? "customize" : "launch"));
+  const [workflowStep, setWorkflowStep] = useState<PosterWorkflowStep>("themes");
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const [specs, setSpecs] = useState<Partial<Record<string, PosterSpec>>>({});
   const [planCosts, setPlanCosts] = useState<Partial<Record<string, number | null>>>(() => seeded?.planCosts ?? {});
   const [generating, setGenerating] = useState(false);
@@ -931,8 +927,8 @@ export function PosterPanel({
         forgetDismissedForLayers(dismissedAutoNames.current.areas, next.namedAreas ?? [], newlyEnabled);
         if (activityChanged) {
           cropActivityId.current = activityId;
-          setMobileSurface(refineFrom ? "customize" : "launch");
-          setWorkflowStep("crop");
+          setMoreOptionsOpen(false);
+          setWorkflowStep("themes");
           if (refineFrom) onSheetSnapChange?.("half");
           setEditingTrail(null);
           setLandmarkQuery("");
@@ -1949,12 +1945,6 @@ export function PosterPanel({
     } finally { setGenerating(false); }
   }
 
-  function openCustomize() {
-    setMobileSurface("customize");
-    setWorkflowStep("crop");
-    onSheetSnapChange?.("half");
-  }
-
   async function handleLookup(event: FormEvent) {
     event.preventDefault();
     const query = landmarkQuery.trim();
@@ -2212,9 +2202,6 @@ export function PosterPanel({
     return sum + variantCount(variants, maxImages);
   }, 0);
   const editingCustom = styleIds.includes("custom");
-  const launchStyleId = styleIds[0] ?? DEFAULT_POSTER_STYLE.id;
-  const launchPaletteId = paletteIdsForStyle(styleById(launchStyleId), paletteIdsByStyle[launchStyleId])[0];
-  const launchThemeLabel = planSlotLabel(launchStyleId, launchPaletteId);
 
   function applyCrop(nextStart: number, nextEnd: number) {
     if (!context) return;
@@ -2226,7 +2213,6 @@ export function PosterPanel({
     setCropEnd(end);
   }
 
-  const launchMode = sheetMode && mobileSurface === "launch";
   const themeExamples = <ThemeExamples single={false} disabled={busy} selectedStyleIds={styleIds}
     paletteIdsByStyle={paletteIdsByStyle} onTogglePalette={(id, paletteId) => {
       if (!styleIds.includes(id)) applyExamplePalette(id, paletteId);
@@ -2289,19 +2275,14 @@ export function PosterPanel({
   const labelCount = selectedPois.length + selectedNamedWays.length + selectedNamedAreas.length;
   const showOnMapStep =
     sheetMode &&
-    !launchMode &&
     !routeOnly &&
     (selectedNamedAreas.length > 0 || selectedNamedWays.length > 0 || selectedPois.length > 0);
   const workflowSteps = useMemo(() => {
     const steps: { id: PosterWorkflowStep; label: string; beta?: boolean }[] = [
-      { id: "crop", label: "Crop" },
-      { id: "geography", label: "Geography" },
+      { id: "themes", label: "Themes" },
+      { id: "stats", label: "Stats" },
     ];
     if (showOnMapStep) steps.push({ id: "on-map", label: "On map" });
-    steps.push(
-      { id: "stats", label: "Stats" },
-      { id: "themes", label: "Themes" },
-    );
     if (!sheetMode) {
       steps.push({ id: "output", label: "Output" });
     }
@@ -2313,11 +2294,9 @@ export function PosterPanel({
       ? "Loading activity…"
       : generating
         ? "Submitting…"
-        : launchMode
-            ? `${generateCount > 1 ? `${generateCount} images` : launchThemeLabel} · full track`
-            : showEditor
-                ? `${formatKm(croppedKm)}${!routeOnly && labelCount ? ` · ${labelCount} label${labelCount === 1 ? "" : "s"}` : ""}`
-                : "";
+        : showEditor
+          ? `${formatKm(croppedKm)}${!routeOnly && labelCount ? ` · ${labelCount} label${labelCount === 1 ? "" : "s"}` : ""}`
+          : "";
 
   const sheetDrag = useRef<{ y: number; snap: PosterSheetSnap } | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
@@ -2331,16 +2310,18 @@ export function PosterPanel({
     const observer = new ResizeObserver(notify);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [sheetMode, sheetSnap, onSheetHeightChange, showEditor, loading, error, workflowStep, mobileSurface]);
+  }, [sheetMode, sheetSnap, onSheetHeightChange, showEditor, loading, error, workflowStep, moreOptionsOpen]);
 
   useEffect(() => {
-    if (!sheetMode || launchMode) return;
+    if (!sheetMode || workflowStep === "crop" || workflowStep === "geography") return;
     if (workflowSteps.some((step) => step.id === workflowStep)) return;
-    setWorkflowStep(workflowSteps[0]?.id ?? "crop");
-  }, [sheetMode, launchMode, workflowStep, workflowSteps]);
+    setWorkflowStep("themes");
+  }, [sheetMode, workflowStep, workflowSteps]);
 
   function selectWorkflowStep(id: PosterWorkflowStep) {
     setWorkflowStep(id);
+    setMoreOptionsOpen(id === "crop" || id === "geography");
+    panelRef.current?.querySelector(".poster-body")?.scrollTo(0, 0);
     if (!onSheetSnapChange) return;
     if (MAP_WORKFLOW_STEPS.has(id)) {
       if (sheetSnap !== "half") onSheetSnapChange("half");
@@ -2410,8 +2391,9 @@ export function PosterPanel({
               ) : null}
             </div>
           </div>
-          {showEditor && context && sheetSnap !== "peek" && !launchMode && (
-            <nav className="poster-workflow-nav" aria-label="Image creation steps">
+          {showEditor && context && sheetSnap !== "peek" && (
+            <>
+            <nav className="poster-workflow-nav" aria-label="Image editor">
               {workflowSteps.map((step) => (
                 <button
                   key={step.id}
@@ -2425,7 +2407,27 @@ export function PosterPanel({
                   {step.beta ? <span className="beta-mark">Beta</span> : null}
                 </button>
               ))}
+              <button
+                type="button"
+                className={`poster-more-toggle${workflowStep === "crop" || workflowStep === "geography" ? " on" : ""}`}
+                aria-expanded={moreOptionsOpen}
+                aria-controls="poster-more-options"
+                disabled={busy}
+                onClick={() => setMoreOptionsOpen((open) => !open)}
+              >
+                More <span aria-hidden="true">{moreOptionsOpen ? "−" : "+"}</span>
+              </button>
             </nav>
+            {moreOptionsOpen && (
+              <nav id="poster-more-options" className="poster-workflow-nav poster-secondary-nav" aria-label="Route and map options">
+                {([{ id: "crop", label: "Crop" }, { id: "geography", label: "Geography" }] as const).map((step) => (
+                  <button key={step.id} type="button" className={workflowStep === step.id ? "on" : undefined}
+                    aria-current={workflowStep === step.id ? "step" : undefined} disabled={busy}
+                    onClick={() => selectWorkflowStep(step.id)}>{step.label}</button>
+                ))}
+              </nav>
+            )}
+            </>
           )}
         </div>
       ) : (
@@ -2452,39 +2454,7 @@ export function PosterPanel({
           <p className="error">{error}</p>
         </div>
       )}
-      {showEditor && context && launchMode && sheetSnap !== "peek" && (
-        <div className="panel-block poster-launch sheet-from-half">
-          <fieldset className="poster-editor-fieldset" disabled={busy}>
-            <p className="muted poster-launch-summary">
-              {formatKm(croppedKm)} · annotations off
-            </p>
-            {themeExamples}
-            {themeSelection}
-          </fieldset>
-          <div className="poster-actions poster-launch-actions">
-            <button
-              className="button"
-              type="button"
-              disabled={busy || geographyIncomplete || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
-              onClick={() => void handleGenerate()}
-            >
-              {generating
-                  ? "Submitting…"
-                  : generateCount > 1 ? `Create ${generateCount} images` : "Create image"}
-            </button>
-            <button
-              className="text-btn"
-              type="button"
-              disabled={busy}
-              onClick={openCustomize}
-            >
-              Customize
-            </button>
-          </div>
-          {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
-        </div>
-      )}
-      {showEditor && context && !launchMode && (
+      {showEditor && context && (
         <>
         <fieldset className="poster-body poster-editor-fieldset" disabled={busy}>
           {refineFrom ? (
@@ -3191,25 +3161,11 @@ export function PosterPanel({
               />
             </label>
             {sheetMode && !styleIds.length ? <p className="muted">Select a theme to generate</p> : null}
-            {sheetMode && (
-              <div className="poster-actions poster-plan-row">
-                <button
-                  className="button"
-                  type="button"
-                  disabled={busy || geographyIncomplete || !geographyScene || !title.trim() || !styleIds.length || planSlots.length > selectionLimit}
-                  onClick={() => void handleGenerate()}
-                >
-                  {generating ? "Submitting…" : generateCount > 1 ? `Generate ${generateCount} images` : "Generate image"}
-                </button>
-                {planDisabledHint ? <p className="muted">{planDisabledHint}</p> : null}
-              </div>
-            )}
           </PosterSection>
 
         </fieldset>
-          {!sheetMode && (
-            <footer className="poster-footer" aria-label="Generate image">
-              {context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
+            <footer className="poster-footer sheet-from-half" aria-label="Generate image">
+              {!sheetMode && context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
               <div className="poster-actions poster-plan-row">
                 <button
                   className="button"
@@ -3219,7 +3175,9 @@ export function PosterPanel({
                 >
                   {generating
                     ? "Submitting…"
-                    : generateCount > 1
+                    : sheetMode
+                      ? generateCount > 1 ? `Create ${generateCount} images` : "Create image"
+                      : generateCount > 1
                         ? planSlots.length > 1
                           ? `Generate ${planSlots.length} images (${generateCount} variants)`
                           : `Generate ${generateCount} variants`
@@ -3229,7 +3187,6 @@ export function PosterPanel({
               </div>
 
             </footer>
-          )}
         </>
       )}
     </aside>
