@@ -181,21 +181,21 @@ test("viewerSiblings stays inside a favourites-only pool", () => {
   const favorites = posters.filter((poster) => poster.posterId === "a" || poster.posterId === "refine");
   assert.deepEqual(
     viewerSiblings(favorites[0], favorites).map((poster) => poster.posterId),
-    ["a", "refine"],
+    ["refine", "a"],
   );
   assert.deepEqual(
     viewerSiblings(favorites[1], favorites).map((poster) => poster.posterId),
-    ["a", "refine"],
+    ["refine", "a"],
   );
 });
 
-test("viewerSiblings keeps activity order regardless of which poster is active", () => {
+test("viewerSiblings keeps newest first regardless of which poster is active", () => {
   const posters = [
     item("b", { activityId: 7, batchId: "late", createdAt: "2026-09-08T12:01:00Z" }),
     item("a", { activityId: 7, batchId: "early", createdAt: "2026-09-08T12:00:00Z" }),
     item("c", { activityId: 7, batchId: "later", createdAt: "2026-09-08T12:02:00Z" }),
   ];
-  const order = ["a", "b", "c"];
+  const order = ["c", "b", "a"];
   assert.deepEqual(
     viewerSiblings(posters[0], posters).map((poster) => poster.posterId),
     order,
@@ -206,7 +206,7 @@ test("viewerSiblings keeps activity order regardless of which poster is active",
   );
 });
 
-test("viewerThumbStacks piles refinements with the newest version last", () => {
+test("viewerThumbStacks puts the newest lineage and newest version on the left", () => {
   const posters = [
     item("transit", { activityId: 7, createdAt: "2026-09-08T12:00:00Z" }),
     item("wpa", { activityId: 7, createdAt: "2026-09-08T12:01:00Z" }),
@@ -227,8 +227,31 @@ test("viewerThumbStacks piles refinements with the newest version last", () => {
   const siblings = viewerSiblings(posters[1], posters);
   assert.deepEqual(
     viewerThumbStacks(siblings, posters).map((stack) => stack.map((poster) => poster.posterId)),
-    [["transit"], ["wpa", "wpa-2", "wpa-3"], ["swiss"]],
+    [["wpa-3", "wpa-2", "wpa"], ["swiss"], ["transit"]],
   );
+  const sections = gallerySections(galleryRuns(posters));
+  assert.equal(sections[0].kind, "run");
+  if (sections[0].kind !== "run") throw new Error("expected activity row");
+  assert.deepEqual(
+    viewerThumbStacks(siblings, posters).map(stack => stack[0].posterId),
+    sections[0].run.posters.map(poster => poster.posterId),
+    "activity viewer and gallery overview show lineages in the same order",
+  );
+});
+
+test("viewer order matches the overview for tied timestamps and standalone refinements", () => {
+  const posters = [
+    item("b", { activityId: 7 }),
+    item("a", { activityId: 7 }),
+  ];
+  assert.deepEqual(viewerSiblings(posters[0], posters).map(poster => poster.posterId), ["a", "b"]);
+  const family = [
+    item("original", { createdAt: "2026-09-08T12:00:00Z" }),
+    item("refined", { createdAt: "2026-09-09T12:00:00Z", previousPosterId: "original", refineNotes: "More colour" }),
+  ];
+  for (const active of family) {
+    assert.deepEqual(viewerSiblings(active, family).map(poster => poster.posterId), ["refined", "original"]);
+  }
 });
 
 test("galleryRuns puts refinements in the same row as the original", () => {
