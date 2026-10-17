@@ -3740,42 +3740,17 @@ button.map-schematic-tip-name:focus-visible {
     margin: 0;
   }
 
-  .poster-launch {
-    display: flex;
-    flex-direction: column;
-    flex: 0 1 auto;
-    min-height: 0;
-    gap: 12px;
-    padding-top: 4px;
-    padding-bottom: 8px;
+  .poster-panel.is-sheet .poster-footer {
+    padding: 12px 16px;
   }
 
-  .poster-launch > .poster-editor-fieldset {
-    min-height: 0;
-    overflow-y: auto;
+  .poster-panel.is-sheet .poster-footer .poster-plan-row {
+    margin-top: 0;
   }
 
-  .poster-launch > .poster-launch-actions {
-    flex-shrink: 0;
-  }
-
-  .poster-launch-summary {
-    margin: 0;
-  }
-
-  .poster-launch-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .poster-launch-actions .button {
-    display: inline-flex;
-    flex: 1 1 auto;
+  .poster-panel.is-sheet .poster-footer .button {
+    width: 100%;
     min-height: 44px;
-    justify-content: center;
-    align-items: center;
   }
 
   .poster-panel.is-sheet[data-sheet="peek"] .sheet-from-half,
@@ -3811,6 +3786,20 @@ button.map-schematic-tip-name:focus-visible {
     font-size: var(--text-body);
     white-space: nowrap;
     cursor: pointer;
+  }
+
+  .poster-workflow-nav > button:not(.poster-more-toggle) {
+    flex: 1;
+  }
+
+  .poster-workflow-nav .poster-more-toggle {
+    border-color: transparent;
+    font-size: var(--text-caption);
+  }
+
+  .poster-secondary-nav {
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
   }
 
   .poster-workflow-nav button.on {
