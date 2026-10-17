@@ -99,7 +99,7 @@ export function GalleryViewer({
       <div className="lightbox-thumbs">
         <div className="lightbox-thumbs-posters">
           {stacks.map((stack) => {
-            const newest = stack[stack.length - 1];
+            const newest = stack[0];
             const selectedInStack = stack.find((image) => image.id === selected.id);
             const caption = selectedInStack ?? newest;
             if (!newest || !caption) return null;
@@ -114,7 +114,7 @@ export function GalleryViewer({
                 }}
               >
                 {stack.map((image, index) => {
-                  const buried = index < stack.length - 1;
+                  const buried = index > 0;
                   return (
                     <button
                       key={image.id}
@@ -126,7 +126,7 @@ export function GalleryViewer({
                       style={{
                         ["--thumb-left" as string]: `${index * STACK_PEEK_PX}px`,
                         ["--thumb-left-open" as string]: `${index * STACK_OPEN_PX}px`,
-                        zIndex: index + 1,
+                        zIndex: stack.length - index,
                       }}
                       onClick={() => onSelectPoster(image.id)}
                     >
@@ -138,8 +138,8 @@ export function GalleryViewer({
                 <span
                   className="lightbox-thumb-caption"
                   style={{
-                    ["--thumb-left" as string]: `${depth * STACK_PEEK_PX}px`,
-                    ["--thumb-left-open" as string]: `${depth * STACK_OPEN_PX}px`,
+                    ["--thumb-left" as string]: "0px",
+                    ["--thumb-left-open" as string]: "0px",
                   }}
                 >
                   {caption.label}

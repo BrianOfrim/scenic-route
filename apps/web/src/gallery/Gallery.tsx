@@ -376,18 +376,20 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
         return;
       }
       if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      if (activitySiblings.length < 2) return;
-      const index = activitySiblings.findIndex((item) => item.posterId === current.posterId);
+      const images = viewerStacks.flat();
+      if (images.length < 2) return;
+      const index = images.findIndex((item) => item.id === current.posterId);
       if (index < 0) return;
       const next =
         event.key === "ArrowRight"
-          ? activitySiblings[(index + 1) % activitySiblings.length]
-          : activitySiblings[(index - 1 + activitySiblings.length) % activitySiblings.length];
-      setActive(next);
+          ? images[(index + 1) % images.length]
+          : images[(index - 1 + images.length) % images.length];
+      const poster = activitySiblings.find((item) => item.posterId === next.id);
+      if (poster) setActive(poster);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, activitySiblings]);
+  }, [active, activitySiblings, viewerStacks]);
 
   function openPoster(poster: PosterRecord) {
     setActive(poster);

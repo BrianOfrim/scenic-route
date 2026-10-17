@@ -63,7 +63,7 @@ export function latestInLineage<T extends GalleryRunItem>(posters: T[]): T[] {
 
 /**
  * Lightbox thumbs: one pile per refine lineage, in the order each lineage
- * first appears. Each pile is oldest first so the newest version is last.
+ * first appears. Each pile is newest first, matching the gallery overview.
  */
 export function viewerThumbStacks<T extends LineageItem>(siblings: T[], posters: T[] = siblings): T[][] {
   const groups = new Map<string, T[]>();
@@ -79,7 +79,7 @@ export function viewerThumbStacks<T extends LineageItem>(siblings: T[], posters:
     }
     if (!group.some((member) => member.posterId === item.posterId)) group.push(item);
   }
-  return order.map((key) => [...(groups.get(key) ?? [])].sort(byCreatedThenId));
+  return order.map((key) => [...(groups.get(key) ?? [])].sort(byNewestThenId));
 }
 
 /** Original first, then descendants in generation order. */
@@ -109,7 +109,7 @@ export function lineageFamily<T extends LineageItem>(posters: T[], startId: stri
 
 /**
  * Posters shown together in the lightbox strip: same activity and/or refine lineage.
- * Order is stable across selection (activity creation order, then lineage-only extras).
+ * Newest first, with stable ordering regardless of which image is selected.
  */
 export function viewerSiblings<T extends GalleryRunItem & LineageItem>(active: T, posters: T[]): T[] {
   const family = lineageFamily(posters, active.posterId);
@@ -119,7 +119,7 @@ export function viewerSiblings<T extends GalleryRunItem & LineageItem>(active: T
       : [];
   const siblings = uniqueByPosterId([...activity, ...family]);
   if (!siblings.some((item) => item.posterId === active.posterId)) siblings.push(active);
-  return siblings;
+  return siblings.sort(byNewestThenId);
 }
 
 function uniqueByPosterId<T extends { posterId: string }>(items: T[]) {
@@ -217,6 +217,10 @@ function newestFirst(a: string, b: string) {
   return a < b ? 1 : -1;
 }
 
+function byNewestThenId(a: LineageItem, b: LineageItem) {
+  return newestFirst(a.createdAt, b.createdAt) || a.posterId.localeCompare(b.posterId);
+}
+
 function activityGroupKey<T extends GalleryRunItem>(poster: T) {
   return poster.activityId != null ? `activity:${poster.activityId}` : poster.posterId;
 }
@@ -283,9 +287,7 @@ export function gallerySections<T extends GalleryRunItem>(runs: GalleryRun<T>[])
   }
 
   for (const run of runs) {
-    const posters = latestInLineage(run.posters).sort(
-      (a, b) => newestFirst(a.createdAt, b.createdAt) || a.posterId.localeCompare(b.posterId),
-    );
+    const posters = latestInLineage(run.posters).sort(byNewestThenId);
     if (posters.length === 1 && run.activityId == null) {
       singles.push(posters[0]);
       continue;

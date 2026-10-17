@@ -3389,7 +3389,7 @@ button.map-schematic-tip-name:focus-visible {
 .lightbox-thumb-stack .lightbox-thumb-older-tab {
   position: absolute;
   top: 6px;
-  left: 4px;
+  right: 4px;
   z-index: 2;
   margin: 0;
   padding: 2px 5px;
