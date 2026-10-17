@@ -130,6 +130,7 @@ import {
   showsPalettePicker,
   styleById,
   stylePlanSlots,
+  togglePaletteSelection,
 } from "./styles";
 
 
@@ -2105,9 +2106,8 @@ export function PosterPanel({
   function togglePalette(styleId: string, paletteId: string) {
     const style = styleById(styleId);
     const current = paletteIdsForStyle(style, paletteIdsByStyle[styleId]);
-    const selected = current.includes(paletteId)
-        ? current.filter((item) => item !== paletteId)
-        : [...current, paletteId];
+    const selected = togglePaletteSelection(current, paletteId,
+      stylePlanSlots(styleIds, paletteIdsByStyle).length, selectionLimit);
     if (!selected.length) {
       toggleStyle(styleId);
       return;
@@ -2222,6 +2222,9 @@ export function PosterPanel({
     <>
       <p>{planSlots.length}/{Number.isFinite(selectionLimit) ? selectionLimit : "unlimited"} theme/palette selections</p>
       <p className="muted">One image will be generated for each theme/palette selection.</p>
+      {planSlots.length === selectionLimit && <p className="muted">
+        To switch palettes at the limit, choose another palette in a theme with one selected.
+      </p>}
       {(selectionError || planSlots.length > selectionLimit) &&
         <p className="error" role="alert">{selectionError || selectionLimitMessage}</p>}
       <div className="theme-selection-groups">

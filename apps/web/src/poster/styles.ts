@@ -405,3 +405,10 @@ export const THEME_SELECTION_LIMIT_MESSAGE = "Choose up to eight theme/palette c
 export function canChangeThemeSelections(currentCount: number, nextCount: number, limit = MAX_THEME_SELECTIONS) {
   return nextCount <= limit || nextCount < currentCount;
 }
+
+/** At capacity, a theme with one palette can switch without using another slot. */
+export function togglePaletteSelection(current: string[], paletteId: string, totalCount: number, limit = MAX_THEME_SELECTIONS): string[] {
+  if (current.includes(paletteId)) return current.filter((id) => id !== paletteId);
+  if (current.length === 1 && totalCount === limit) return [paletteId];
+  return [...current, paletteId];
+}

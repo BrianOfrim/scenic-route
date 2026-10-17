@@ -20,6 +20,7 @@ import {
   styleById,
   styleLabel,
   stylePlanSlots,
+  togglePaletteSelection,
 } from "./styles";
 
 const IDENTITY_HUES: Record<string, RegExp> = {
@@ -270,6 +271,33 @@ test("account selection limits can be raised or unlimited while retaining defaul
   assert.equal(canChangeThemeSelections(8, 9, 32), true);
   assert.equal(canChangeThemeSelections(32, 33, 32), false);
   assert.equal(canChangeThemeSelections(32, 33, Infinity), true);
+});
+
+test("the eighth selection can switch to any palette without losing the other seven", () => {
+  const styleIds = POSTER_STYLES.filter(style => style.id !== "swiss").slice(0, 7).map(style => style.id);
+  const previous = stylePlanSlots(styleIds);
+  styleIds.push("swiss");
+  let palettes = [defaultPaletteId(styleById("swiss"))];
+  for (const choice of paletteChoices(styleById("swiss")).slice(1)) {
+    palettes = togglePaletteSelection(palettes, choice.id, 8);
+    const slots = stylePlanSlots(styleIds, { swiss: palettes });
+    assert.equal(slots.length, 8);
+    assert.deepEqual(slots.slice(0, 7), previous);
+    assert.deepEqual(slots[7], { styleId: "swiss", paletteId: choice.id, key: planSlotKey("swiss", choice.id) });
+    assert.equal(canChangeThemeSelections(8, slots.length), true);
+  }
+  assert.deepEqual(togglePaletteSelection(palettes, palettes[0], 8), [], "the last palette can still be deselected");
+});
+
+test("palette switching preserves multiple selections and respects account capacity", () => {
+  assert.deepEqual(togglePaletteSelection(["red"], "black", 7), ["red", "black"]);
+  const full = togglePaletteSelection(["red", "black"], "process-blue", 8);
+  assert.deepEqual(full, ["red", "black", "process-blue"]);
+  assert.equal(canChangeThemeSelections(8, 8 - 2 + full.length), false, "a ninth selection is still rejected");
+  assert.deepEqual(togglePaletteSelection(["red", "black"], "red", 8), ["black"]);
+  assert.deepEqual(togglePaletteSelection(["red"], "black", 8, 32), ["red", "black"]);
+  assert.deepEqual(togglePaletteSelection(["red"], "black", 32, 32), ["black"]);
+  assert.deepEqual(togglePaletteSelection(["red"], "black", 8, Infinity), ["red", "black"]);
 });
 
 test("linen postcard lettering uses supplied words without prompting for a greeting", () => {
