@@ -373,7 +373,7 @@ test("restoreEditor keeps per-style palettes and multiple palettes on one style"
     styleIds: ["swiss", "risograph"],
     stylePrompt: "",
     paletteIdsByStyle: {
-      swiss: ["process-blue", "black"],
+      swiss: ["process-blue", "forest-green"],
       risograph: ["pink-teal"],
     },
     imageModelIds: [],
@@ -382,12 +382,12 @@ test("restoreEditor keeps per-style palettes and multiple palettes on one style"
     planCosts: {},
   });
   const restored = restoreEditor(record({ editor: snapshot }), 20, defaults);
-  assert.deepEqual(restored.paletteIdsByStyle.swiss, ["process-blue", "black"]);
+  assert.deepEqual(restored.paletteIdsByStyle.swiss, ["process-blue", "forest-green"]);
   assert.deepEqual(restored.paletteIdsByStyle.risograph, ["pink-teal"]);
   assert.equal(restored.paletteId, "process-blue");
 });
 
-test("restoreEditor still accepts a legacy single paletteId", () => {
+test("restoreEditor maps a retired legacy single paletteId to the theme default", () => {
   const snapshot = captureEditorSnapshot({
     featureIds: ["lakes"],
     labels: [],
@@ -414,7 +414,7 @@ test("restoreEditor still accepts a legacy single paletteId", () => {
     planCosts: {},
   });
   const restored = restoreEditor(record({ editor: snapshot }), 20, defaults);
-  assert.deepEqual(restored.paletteIdsByStyle, { swiss: ["signal-yellow"] });
+  assert.deepEqual(restored.paletteIdsByStyle, { swiss: ["red"] });
 });
 
 test("restoreEditor falls back to saved record fields when no snapshot exists", () => {

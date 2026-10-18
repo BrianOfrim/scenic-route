@@ -9,11 +9,11 @@ const sample = (styleId: string, paletteId: string): ThemeExample => ({
 });
 
 test("theme browsing orders the default first and filters redundant Auto and invalid samples", () => {
-  const samples = [sample("swiss", "black"), sample("blueprint", "auto"), sample("swiss", "auto"), sample("swiss", "invalid"), sample("swiss", "red")];
-  assert.deepEqual(examplesForTheme("swiss", samples).map((s) => s.paletteId), ["red", "black"]);
+  const samples = [sample("swiss", "forest-green"), sample("swiss", "black"), sample("blueprint", "auto"), sample("swiss", "auto"), sample("swiss", "invalid"), sample("swiss", "red")];
+  assert.deepEqual(examplesForTheme("swiss", samples).map((s) => s.paletteId), ["red", "forest-green"]);
   assert.deepEqual(examplesForTheme("custom", [sample("custom", "auto")]), []);
   assert.deepEqual(examplesForTheme("unknown", [sample("unknown", "auto")]), []);
-  assert.deepEqual(examplesForTheme("risograph", [sample("risograph", "auto"), sample("risograph", "purple-sunflower"), sample("risograph", "pink-teal")]).map((s) => s.paletteId), ["pink-teal", "purple-sunflower"]);
+  assert.deepEqual(examplesForTheme("risograph", [sample("risograph", "auto"), sample("risograph", "burgundy-sky"), sample("risograph", "pink-teal")]).map((s) => s.paletteId), ["pink-teal", "burgundy-sky"]);
   assert.deepEqual(examplesForTheme("art-deco", [sample("art-deco", "luxury-line"), sample("art-deco", "black-gold")]).map((s) => s.paletteId), ["black-gold", "luxury-line"]);
 });
 
