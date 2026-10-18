@@ -626,9 +626,9 @@ export function Gallery({ onEditSetup, account, tabs, openPosterId = null, onOpe
                     <strong>{image.title}</strong>
                     {image.styleId && <p className="muted">{styleLabel(image.styleId)}</p>}
                     <p role="alert">{image.error}</p>
+                    {image.retryAllowedAt && Date.parse(image.retryAllowedAt) > Date.now() && <p className="muted">Retry available after {new Date(image.retryAllowedAt).toLocaleTimeString()}.</p>}
                     <div className="poster-actions">
                       <button type="button" disabled={!!image.retryAllowedAt && Date.parse(image.retryAllowedAt) > Date.now()} onClick={() => { void image.retry(); }}>Regenerate</button>
-                      {image.retryAllowedAt && Date.parse(image.retryAllowedAt) > Date.now() && <p className="muted">Retry available after {new Date(image.retryAllowedAt).toLocaleTimeString()}.</p>}
                       <button type="button" onClick={() => clearFailedImage(image.id)}>Clear</button>
                     </div>
                   </div>
