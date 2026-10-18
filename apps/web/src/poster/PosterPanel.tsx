@@ -697,6 +697,7 @@ type Props = {
   onNamedWaysChange?: (trails: NamedWay[]) => void;
   onNamedAreasChange?: (areas: NamedArea[]) => void;
   onWaysChange?: (ways: PosterWays | null) => void;
+  onGeometryLoadingChange?: (loading: boolean) => void;
   onSchematicLayersChange?: (layers: ReturnType<typeof schematicLayersFromFeatureIds> | null) => void;
   onNeedSchematic?: () => void;
   onGeoMaskChange?: (mask: GeoMask | null) => void;
@@ -742,6 +743,7 @@ export function PosterPanel({
   onNamedWaysChange,
   onNamedAreasChange,
   onWaysChange,
+  onGeometryLoadingChange,
   onSchematicLayersChange,
   onNeedSchematic,
   onGeoOutlineChange,
@@ -1262,6 +1264,10 @@ export function PosterPanel({
   const geographyScene = geographyResult?.key === geographyFrameKey ? geographyResult.scene : null;
   const geographyAllowance = geographyScene ? automaticGeographyAllowance(geographyScene.profile, geographyScene.source) : null;
   const geographyPending = Boolean(geographyLayerLoading || (geographyFrameKey && !geographyScene && !geographyError));
+  useEffect(() => {
+    onGeometryLoadingChange?.(loading || geographyPending);
+    return () => onGeometryLoadingChange?.(false);
+  }, [loading, geographyPending, onGeometryLoadingChange]);
   useEffect(() => {
     if (!geographyFrameKey) return;
     setGeographyLayerErrors({});

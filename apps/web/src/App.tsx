@@ -109,6 +109,7 @@ export function App() {
   const [selectedLatLng, setSelectedLatLng] = useState<[number, number][] | null>(null);
   const [selectedRouteBreaks, setSelectedRouteBreaks] = useState<number[]>([]);
   const [trackLoading, setTrackLoading] = useState(false);
+  const [geometryLoading, setGeometryLoading] = useState(false);
   const [cropLatLng, setCropLatLng] = useState<[number, number][] | null>(null);
   const [cropRouteBreaks, setCropRouteBreaks] = useState<number[]>([]);
   const [cropStops, setCropStops] = useState<[number, number][]>([]);
@@ -574,6 +575,7 @@ export function App() {
               selectedLatLng={selectedLatLng}
               selectedRouteBreaks={selectedRouteBreaks}
               trackLoading={trackLoading}
+              geometryLoading={posterOpen && geometryLoading}
               cropLatLng={posterOpen ? cropLatLng : null}
               cropRouteBreaks={posterOpen ? cropRouteBreaks : []}
               cropStops={posterOpen ? cropStops : []}
@@ -636,6 +638,7 @@ export function App() {
               onNamedAreasChange={setNamedAreas}
               onHighlightChange={setMapHighlight}
               onWaysChange={setWays}
+              onGeometryLoadingChange={setGeometryLoading}
               onSchematicLayersChange={setSchematicLayers}
               onNeedSchematic={() => setBasemap("schematic")}
               onGeoOutlineChange={setGeoOverlay}

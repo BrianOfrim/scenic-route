@@ -1615,6 +1615,40 @@ textarea:disabled {
   margin: 0 auto 10px;
 }
 
+.map-geometry-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  pointer-events: none;
+  background: rgb(20 27 17 / 8%);
+  text-align: center;
+}
+
+.map-geometry-loading-copy {
+  max-width: 320px;
+  padding: 20px 24px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 12px;
+  background: rgb(20 27 17 / 65%);
+  color: #fff;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 12%);
+}
+
+.map-geometry-loading-copy strong {
+  display: block;
+  font-size: var(--text-heading);
+}
+
+.map-geometry-loading-copy p {
+  margin: 6px 0 0;
+  color: rgb(255 255 255 / 75%);
+  font-size: var(--text-body);
+  line-height: 1.4;
+}
+
 .map-schematic {
   position: absolute;
   inset: 0;

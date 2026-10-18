@@ -73,6 +73,7 @@ type Props = {
   selectedLatLng: [number, number][] | null;
   selectedRouteBreaks?: number[];
   trackLoading?: boolean;
+  geometryLoading?: boolean;
   cropLatLng?: [number, number][] | null;
   cropRouteBreaks?: number[];
   cropStops?: [number, number][];
@@ -119,6 +120,7 @@ export function MapView({
   selectedLatLng,
   selectedRouteBreaks = [],
   trackLoading = false,
+  geometryLoading = false,
   cropLatLng,
   cropRouteBreaks = [],
   cropStops,
@@ -1005,7 +1007,7 @@ export function MapView({
   }
 
   const showSchematicEmpty =
-    basemap === "schematic" && !trackLoading && (!selectedLatLng || selectedLatLng.length < 2);
+    basemap === "schematic" && !trackLoading && !geometryLoading && (!selectedLatLng || selectedLatLng.length < 2);
 
   return (
     <div className={`map-root${mode !== "browse" ? ` is-annotate-${mode}` : ""}${touchUi ? " is-touch" : ""}`}>
@@ -1038,6 +1040,20 @@ export function MapView({
           <div className="map-empty-copy">
             <span className="spinner map-loading-spinner" aria-hidden="true" />
             <strong>Loading route</strong>
+          </div>
+        </div>
+      )}
+      {!trackLoading && geometryLoading && (
+        <div
+          className="map-geometry-loading"
+          style={{ bottom: `min(${fitPaddingBottom}px, 70%)` }}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="map-geometry-loading-copy">
+            <span className="spinner map-loading-spinner" aria-hidden="true" />
+            <strong>Loading map geometry…</strong>
+            <p>Preparing the route and surrounding map details.</p>
           </div>
         </div>
       )}
