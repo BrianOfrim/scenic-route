@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { RequestQueue } from "./requestQueue";
+import { RequestQueue, providerQueue } from "./requestQueue";
+import { parseImageLimits } from "./imageLimits";
+
+test("default image admission allows 64 unfinished jobs and preserves account overrides", () => {
+  assert.equal(parseImageLimits().unfinished, 64);
+  assert.equal(parseImageLimits({ unfinished: 16 }).unfinished, 16);
+  assert.equal(parseImageLimits({ unfinished: null }).unfinished, null);
+  const queue = providerQueue("image");
+  const reservations = queue.reserveJobs("default-limit-test", 64);
+  try {
+    assert.throws(() => queue.reserveJobs("default-limit-test", 1), /64 unfinished/);
+  } finally {
+    reservations.forEach(reservation => queue.releaseJob(reservation));
+  }
+});
 
 test("FIFO queue limits active work and releases slots after rejection", async () => {
   const queue = new RequestQueue(1);

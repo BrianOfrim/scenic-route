@@ -147,7 +147,7 @@ export function providerQueue(kind: "chat" | "image") {
     queue = kind === "chat"
       ? new RequestQueue(Number(process.env.OPENROUTER_PLAN_CONCURRENCY || 4))
       : new RequestQueue(Number(process.env.OPENROUTER_IMAGE_CONCURRENCY || 128), Infinity, 240_000,
-        Number(process.env.OPENROUTER_IMAGE_USER_CONCURRENCY || 8), 16);
+        Number(process.env.OPENROUTER_IMAGE_USER_CONCURRENCY || 8), 64);
     queues.set(kind, queue);
   }
   return queue;

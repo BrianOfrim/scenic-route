@@ -57,7 +57,7 @@ async function job(u: string) { await admitJobs(u, randomUUID(), "hash", prepare
 async function expire(id: string) { await query("UPDATE image_attempts SET lease_until=now()-interval '1 second' WHERE id=$1", [id]); }
 test("atomic whole-batch admission and canonical durable deduplication", async () => {
     const u = await user();
-    const p = prepared(10);
+    const p = prepared(58);
     const sid = randomUUID();
     const fp = submissionFingerprint({ b: 2, a: { d: 4, c: 3 } });
     assert.equal(fp, submissionFingerprint({ a: { c: 3, d: 4 }, b: 2 }));
@@ -66,7 +66,7 @@ test("atomic whole-batch admission and canonical durable deduplication", async (
     await assert.rejects(admitJobs(u, sid, "different", p), /different input/);
     const competing = await Promise.allSettled([admitJobs(u, randomUUID(), "x", prepared(6)), admitJobs(u, randomUUID(), "y", prepared(6))]);
     assert.equal(competing.filter(r => r.status === "fulfilled").length, 1);
-    assert.equal((await queryOne<any>("SELECT count(*)::int n FROM image_jobs WHERE user_id=$1", [u]))!.n, 16);
+    assert.equal((await queryOne<any>("SELECT count(*)::int n FROM image_jobs WHERE user_id=$1", [u]))!.n, 64);
     // Keep subsequent scheduling tests isolated from these queued fixtures.
     await query("UPDATE image_jobs SET state='failed' WHERE user_id=$1", [u]);
 });
