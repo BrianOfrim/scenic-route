@@ -127,7 +127,7 @@ test("Swiss prompt locks the GPT-inspired type hierarchy without locking palette
   assert.doesNotMatch(swiss.prompt, /off-white paper|hairline grey|accent-color/i);
 });
 
-test("Bauhaus locks elementary forms and Bayer type without locking hues", () => {
+test("Bauhaus keeps elementary forms, Bayer type, and only the Primary palette", () => {
   const bauhaus = styleById("bauhaus");
   assert.match(bauhaus.prompt, /flat color fills preserving their supplied outlines/i);
   assert.match(bauhaus.prompt, /Herbert Bayer/i);
@@ -137,7 +137,11 @@ test("Bauhaus locks elementary forms and Bayer type without locking hues", () =>
   assert.equal(auto.openPalette, false);
   assert.deepEqual(auto.palette, ["red", "yellow", "blue", "black", "white"]);
   assert.doesNotMatch(auto.prompt, /\bred\b|\byellow\b|\bblue\b/i);
-  assert.deepEqual(resolveStyleColor(bauhaus, "exhibition").palette, ["yellow", "red", "black"]);
+  assert.deepEqual(paletteChoices(bauhaus).map(palette => palette.id), ["primary"]);
+  for (const retired of ["exhibition", "dessau", "red-circle"]) {
+    assert.deepEqual(resolveStyleColor(bauhaus, retired).palette, bauhaus.palette);
+    assert.deepEqual(paletteIdsForStyle(bauhaus, [retired]), ["primary"]);
+  }
 });
 
 test("Modernist locks mid-century silhouettes and mixed-case sans without locking hues", () => {
@@ -198,11 +202,23 @@ test("themes default to their signature palettes", () => {
   }
 });
 
+test("single-palette themes select directly while retaining their named generation palette", () => {
+  for (const [id, palette] of [["bauhaus", "primary"], ["art-nouveau", "mucha-spring"]]) {
+    const style = styleById(id);
+    assert.equal(showsPalettePicker(style), false);
+    assert.deepEqual(paletteIdsForStyle(style), [palette]);
+    assert.equal(normalizePaletteId(style, "auto"), palette);
+    assert.equal(resolveStyleColor(style).paletteId, palette);
+    assert.equal(planSlotLabel(id, palette), style.label);
+  }
+  assert.equal(showsPalettePicker(styleById("swiss")), true);
+});
+
 test("canonical palettes omit Auto while open palettes retain it", () => {
-  const costume = POSTER_STYLES.filter((item) => isCostumeStyle(item) && showsPalettePicker(item));
+  const costume = POSTER_STYLES.filter((item) => isCostumeStyle(item) && item.palettes?.length);
   assert.ok(costume.length >= 8);
   for (const style of costume) {
-    assert.ok((style.palettes?.length ?? 0) >= 3, style.id);
+    assert.ok((style.palettes?.length ?? 0) >= 1, style.id);
     assert.equal(paletteChoices(style).some((item) => item.id === AUTO_PALETTE_ID), style.colorMode === "open", style.id);
     assert.equal(defaultPaletteId(style), style.colorMode === "open" ? AUTO_PALETTE_ID : style.palettes![0].id, style.id);
     assert.deepEqual(paletteIdsForStyle(style, ["auto", defaultPaletteId(style)]), [defaultPaletteId(style)], style.id);
@@ -211,39 +227,39 @@ test("canonical palettes omit Auto while open palettes retain it", () => {
 
 test("paletteIdsForStyle defaults missing and unknown ids to the named default", () => {
   assert.deepEqual(paletteIdsForStyle(styleById("swiss")), ["red"]);
-  assert.deepEqual(paletteIdsForStyle(styleById("swiss"), ["process-blue", "nope", "black"]), [
+  assert.deepEqual(paletteIdsForStyle(styleById("swiss"), ["process-blue", "nope", "forest-green"]), [
     "process-blue",
     "red",
-    "black",
+    "forest-green",
   ]);
   assert.deepEqual(paletteIdsForStyle(styleById("blueprint"), ["red"]), [AUTO_PALETTE_ID]);
 });
 
 test("stylePlanSlots expands each selected palette per style", () => {
   const slots = stylePlanSlots(["swiss", "risograph", "blueprint"], {
-    swiss: ["auto", "black"],
+    swiss: ["auto", "forest-green"],
     risograph: ["pink-teal"],
   });
   assert.deepEqual(
     slots.map((slot) => slot.key),
-    ["swiss::red", "swiss::black", "risograph::pink-teal", "blueprint::auto"],
+    ["swiss::red", "swiss::forest-green", "risograph::pink-teal", "blueprint::auto"],
   );
-  assert.equal(planSlotLabel("swiss", "black"), "Minimal · Black");
+  assert.equal(planSlotLabel("swiss", "forest-green"), "Minimal · Forest green");
   assert.equal(planSlotLabel("swiss", "auto"), "Minimal · Red");
   assert.equal(planSlotLabel("blueprint", "auto"), "Blueprint");
   assert.deepEqual(parsePlanSlotKey("swiss::process-blue"), { styleId: "swiss", paletteId: "process-blue" });
   assert.deepEqual(parsePlanSlotKey("swiss"), { styleId: "swiss", paletteId: AUTO_PALETTE_ID });
-  assert.equal(planSlotKey("swiss", "black"), "swiss::black");
+  assert.equal(planSlotKey("swiss", "forest-green"), "swiss::forest-green");
 });
 
 test("specForSlot preserves legacy Auto plans for the named default", () => {
-  const specs = { swiss: "legacy", "swiss::black": "named" };
-  assert.equal(specForSlot(specs, "swiss", "black"), "named");
+  const specs = { swiss: "legacy", "swiss::forest-green": "named" };
+  assert.equal(specForSlot(specs, "swiss", "forest-green"), "named");
   assert.equal(specForSlot(specs, "swiss", AUTO_PALETTE_ID), "legacy");
   assert.equal(specForSlot({ "swiss::auto": "slot" }, "swiss", AUTO_PALETTE_ID), "slot");
   assert.equal(specForSlot({ "swiss::auto": "slot" }, "swiss", "red"), "slot");
   assert.equal(specForSlot({ "swiss::auto": "slot", "swiss::red": "named" }, "swiss", "red"), "named");
-  assert.equal(specForSlot({ "swiss::auto": "slot" }, "swiss", "black"), undefined);
+  assert.equal(specForSlot({ "swiss::auto": "slot" }, "swiss", "forest-green"), undefined);
 });
 
 
@@ -262,7 +278,7 @@ test("eight theme/palette selections allow replacements and restored setup remov
   assert.equal(canChangeThemeSelections(11, 10), true, "old setups can be reduced without losing all selections");
   assert.equal(canChangeThemeSelections(11, 12), false);
   assert.equal(stylePlanSlots(POSTER_STYLES.slice(0, 8).map(style => style.id)).length, 8);
-  const slots = stylePlanSlots(["swiss"], { "swiss": paletteChoices(styleById("swiss")).slice(0, 4).map(palette => palette.id) });
+  const slots = stylePlanSlots(["risograph"], { "risograph": paletteChoices(styleById("risograph")).slice(0, 4).map(palette => palette.id) });
   assert.equal(slots.length, 4, "four palettes of one theme count as four selections");
 });
 
@@ -290,14 +306,14 @@ test("the eighth selection can switch to any palette without losing the other se
 });
 
 test("palette switching preserves multiple selections and respects account capacity", () => {
-  assert.deepEqual(togglePaletteSelection(["red"], "black", 7), ["red", "black"]);
-  const full = togglePaletteSelection(["red", "black"], "process-blue", 8);
-  assert.deepEqual(full, ["red", "black", "process-blue"]);
+  assert.deepEqual(togglePaletteSelection(["red"], "forest-green", 7), ["red", "forest-green"]);
+  const full = togglePaletteSelection(["red", "forest-green"], "process-blue", 8);
+  assert.deepEqual(full, ["red", "forest-green", "process-blue"]);
   assert.equal(canChangeThemeSelections(8, 8 - 2 + full.length), false, "a ninth selection is still rejected");
-  assert.deepEqual(togglePaletteSelection(["red", "black"], "red", 8), ["black"]);
-  assert.deepEqual(togglePaletteSelection(["red"], "black", 8, 32), ["red", "black"]);
-  assert.deepEqual(togglePaletteSelection(["red"], "black", 32, 32), ["black"]);
-  assert.deepEqual(togglePaletteSelection(["red"], "black", 8, Infinity), ["red", "black"]);
+  assert.deepEqual(togglePaletteSelection(["red", "forest-green"], "red", 8), ["forest-green"]);
+  assert.deepEqual(togglePaletteSelection(["red"], "forest-green", 8, 32), ["red", "forest-green"]);
+  assert.deepEqual(togglePaletteSelection(["red"], "forest-green", 32, 32), ["forest-green"]);
+  assert.deepEqual(togglePaletteSelection(["red"], "forest-green", 8, Infinity), ["red", "forest-green"]);
 });
 
 test("linen postcard lettering uses supplied words without prompting for a greeting", () => {

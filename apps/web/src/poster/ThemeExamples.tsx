@@ -90,9 +90,9 @@ export function ThemeExamples({ single, disabled, selectedStyleIds, paletteIdsBy
                 <img className="theme-example-large" src={detail.image} alt={`Beltline Trail in ${style.label}, ${paletteChoiceLabel(style, detail.paletteId)} palette`} />
                 <div className="theme-example-options">
                   <h3 ref={detailHeading} tabIndex={-1}>{style.label}</h3>
-                  <p className="muted">{paletteChoiceLabel(style, detail.paletteId)}{detail.paletteId === AUTO_PALETTE_ID && showsPalettePicker(style)
+                  {showsPalettePicker(style) && <p className="muted">{paletteChoiceLabel(style, detail.paletteId)}{detail.paletteId === AUTO_PALETTE_ID
                     ? " · One example of automatic colours"
-                    : ""}</p>
+                    : ""}</p>}
                   {single ? <button type="button" className="button" disabled={disabled} onClick={() => select(style.id)}>Use this theme</button> :
                     <label className="theme-example-selection"><input type="checkbox" checked={selectedStyleIds.includes(style.id)} disabled={disabled} onChange={() => onToggleTheme(style.id)} />Select {style.label}</label>}
                   {showsPalettePicker(style) && <>

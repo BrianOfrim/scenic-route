@@ -46,12 +46,8 @@ export const POSTER_STYLES: PosterStyle[] = [
     colorMode: "canonical",
     palettes: [
       { id: "red", label: "Red", colors: ["off-white", "grey", "red"] },
-      { id: "black", label: "Black", colors: ["off-white", "grey", "black"] },
       { id: "process-blue", label: "Process blue", colors: ["off-white", "grey", "process-blue"] },
-      { id: "signal-yellow", label: "Signal yellow", colors: ["off-white", "grey", "signal-yellow"] },
       { id: "forest-green", label: "Forest green", colors: ["off-white", "grey", "forest-green"] },
-      { id: "burnt-orange", label: "Burnt orange", colors: ["off-white", "grey", "burnt-orange"] },
-      { id: "plum", label: "Plum", colors: ["off-white", "grey", "plum"] },
     ],
   },
   {
@@ -65,10 +61,7 @@ export const POSTER_STYLES: PosterStyle[] = [
     palettes: [
       { id: "studio", label: "Studio", colors: ["mustard", "charcoal", "cream", "terracotta"] },
       { id: "pool", label: "Pool", colors: ["turquoise", "sand", "charcoal"] },
-      { id: "gallery", label: "Gallery", colors: ["black", "off-white", "orange"] },
-      { id: "olive", label: "Olive", colors: ["olive", "cream", "rust"] },
       { id: "cobalt", label: "Cobalt", colors: ["cobalt", "cream", "vermilion"] },
-      { id: "rose", label: "Rose", colors: ["dusty-pink", "burgundy", "cream"] },
     ],
   },
   {
@@ -83,9 +76,6 @@ export const POSTER_STYLES: PosterStyle[] = [
       { id: "pink-teal", label: "Fluorescent pink + teal", colors: ["fluorescent-pink", "teal"] },
       { id: "blue-sunflower", label: "Federal blue + sunflower", colors: ["federal-blue", "sunflower"] },
       { id: "black-red", label: "Black + bright red", colors: ["black", "bright-red"] },
-      { id: "orange-teal", label: "Fluorescent orange + teal", colors: ["fluorescent-orange", "teal"] },
-      { id: "kelly-cornflower", label: "Kelly + cornflower", colors: ["kelly", "cornflower"] },
-      { id: "purple-sunflower", label: "Purple + sunflower", colors: ["purple", "sunflower"] },
       { id: "burgundy-sky", label: "Burgundy + sky blue", colors: ["burgundy", "sky-blue"] },
     ],
   },
@@ -111,8 +101,6 @@ export const POSTER_STYLES: PosterStyle[] = [
       { id: "desert", label: "Desert", colors: ["terracotta", "turquoise", "sand"] },
       { id: "alpine", label: "Alpine", colors: ["navy", "cream", "scarlet"] },
       { id: "coast", label: "Coast", colors: ["sea-blue", "cream", "coral"] },
-      { id: "autumn", label: "Autumn", colors: ["ochre", "rust", "deep-green"] },
-      { id: "dusk", label: "Dusk", colors: ["indigo", "muted-peach", "cream"] },
     ],
   },
   {
@@ -137,9 +125,6 @@ export const POSTER_STYLES: PosterStyle[] = [
       { id: "black-gold", label: "Black and gold", colors: ["black", "gold", "ivory"] },
       { id: "luxury-line", label: "Luxury line", colors: ["gold", "teal", "cream"] },
       { id: "ocean-liner", label: "Ocean liner", colors: ["silver", "navy", "cream"] },
-      { id: "jazz-club", label: "Jazz club", colors: ["coral", "black", "cream"] },
-      { id: "emerald", label: "Emerald", colors: ["emerald", "gold", "ivory"] },
-      { id: "burgundy", label: "Burgundy", colors: ["burgundy", "champagne", "charcoal"] },
     ],
   },
   {
@@ -152,8 +137,6 @@ export const POSTER_STYLES: PosterStyle[] = [
     colorMode: "canonical",
     palettes: [
       { id: "chrome", label: "Chrome", colors: ["linen-cream", "chrome-teal", "bumper-red"] },
-      { id: "sunset", label: "Sunset", colors: ["linen-cream", "aqua", "postcard-orange"] },
-      { id: "desert", label: "Desert", colors: ["peach", "turquoise", "sand"] },
       { id: "civic", label: "Civic", colors: ["linen-cream", "navy", "barn-red"] },
     ],
   },
@@ -167,9 +150,6 @@ export const POSTER_STYLES: PosterStyle[] = [
     colorMode: "canonical",
     palettes: [
       { id: "mucha-spring", label: "Mucha spring", colors: ["cream", "gold-green", "muted-rose"] },
-      { id: "twilight", label: "Twilight", colors: ["ivory", "violet", "gold"] },
-      { id: "autumn", label: "Autumn", colors: ["cream", "olive", "russet"] },
-      { id: "peacock", label: "Peacock", colors: ["cream", "teal", "gold"] },
     ],
   },
   {
@@ -182,9 +162,6 @@ export const POSTER_STYLES: PosterStyle[] = [
     colorMode: "canonical",
     palettes: [
       { id: "primary", label: "Primary", colors: ["red", "yellow", "blue", "black", "white"] },
-      { id: "exhibition", label: "Exhibition", colors: ["yellow", "red", "black"] },
-      { id: "red-circle", label: "Red circle", colors: ["red", "black", "off-white"] },
-      { id: "dessau", label: "Dessau", colors: ["blue", "black", "off-white"] },
     ],
   },
   {
@@ -276,7 +253,7 @@ export function stylePalettes(style: PosterStyle): StylePalette[] {
 }
 
 export function showsPalettePicker(style: PosterStyle): boolean {
-  return isCostumeStyle(style) && stylePalettes(style).length > 0;
+  return isCostumeStyle(style) && paletteChoices(style).length > 1;
 }
 
 /** Auto is a choice only when the renderer actually chooses colors. */
@@ -292,14 +269,14 @@ export function defaultPaletteId(style: PosterStyle): string {
 }
 
 export function normalizePaletteId(style: PosterStyle, paletteId?: string | null): string {
-  if (!showsPalettePicker(style)) return AUTO_PALETTE_ID;
+  if (!isCostumeStyle(style) || !stylePalettes(style).length) return AUTO_PALETTE_ID;
   const defaultId = defaultPaletteId(style);
   if (!paletteId || paletteId === AUTO_PALETTE_ID) return defaultId;
   return stylePalettes(style).some((item) => item.id === paletteId) ? paletteId : defaultId;
 }
 
 export function paletteIdsForStyle(style: PosterStyle, selected?: string[] | null): string[] {
-  if (!showsPalettePicker(style)) return [AUTO_PALETTE_ID];
+  if (!isCostumeStyle(style) || !stylePalettes(style).length) return [AUTO_PALETTE_ID];
   const ids = [...new Set((selected ?? []).map((id) => normalizePaletteId(style, id)))];
   return ids.length ? ids : [defaultPaletteId(style)];
 }
