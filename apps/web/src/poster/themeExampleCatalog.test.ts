@@ -31,7 +31,7 @@ test("the installed collection covers every available theme and palette with val
     assert.deepEqual(example.accent.map(Number.isInteger), [true, true, true]);
     assert.ok(example.accent.every((channel) => channel >= 0 && channel <= 255));
     for (const url of [example.image, example.thumbnail]) {
-      assert.match(url, /^\/theme-examples\/beltline\/[a-z0-9-]+\.webp$/);
+      assert.match(url, /^\/theme-examples\/martin-goodman\/[a-z0-9-]+\.webp$/);
       const bytes = fs.readFileSync(new URL(`../../public${url}`, import.meta.url));
       assert.equal(bytes.toString("ascii", 0, 4), "RIFF");
       assert.equal(bytes.toString("ascii", 8, 12), "WEBP");

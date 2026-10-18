@@ -6,6 +6,7 @@ import {
 } from "./poster/styles";
 import {
   EXPLORER_POSTER_MAX_CSS_PX,
+  THEME_EXAMPLE_ROUTE,
   examplesForTheme,
   type ThemeExample,
 } from "./poster/themeExampleCatalog";
@@ -67,7 +68,7 @@ function ExplorerPoster({ entry }: { entry: Entry }) {
     <div className="landing-explorer-poster">
       <img
         src={visible.example.image}
-        alt={`Beltline Trail map in the ${label} style`}
+        alt={`${THEME_EXAMPLE_ROUTE} map in the ${label} style`}
         width={933}
         height={1400}
       />

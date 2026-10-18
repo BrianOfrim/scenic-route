@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AUTO_PALETTE_ID, THEME_GROUPS, paletteIdsForStyle, paletteChoiceLabel, showsPalettePicker, styleById } from "./styles";
-import { THEME_EXAMPLES, examplesForTheme, type ThemeExample } from "./themeExampleCatalog";
+import { THEME_EXAMPLE_ROUTE, THEME_EXAMPLES, examplesForTheme, type ThemeExample } from "./themeExampleCatalog";
 
 type Props = {
   single: boolean;
@@ -74,7 +74,7 @@ export function ThemeExamples({ single, disabled, selectedStyleIds, paletteIdsBy
         onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
         <div className="theme-examples-shell">
           <header className="theme-examples-header">
-            <div><h2 id="theme-examples-title">Theme examples</h2><p id="theme-examples-description" className="muted">Beltline Trail · Same route, different looks. Your result will vary.</p></div>
+            <div><h2 id="theme-examples-title">Theme examples</h2><p id="theme-examples-description" className="muted">{THEME_EXAMPLE_ROUTE} · Same route, different looks. Your result will vary.</p></div>
             <div className="theme-examples-header-actions">
               {detail && <button type="button" className="chip" onClick={() => {
                 const id = detail.styleId;
@@ -87,7 +87,7 @@ export function ThemeExamples({ single, disabled, selectedStyleIds, paletteIdsBy
           <div ref={content} className="theme-examples-content">
             {detail && style ? <>
               <div className="theme-example-detail">
-                <img className="theme-example-large" src={detail.image} alt={`Beltline Trail in ${style.label}, ${paletteChoiceLabel(style, detail.paletteId)} palette`} />
+                <img className="theme-example-large" src={detail.image} alt={`${THEME_EXAMPLE_ROUTE} in ${style.label}, ${paletteChoiceLabel(style, detail.paletteId)} palette`} />
                 <div className="theme-example-options">
                   <h3 ref={detailHeading} tabIndex={-1}>{style.label}</h3>
                   {showsPalettePicker(style) && <p className="muted">{paletteChoiceLabel(style, detail.paletteId)}{detail.paletteId === AUTO_PALETTE_ID
@@ -104,7 +104,7 @@ export function ThemeExamples({ single, disabled, selectedStyleIds, paletteIdsBy
                         return <div key={example.paletteId} className={`theme-example-palette${selected ? " is-selected" : ""}${example.paletteId === detail.paletteId ? " is-active" : ""}`}>
                           <button type="button" className="theme-example-palette-preview" aria-label={`Preview ${paletteChoiceLabel(style, example.paletteId)} palette`}
                             aria-pressed={example.paletteId === detail.paletteId} onClick={() => setDetail(example)}>
-                            <img src={example.thumbnail} loading="lazy" alt="" width={300} height={400} />
+                            <img src={example.thumbnail} loading="lazy" alt="" width={267} height={400} />
                             {single && <span>{paletteChoiceLabel(style, example.paletteId)}</span>}
                           </button>
                           {!single && <label className="theme-example-selection">
@@ -129,7 +129,7 @@ export function ThemeExamples({ single, disabled, selectedStyleIds, paletteIdsBy
                     const sample = examplesForTheme(theme.id, examples)[0];
                     return <article key={theme.id} className={`theme-example-card${selectedStyleIds.includes(theme.id) ? " is-selected" : ""}`}>
                       <button type="button" className="theme-example-preview" data-theme-preview={theme.id} aria-label={`View ${theme.label} example${showsPalettePicker(theme) ? " and palettes" : ""}`} onClick={() => setDetail(sample)}>
-                        <img src={sample.thumbnail} alt={`Beltline Trail in ${theme.label}`} width={300} height={400} loading="lazy" />
+                        <img src={sample.thumbnail} alt={`${THEME_EXAMPLE_ROUTE} in ${theme.label}`} width={267} height={400} loading="lazy" />
                         <span>View example</span>
                       </button>
                       <div className="theme-example-card-footer"><h4>{theme.label}</h4>

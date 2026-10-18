@@ -2,573 +2,320 @@
   {
     "styleId": "art-deco",
     "paletteId": "black-gold",
-    "image": "/theme-examples/beltline/art-deco-black-gold.webp",
-    "thumbnail": "/theme-examples/beltline/art-deco-black-gold-thumb.webp",
+    "image": "/theme-examples/martin-goodman/art-deco-black-gold.webp",
+    "thumbnail": "/theme-examples/martin-goodman/art-deco-black-gold-thumb.webp",
     "accent": [
-      199,
-      151,
-      30
-    ]
-  },
-  {
-    "styleId": "art-deco",
-    "paletteId": "burgundy",
-    "image": "/theme-examples/beltline/art-deco-burgundy.webp",
-    "thumbnail": "/theme-examples/beltline/art-deco-burgundy-thumb.webp",
-    "accent": [
-      196,
-      146,
-      97
-    ]
-  },
-  {
-    "styleId": "art-deco",
-    "paletteId": "emerald",
-    "image": "/theme-examples/beltline/art-deco-emerald.webp",
-    "thumbnail": "/theme-examples/beltline/art-deco-emerald-thumb.webp",
-    "accent": [
-      0,
-      105,
-      69
-    ]
-  },
-  {
-    "styleId": "art-deco",
-    "paletteId": "jazz-club",
-    "image": "/theme-examples/beltline/art-deco-jazz-club.webp",
-    "thumbnail": "/theme-examples/beltline/art-deco-jazz-club-thumb.webp",
-    "accent": [
-      245,
-      136,
-      68
+      216,
+      180,
+      84
     ]
   },
   {
     "styleId": "art-deco",
     "paletteId": "luxury-line",
-    "image": "/theme-examples/beltline/art-deco-luxury-line.webp",
-    "thumbnail": "/theme-examples/beltline/art-deco-luxury-line-thumb.webp",
+    "image": "/theme-examples/martin-goodman/art-deco-luxury-line.webp",
+    "thumbnail": "/theme-examples/martin-goodman/art-deco-luxury-line-thumb.webp",
     "accent": [
-      8,
-      157,
-      143
+      208,
+      161,
+      36
     ]
   },
   {
     "styleId": "art-deco",
     "paletteId": "ocean-liner",
-    "image": "/theme-examples/beltline/art-deco-ocean-liner.webp",
-    "thumbnail": "/theme-examples/beltline/art-deco-ocean-liner-thumb.webp",
+    "image": "/theme-examples/martin-goodman/art-deco-ocean-liner.webp",
+    "thumbnail": "/theme-examples/martin-goodman/art-deco-ocean-liner-thumb.webp",
     "accent": [
       0,
-      54,
-      125
-    ]
-  },
-  {
-    "styleId": "art-nouveau",
-    "paletteId": "autumn",
-    "image": "/theme-examples/beltline/art-nouveau-autumn.webp",
-    "thumbnail": "/theme-examples/beltline/art-nouveau-autumn-thumb.webp",
-    "accent": [
-      202,
-      148,
-      77
+      49,
+      118
     ]
   },
   {
     "styleId": "art-nouveau",
     "paletteId": "mucha-spring",
-    "image": "/theme-examples/beltline/art-nouveau-mucha-spring.webp",
-    "thumbnail": "/theme-examples/beltline/art-nouveau-mucha-spring-thumb.webp",
+    "image": "/theme-examples/martin-goodman/art-nouveau-mucha-spring.webp",
+    "thumbnail": "/theme-examples/martin-goodman/art-nouveau-mucha-spring-thumb.webp",
     "accent": [
-      202,
-      186,
-      117
-    ]
-  },
-  {
-    "styleId": "art-nouveau",
-    "paletteId": "peacock",
-    "image": "/theme-examples/beltline/art-nouveau-peacock.webp",
-    "thumbnail": "/theme-examples/beltline/art-nouveau-peacock-thumb.webp",
-    "accent": [
-      205,
-      198,
-      148
-    ]
-  },
-  {
-    "styleId": "art-nouveau",
-    "paletteId": "twilight",
-    "image": "/theme-examples/beltline/art-nouveau-twilight.webp",
-    "thumbnail": "/theme-examples/beltline/art-nouveau-twilight-thumb.webp",
-    "accent": [
-      195,
-      158,
+      203,
+      162,
       83
     ]
   },
   {
     "styleId": "bauhaus",
-    "paletteId": "dessau",
-    "image": "/theme-examples/beltline/bauhaus-dessau.webp",
-    "thumbnail": "/theme-examples/beltline/bauhaus-dessau-thumb.webp",
-    "accent": [
-      53,
-      154,
-      230
-    ]
-  },
-  {
-    "styleId": "bauhaus",
-    "paletteId": "exhibition",
-    "image": "/theme-examples/beltline/bauhaus-exhibition.webp",
-    "thumbnail": "/theme-examples/beltline/bauhaus-exhibition-thumb.webp",
-    "accent": [
-      255,
-      192,
-      0
-    ]
-  },
-  {
-    "styleId": "bauhaus",
     "paletteId": "primary",
-    "image": "/theme-examples/beltline/bauhaus-primary.webp",
-    "thumbnail": "/theme-examples/beltline/bauhaus-primary-thumb.webp",
+    "image": "/theme-examples/martin-goodman/bauhaus-primary.webp",
+    "thumbnail": "/theme-examples/martin-goodman/bauhaus-primary-thumb.webp",
     "accent": [
-      255,
-      201,
-      0
-    ]
-  },
-  {
-    "styleId": "bauhaus",
-    "paletteId": "red-circle",
-    "image": "/theme-examples/beltline/bauhaus-red-circle.webp",
-    "thumbnail": "/theme-examples/beltline/bauhaus-red-circle-thumb.webp",
-    "accent": [
-      243,
-      160,
-      142
+      76,
+      153,
+      201
     ]
   },
   {
     "styleId": "blueprint",
     "paletteId": "auto",
-    "image": "/theme-examples/beltline/blueprint-auto.webp",
-    "thumbnail": "/theme-examples/beltline/blueprint-auto-thumb.webp",
+    "image": "/theme-examples/martin-goodman/blueprint-auto.webp",
+    "thumbnail": "/theme-examples/martin-goodman/blueprint-auto-thumb.webp",
     "accent": [
       0,
-      205,
-      248
+      124,
+      215
     ]
   },
   {
     "styleId": "linen-postcard",
     "paletteId": "chrome",
-    "image": "/theme-examples/beltline/linen-postcard-chrome.webp",
-    "thumbnail": "/theme-examples/beltline/linen-postcard-chrome-thumb.webp",
+    "image": "/theme-examples/martin-goodman/linen-postcard-chrome.webp",
+    "thumbnail": "/theme-examples/martin-goodman/linen-postcard-chrome-thumb.webp",
     "accent": [
       255,
-      90,
-      60
+      88,
+      74
     ]
   },
   {
     "styleId": "linen-postcard",
     "paletteId": "civic",
-    "image": "/theme-examples/beltline/linen-postcard-civic.webp",
-    "thumbnail": "/theme-examples/beltline/linen-postcard-civic-thumb.webp",
-    "accent": [
-      170,
-      131,
-      132
-    ]
-  },
-  {
-    "styleId": "linen-postcard",
-    "paletteId": "desert",
-    "image": "/theme-examples/beltline/linen-postcard-desert.webp",
-    "thumbnail": "/theme-examples/beltline/linen-postcard-desert-thumb.webp",
+    "image": "/theme-examples/martin-goodman/linen-postcard-civic.webp",
+    "thumbnail": "/theme-examples/martin-goodman/linen-postcard-civic-thumb.webp",
     "accent": [
       255,
-      171,
-      116
-    ]
-  },
-  {
-    "styleId": "linen-postcard",
-    "paletteId": "sunset",
-    "image": "/theme-examples/beltline/linen-postcard-sunset.webp",
-    "thumbnail": "/theme-examples/beltline/linen-postcard-sunset-thumb.webp",
-    "accent": [
-      248,
-      154,
-      84
+      35,
+      22
     ]
   },
   {
     "styleId": "middle-earth",
     "paletteId": "auto",
-    "image": "/theme-examples/beltline/middle-earth-auto.webp",
-    "thumbnail": "/theme-examples/beltline/middle-earth-auto-thumb.webp",
+    "image": "/theme-examples/martin-goodman/middle-earth-auto.webp",
+    "thumbnail": "/theme-examples/martin-goodman/middle-earth-auto-thumb.webp",
     "accent": [
       220,
-      156,
-      66
+      167,
+      92
     ]
   },
   {
     "styleId": "modernist",
     "paletteId": "cobalt",
-    "image": "/theme-examples/beltline/modernist-cobalt.webp",
-    "thumbnail": "/theme-examples/beltline/modernist-cobalt-thumb.webp",
+    "image": "/theme-examples/martin-goodman/modernist-cobalt.webp",
+    "thumbnail": "/theme-examples/martin-goodman/modernist-cobalt-thumb.webp",
     "accent": [
       0,
-      82,
-      221
-    ]
-  },
-  {
-    "styleId": "modernist",
-    "paletteId": "gallery",
-    "image": "/theme-examples/beltline/modernist-gallery.webp",
-    "thumbnail": "/theme-examples/beltline/modernist-gallery-thumb.webp",
-    "accent": [
-      228,
-      187,
-      151
-    ]
-  },
-  {
-    "styleId": "modernist",
-    "paletteId": "olive",
-    "image": "/theme-examples/beltline/modernist-olive.webp",
-    "thumbnail": "/theme-examples/beltline/modernist-olive-thumb.webp",
-    "accent": [
-      183,
-      168,
-      86
+      66,
+      231
     ]
   },
   {
     "styleId": "modernist",
     "paletteId": "pool",
-    "image": "/theme-examples/beltline/modernist-pool.webp",
-    "thumbnail": "/theme-examples/beltline/modernist-pool-thumb.webp",
+    "image": "/theme-examples/martin-goodman/modernist-pool.webp",
+    "thumbnail": "/theme-examples/martin-goodman/modernist-pool-thumb.webp",
     "accent": [
-      0,
-      216,
-      217
-    ]
-  },
-  {
-    "styleId": "modernist",
-    "paletteId": "rose",
-    "image": "/theme-examples/beltline/modernist-rose.webp",
-    "thumbnail": "/theme-examples/beltline/modernist-rose-thumb.webp",
-    "accent": [
-      193,
-      44,
-      87
+      75,
+      207,
+      219
     ]
   },
   {
     "styleId": "modernist",
     "paletteId": "studio",
-    "image": "/theme-examples/beltline/modernist-studio.webp",
-    "thumbnail": "/theme-examples/beltline/modernist-studio-thumb.webp",
+    "image": "/theme-examples/martin-goodman/modernist-studio.webp",
+    "thumbnail": "/theme-examples/martin-goodman/modernist-studio-thumb.webp",
     "accent": [
-      250,
-      172,
-      0
+      217,
+      146,
+      37
     ]
   },
   {
     "styleId": "risograph",
     "paletteId": "black-red",
-    "image": "/theme-examples/beltline/risograph-black-red.webp",
-    "thumbnail": "/theme-examples/beltline/risograph-black-red-thumb.webp",
+    "image": "/theme-examples/martin-goodman/risograph-black-red.webp",
+    "thumbnail": "/theme-examples/martin-goodman/risograph-black-red-thumb.webp",
     "accent": [
-      255,
-      25,
-      16
+      240,
+      145,
+      126
     ]
   },
   {
     "styleId": "risograph",
     "paletteId": "blue-sunflower",
-    "image": "/theme-examples/beltline/risograph-blue-sunflower.webp",
-    "thumbnail": "/theme-examples/beltline/risograph-blue-sunflower-thumb.webp",
+    "image": "/theme-examples/martin-goodman/risograph-blue-sunflower.webp",
+    "thumbnail": "/theme-examples/martin-goodman/risograph-blue-sunflower-thumb.webp",
     "accent": [
-      255,
-      194,
+      207,
+      161,
       0
     ]
   },
   {
     "styleId": "risograph",
     "paletteId": "burgundy-sky",
-    "image": "/theme-examples/beltline/risograph-burgundy-sky.webp",
-    "thumbnail": "/theme-examples/beltline/risograph-burgundy-sky-thumb.webp",
+    "image": "/theme-examples/martin-goodman/risograph-burgundy-sky.webp",
+    "thumbnail": "/theme-examples/martin-goodman/risograph-burgundy-sky-thumb.webp",
     "accent": [
-      14,
-      176,
-      240
-    ]
-  },
-  {
-    "styleId": "risograph",
-    "paletteId": "kelly-cornflower",
-    "image": "/theme-examples/beltline/risograph-kelly-cornflower.webp",
-    "thumbnail": "/theme-examples/beltline/risograph-kelly-cornflower-thumb.webp",
-    "accent": [
-      49,
-      119,
-      249
-    ]
-  },
-  {
-    "styleId": "risograph",
-    "paletteId": "orange-teal",
-    "image": "/theme-examples/beltline/risograph-orange-teal.webp",
-    "thumbnail": "/theme-examples/beltline/risograph-orange-teal-thumb.webp",
-    "accent": [
-      178,
-      108,
-      43
+      71,
+      172,
+      221
     ]
   },
   {
     "styleId": "risograph",
     "paletteId": "pink-teal",
-    "image": "/theme-examples/beltline/risograph-pink-teal.webp",
-    "thumbnail": "/theme-examples/beltline/risograph-pink-teal-thumb.webp",
+    "image": "/theme-examples/martin-goodman/risograph-pink-teal.webp",
+    "thumbnail": "/theme-examples/martin-goodman/risograph-pink-teal-thumb.webp",
     "accent": [
       255,
       0,
-      156
-    ]
-  },
-  {
-    "styleId": "risograph",
-    "paletteId": "purple-sunflower",
-    "image": "/theme-examples/beltline/risograph-purple-sunflower.webp",
-    "thumbnail": "/theme-examples/beltline/risograph-purple-sunflower-thumb.webp",
-    "accent": [
-      255,
-      194,
-      0
+      150
     ]
   },
   {
     "styleId": "rpg",
     "paletteId": "desert",
-    "image": "/theme-examples/beltline/rpg-desert.webp",
-    "thumbnail": "/theme-examples/beltline/rpg-desert-thumb.webp",
+    "image": "/theme-examples/martin-goodman/rpg-desert.webp",
+    "thumbnail": "/theme-examples/martin-goodman/rpg-desert-thumb.webp",
     "accent": [
-      255,
-      149,
-      27
+      232,
+      111,
+      0
     ]
   },
   {
     "styleId": "rpg",
     "paletteId": "dungeon",
-    "image": "/theme-examples/beltline/rpg-dungeon.webp",
-    "thumbnail": "/theme-examples/beltline/rpg-dungeon-thumb.webp",
+    "image": "/theme-examples/martin-goodman/rpg-dungeon.webp",
+    "thumbnail": "/theme-examples/martin-goodman/rpg-dungeon-thumb.webp",
     "accent": [
-      97,
-      101,
-      120
+      102,
+      95,
+      223
     ]
   },
   {
     "styleId": "rpg",
     "paletteId": "overworld",
-    "image": "/theme-examples/beltline/rpg-overworld.webp",
-    "thumbnail": "/theme-examples/beltline/rpg-overworld-thumb.webp",
+    "image": "/theme-examples/martin-goodman/rpg-overworld.webp",
+    "thumbnail": "/theme-examples/martin-goodman/rpg-overworld-thumb.webp",
     "accent": [
-      30,
-      138,
+      9,
+      129,
       255
     ]
   },
   {
     "styleId": "rpg",
     "paletteId": "winter",
-    "image": "/theme-examples/beltline/rpg-winter.webp",
-    "thumbnail": "/theme-examples/beltline/rpg-winter-thumb.webp",
+    "image": "/theme-examples/martin-goodman/rpg-winter.webp",
+    "thumbnail": "/theme-examples/martin-goodman/rpg-winter-thumb.webp",
     "accent": [
-      32,
-      107,
-      125
-    ]
-  },
-  {
-    "styleId": "swiss",
-    "paletteId": "black",
-    "image": "/theme-examples/beltline/swiss-black.webp",
-    "thumbnail": "/theme-examples/beltline/swiss-black-thumb.webp",
-    "accent": [
-      204,
-      222,
-      191
-    ]
-  },
-  {
-    "styleId": "swiss",
-    "paletteId": "burnt-orange",
-    "image": "/theme-examples/beltline/swiss-burnt-orange.webp",
-    "thumbnail": "/theme-examples/beltline/swiss-burnt-orange-thumb.webp",
-    "accent": [
-      209,
-      192,
-      145
+      0,
+      51,
+      202
     ]
   },
   {
     "styleId": "swiss",
     "paletteId": "forest-green",
-    "image": "/theme-examples/beltline/swiss-forest-green.webp",
-    "thumbnail": "/theme-examples/beltline/swiss-forest-green-thumb.webp",
+    "image": "/theme-examples/martin-goodman/swiss-forest-green.webp",
+    "thumbnail": "/theme-examples/martin-goodman/swiss-forest-green-thumb.webp",
     "accent": [
-      161,
-      210,
-      192
-    ]
-  },
-  {
-    "styleId": "swiss",
-    "paletteId": "plum",
-    "image": "/theme-examples/beltline/swiss-plum.webp",
-    "thumbnail": "/theme-examples/beltline/swiss-plum-thumb.webp",
-    "accent": [
-      199,
-      196,
-      184
+      77,
+      188,
+      106
     ]
   },
   {
     "styleId": "swiss",
     "paletteId": "process-blue",
-    "image": "/theme-examples/beltline/swiss-process-blue.webp",
-    "thumbnail": "/theme-examples/beltline/swiss-process-blue-thumb.webp",
+    "image": "/theme-examples/martin-goodman/swiss-process-blue.webp",
+    "thumbnail": "/theme-examples/martin-goodman/swiss-process-blue-thumb.webp",
     "accent": [
-      161,
-      205,
-      200
+      118,
+      180,
+      232
     ]
   },
   {
     "styleId": "swiss",
     "paletteId": "red",
-    "image": "/theme-examples/beltline/swiss-red.webp",
-    "thumbnail": "/theme-examples/beltline/swiss-red-thumb.webp",
+    "image": "/theme-examples/martin-goodman/swiss-red.webp",
+    "thumbnail": "/theme-examples/martin-goodman/swiss-red-thumb.webp",
     "accent": [
-      234,
-      189,
-      161
-    ]
-  },
-  {
-    "styleId": "swiss",
-    "paletteId": "signal-yellow",
-    "image": "/theme-examples/beltline/swiss-signal-yellow.webp",
-    "thumbnail": "/theme-examples/beltline/swiss-signal-yellow-thumb.webp",
-    "accent": [
-      227,
-      226,
-      165
+      244,
+      177,
+      167
     ]
   },
   {
     "styleId": "vintage-topo",
     "paletteId": "auto",
-    "image": "/theme-examples/beltline/vintage-topo-auto.webp",
-    "thumbnail": "/theme-examples/beltline/vintage-topo-auto-thumb.webp",
+    "image": "/theme-examples/martin-goodman/vintage-topo-auto.webp",
+    "thumbnail": "/theme-examples/martin-goodman/vintage-topo-auto-thumb.webp",
     "accent": [
-      243,
-      144,
-      73
+      217,
+      147,
+      100
     ]
   },
   {
     "styleId": "watercolour",
     "paletteId": "auto",
-    "image": "/theme-examples/beltline/watercolour-auto.webp",
-    "thumbnail": "/theme-examples/beltline/watercolour-auto-thumb.webp",
+    "image": "/theme-examples/martin-goodman/watercolour-auto.webp",
+    "thumbnail": "/theme-examples/martin-goodman/watercolour-auto-thumb.webp",
     "accent": [
-      242,
-      182,
-      137
+      153,
+      135,
+      148
     ]
   },
   {
     "styleId": "wpa",
     "paletteId": "alpine",
-    "image": "/theme-examples/beltline/wpa-alpine.webp",
-    "thumbnail": "/theme-examples/beltline/wpa-alpine-thumb.webp",
+    "image": "/theme-examples/martin-goodman/wpa-alpine.webp",
+    "thumbnail": "/theme-examples/martin-goodman/wpa-alpine-thumb.webp",
     "accent": [
-      42,
-      60,
-      110
-    ]
-  },
-  {
-    "styleId": "wpa",
-    "paletteId": "autumn",
-    "image": "/theme-examples/beltline/wpa-autumn.webp",
-    "thumbnail": "/theme-examples/beltline/wpa-autumn-thumb.webp",
-    "accent": [
-      255,
-      167,
-      29
+      124,
+      66,
+      98
     ]
   },
   {
     "styleId": "wpa",
     "paletteId": "coast",
-    "image": "/theme-examples/beltline/wpa-coast.webp",
-    "thumbnail": "/theme-examples/beltline/wpa-coast-thumb.webp",
+    "image": "/theme-examples/martin-goodman/wpa-coast.webp",
+    "thumbnail": "/theme-examples/martin-goodman/wpa-coast-thumb.webp",
     "accent": [
-      51,
-      136,
-      191
+      21,
+      125,
+      178
     ]
   },
   {
     "styleId": "wpa",
     "paletteId": "desert",
-    "image": "/theme-examples/beltline/wpa-desert.webp",
-    "thumbnail": "/theme-examples/beltline/wpa-desert-thumb.webp",
+    "image": "/theme-examples/martin-goodman/wpa-desert.webp",
+    "thumbnail": "/theme-examples/martin-goodman/wpa-desert-thumb.webp",
     "accent": [
-      34,
-      140,
-      143
-    ]
-  },
-  {
-    "styleId": "wpa",
-    "paletteId": "dusk",
-    "image": "/theme-examples/beltline/wpa-dusk.webp",
-    "thumbnail": "/theme-examples/beltline/wpa-dusk-thumb.webp",
-    "accent": [
-      241,
-      183,
-      131
+      255,
+      65,
+      0
     ]
   },
   {
     "styleId": "wpa",
     "paletteId": "park",
-    "image": "/theme-examples/beltline/wpa-park.webp",
-    "thumbnail": "/theme-examples/beltline/wpa-park-thumb.webp",
+    "image": "/theme-examples/martin-goodman/wpa-park.webp",
+    "thumbnail": "/theme-examples/martin-goodman/wpa-park-thumb.webp",
     "accent": [
-      45,
-      125,
-      52
+      255,
+      84,
+      0
     ]
   }
 ]

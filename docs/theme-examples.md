@@ -16,15 +16,14 @@ Samples are stable WebP files, separate from account-scoped poster storage. The
 manifest contains only theme IDs, palette IDs, and static image paths. No user IDs,
 private storage keys, prompts, or generation metadata are included.
 
-The collection contains 52 Beltline Trail samples covering all 13 themes
+The collection contains 29 Martin Goodman Trail samples covering all 13 themes
 and every available palette. Themes with fixed presets default to their first named
 palette: Minimal Red, Modernist Studio, Risograph Fluorescent pink + teal,
 WPA park Park, Art deco Black and gold, Linen postcard Chrome, Art nouveau Mucha spring,
 Bauhaus Primary, and 16-bit RPG Overworld. Risograph no longer offers Auto;
 legacy Auto selections resolve to Fluorescent pink + teal. Watercolor chooses washes
 from the map; the fixed-color themes retain their signature colors.
-The samples use Meta Muse Image and a 3:4 poster
-ratio. To replace the set, prepare a reviewed folder with `manifest.json` and its
+The selected samples use Meta Muse Image and a 2:3 poster ratio. To replace the set, prepare a reviewed folder with `manifest.json` and its
 WebP files, then run:
 
 ```sh
@@ -34,6 +33,11 @@ npm run build
 ```
 
 The installer validates complete theme and palette coverage and copies only the
-reviewed WebP images and public manifest. A replacement collection uses the same
-manifest shape and filenames. Thumbnails have a maximum dimension of 400px; expanded
-images have a maximum dimension of 1400px. Both preserve the whole poster.
+reviewed WebP images and public manifest. The current collection lives under `/theme-examples/martin-goodman/` and keeps the
+same manifest shape and theme/palette filenames. Thumbnails have a maximum dimension of 400px; expanded
+images have a maximum dimension of 1400px. Both preserve the whole poster. Expanded WebPs use quality 82; thumbnails use quality
+80. The landing explorer loads only the current expanded image and reads its accent
+color from the manifest, avoiding eager downloads of the entire collection.
+
+Generate both versions directly from the original PNG, preserving its aspect ratio
+and without upscaling or cropping. Recompute manifest accents with the installer.
