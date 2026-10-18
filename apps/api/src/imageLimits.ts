@@ -3,7 +3,7 @@ import { providerQueue } from "./requestQueue";
 
 export type ImageLimits = { active: number | null; unfinished: number | null; selections: number | null };
 export function parseImageLimits(raw: Record<string, unknown> = {}): ImageLimits {
-  const defaults: ImageLimits = { active: Number(process.env.OPENROUTER_IMAGE_USER_CONCURRENCY || 8), unfinished: 16, selections: 8 };
+  const defaults: ImageLimits = { active: Number(process.env.OPENROUTER_IMAGE_USER_CONCURRENCY || 8), unfinished: 64, selections: 8 };
   for (const key of Object.keys(defaults) as (keyof ImageLimits)[]) {
     const value = raw[key];
     if (value === undefined) continue;
