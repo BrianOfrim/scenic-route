@@ -10,6 +10,8 @@ export type ThemeExample = {
   accent: [number, number, number];
 };
 
+export const THEME_EXAMPLE_ROUTE = "Martin Goodman Trail";
+
 /** Tallest the landing explorer draws a poster, in CSS pixels. */
 export const EXPLORER_POSTER_MAX_CSS_PX = 800;
 

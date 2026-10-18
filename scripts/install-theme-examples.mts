@@ -13,7 +13,7 @@ type ReviewedSample = {
 };
 
 const source = process.argv[2];
-if (!source) throw new Error("Usage: npx tsx scripts/install-theme-examples.ts <reviewed sample folder>");
+if (!source) throw new Error("Usage: npx tsx scripts/install-theme-examples.mts <reviewed sample folder>");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const samples: ReviewedSample[] = JSON.parse(await fs.readFile(path.join(source, "manifest.json"), "utf8"));
 if (!Array.isArray(samples) || !samples.length) throw new Error("Sample manifest is empty or invalid");
@@ -27,7 +27,7 @@ for (const sample of samples) {
   const key = `${sample.styleId}-${sample.paletteId}`;
   if (seen.has(key)) throw new Error(`Duplicate sample: ${key}`);
   seen.add(key);
-  if (sample.image !== `/theme-examples/beltline/${key}.webp` || sample.thumbnail !== `/theme-examples/beltline/${key}-thumb.webp`) {
+  if (sample.image !== `/theme-examples/martin-goodman/${key}.webp` || sample.thumbnail !== `/theme-examples/martin-goodman/${key}-thumb.webp`) {
     throw new Error(`Unexpected sample paths: ${key}`);
   }
   for (const url of [sample.image, sample.thumbnail]) {
@@ -41,7 +41,7 @@ for (const style of POSTER_STYLES.filter((s) => s.id !== "custom")) {
     if (!seen.has(`${style.id}-${paletteId}`)) throw new Error(`Missing sample: ${style.id}/${paletteId}`);
   }
 }
-const destination = path.join(root, "apps/web/public/theme-examples/beltline");
+const destination = path.join(root, "apps/web/public/theme-examples/martin-goodman");
 if (process.argv.includes("--check")) {
   console.log(`Validated ${samples.length} samples across ${POSTER_STYLES.filter((s) => s.id !== "custom").length} themes. No files copied.`);
   process.exit(0);
