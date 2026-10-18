@@ -4129,8 +4129,14 @@ button.map-schematic-tip-name:focus-visible {
   }
 }
 
+.gallery-pending {
+  display: flex;
+  flex-direction: column;
+}
+
 .gallery-pending-image {
   height: 220px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4142,8 +4148,16 @@ button.map-schematic-tip-name:focus-visible {
 }
 
 .gallery-pending-caption {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   padding: 12px;
   font-size: var(--text-body);
+}
+
+.gallery-pending-caption .poster-actions {
+  margin-top: auto;
+  padding-top: 10px;
 }
 
 .gallery-pending-caption p {
