@@ -3,7 +3,7 @@ import { useRef } from "react";
 import { SignInForm } from "./SignIn";
 import { StyleExplorer } from "./StyleExplorer";
 
-const HERO_IMAGES = ["north-winnipeg-parkway", "seaside-greenway", "rideau-canal"];
+const HERO_IMAGES = ["brothers-risograph", "brothers-wpa", "brothers-blueprint"];
 
 const STEPS = [
   {
@@ -64,7 +64,7 @@ export function Landing() {
                 className="landing-hero-image"
                 src={`/landing/${image}.webp`}
                 alt=""
-                width={682}
+                width={683}
                 height={1024}
                 fetchPriority="high"
               />
