@@ -27,7 +27,7 @@ export type RenderSchematicOptions = {
     geometry: { type: "MultiLineString"; coordinates: number[][][] };
     routeSpans?: Array<{ start: number; end: number }>;
   }>;
-  /** Named districts drawn as washes. Letters are a private index; names live in the prompt. */
+  /** Named districts drawn as outlines. Letters are a private index; names live in the prompt. */
   namedAreas?: Array<{
     name: string;
     letter?: string;
@@ -227,30 +227,18 @@ export function drawSchematicScene(
       ctx.closePath();
       ctx.clip();
     }
-    // Land tint must come from explicit land polygons. Empty canvas areas can
-    // represent missing geography (especially for Overpass scenes).
-    fillBucket(ctx, ways.land, project, "#dfe8cf");
-    if (layers.urban !== false) fillBucket(ctx, ways.urban, project, "rgba(170, 162, 152, 0.25)");
-    if (layers["vegetation"] !== false) fillBucket(ctx, ways["vegetation"], project, "rgba(199, 211, 151, 0.5)");
-    if (layers["rock"] !== false) fillBucket(ctx, ways["rock"], project, "rgba(166, 160, 151, 0.5)");
-    if (layers["beaches"] !== false) fillBucket(ctx, ways["beaches"], project, "rgba(235, 215, 159, 0.65)");
-    if (layers["wetlands"] !== false) fillBucket(ctx, ways["wetlands"], project, "rgba(135, 183, 172, 0.55)");
-    if (layers["glaciers"] !== false) fillBucket(ctx, ways["glaciers"], project, "rgba(206, 229, 239, 0.85)");
-    if (layers.farmland !== false) fillBucket(ctx, ways.farmland, project, "rgba(214, 196, 140, 0.45)");
-    if (layers.cemeteries !== false) fillBucket(ctx, ways.cemeteries, project, "rgba(186, 178, 162, 0.55)");
-    drawNamedAreaFills(ctx, options.namedAreas ?? [], project);
-    if (layers.parks !== false) fillBucket(ctx, ways.parks, project, "rgba(164, 196, 148, 0.5)");
-    if (layers.forest !== false) fillBucket(ctx, ways.forest, project, "rgba(176, 201, 156, 0.55)");
+    // A single neutral land fill leaves terrain classification to the satellite.
+    // Do not paint land-cover or administrative polygons as separate regions.
+    fillBucket(ctx, ways.land, project, "#f7f4ec");
     if (layers.water !== false || layers.coastline !== false) {
-      // Ocean must cover offshore parks and land-cover polygons completely.
       fillBucket(ctx, ways.ocean, project, "#b7d2db");
-      fillBucket(ctx, ways.water, project, "rgba(154, 196, 214, 0.7)");
+      fillBucket(ctx, ways.water, project, "#b7d2db");
     }
     if ((layers.waterways ?? layers.water) !== false) {
-      fillBucket(ctx, ways.riverAreas, project, "rgba(154, 196, 214, 0.7)");
+      fillBucket(ctx, ways.riverAreas, project, "#b7d2db");
     }
     if ((layers.waterways ?? layers.water) !== false) {
-      ctx.strokeStyle = "rgba(90, 150, 180, 0.85)";
+      ctx.strokeStyle = "#b7d2db";
       ctx.lineWidth = 1.4 * scale;
       strokeBucket(ctx, ways.waterways, project);
     }
@@ -268,11 +256,10 @@ export function drawSchematicScene(
     if (layers.roads !== false) strokeRoads(ctx, ways.roads, project, "#9a958c", scale);
     if (layers.streets !== false) strokeRoads(ctx, ways.streets, project, "#b4afa6", scale);
     if (layers.paths !== false) {
-      ctx.setLineDash([4 * scale, 3 * scale]);
-      ctx.strokeStyle = "#7a6f5f";
-      ctx.lineWidth = 1 * scale;
-      strokeBucket(ctx, ways.paths, project);
       ctx.setLineDash([]);
+      ctx.strokeStyle = "#c8c3ba";
+      ctx.lineWidth = 0.5 * scale;
+      strokeBucket(ctx, ways.paths, project);
     }
     if (layers.rail !== false) {
       ctx.setLineDash([3 * scale, 3 * scale]);
@@ -335,17 +322,6 @@ type SchematicArea = {
     | { type: "MultiPolygon"; coordinates: number[][][][] };
 };
 
-/** Ochre sits under park/forest/water so land cover stays readable. */
-function drawNamedAreaFills(
-  ctx: CanvasRenderingContext2D,
-  areas: SchematicArea[],
-  project: (lng: number, lat: number) => [number, number],
-) {
-  if (!areas.length) return;
-  ctx.fillStyle = "rgba(196, 148, 88, 0.22)";
-  for (const area of areas) fillGeometry(ctx, area.geometry, project);
-}
-
 function drawNamedAreaOutlines(
   ctx: CanvasRenderingContext2D,
   areas: SchematicArea[],
@@ -354,14 +330,14 @@ function drawNamedAreaOutlines(
 ) {
   if (!areas.length) return;
   ctx.setLineDash([5 * scale, 3 * scale]);
-  ctx.strokeStyle = "rgba(150, 96, 48, 0.75)";
+  ctx.strokeStyle = "#9a958c";
   ctx.lineWidth = 1.4 * scale;
   ctx.lineJoin = "round";
   for (const area of areas) strokeAreaGeometry(ctx, area.geometry, project);
   ctx.setLineDash([]);
 }
 
-/** Letter in the wash — no disc. Names live in the prompt. */
+/** Letter inside the outlined region — no disc. Names live in the prompt. */
 function drawAreaLetters(
   ctx: CanvasRenderingContext2D,
   areas: SchematicArea[],
@@ -378,7 +354,7 @@ function drawAreaLetters(
     ctx.lineWidth = 3.2 * scale;
     ctx.strokeStyle = "rgba(255, 248, 236, 0.92)";
     ctx.strokeText(area.letter, x, y);
-    ctx.fillStyle = "#6b3f1a";
+    ctx.fillStyle = "#6b6560";
     ctx.fillText(area.letter, x, y);
   }
 }

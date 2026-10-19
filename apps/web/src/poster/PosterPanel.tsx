@@ -1,3 +1,4 @@
+import { themeBatchSlots, type BatchInput } from "../dev/themeBatch";
 import type { GeographyScene } from "../../../api/src/osm/geographyPolicy";
 import { GEOGRAPHY_BUCKETS, GEOGRAPHY_VERSION, automaticGeographyAllowance, loadedGeographyIds, visibleGeographyIds } from "../../../api/src/osm/geographyPolicy";
 import { beginGeneration } from "../gallery/generationState";
@@ -49,6 +50,12 @@ import {
   type GeoEdit,
   type OutlineHistory,
 } from "./polygonEdit";
+
+// Only layers drawn by the schematic have manual controls. Land-cover data stays
+// compatible with saved setups, but its former color-fill toggles are no longer shown.
+const SCHEMATIC_GEOGRAPHY_CONTROLS = new Set([
+  "major-roads", "streets", "paths", "rail", "lakes", "rivers", "coastline", "cliffs",
+]);
 
 type GeoScope = "all" | "corridor" | "ends" | "box" | "hull" | "loop" | "rectangle" | "polygon";
 
@@ -142,9 +149,9 @@ const EMPTY_WAYS: NamedWay[] = [];
 const EMPTY_AREAS: NamedArea[] = [];
 
 const SCHEMATIC_LEGEND =
-  "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; blue = water; green = forest; teal = wetlands; pale green = open vegetation; sand = beaches; grey-brown fill = rock; pale blue = glaciers; blue shoreline = coastline; brown lines = cliffs; ochre wash + letter = named district, private region index, copy the footprint not the ochre or letter; numbered discs = private location index, do not copy";
+  "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; neutral land fill and blue water fill show land/water geometry only, not terrain categories or poster colors; blue shoreline = coastline; brown lines = cliffs; dashed outline + letter = named district, private region index, use for label placement without a distinct area fill; numbered discs = private location index, do not copy; use satellite imagery for terrain patterns";
 
-const GEOGRAPHY_LEGEND = "red = GPS track; grey = roads; blue = water; green = forest/parks; teal = wetlands; pale green = open vegetation; sand = beaches; grey-brown fill = rock; pale blue = glaciers; blue shoreline = coastline; brown lines = cliffs";
+const GEOGRAPHY_LEGEND = "red = GPS track; grey = roads; neutral land fill and blue water fill show land/water geometry only, not terrain categories or poster colors; blue shoreline = coastline; brown lines = cliffs; use satellite imagery for terrain patterns";
 
 const ROUTE_ONLY_LEGEND = "red = GPS track";
 
@@ -685,6 +692,7 @@ type PosterWorkflowStep =
 const MAP_WORKFLOW_STEPS = new Set<PosterWorkflowStep>(["crop", "on-map"]);
 
 type Props = {
+  onThemeBatch?: (input: BatchInput) => Promise<void>;
   activityId: number;
   defaultPeople?: string;
   activityLabel?: string;
@@ -732,6 +740,7 @@ type Props = {
 
 export function PosterPanel({
   activityId,
+  onThemeBatch,
   defaultPeople = "",
   activityLabel,
   features,
@@ -772,6 +781,7 @@ export function PosterPanel({
     if (!remote) return item;
     return { ...item, ...remote, nearRouteM: remote.nearRouteM ?? item.nearRouteM };
   });
+  const [batchVariants, setBatchVariants] = useState(4);
   const [selectionLimit, setSelectionLimit] = useState<number>(MAX_THEME_SELECTIONS);
   useEffect(() => {
     let cancelled = false;
@@ -1912,6 +1922,27 @@ export function PosterPanel({
     };
   }
 
+  async function handleThemeBatch() {
+    if (!onThemeBatch || !geographyScene || geographyIncomplete || !context || activeImageModelIds.length !== 1) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      const packed = await renderContactSheets(await buildGrounding(), maxRefs, aspectRatio);
+      const templates = themeBatchSlots().map(slot => {
+        const generate = generationRequest(slot, activeImageModelIds[0], "");
+        return {
+          plan: templateRequest(packed, "", slot),
+          generate: { ...generate, variants: 1, editor: { ...generate.editor,
+            styleIds: [slot.styleId], paletteId: slot.paletteId,
+            paletteIdsByStyle: { [slot.styleId]: [slot.paletteId] }, variants: 1 } },
+        };
+      });
+      await onThemeBatch({ title, references: packed.map(sheet => sheet.dataUrl), templates, variants: batchVariants });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not prepare theme batch");
+    } finally { setGenerating(false); }
+  }
+
   async function handleGenerate() {
     if (!geographyScene || geographyIncomplete || !context || !activeImageModelIds.length) return;
     const slots = stylePlanSlots(styleIds, paletteIdsByStyle);
@@ -2614,7 +2645,7 @@ export function PosterPanel({
               ) : (
                 <div className="poster-geo-grid">
                   {catalog
-                    .filter((item) => item.group === "geography")
+                    .filter((item) => item.group === "geography" && SCHEMATIC_GEOGRAPHY_CONTROLS.has(item.id))
                     .map((item) => (
                       <label key={item.id} className="check">
                         <input
@@ -3174,6 +3205,17 @@ export function PosterPanel({
 
         </fieldset>
             <footer className="poster-footer sheet-from-half" aria-label="Generate image">
+              {onThemeBatch && <div className="theme-batch-controls">
+                <strong>Theme example batch</strong>
+                <p>Uses this poster’s map, text, aspect ratio and image model for every preset theme and palette.</p>
+                <label>Variants per combination <input type="number" min={1} max={100} step={1} value={batchVariants}
+                  disabled={busy} onChange={event => setBatchVariants(Number(event.target.value))} /></label>
+                <p>{themeBatchSlots().length} combinations · {themeBatchSlots().length * (batchVariants || 0)} images. Uses normal generation credits.</p>
+                {activeImageModelIds.length !== 1 && <p>Select exactly one image model in Output.</p>}
+                <button className="button" type="button"
+                  disabled={busy || geographyIncomplete || !geographyScene || !title.trim() || activeImageModelIds.length !== 1 || !Number.isInteger(batchVariants) || batchVariants < 1 || batchVariants > 100}
+                  onClick={() => void handleThemeBatch()}>{busy ? "Preparing…" : `Run all themes × ${batchVariants} variants`}</button>
+              </div>}
               {!sheetMode && context.warnings.length ? <p className="muted">{context.warnings.join(" · ")}</p> : null}
               <div className="poster-actions poster-plan-row">
                 <button

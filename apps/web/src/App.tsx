@@ -1,3 +1,4 @@
+import { createThemeBatch, saveThemeBatch, type ThemeBatchRun } from "./dev/themeBatch";
 import { SignInForm } from "./SignIn";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import {
@@ -35,6 +36,9 @@ import type { SchematicLayers } from "./poster/grounding/renderSchematic";
 import type { GeoEdit } from "./poster/polygonEdit";
 import { MOBILE_QUERY, useMediaQuery } from "./useMediaQuery";
 
+const ThemeBatchReview = import.meta.env.DEV
+  ? lazy(() => import("./dev/ThemeBatchReview").then(m => ({ default: m.ThemeBatchReview })))
+  : () => null;
 const MapView = lazy(() => import("./MapView").then((module) => ({ default: module.MapView })));
 const PosterPanel = lazy(() => import("./poster/PosterPanel").then((module) => ({ default: module.PosterPanel })));
 
@@ -96,6 +100,8 @@ function currentPath() {
 }
 
 export function App() {
+  const [themeBatchActive, setThemeBatchActive] = useState(false);
+  const [newThemeRun, setNewThemeRun] = useState<ThemeBatchRun | null>(null);
   const isMobile = useMediaQuery(MOBILE_QUERY);
   const [path, setPath] = useState(currentPath);
   const [mobilePane, setMobilePane] = useState<MobilePane>("activities");
@@ -443,6 +449,7 @@ export function App() {
 
   async function handleSignOut() {
     await signOut();
+    setNewThemeRun(null);
     setSession(null);
     setActivities([]);
     setSelectedId(null);
@@ -503,6 +510,8 @@ export function App() {
     }
   };
 
+  const themeStudio = import.meta.env.DEV && path.startsWith("/dev/theme-examples");
+  const showThemeReview = themeStudio && path.endsWith("/review");
   const showGallery = path.startsWith("/gallery");
   const basemapSelect = <BasemapControl value={basemap} onChange={setBasemap} />;
 
@@ -511,8 +520,8 @@ export function App() {
       {/* Stay mounted under gallery so mobile generate/edit state survives tab switches. */}
       <div
         className={`app${isMobile ? " is-mobile" : ""}`}
-        hidden={showGallery}
-        aria-hidden={showGallery}
+        hidden={showGallery || showThemeReview}
+        aria-hidden={showGallery || showThemeReview}
       >
         <header className="top">
           <div>
@@ -525,6 +534,7 @@ export function App() {
           </div>
           {!isMobile && <AppTabs active="map" isMobile={false} onSelect={selectTab} />}
           <div className="top-actions">
+            {import.meta.env.DEV && <button className="text-btn" onClick={() => go("/dev/theme-examples/review")}>Theme studio</button>}
             {!isMobile && error && (
               <p className="error banner">
                 {error}
@@ -585,7 +595,7 @@ export function App() {
               ways={posterOpen ? ways : null}
               schematicLayers={posterOpen ? schematicLayers : null}
               basemap={basemap}
-              visible={!showGallery && (!isMobile || mobilePane === "map")}
+              visible={!showGallery && !showThemeReview && (!isMobile || mobilePane === "map")}
               viewNonce={viewNonce}
               labelingEnabled={posterOpen && !routeOnly}
               highlight={posterOpen ? mapHighlight : null}
@@ -620,6 +630,13 @@ export function App() {
             <Suspense fallback={null}>
             <PosterPanel
               key={selectedId}
+              onThemeBatch={themeStudio ? async input => {
+                if (themeBatchActive) throw new Error("Pause the active batch in Theme studio before starting another.");
+                const run = createThemeBatch(input, session.id);
+                await saveThemeBatch(run);
+                setNewThemeRun(run);
+                go("/dev/theme-examples/review");
+              } : undefined}
               activityId={selectedId}
               defaultPeople={defaultPeopleForUser(session)}
               activityLabel={activities.find((item) => item.id === selectedId)?.name}
@@ -663,9 +680,13 @@ export function App() {
         </div>
         {isMobile && <AppTabs active={mobilePane} isMobile onSelect={selectTab} />}
       </div>
+      {themeStudio && <div hidden={!showThemeReview}>
+        <Suspense fallback={<p>Loading theme studio…</p>}><ThemeBatchReview key={session.id} userId={session.id} newRun={newThemeRun?.userId === session.id ? newThemeRun : null} onActiveChange={setThemeBatchActive}
+          onConfigure={() => go("/dev/theme-examples")} /></Suspense>
+      </div>}
       {/* Stay mounted so tab switches and in-flight generate do not refetch or blank the list. */}
       <div className="gallery-host" hidden={!showGallery} aria-hidden={!showGallery}>
-        <Gallery
+        {!themeStudio && <Gallery
           account={profileMenu}
           tabs={<AppTabs active="gallery" isMobile={isMobile} onSelect={selectTab} />}
           onEditSetup={(poster) => {
@@ -677,7 +698,7 @@ export function App() {
             openPosterOnMobile();
             go("/");
           }}
-        />
+        />}
       </div>
     </>
   );

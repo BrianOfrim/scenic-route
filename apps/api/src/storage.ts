@@ -265,7 +265,20 @@ export function createR2Store(config: NonNullable<ReturnType<typeof r2Config>>, 
       return removed;
     },
     async hasUnscopedPosters() {
-      return (await listNames()).some((name) => name.endsWith(".json") && !name.includes("/"));
+      // Authenticated requests check for legacy files. Delimit by user directory
+      // so this never walks every generated image and attempt in the bucket.
+      let token: string | undefined;
+      do {
+        const page = await client.send(new ListObjectsV2Command({
+          Bucket: config.bucket, Prefix: prefix, Delimiter: "/", ContinuationToken: token,
+        }));
+        if (page.Contents?.some(item => {
+          const name = item.Key?.slice(prefix.length) || "";
+          return item.Key?.startsWith(prefix) && name.endsWith(".json") && !name.includes("/");
+        })) return true;
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (token);
+      return false;
     },
     async migrateUnscopedToUser(userId) {
       const names = await listNames();

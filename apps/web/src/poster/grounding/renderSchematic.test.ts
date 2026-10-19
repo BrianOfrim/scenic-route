@@ -22,7 +22,7 @@ test("a route break starts a new stroke even after track sampling", () => {
   assert.deepEqual(moves, [0, 10]);
 });
 
-test("new land cover and shoreline layers render only while selected", () => {
+test("land cover adds no category fills while selected shoreline layers retain their lines", () => {
   const ids = ["urban", "wetlands", "vegetation", "beaches", "coastline", "rock", "cliffs", "glaciers"];
   for (const id of ids) {
     const strokes = ["coastline", "cliffs"].includes(id);
@@ -40,7 +40,7 @@ test("new land cover and shoreline layers render only while selected", () => {
         latlng: [], ways,
         layers: { ...schematicLayersFromFeatureIds(enabled ? [id] : [], false), route: false, labels: false },
       }, (lng, lat) => [lng, lat], { width: 100, height: 100, northArrow: false });
-      assert.equal(paints, enabled ? 1 : 0, `${id}: ${enabled}`);
+      assert.equal(paints, enabled && strokes ? 1 : 0, `${id}: ${enabled}`);
     }
   }
 });
@@ -98,25 +98,34 @@ test("retained lakes and rivers can each be hidden independently", () => {
   }
 });
 
-test("ocean paint is opaque over offshore park polygons", () => {
+test("schematic has one land fill and one opaque water fill, with no district or land-cover fills", () => {
   const polygon = { type: "Polygon" as const, coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] };
-  const ways = {
-    parks: { features: [{ geometry: polygon }] },
-    ocean: { features: [{ geometry: polygon }] },
-  };
+  const bucket = { features: [{ geometry: polygon }] };
+  const ways = Object.fromEntries([
+    "land", "urban", "vegetation", "rock", "beaches", "wetlands", "glaciers", "farmland",
+    "cemeteries", "parks", "forest", "ocean", "water", "riverAreas",
+  ].map(key => [key, bucket]));
   let fillStyle = "";
   const fills: string[] = [];
+  const backgrounds: string[] = [];
+  let outlines = 0;
   const ctx = new Proxy({}, {
-    get: (_target, key) => key === "fillStyle" ? fillStyle : key === "fill" ? () => { fills.push(fillStyle); } : () => {},
+    get: (_target, key) => {
+      if (key === "fill") return () => { fills.push(fillStyle); };
+      if (key === "fillRect") return () => { backgrounds.push(fillStyle); };
+      if (key === "stroke") return () => { outlines++; };
+      return () => {};
+    },
     set: (_target, key, value) => { if (key === "fillStyle") fillStyle = String(value); return true; },
   }) as CanvasRenderingContext2D;
   drawSchematicScene(ctx, {
     latlng: [], ways,
-    layers: { ...schematicLayersFromFeatureIds(["parks", "coastline"], false), labels: false },
-  }, (lng, lat) => [lng, lat], { width: 100, height: 100 });
-  assert.equal(fills.length, 2);
-  assert.match(fills[0], /^rgba\(/);
-  assert.match(fills[1], /^#[0-9a-f]{6}$/i);
+    namedAreas: [{ name: "District", geometry: polygon }],
+    layers: { route: false, labels: false },
+  }, (lng, lat) => [lng, lat], { width: 100, height: 100, northArrow: false });
+  assert.deepEqual(backgrounds, ["#f7f4ec"]);
+  assert.deepEqual(fills, ["#f7f4ec", "#b7d2db", "#b7d2db", "#b7d2db"]);
+  assert.equal(outlines, 1, "district location survives as an outline only");
 });
 
 test("exported schematic and route-only references retain every vertex, tight turn and gap", () => {

@@ -738,7 +738,7 @@ export function formatDate(iso: string) {
 async function dismissPosterJob(id: string) {
   await readJson(await apiFetch(`/api/poster/jobs/${encodeURIComponent(id)}`, { method: "DELETE" }));
 }
-async function retryPosterJob(id: string) {
+export async function retryPosterJob(id: string) {
   const { jobs } = await readJson<{ jobs: ServerGenerationJob[] }>(await apiFetch(`/api/poster/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" }));
   mergeServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
 }
@@ -747,6 +747,7 @@ export async function submitPosterBatch(body: { submissionId: string; jobs: { pl
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   }));
   mergeServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
+  return jobs;
 }
 export function pollPosterJobs(onError: (error: unknown) => void) {
   let stopped = false;

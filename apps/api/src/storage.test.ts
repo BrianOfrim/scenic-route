@@ -81,3 +81,26 @@ test("R2 account purge paginates, batches deletes, and rejects partial deletion 
   await assert.rejects(store.removeUser("user-a"), /Could not delete all/);
   await assert.rejects(store.removeUser("../user-b"), /invalid user id/);
 });
+
+test("R2 legacy checks list only the root and still detect leftovers on later pages", async t => {
+  const { S3Client, ListObjectsV2Command } = await import("@aws-sdk/client-s3");
+  const { createR2Store } = await import("./storage");
+  const tokens: Array<string | undefined> = [];
+  let legacy = true;
+  t.mock.method(S3Client.prototype, "send", async (command: any) => {
+    assert.ok(command instanceof ListObjectsV2Command);
+    assert.equal(command.input.Delimiter, "/");
+    assert.equal(command.input.Prefix, "posters/");
+    tokens.push(command.input.ContinuationToken);
+    if (!command.input.ContinuationToken) return {
+      CommonPrefixes: [{ Prefix: "posters/user-with-many-images/" }],
+      Contents: [{ Key: "posters/legacy.png" }], IsTruncated: true, NextContinuationToken: "page2",
+    };
+    return { Contents: legacy ? [{ Key: "posters/legacy.json" }] : [], IsTruncated: false };
+  });
+  const store = createR2Store({ bucket: "test", endpoint: "https://test.example", accessKeyId: "test", secretAccessKey: "test" });
+  assert.equal(await store.hasUnscopedPosters(), true);
+  legacy = false;
+  assert.equal(await store.hasUnscopedPosters(), false);
+  assert.deepEqual(tokens, [undefined, "page2", undefined, "page2"]);
+});
