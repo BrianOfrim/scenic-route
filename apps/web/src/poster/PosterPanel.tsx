@@ -142,9 +142,9 @@ const EMPTY_WAYS: NamedWay[] = [];
 const EMPTY_AREAS: NamedArea[] = [];
 
 const SCHEMATIC_LEGEND =
-  "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; blue = water; green = forest; teal = wetlands; pale green = open vegetation; sand = beaches; grey-brown fill = rock; pale blue = glaciers; blue shoreline = coastline; brown lines = cliffs; ochre wash + letter = named district, private region index, copy the footprint not the ochre or letter; numbered discs = private location index, do not copy";
+  "red = unnamed GPS track; colored route stretches = named trails, private color index, do not copy onto the poster; grey = roads; neutral land fill and blue water fill show land/water geometry only, not terrain categories or poster colors; blue shoreline = coastline; brown lines = cliffs; dashed outline + letter = named district, private region index, use for label placement without a distinct area fill; numbered discs = private location index, do not copy; use satellite imagery for terrain patterns";
 
-const GEOGRAPHY_LEGEND = "red = GPS track; grey = roads; blue = water; green = forest/parks; teal = wetlands; pale green = open vegetation; sand = beaches; grey-brown fill = rock; pale blue = glaciers; blue shoreline = coastline; brown lines = cliffs";
+const GEOGRAPHY_LEGEND = "red = GPS track; grey = roads; neutral land fill and blue water fill show land/water geometry only, not terrain categories or poster colors; blue shoreline = coastline; brown lines = cliffs; use satellite imagery for terrain patterns";
 
 const ROUTE_ONLY_LEGEND = "red = GPS track";
 

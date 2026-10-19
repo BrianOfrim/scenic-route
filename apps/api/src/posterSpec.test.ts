@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { EXPLICIT_TEXT_RULE, initialImagePrompt, specToImagePrompt, titleFontSizePx, TITLE_CAP_WIDTH_RATIO, validatePosterSpec } from "./posterSpec";
+import { EXPLICIT_TEXT_RULE, initialImagePrompt, TERRAIN_REFERENCE_RULE, specToImagePrompt, titleFontSizePx, TITLE_CAP_WIDTH_RATIO, validatePosterSpec } from "./posterSpec";
 
 const sample = {
   style: {
@@ -294,8 +294,8 @@ test("specToImagePrompt appends explicit exclusions once", () => {
   assert.match(prompt, /no different route than the GPS track on the schematic/);
   assert.match(prompt, /no color-to-name legend or trail color key/);
   assert.match(prompt, /no schematic route colors on the finished path/);
-  assert.match(prompt, /no schematic ochre or brown wash color on named regions/);
-  assert.match(prompt, /no named region drawn away from its lettered wash/);
+  assert.match(prompt, /no schematic category-based fills on named regions/);
+  assert.match(prompt, /no named region label drawn away from its lettered outline/);
   assert.match(prompt, /no multi-colored GPS track copied from the schematic/);
   assert.match(prompt, /no smoothed, straightened, shortcut, or invented path/);
   assert.match(prompt, /no labels or landmark illustrations covering, breaking, or replacing the route/);
@@ -362,7 +362,7 @@ test("specToImagePrompt scrubs leftover teal-stretch copy", () => {
   assert.match(prompt, /Title at the top/);
 });
 
-test("specToImagePrompt tells the model named regions are washes not pins", () => {
+test("specToImagePrompt tells the model named regions are outlines without category-based fills", () => {
   const prompt = specToImagePrompt(
     validatePosterSpec({
       ...sample,
@@ -382,13 +382,13 @@ test("specToImagePrompt tells the model named regions are washes not pins", () =
   assert.match(prompt, /CRITICAL region fidelity/);
   assert.match(prompt, /exact footprint/);
   assert.match(prompt, /same place, same extent/);
-  assert.match(prompt, /discard both the letter and the ochre/);
-  assert.match(prompt, /Paint parks and green space green/);
-  assert.match(prompt, /Never copy the schematic's brown or ochre wash/);
+  assert.match(prompt, /Discard them after positioning the name/);
+  assert.match(prompt, /Do not assign a distinct fill based on district or land-use category/);
+  assert.ok(prompt.includes(TERRAIN_REFERENCE_RULE));
   assert.match(prompt, /A = Old Strathcona/);
   assert.match(prompt, /do not draw the letter/i);
-  assert.match(prompt, /paint for what it is, not schematic ochre/);
-  assert.match(prompt, /do not paint campuses or neighbourhoods brown/);
+  assert.match(prompt, /use visible terrain, not category-based fills/);
+  assert.doesNotMatch(prompt, /Parks stay green|Paint parks and green space green/);
   assert.doesNotMatch(prompt, /[{}\[\]]/);
 });
 
@@ -507,5 +507,13 @@ test("all prompt paths restrict printed text even when style conventions request
     assert.ok(prompt.includes(EXPLICIT_TEXT_RULE));
     assert.match(prompt, /Use the supplied wording verbatim/);
     assert.match(prompt, /constraints override all theme/);
+  }
+});
+
+test("initial and legacy prompts defer terrain appearance to satellite rather than schematic fills", () => {
+  const spec = validatePosterSpec(sample);
+  for (const prompt of [initialImagePrompt(spec), specToImagePrompt(spec)]) {
+    assert.ok(prompt.includes(TERRAIN_REFERENCE_RULE));
+    assert.doesNotMatch(prompt, /Parks stay green|Paint parks and green space green/);
   }
 });

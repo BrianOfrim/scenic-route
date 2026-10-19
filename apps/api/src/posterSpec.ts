@@ -42,7 +42,7 @@ export type PosterSpecGeography = {
   treatment: string;
   /** Schematic index color only. Never a poster paint instruction. */
   color?: string;
-  /** Schematic wash letter only. Never a poster paint instruction. */
+  /** Schematic region letter only. Never a poster paint instruction. */
   letter?: string;
 };
 
@@ -182,9 +182,9 @@ export const PROMPT_EXCLUSIONS = [
   "no number-to-name legend or index",
   "no color-to-name legend or trail color key",
   "no letter-to-name region key",
-  "no A/B/C wash letters on the finished poster",
-  "no schematic ochre or brown wash color on named regions",
-  "no named region drawn away from its lettered wash",
+  "no A/B/C region letters on the finished poster",
+  "no schematic category-based fills on named regions",
+  "no named region label drawn away from its lettered outline",
   "no schematic route colors on the finished path",
   "no multi-colored GPS track copied from the schematic",
   "no numbered landmark discs, pin numbers, or numbered callouts",
@@ -218,7 +218,7 @@ export const ROUTE_TRACE_RULE =
   "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and landmarks. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Do not snap the path onto a nearby road unless the schematic already shows that. Colored stretches on the schematic are a private name index only: look up the trail name, then discard the color. Paint the whole path as one styled route of even thickness. Route visibility is non-negotiable: it is the primary visual mark and must maintain strong contrast with its immediate background along every segment. Choose its palette color, weight, and surrounding map detail so the complete route is instantly readable; never let water, terrain, roads, textures, or labels make it fade into the background. Title-block safety is non-negotiable: place the title only in unused negative space, never on, over, through, or beyond the route. Do not crop, hide, fade, cut off, or replace any route segment for title text or its panel; if space is tight, move the title block into unused space or its own band instead of shrinking a supplied title or covering the route. Do not copy the schematic's red or named-trail colors, and do not draw a colored stretch thinner or fainter than the rest. Never interrupt the line for a label, icon, or decoration: the route stays continuous and unoccluded; landmarks annotate it, they do not replace it. A prettier wrong path is a failed poster. North is up.";
 
 export const UNANNOTATED_MAP_TRACE_RULE =
-  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and land cover. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Paint the whole path as one styled route of even thickness. Route visibility is non-negotiable: it is the primary visual mark and must maintain strong contrast with its immediate background along every segment. Choose its palette color, weight, and surrounding map detail so the complete route is instantly readable; never let water, terrain, roads, textures, or labels make it fade into the background. Title-block safety is non-negotiable: place the title only in unused negative space, never on, over, through, or beyond the route. Do not crop, hide, fade, cut off, or replace any route segment for title text or its panel; if space is tight, move the title block into unused space or its own band instead of shrinking a supplied title or covering the route. Never interrupt the line for a label, icon, or decoration. Render the visible roads, water, parks, and land-cover shapes from the schematic as a rich unlabeled background map. A prettier wrong path is a failed poster. North is up.";
+  "CRITICAL route fidelity: the GPS track on the schematic is exact. Trace that line exactly — every bend, switchback, out-and-back, spur, and crossing — in the same place relative to water, roads, and land cover. Do not smooth, straighten, simplify, shortcut, or close gaps. Do not omit any segment. Do not invent any segment. Paint the whole path as one styled route of even thickness. Route visibility is non-negotiable: it is the primary visual mark and must maintain strong contrast with its immediate background along every segment. Choose its palette color, weight, and surrounding map detail so the complete route is instantly readable; never let water, terrain, roads, textures, or labels make it fade into the background. Title-block safety is non-negotiable: place the title only in unused negative space, never on, over, through, or beyond the route. Do not crop, hide, fade, cut off, or replace any route segment for title text or its panel; if space is tight, move the title block into unused space or its own band instead of shrinking a supplied title or covering the route. Never interrupt the line for a label, icon, or decoration. Render the schematic roads and land/water geometry as an unlabeled background map; use satellite imagery when supplied for visible terrain patterns. A prettier wrong path is a failed poster. North is up.";
 
 /**
  * Floor for a title that is still readable when the whole poster image is
@@ -395,6 +395,9 @@ function scrubIndexLanguage(text: string) {
     .trim();
 }
 
+export const TERRAIN_REFERENCE_RULE =
+  "The schematic uses one neutral land fill and one water fill to show geometry only; these are not poster colors or terrain categories. Use satellite imagery, when supplied, as the primary reference for visible vegetation, clearings, fields, built areas, and terrain boundaries, translated into the chosen style and palette. Similar-looking terrain should receive similar treatment across park, residential, campus, and district boundaries. Do not give a named or administrative area a distinct fill merely because of its category or schematic outline. Black satellite margins are empty, not terrain.";
+
 export const SINGLE_ROUTE_RULE =
   "All reference images depict the same single GPS route in the same geographic frame. They are complementary views of one route, not separate routes to reproduce. Draw that route exactly once on one unified map. Do not draw one route per reference image, duplicate or offset copies of the track, separate maps, inset maps, or multiple panels. Reference names such as route-only, schematic, and satellite describe the inputs only; do not print those names or reference-image headings on the poster. Preserve the route's actual parallel segments, crossings, out-and-backs, and gaps; those are parts of the one route, not duplicate routes.";
 
@@ -443,7 +446,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
   sections.push(routeOnly ? UNANNOTATED_MAP_TRACE_RULE : ROUTE_TRACE_RULE);
   if (routeOnly) {
     sections.push(
-      "Use the schematic's roads, water, parks, and land cover as an unlabeled background map. Do not add place names, landmark icons, trail labels, or district labels.",
+      "Use the schematic's roads and land/water geometry, with terrain patterns from satellite imagery when supplied, as an unlabeled background map. Do not add place names, landmark icons, trail labels, or district labels.",
     );
   }
 
@@ -495,7 +498,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
     .filter(Boolean);
   if (geography.length) {
     const regionNote = spec.geography.some(isNamedRegion)
-      ? " CRITICAL region fidelity: each lettered wash on the schematic is the exact footprint of that named district. Draw and write the name across that same area — same place, same extent. Do not drift, slide, shrink, or invent a different region. The ochre is a private index only: look up the letter, then discard both the letter and the ochre. Paint parks and green space green; paint campuses, neighbourhoods, and other districts in the poster palette. Never copy the schematic's brown or ochre wash. Do not draw the letters, a pin, a building icon, or a key."
+      ? " CRITICAL region fidelity: each lettered outline on the schematic is the exact footprint of that named district. Draw and write the name across that same area — same place, same extent. Do not drift, slide, shrink, or invent a different region. The outline and letter are a private location index only. Discard them after positioning the name. Do not assign a distinct fill based on district or land-use category; use visible terrain and the poster palette. Do not draw the letters, a pin, a building icon, or a key."
       : "";
     const trailKey = trailColorKey(spec.geography);
     const regionKey = regionLetterKey(spec.geography);
@@ -551,6 +554,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
   sections.push(
     paragraph([
       images.length ? `Reference images: ${images.join("; ")}.` : "",
+      TERRAIN_REFERENCE_RULE,
       routeOnly
         ? "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and land cover; north is up. Paint that path as one styled line. Do not copy the schematic's red."
         : "The schematic is the geographic source of truth. Copy the route shape as a traced original, not an interpretation: same shape, same turns, same position against water, roads, and landmarks; north is up. Paint that path as one styled line. Do not copy the schematic's route colors.",
@@ -564,7 +568,7 @@ export function specToImagePrompt(spec: PosterSpec): string {
         ? "The schematic's numbered discs are scaffolding, not artwork. Copy geography and the exact route from the reference; replace every disc with a small on-route marker plus the written name from the landmark list, kept off the path so the route stays visible and continuous."
         : "",
       spec.geography.some(isNamedRegion)
-        ? "The schematic's lettered washes are scaffolding, not artwork. Copy each district from that wash: same place, same extent, written name from the geography list. Replace the letter; discard the ochre. Parks stay green; do not paint campuses or neighbourhoods brown because the schematic wash is brown."
+        ? "The schematic's lettered outlines are scaffolding, not artwork. Position each district name within that same footprint, using the geography list. Discard the outline and letter; do not give the district a separate category-based fill."
         : "",
       groundingRules.length ? `${groundingRules.map(sentence).join(" ")}` : "",
     ]),
@@ -628,7 +632,7 @@ function posterTrailTreatment() {
 }
 
 function posterRegionTreatment() {
-  return "write the name across that same lettered wash; paint for what it is, not schematic ochre; do not draw the letter";
+  return "write the name across that same lettered outline; use visible terrain, not category-based fills; do not draw the letter";
 }
 
 function regionLetterKey(items: PosterSpecGeography[]) {
@@ -641,7 +645,7 @@ function regionLetterKey(items: PosterSpecGeography[]) {
     })
     .filter(Boolean);
   if (!map.length) return "";
-  return ` Letters in the ochre washes are a private region index, like the numbered discs. The wash is the exact area to label — do not move it. Look up each letter, write that name across that same wash, then discard the letter and the ochre color. Do not draw the letters or a key. Do not copy the schematic's brown wash. Parks stay green; other districts use the poster palette. ${map.join("; ")}.`;
+  return ` Letters within dashed outlines are a private region index, like the numbered discs. The outline is the exact area to label — do not move it. Look up each letter, write that name across that same area, then discard the letter and outline. Do not draw the letters or a key. Do not assign category-based fills; use visible terrain and the poster palette. ${map.join("; ")}.`;
 }
 
 function isColoredTrail(item: PosterSpecGeography) {
@@ -725,7 +729,7 @@ function fallbackPrompt(spec: PosterSpec): string {
     landmarks
       ? `Landmarks: ${landmarks}. A small marker may sit on the route at each index location; write each name and any icon beside the path so they occlude it as little as possible. Do not draw the numbers or a legend.`
       : isRouteOnlyPoster(spec)
-        ? "Render the schematic's roads, water, parks, and land cover as an unlabeled background map."
+        ? "Render the schematic's roads and land/water geometry, with terrain patterns from satellite imagery when supplied, as an unlabeled background map."
         : "",
     posterHasTitle(spec.text.title)
       ? `Title exactly "${t(spec.text.title)}". ${TITLE_PHONE_RULE}`
@@ -769,8 +773,9 @@ function unannotatedImagePrompt(spec: PosterSpec, template = false): string {
     EXPLICIT_TEXT_RULE,
     template ? "Geometry and exact-text constraints take priority over any conflicting style conventions. Apply the style without simplifying, omitting, moving, or inventing geographic features. Do not copy reference scaffolding colors or symbols as design choices." : "",
     references.join(" "),
+    TERRAIN_REFERENCE_RULE,
     `${routeReference ? `Image ${routeReference.index} defines the exact route geometry and endpoints; the schematic locates them within the geography.` : "The schematic defines the exact GPS route, endpoint positions and geographic layout."} Preserve every segment, bend, crossing, out-and-back and gap, in the same position relative to the geography. Do not smooth, straighten, shortcut, add connections, or snap onto nearby roads. Background roads, bridges and shorelines must never become route segments. Title place names are display text only; use the supplied geometry throughout generation and refinement.`,
-    hasSatellite ? "The satellite shows the same frame and supplies land-cover context. Its red overlay depicts the same GPS path. Black margins, if present, are empty. Keep the output stylized." : "",
+    hasSatellite ? "The satellite shows the same frame and defines visible terrain patterns. Its red overlay depicts the same GPS path. Black margins, if present, are empty. Keep the output stylized." : "",
     template
       ? "The route is the primary graphic mark and must be immediately obvious when the complete poster is viewed on a phone. Choose one palette ink for maximum route contrast first, then choose all surrounding fills and linework to support it. Draw the route as one bold stroke of uniform weight, visibly thicker and higher-contrast than every background road, highway, shoreline, water hatch, and decorative outline. Use pale, subdued inks or tints for background linework; never let it compete with the route. Do not use a faint or low-contrast route to make room for a dark background map. Preserve segment breaks and close parallel segments. Keep the complete route clear of labels, decoration and texture."
       : `Draw the route in ${spec.route.color}, with uniform weight and strong contrast against every adjacent surface. Keep background linework thinner and subdued; it must not share the route's combination of color and weight. Preserve segment breaks. Keep the complete route clear of labels, decoration and texture.`,
