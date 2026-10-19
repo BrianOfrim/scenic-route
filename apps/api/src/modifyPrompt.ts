@@ -1,4 +1,4 @@
-import { SINGLE_ROUTE_RULE, TITLE_BLOCK_LAYOUT_RULE } from "./posterSpec";
+import { SINGLE_ROUTE_RULE, TERRAIN_REFERENCE_RULE, TITLE_BLOCK_LAYOUT_RULE } from "./posterSpec";
 
 /** Image 1 is artwork; all later images are grounding, never additional posters. */
 export const MODIFY_SOURCE_RULE =
@@ -48,6 +48,7 @@ export function buildModifyPrompt(input: {
     input.grounding.map((image, index) => `Image ${index + (input.annotated ? 3 : 2)}: ${image.role}.`).join("\n"),
     "Preserve the exact GPS route geometry, every segment, bend, crossing, out-and-back and gap, and its position relative to the geography. Do not add, omit, straighten or move route segments or geographic features. Keep the route continuous, unobscured and clearly contrasted against its background. Preserve north-up orientation. Do not invent place names.",
     "Keep the existing title, other text, landmarks, palette and style unless the requested change explicitly changes them. Do not print the edit instructions or reference-image headings.",
+    "For terrain affected by the requested change: " + TERRAIN_REFERENCE_RULE,
     TITLE_BLOCK_LAYOUT_RULE,
     "If the current poster has a title, keep it large and readable when the whole poster is viewed on a phone, with font size at least 8% of poster width, unless the request changes its size or removes it. If it has no title, do not add one unless requested.",
     `Requested change (apply to Image 1):\n${request}`,

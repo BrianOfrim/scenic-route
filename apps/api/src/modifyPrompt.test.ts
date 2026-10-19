@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { TERRAIN_REFERENCE_RULE } from "./posterSpec";
 import { buildModifyPrompt, buildVariantPrompt, posterDesignHistory, MODIFY_SOURCE_RULE } from "./modifyPrompt";
 
 const request = "Make the title larger and warm the paper.";
@@ -20,6 +21,7 @@ test("direct editing preserves the source and geometry and passes the request un
   assert.match(prompt, /Image 2: route-only/);
   assert.match(prompt, /Image 3: schematic/);
   assert.match(prompt, /Image 4: satellite/);
+  assert.ok(prompt.includes("For terrain affected by the requested change: " + TERRAIN_REFERENCE_RULE));
   assert.match(prompt, /Do not add, omit, straighten or move route segments/);
   assert.match(prompt, /Do not invent place names/);
   assert.match(prompt, /8% of poster width/);
