@@ -1,4 +1,5 @@
-FROM node:22-bookworm-slim
+# Includes the October 2026 Node.js security fixes.
+FROM node:22.23.4-bookworm-slim
 
 WORKDIR /app
 
