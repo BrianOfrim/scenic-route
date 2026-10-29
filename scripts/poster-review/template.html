@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Poster review · Scenic Route</title>
+    <style>
+      :root{font:15px/1.5 system-ui,sans-serif;color:#23312d;background:#f5f4ef;--ink:#23312d;--muted:#62716a;--line:#d4dcd5;--green:#176449;--paper:#fffefa}*{box-sizing:border-box}body{margin:0}button,select,textarea{font:inherit}button{cursor:pointer}button:disabled{cursor:default;opacity:.5}button:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #b76d20;outline-offset:3px}button{border:1px solid var(--line);border-radius:6px;padding:9px 14px;background:var(--paper);color:var(--ink)}button.primary{background:var(--green);border-color:var(--green);color:white}button[aria-pressed=true]{background:var(--green);border-color:var(--green);color:white}.fail[aria-pressed=true]{background:#a2372c;border-color:#a2372c}header{border-bottom:1px solid var(--line);padding:20px 28px;background:var(--paper)}.brand{font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);font-weight:700}h1{font-size:24px;margin:5px 0}h2{font-size:18px;margin:0 0 12px}h3{font-size:15px;margin:0}.intro{margin:4px 0;color:var(--muted);max-width:850px}.toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px}.toolbar .spacer{flex:1}.small{font-size:12px;color:var(--muted)}#save-status{display:block;margin:10px 0 0;min-height:18px}.error{color:#9b3329!important}main{padding:24px 28px;max-width:1600px;margin:auto}.case-nav{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px}.case-nav select{max-width:100%;min-width:220px;padding:10px;background:var(--paper);border:1px solid var(--line);border-radius:5px}.case-nav .position{margin-left:auto;font-size:13px;color:var(--muted)}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:26px}.comparison-images{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}figure{margin:0;min-width:0}.caption{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:42px;margin:0 0 8px;font-size:13px;font-weight:600}.image-button{display:block;width:100%;padding:0;border:1px solid var(--line);border-radius:0;background:#fff;cursor:zoom-in}.image-button img{display:block;max-height:65vh;min-height:200px;width:100%;object-fit:contain}.tabs{display:flex;gap:5px;flex-wrap:wrap;margin:12px 0}.tabs button{font-size:12px;padding:6px 9px}.image-hint{font-size:12px;color:var(--muted);margin:8px 0}.score-panel{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:20px;height:max-content}.criterion{padding:15px 0;border-top:1px solid var(--line)}.criterion p{font-size:12px;color:var(--muted);margin:5px 0 10px}.choices{display:flex;gap:8px}.choices button{flex:1}.criterion .status{font-size:11px;color:var(--muted);float:right}.notes{display:block;font-size:13px;margin:10px 0 6px}textarea{width:100%;padding:9px;border:1px solid var(--line);border-radius:5px;resize:vertical;min-height:76px;background:var(--paper)}.bottom-nav{display:flex;justify-content:space-between;gap:12px;margin-top:18px}.brief{margin-top:18px;background:var(--paper);border:1px solid var(--line);padding:15px 18px;border-radius:6px}.brief summary{font-weight:600;cursor:pointer}.brief p{font-size:13px;white-space:pre-wrap}.brief dl{font-size:13px;display:grid;grid-template-columns:90px 1fr;gap:6px}.brief dt{color:var(--muted)}.brief dd{margin:0;white-space:pre-wrap}.callout{padding:14px 0;color:var(--muted);font-size:13px}.progress-track{width:140px;height:5px;background:#e4e9e4;border-radius:5px;overflow:hidden}.progress-fill{height:100%;background:var(--green);width:0}.view-switch{display:flex;gap:10px;margin:20px 0}#results[hidden],#review[hidden]{display:none}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin:20px 0 25px}.metric{border-top:3px solid var(--green);padding:12px 0}.metric strong{font-size:24px;display:block}.metric span{font-size:12px;color:var(--muted)}.result-case{border-top:1px solid var(--line);padding:20px 0}.result-case h3{margin-bottom:10px}.result-row{display:grid;grid-template-columns:1.2fr 1fr 1fr 1.3fr;gap:12px;padding:8px 0;font-size:13px}.row-head{font-size:11px;text-transform:uppercase;color:var(--muted)}.disagree{color:#a2372c;font-weight:600}.agree{color:var(--green)}.evidence{font-size:13px;margin:8px 0 14px}.evidence summary{cursor:pointer}.evidence p{margin:8px 0;white-space:pre-wrap}.criterion-summary{font-size:13px;margin:5px 0}.empty-note{color:var(--muted)}dialog{width:min(1400px,96vw);max-height:96vh;border:1px solid var(--line);padding:15px;background:var(--paper)}dialog::backdrop{background:#17251de0}.dialog-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;position:sticky;top:-15px;background:var(--paper);padding:6px 0 12px;z-index:1}.zoom-frame{overflow:auto;max-height:78vh}.zoom-frame img{display:block;width:100%;height:auto}.zoom-frame.actual img{width:auto;max-width:none}.dialog-toolbar span{font-size:13px}.actions{display:flex;gap:8px}.legend{font-size:12px;color:var(--muted)}[hidden]{display:none!important}
+      @media(max-width:1000px){.workspace{grid-template-columns:1fr}.score-panel{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}.score-panel>h2,.score-panel>.panel-intro,.score-panel>.notes,.score-panel>textarea,.score-panel>.bottom-nav{grid-column:1/-1}.image-button img{max-height:55vh}.metrics{grid-template-columns:repeat(2,1fr)}}
+      @media(max-width:560px){header{padding:18px}main{padding:18px}.toolbar{gap:9px}.toolbar button{font-size:12px}.score-panel{padding:16px;display:block}.case-nav select{width:100%}.case-nav .position{margin-left:0}.comparison-images{gap:8px}.image-button img{min-height:0}.caption{font-size:12px}.result-row{font-size:11px;gap:6px}.metric strong{font-size:22px}}
+      .failure-filters{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}.failure-filters label{font-size:12px;color:var(--muted)}.failure-filters select{display:block;padding:8px;border:1px solid var(--line);background:var(--paper);max-width:100%}.failure-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:24px}.failure-queue{max-height:76vh;overflow:auto;display:flex;flex-direction:column;gap:8px}.failure-queue button{text-align:left;font-size:12px}.failure-queue button strong,.failure-queue button span{display:block}.failure-queue button.selected{border:2px solid var(--green);background:#e8f0e9}.failure-workspace{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:20px}.feedback-panel{padding:18px;background:var(--paper);border:1px solid var(--line);border-radius:8px;height:max-content}.feedback-panel label{display:block;font-size:12px;margin:14px 0 6px}.feedback-panel select{width:100%;padding:8px;background:white;border:1px solid var(--line)}.feedback-panel .evidence{border-top:1px solid var(--line);padding-top:12px}.verdicts{display:flex;gap:10px;margin:12px 0}.verdicts div{padding:8px 12px;background:#f2eee5;flex:1;font-size:12px}.verdicts strong{display:block;font-size:18px}.failure-guide{margin:20px 0;padding:16px 20px;background:#eaf0e9;border-radius:6px}.failure-guide p{font-size:13px;max-width:1050px}.failure-title{margin-bottom:12px}.failure-workspace .comparison-images img{max-height:64vh}.feedback-panel textarea{font-size:13px}.feedback-panel .bottom-nav{flex-wrap:wrap}#feedback-status{min-height:20px}.failure-reference{font-size:12px}
+      @media(max-width:1250px){.failure-layout{grid-template-columns:190px minmax(0,1fr)}.failure-workspace{grid-template-columns:1fr}.failure-queue{max-height:60vh}}@media(max-width:900px){.failure-layout{grid-template-columns:1fr}.failure-queue{max-height:180px}.failure-filters select{max-width:90vw}}
+      .original-notes{margin:16px 0;padding:12px;background:#edf2e9;border-left:3px solid var(--green);border-radius:4px}.original-notes p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;margin:8px 0 0}
+      .summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.summary-panel{padding:20px;background:var(--paper);border:1px solid var(--line);border-radius:8px;margin-bottom:20px}.summary-grid .summary-panel{margin-bottom:0}.summary-bar{display:flex;height:16px;overflow:hidden;background:#e3e6e0;border-radius:4px;margin:8px 0}.kept{background:#176449}.corrected{background:#bb7e32}.pending{background:#a4aaa5}.summary-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-left:8px}.summary-rule{padding:10px 0;border-bottom:1px solid var(--line);font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}.summary-case{padding:18px;border:1px solid var(--line);background:var(--paper);border-radius:8px}.summary-case p{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}.summary-case .summary-tag{display:inline-block;padding:4px 8px;border-radius:4px;font-size:12px;background:#e7efe7;margin:10px 0}.summary-case .original-notes{font-size:13px}.summary-reason{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:10px 0;font-size:13px}.failure-filters>select{padding:8px;background:var(--paper);border:1px solid var(--line)}@media(max-width:850px){.summary-grid{grid-template-columns:1fr}}
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">Scenic Route / Evaluation lab</div>
+      <h1>How does the poster hold up?</h1>
+      <p class="intro">
+        Review posters against their references and brief. Compare your
+        completed assessments with the model at any time.
+      </p>
+      <div class="toolbar">
+        <span id="progress-label">Loading review…</span>
+        <div class="progress-track" aria-hidden="true">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <span class="spacer"></span
+        ><button id="export" disabled>Export ratings</button
+        ><button id="import" disabled>Import ratings</button
+        ><input
+          id="import-file"
+          type="file"
+          accept="application/json,.json"
+          hidden
+        /><button class="primary" id="finish" disabled>
+          Finish &amp; compare
+        </button>
+      </div>
+      <span id="save-status" role="status" aria-live="polite"
+        >Loading saved ratings…</span
+      >
+      <p class="small" id="rubric-note"></p>
+    </header>
+    <main>
+      <div class="view-switch" id="view-switch" hidden>
+        <button id="show-review">Continue reviewing</button
+        ><button id="show-results">View comparison</button
+        ><button class="primary" id="show-failures">Review disagreements</button
+        ><button id="show-review-summary">Review summary</button>
+      </div>
+      <section id="review">
+        <div class="case-nav">
+          <label for="case-select">Poster</label
+          ><select id="case-select" disabled></select
+          ><span class="position" id="case-position"></span>
+        </div>
+        <div class="workspace">
+          <div>
+            <div class="comparison-images">
+              <figure>
+                <div class="caption">
+                  Generated poster <span class="small">Click to enlarge</span>
+                </div>
+                <button
+                  class="image-button"
+                  id="candidate-zoom"
+                  aria-label="Enlarge generated poster"
+                >
+                  <img id="candidate-image" alt="Generated poster" />
+                </button>
+              </figure>
+              <figure>
+                <div class="caption" id="reference-caption">Reference</div>
+                <button
+                  class="image-button"
+                  id="reference-zoom"
+                  aria-label="Enlarge reference"
+                >
+                  <img id="reference-image" alt="Reference image" />
+                </button>
+                <div
+                  class="tabs"
+                  id="reference-tabs"
+                  aria-label="Reference images"
+                ></div>
+              </figure>
+            </div>
+            <p class="image-hint">
+              Use the reference buttons to switch between schematic, satellite
+              and route-only views when available. Enlarged images support
+              original-size inspection.
+            </p>
+            <details class="brief">
+              <summary>Design brief</summary>
+              <div id="brief-content"></div>
+            </details>
+          </div>
+          <aside class="score-panel">
+            <h2>Your assessment</h2>
+            <p class="panel-intro small" id="panel-intro">
+              The model’s verdicts stay hidden during review. You can change any
+              rating until you finish.
+            </p>
+            <div id="ratings-placeholder" hidden></div>
+            <label class="notes" for="notes"
+              >Notes <span class="small">optional</span></label
+            ><textarea
+              id="notes"
+              maxlength="4000"
+              placeholder="What worked, or what looks wrong?"
+              disabled
+            ></textarea>
+            <div class="bottom-nav">
+              <button id="previous" disabled>Previous</button
+              ><button id="next" disabled>Next poster</button>
+            </div>
+          </aside>
+        </div>
+        <p class="callout" id="completion-hint">
+          All three criteria start at Pass. Override failures and use Save &amp;
+          next to confirm each poster; on the last poster, use Save assessment.
+          Unconfirmed defaults stay out of comparisons. Compare assessed reveals
+          only saved assessments; remaining posters stay editable with judge
+          verdicts hidden.
+        </p>
+      </section>
+      <section id="results" hidden>
+        <h2>Your ratings vs. the judge</h2>
+        <p class="intro" id="result-intro"></p>
+        <div class="metrics" id="metrics"></div>
+        <div id="criterion-summary"></div>
+        <p class="legend">
+          False accept: judge passed, you failed. False reject: judge failed,
+          you passed. Uncertain, not-applicable and errored model responses are
+          counted separately and excluded from binary agreement.
+        </p>
+        <div id="result-details"></div>
+        <p class="callout">
+          This small trial is not a representative accuracy benchmark. You can
+          revise any assessment after reveal. Results use your latest ratings;
+          earlier revisions are preserved in local history. Export the ratings
+          to retain a portable copy.
+        </p>
+      </section>
+      <section id="failures" hidden>
+        <h2>Where you and the judge diverge</h2>
+        <p class="intro" id="failure-summary"></p>
+        <details class="failure-guide">
+          <summary>How to align the judge with your preferences</summary>
+          <p>
+            <strong>1. Adjudicate the disagreement.</strong> Inspect the poster
+            and references, then decide whether your assessment stands, the
+            judge was right, or the case needs another look. Describe the exact
+            visual evidence and your tolerance for stylization.
+          </p>
+          <p>
+            <strong>2. Write a reusable rule.</strong> Explain what should pass
+            or fail on future posters. For example: “Simplified shorelines are
+            acceptable if the inlet positions and relative sizes remain
+            recognizable.” Save paired pass/fail examples near the threshold.
+          </p>
+          <p>
+            <strong>3. Calibrate the prompt, then measure.</strong> Export
+            reviewed feedback to revise the rubric and select examples. Keep
+            agreeing cases as regression checks. Validate the revised judge on
+            new route families; style variants of the same route are closely
+            related. This set is useful for calibration, but cannot establish
+            general accuracy by itself. Freeze the adjudicated labels before
+            comparing prompt versions; changing human labels alone does not
+            improve the judge.
+          </p>
+          <p>
+            Feedback is saved locally. Accepting the judge explicitly updates
+            your rating; the original disagreement remains in this queue and
+            revision history. Exported rules are proposals until incorporated
+            into a new judge prompt.
+          </p>
+        </details>
+        <div class="failure-filters">
+          <label
+            >Criterion<select id="failure-criterion">
+              <option value="all">All criteria</option>
+              <option value="route_quality">Route quality</option>
+              <option value="background_geography">Background geography</option>
+              <option value="design">Design quality</option>
+            </select></label
+          ><label
+            >Direction<select id="failure-direction">
+              <option value="all">Both directions</option>
+              <option value="pass">Judge too lenient · passed</option>
+              <option value="fail">Judge too strict · failed</option>
+            </select></label
+          ><label
+            >Review status<select id="failure-status">
+              <option value="all">All disagreements</option>
+              <option value="pending">Needs review</option>
+              <option value="reviewed">Reviewed</option>
+            </select></label
+          ><button id="export-calibration">Export calibration feedback</button>
+        </div>
+        <div class="failure-layout">
+          <nav
+            class="failure-queue"
+            id="failure-queue"
+            aria-label="Disagreement queue"
+          ></nav>
+          <div id="failure-detail">
+            <h3 class="failure-title" id="failure-title"></h3>
+            <div class="failure-workspace">
+              <div>
+                <div class="comparison-images">
+                  <figure>
+                    <div class="caption">
+                      Generated poster
+                      <span class="small">Click to enlarge</span>
+                    </div>
+                    <button
+                      class="image-button"
+                      id="failure-candidate-zoom"
+                      aria-label="Enlarge disagreement poster"
+                    >
+                      <img id="failure-candidate" alt="Poster" />
+                    </button>
+                  </figure>
+                  <figure>
+                    <div class="caption" id="failure-reference-caption">
+                      Schematic reference
+                    </div>
+                    <button
+                      class="image-button"
+                      id="failure-reference-zoom"
+                      aria-label="Enlarge disagreement reference"
+                    >
+                      <img id="failure-reference" alt="Reference" />
+                    </button>
+                    <div class="tabs" id="failure-reference-tabs"></div>
+                  </figure>
+                </div>
+                <details class="brief">
+                  <summary>Design brief</summary>
+                  <div id="failure-brief"></div>
+                </details>
+              </div>
+              <aside class="feedback-panel">
+                <h3 id="failure-criterion-title"></h3>
+                <p class="small" id="failure-rubric"></p>
+                <div class="verdicts">
+                  <div>
+                    Your original rating<strong id="failure-human"></strong>
+                  </div>
+                  <div>Judge<strong id="failure-judge"></strong></div>
+                </div>
+                <p class="small" id="failure-current"></p>
+                <h3>Your rating · edit</h3>
+                <div
+                  class="choices"
+                  role="group"
+                  aria-label="Correct your rating"
+                >
+                  <button
+                    type="button"
+                    class="pass"
+                    id="failure-rating-pass"
+                    aria-label="Your rating: Pass"
+                  >
+                    Pass</button
+                  ><button
+                    type="button"
+                    class="fail"
+                    id="failure-rating-fail"
+                    aria-label="Your rating: Fail"
+                  >
+                    Fail
+                  </button>
+                </div>
+                <p class="small">
+                  Changes save immediately. No explanation required to correct a
+                  mistaken rating.
+                </p>
+                <section
+                  class="original-notes"
+                  aria-labelledby="failure-notes-title"
+                >
+                  <h3 id="failure-notes-title">Your review notes</h3>
+                  <p id="failure-notes"></p>
+                </section>
+                <details class="evidence" open>
+                  <summary>Judge’s reasoning</summary>
+                  <div id="failure-evidence"></div>
+                </details>
+                <form id="feedback-form">
+                  <label for="feedback-decision"
+                    >After inspecting the images</label
+                  ><select id="feedback-decision">
+                    <option value="keep_human">Keep my assessment</option>
+                    <option value="accept_judge">
+                      Accept judge · update my rating
+                    </option>
+                    <option value="unsure">
+                      Unsure · leave pending
+                    </option></select
+                  ><label for="feedback-reason"
+                    >Main source of disagreement</label
+                  ><select id="feedback-reason">
+                    <option value="threshold">Pass / fail threshold</option>
+                    <option value="style">Tolerance for artistic style</option>
+                    <option value="missed_detail">
+                      Missed or misread visual detail
+                    </option>
+                    <option value="geography">Geographic relationship</option>
+                    <option value="other">Other</option></select
+                  ><label for="feedback-rationale"
+                    >Decisive evidence
+                    <span class="small">required to complete</span></label
+                  ><textarea
+                    id="feedback-rationale"
+                    maxlength="4000"
+                    placeholder="Where exactly? What makes this acceptable or unacceptable?"
+                  ></textarea
+                  ><label for="feedback-rule"
+                    >Rule for future posters
+                    <span class="small">optional</span></label
+                  ><textarea
+                    id="feedback-rule"
+                    maxlength="2000"
+                    placeholder="Pass when… / Fail when…"
+                  ></textarea>
+                  <p id="feedback-status" role="status" class="small"></p>
+                  <div class="bottom-nav">
+                    <button type="submit" id="feedback-save">
+                      Save feedback</button
+                    ><button type="button" class="primary" id="feedback-next">
+                      Save &amp; next
+                    </button>
+                  </div>
+                </form>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section id="review-summary" hidden>
+        <div class="brand">Human calibration / Review summary</div>
+        <h2 style="font-size:28px;margin-top:8px">
+          What did the disagreement review tell us?
+        </h2>
+        <p id="summary-intro" class="intro"></p>
+        <div id="summary-metrics" class="metrics"></div>
+        <div class="summary-grid">
+          <section class="summary-panel">
+            <h3>Decisions by criterion</h3>
+            <p class="small">
+              Each segment is one reviewed criterion, not a whole poster.
+            </p>
+            <div id="summary-criteria"></div>
+            <p class="small">
+              <span class="summary-dot kept"></span> Kept your assessment
+              <span class="summary-dot corrected"></span> Corrected your
+              assessment <span class="summary-dot pending"></span> Needs review
+            </p>
+          </section>
+          <section class="summary-panel">
+            <h3>Why the ratings differed</h3>
+            <div id="summary-reasons"></div>
+            <p class="small">
+              These are the reason categories you selected. Each disagreement
+              has one primary reason.
+            </p>
+          </section>
+        </div>
+        <div class="summary-panel">
+          <h3>Current judge agreement</h3>
+          <p id="summary-agreement"></p>
+          <p class="small">
+            The judge has not been changed or re-run since your adjudication.
+            Corrections to human ratings can change agreement without improving
+            the model. Use the adjudicated labels as a fixed target when testing
+            the next prompt.
+          </p>
+        </div>
+        <section class="summary-panel">
+          <h3>Your rules for the next judge prompt</h3>
+          <p class="small">
+            Your saved wording, grouped by criterion. Repeated wording is
+            grouped together; source counts show how many cases support each
+            entry. These rules have not yet been applied to the judge.
+          </p>
+          <div id="summary-rules" class="summary-grid"></div>
+        </section>
+        <div class="failure-filters">
+          <label for="summary-criterion">Criterion</label
+          ><select id="summary-criterion">
+            <option value="all">All criteria</option>
+            <option value="route_quality">Route quality</option>
+            <option value="background_geography">Background geography</option>
+            <option value="design">Design quality</option></select
+          ><label for="summary-decision">Decision</label
+          ><select id="summary-decision">
+            <option value="all">All decisions</option>
+            <option value="keep_human">Kept my assessment</option>
+            <option value="accept_judge">Corrected my assessment</option>
+            <option value="pending">Needs review</option></select
+          ><button id="summary-export">Export calibration feedback</button>
+        </div>
+        <h3 id="summary-detail-heading">All reviewed disagreements</h3>
+        <div id="summary-details" class="summary-grid"></div>
+      </section>
+    </main>
+    <dialog id="image-dialog">
+      <div class="dialog-toolbar">
+        <span id="zoom-title"></span>
+        <div class="actions">
+          <button id="zoom-size">Original size</button
+          ><button id="close-zoom">Close</button>
+        </div>
+      </div>
+      <div class="zoom-frame" id="zoom-frame">
+        <img id="zoom-image" alt="Enlarged image" />
+      </div>
+    </dialog>
+    <script type="application/json" id="dataset">
+      __DATA__
+    </script>
+    <script type="module">
+      __LOGIC__
+    </script>
+  </body>
+</html>
