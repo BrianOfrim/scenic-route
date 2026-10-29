@@ -1,7 +1,7 @@
 import { readImportEvents, type ImportProgress, type ImportStatus } from "./importProgress";
 import type { GeographyScene } from "../../api/src/osm/geographyPolicy";
 import { noteArrivedPosters } from "./gallery/arrivedPosters";
-import { beginGeneration, setServerGenerationJobs, mergeServerGenerationJobs, type ServerGenerationJob } from "./gallery/generationState";
+import { beginGeneration, getGenerationState, setServerGenerationJobs, mergeServerGenerationJobs, type ServerGenerationJob } from "./gallery/generationState";
 import type { FeatureCollection, LineString } from "geojson";
 import { coalesceRequests, shareRecentRequests } from "./inFlight";
 import { loadPosterPages, type PosterPage } from "./gallery/posterPages";
@@ -593,6 +593,7 @@ async function submitSavedPosterJob(kind: "modify" | "variant", body: {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody),
     }));
     mergeServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
+    notifyPosterJobsChanged();
     task.dismiss();
   };
   task.setRetry(submit);
@@ -741,33 +742,76 @@ async function dismissPosterJob(id: string) {
 async function retryPosterJob(id: string) {
   const { jobs } = await readJson<{ jobs: ServerGenerationJob[] }>(await apiFetch(`/api/poster/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" }));
   mergeServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
+  notifyPosterJobsChanged();
 }
 export async function submitPosterBatch(body: { submissionId: string; jobs: { plan: unknown; generate: unknown }[] }) {
   const { jobs } = await readJson<{ jobs: ServerGenerationJob[] }>(await apiFetch("/api/poster/jobs", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   }));
   mergeServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
+  notifyPosterJobsChanged();
 }
+const posterJobListeners = new Set<() => void>();
+let posterJobRevision = 0;
+function notifyPosterJobsChanged() {
+  posterJobRevision++;
+  for (const listener of posterJobListeners) listener();
+}
+
 export function pollPosterJobs(onError: (error: unknown) => void) {
   let stopped = false;
-  let pendingJobIds = new Set<string>();
-  let timer: ReturnType<typeof setTimeout>;
+  let polling = false;
+  let requested = false;
+  let pendingJobIds = new Set(getGenerationState().pending
+    .filter(image => image.id.startsWith("server:")).map(image => image.id.split(":")[1]));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const visible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
+  const clearTimer = () => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; } };
   const poll = async () => {
+    clearTimer();
+    if (stopped || !visible()) return;
+    if (polling) { requested = true; return; }
+    polling = true;
+    requested = false;
+    const revision = posterJobRevision;
     try {
       const { jobs } = await readJson<{ jobs: ServerGenerationJob[] }>(await apiFetch("/api/poster/jobs"));
+      if (stopped || revision !== posterJobRevision) return;
       const nextPending = new Set(jobs.filter(job => job.state === "queued" || job.state === "generating").map(job => job.id));
       // Publish completed images before removing their placeholders.
       if ([...pendingJobIds].some(id => !nextPending.has(id) && !jobs.some(job => job.id === id && job.state === "failed"))) {
         const posters = await fetchPosters();
         if (!stopped) noteArrivedPosters(posters);
       }
-      if (!stopped) {
+      if (!stopped && revision === posterJobRevision) {
         setServerGenerationJobs(jobs, retryPosterJob, dismissPosterJob);
         pendingJobIds = nextPending;
       }
     } catch (error) { if (!stopped) onError(error); }
-    finally { if (!stopped) timer = setTimeout(poll, 3000); }
+    finally {
+      polling = false;
+      if (!stopped && visible() && (requested || pendingJobIds.size)) {
+        timer = setTimeout(poll, requested ? 0 : 3000);
+      }
+    }
   };
+  const wake = () => {
+    // Track submissions before refreshing, even if a very fast job has already finished.
+    for (const image of getGenerationState().pending) {
+      if (image.id.startsWith("server:")) pendingJobIds.add(image.id.split(":")[1]);
+    }
+    void poll();
+  };
+  const visibilityChanged = () => { if (visible()) wake(); else clearTimer(); };
+  posterJobListeners.add(wake);
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", visibilityChanged);
+  if (typeof window !== "undefined") window.addEventListener("focus", wake);
   void poll();
-  return () => { stopped = true; clearTimeout(timer); };
+  return () => {
+    stopped = true;
+    clearTimer();
+    posterJobListeners.delete(wake);
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", visibilityChanged);
+    if (typeof window !== "undefined") window.removeEventListener("focus", wake);
+  };
 }

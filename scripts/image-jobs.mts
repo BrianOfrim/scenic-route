@@ -36,7 +36,13 @@ try {
       count(*) FILTER(WHERE phase='uncertain')::int uncertain FROM image_attempts`);
         const queue = await queryOne("SELECT extract(epoch FROM now()-min(created_at)) oldest_queued_seconds FROM image_jobs WHERE state='queued'");
         const cleanup = await queryOne("SELECT count(*)::int accounts,count(*) FILTER(WHERE error IS NOT NULL)::int failures FROM image_cleanup");
-        console.log(JSON.stringify({ scheduler: await queryOne("SELECT enabled,global_limit FROM image_scheduler WHERE id=1"), states, workers, attempts, queue, cleanup }, null, 2));
+        // Read in-process readiness without refreshing the worker's database heartbeat.
+        let runtime = null;
+        try {
+            const response = await fetch(`http://127.0.0.1:${process.env.PORT || 8790}/api/health`, { signal: AbortSignal.timeout(3000) });
+            if (response.ok) runtime = (await response.json() as any).worker ?? null;
+        } catch { /* Standalone workers and offline local APIs have no HTTP endpoint. */ }
+        console.log(JSON.stringify({ scheduler: await queryOne("SELECT enabled,global_limit FROM image_scheduler WHERE id=1"), states, workers, attempts, queue, cleanup, runtime }, null, 2));
     }
     else if (command === "pause" || command === "resume") {
         await query("UPDATE image_scheduler SET enabled=$1 WHERE id=1", [command === "resume"]);

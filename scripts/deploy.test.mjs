@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { deploy } from './deploy.mjs';
+import { deploy, healthyWorker } from './deploy.mjs';
 
 function fixture({ failAt, enabled = true, dirty = false, queued = false, queuedForever = false, noNewWorker = false } = {}) {
   const calls = [];
@@ -118,4 +118,16 @@ test('previously paused admission stays paused after a successful deploy', async
   await deploy(f.options);
   assert.equal(f.paused(), true);
   assert.ok(!remoteCalls(f).some(c => c.endsWith("'resume'")));
+});
+
+test('sleeping workers are ready based on live process state rather than old database heartbeats', () => {
+  const now = Date.now();
+  const worker = { id: 'machine:1:live', heartbeat_at: new Date(now - 20 * 60_000).toISOString() };
+  const runtime = { id: worker.id, state: 'sleeping', lastSuccessfulTick: worker.heartbeat_at };
+  assert.equal(healthyWorker({ runtime }, worker, now), true);
+  for (const state of ['error', 'starting', 'stopped', 'active']) {
+    assert.equal(healthyWorker({ runtime: { ...runtime, state } }, worker, now), false);
+  }
+  assert.equal(healthyWorker({ runtime: { ...runtime, id: 'other-process' } }, worker, now), false);
+  assert.equal(healthyWorker({ runtime: { ...runtime, lastSuccessfulTick: new Date(now - 32 * 60_000).toISOString() } }, worker, now), false);
 });
