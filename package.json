@@ -5,6 +5,17 @@
     "apps/*"
   ],
   "scripts": {
+    "poster:judge": "node --import tsx scripts/poster-judge.mts",
+    "poster:review": "node --import tsx scripts/poster-review.mts",
+    "poster:rejudge": "node --import tsx scripts/poster-rejudge.mts",
+    "poster:compare": "node --import tsx scripts/poster-judge-comparison.mts",
+    "poster:lab": "node scripts/poster-comparison-server.mjs",
+    "poster:teaching": "node --import tsx scripts/prepare-poster-teaching-set.mts",
+    "poster:prompts": "node --import tsx scripts/poster-prompt-preview.mts",
+    "test:poster-review": "node --test scripts/poster-review/core.test.mjs",
+    "test:poster-judge": "node --import tsx --test scripts/posterJudge.test.mts",
+    "test:poster-annotations": "node --test scripts/poster-annotations/core.test.mjs",
+    "test:poster-evaluation": "node --import tsx --test scripts/posterJudge.test.mts scripts/poster-review/core.test.mjs scripts/poster-annotations/core.test.mjs scripts/posterTools.test.mts",
     "test:geography:live": "node --import tsx scripts/geography-smoke.mts",
     "image:limits": "tsx scripts/set-image-limits.mts",
     "poster:limit": "tsx scripts/set-poster-limit.mts",

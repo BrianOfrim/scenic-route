@@ -189,3 +189,7 @@ The command connects to the database in `.env.local` / `.env` (or the supplied e
 ## Operator runbooks
 
 Routine deployment and rollback: [operations](docs/runbooks/operations.md). Job diagnosis and manual maintenance: [image workers](docs/runbooks/image-workers.md). Database/image backup and isolated restore: [recovery](docs/runbooks/recovery.md). Containment, reporting assessment, and communications: [incident response](docs/runbooks/privacy-incident.md). Historical validation records live in [prelaunch evidence](docs/prelaunch-evidence/operator-runbooks.md); they are not current operational instructions.
+
+## Poster evaluation lab
+
+The [LLM judge and manual evaluation tools](docs/poster-judge.md) compare saved posters with their references, collect human ratings, review disagreements, annotate teaching examples and compare rubric/few-shot experiments. They run separately from the app; generated images, ratings and reports stay outside version control.

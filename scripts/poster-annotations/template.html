@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>Annotate geography · Scenic Route</title
+  ><style>
+    :root{font:15px/1.5 system-ui,sans-serif;color:#23312d;background:#f5f4ef;--green:#176449;--line:#d4dcd5}*{box-sizing:border-box}body{margin:0}header{padding:22px 28px;border-bottom:1px solid var(--line);background:#fffefa}.brand{font-size:11px;letter-spacing:.14em;color:#62716a;text-transform:uppercase}h1{font-size:26px;margin:5px 0}h2{font-size:18px}h3{font-size:15px;margin:0}p{max-width:1000px}.small{font-size:12px;color:#62716a}button,select,textarea{font:inherit}button,select{padding:8px 12px;border:1px solid var(--line);border-radius:5px;background:#fffefa;color:#23312d}button{cursor:pointer}button:disabled{opacity:.5;cursor:default}button[aria-pressed=true],button.primary{background:var(--green);color:white;border-color:var(--green)}button:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #b76d20;outline-offset:3px}a{color:var(--green)}main{padding:24px 28px;max-width:1900px;margin:auto}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0}.toolbar .spacer{flex:1}#poster-select{max-width:100%}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:24px}.images{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}figure{margin:0;min-width:0}figcaption{font-size:13px;font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px}.stage{position:relative;background:white;border:1px solid var(--line);line-height:0}.stage img{display:block;width:100%;height:auto;user-select:none;pointer-events:none}.stage svg{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair;overflow:visible}.stage svg polyline,.stage svg polygon{fill:none;stroke-linejoin:round;stroke-linecap:round;stroke:#c52c15;stroke-width:3;vector-effect:non-scaling-stroke}.stage svg .selected{stroke:#135fc5}.stage svg circle{fill:#135fc5;stroke:white;stroke-width:1;vector-effect:non-scaling-stroke}.stage svg text{font:700 22px system-ui;fill:white;paint-order:stroke;stroke:#6d1c10;stroke-width:5px;stroke-linejoin:round;pointer-events:none}.stage svg .preview{stroke-dasharray:6 4;fill:none}.panel{background:#fffefa;border:1px solid var(--line);border-radius:8px;padding:18px;height:max-content}.panel p{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}textarea{width:100%;min-height:110px;padding:9px;border:1px solid var(--line);border-radius:5px;margin:6px 0;resize:vertical}.issue-list{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}.note{background:#edf2e9;padding:12px;border-left:3px solid var(--green);white-space:pre-wrap}.error{color:#a2372c}.bottom{display:flex;gap:8px;justify-content:space-between;margin-top:18px}.tabs{display:flex;gap:5px;flex-wrap:wrap;margin:10px 0}.tabs button{font-size:12px;padding:6px 10px}.status{min-height:20px}dialog{width:94vw;max-height:96vh;border:1px solid var(--line);background:#fffefa;padding:20px}dialog::backdrop{background:#17251de0}#large-stage{max-width:1100px;margin:auto}#region-state{white-space:pre-wrap}#help{padding:12px 16px;border:1px solid var(--line);background:#fffefa;border-radius:6px;margin-bottom:18px}#help p{font-size:13px}.badge{font-size:12px;background:#edf2e9;padding:4px 8px;border-radius:4px}[hidden]{display:none!important}@media(max-width:1100px){.workspace{grid-template-columns:1fr}.panel{max-width:none}}@media(max-width:600px){header,main{padding:18px}.images{grid-template-columns:1fr}.toolbar button{font-size:12px}}
+  </style>
+  <header>
+    <div class="brand">Scenic Route / Visual teaching examples</div>
+    <h1>Show the geography error</h1>
+    <p id="intro"></p>
+    <a href="report.html">Back to rubric comparison</a>
+    <div class="toolbar">
+      <span id="progress"></span><span class="spacer"></span
+      ><button id="export">Export all annotations</button>
+    </div>
+    <p id="save-status" class="small status" role="status" aria-live="polite">
+      Loading annotations…
+    </p>
+  </header>
+  <main>
+    <div id="help">
+      <strong>Trace matching polylines on the poster and reference.</strong>
+      <p>
+        Choose region A, click points to trace the problem on the poster, then
+        trace a matching A line on the schematic or satellite view. With three
+        or more points, the last point connects to the first automatically.
+        Double-click or use Finish line to save. Explain what differs. For
+        general feedback, set “Comment applies to” to “Full poster”—no drawing
+        is needed. Add B or C for another issue. Coordinates stay aligned with
+        the original images; annotations are saved separately. Nothing is sent
+        to the judge from this page.
+      </p>
+    </div>
+    <div class="toolbar">
+      <label for="poster-select">Poster</label
+      ><select id="poster-select"></select
+      ><span class="badge"
+        >Your geography rating: Fail · Updated judge: Pass</span
+      ><span class="spacer"></span><span id="position" class="small"></span>
+    </div>
+    <div class="workspace">
+      <div>
+        <div class="images">
+          <figure>
+            <figcaption>
+              Generated poster<button id="enlarge-candidate">
+                Enlarge &amp; annotate
+              </button>
+            </figcaption>
+            <div class="stage" id="candidate-stage">
+              <img
+                id="candidate-image"
+                alt="Generated poster"
+                draggable="false"
+              /><svg
+                id="candidate-overlay"
+                aria-label="Place polyline points on the generated poster"
+              ></svg>
+            </div>
+            <button id="download-candidate">
+              Download annotated poster PNG
+            </button>
+          </figure>
+          <figure>
+            <figcaption>
+              <span id="reference-caption">Schematic reference</span
+              ><button id="enlarge-reference">Enlarge &amp; annotate</button>
+            </figcaption>
+            <div class="stage" id="reference-stage">
+              <img id="reference-image" alt="Reference" draggable="false" /><svg
+                id="reference-overlay"
+                aria-label="Place corresponding polyline points on the reference"
+              ></svg>
+            </div>
+            <div id="reference-tabs" class="tabs"></div>
+            <button id="download-reference">
+              Download annotated reference PNG
+            </button>
+          </figure>
+        </div>
+      </div>
+      <aside class="panel">
+        <h2 id="case-title"></h2>
+        <h3>Your original review notes</h3>
+        <p id="original-notes" class="note"></p>
+        <details>
+          <summary>Updated judge’s explanation</summary>
+          <p id="judge-explanation"></p>
+        </details>
+        <h2>Annotations</h2>
+        <div id="issue-list" class="issue-list"></div>
+        <label for="annotation-scope">Comment applies to</label
+        ><select id="annotation-scope" style="width:100%;margin:6px 0">
+          <option value="region">
+            Specific region · draw matching outlines
+          </option>
+          <option value="full_poster">Full poster · no drawing needed</option>
+        </select>
+        <div class="toolbar">
+          <button id="add-region">+ Add region</button
+          ><button id="remove-region">Remove region</button
+          ><button id="undo">Undo</button>
+        </div>
+        <div class="toolbar">
+          <button id="finish-line">Finish line</button
+          ><button id="undo-point">Undo point</button
+          ><button id="cancel-line">Cancel line</button>
+        </div>
+        <p id="drawing-status" class="small" role="status"></p>
+        <p id="region-state" class="small"></p>
+        <label for="explanation" id="explanation-label"
+          >What differs in region A?</label
+        ><textarea
+          id="explanation"
+          maxlength="4000"
+          placeholder="Reference: riverbank and islands. Poster: open water with no opposite bank."
+        ></textarea>
+        <p class="small">
+          Starting another line replaces the selected region’s saved line on
+          that image when finished. Lines on other images are kept.
+        </p>
+        <button id="mark-ready" class="primary">
+          Mark ready as teaching example
+        </button>
+        <p id="ready-status" class="small status" role="status"></p>
+        <div class="bottom">
+          <button id="previous">Previous</button
+          ><button id="next">Next poster</button>
+        </div>
+      </aside>
+    </div>
+  </main>
+  <dialog id="large-dialog">
+    <div class="toolbar">
+      <strong id="large-title"></strong><span class="spacer"></span
+      ><button id="large-finish">Finish line</button
+      ><button id="large-undo-point">Undo point</button
+      ><button id="close-large">Done</button>
+    </div>
+    <p class="small">
+      Click points here; three or more points close automatically. Double-click
+      or Finish line to save. This updates the same annotations as the smaller
+      view.
+    </p>
+    <div class="stage" id="large-stage">
+      <img
+        id="large-image"
+        alt="Enlarged annotation image"
+        draggable="false"
+      /><svg id="large-overlay" aria-label="Draw on the enlarged image"></svg>
+    </div>
+  </dialog>
+  <script type="application/json" id="dataset">
+    __DATA__
+  </script>
+  <script type="module">
+    __CLIENT__
+  </script>
+</html>
