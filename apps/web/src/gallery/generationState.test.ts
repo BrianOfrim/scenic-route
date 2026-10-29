@@ -236,3 +236,95 @@ test("retrying a lost refinement submission retains its deduplication ID and ann
   assert.ok(getGenerationState().pending[0].id.startsWith("server:"));
   setServerGenerationJobs([], async () => {}, async () => {});
 });
+
+test("idle gallery stops polling, submissions and retries wake it, and hidden tabs pause until visible", async t => {
+  const { submitPosterBatch } = await import("../api");
+  const { setServerGenerationJobs } = await import("./generationState");
+  setServerGenerationJobs([], async () => {}, async () => {});
+  const doc = new EventTarget() as EventTarget & { visibilityState: string };
+  doc.visibilityState = "visible";
+  const win = new EventTarget();
+  const oldDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "document", { configurable: true, value: doc });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: win });
+  t.after(() => {
+    if (oldDocument) Object.defineProperty(globalThis, "document", oldDocument);
+    else delete (globalThis as any).document;
+    if (oldWindow) Object.defineProperty(globalThis, "window", oldWindow);
+    else delete (globalThis as any).window;
+  });
+  const timers = new Map<number, () => void>();
+  let timerId = 0;
+  t.mock.method(globalThis, "setTimeout", (cb: () => void) => { timers.set(++timerId, cb); return timerId as any; });
+  t.mock.method(globalThis, "clearTimeout", (id: any) => { timers.delete(id); });
+  let jobs: any[] = [];
+  let polls = 0;
+  t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    if (url === "/api/poster/jobs" && init?.method !== "POST") polls++;
+    else if (url === "/api/poster/jobs" || url.endsWith("/retry")) {
+      jobs = [{ id: "wake-test", state: "queued", title: "Wake test", model: "model", variants: 1, error: null }];
+    } else assert.equal(url, "/api/posters");
+    return Response.json(url === "/api/posters" ? { posters: [] } : { jobs });
+  });
+  const flush = () => new Promise<void>(resolve => setImmediate(resolve));
+  const stop = pollPosterJobs(error => { throw error; });
+  try {
+    await flush();
+    assert.equal(polls, 1);
+    assert.equal(timers.size, 0, "empty gallery must have no poll timer");
+    await submitPosterBatch({ submissionId: "wake", jobs: [] });
+    await flush();
+    assert.equal(polls, 2);
+    assert.equal(timers.size, 1, "submission restarts polling");
+    doc.visibilityState = "hidden";
+    doc.dispatchEvent(new Event("visibilitychange"));
+    assert.equal(timers.size, 0);
+    win.dispatchEvent(new Event("focus"));
+    await flush();
+    assert.equal(polls, 2, "hidden tabs do not poll on focus");
+    doc.visibilityState = "visible";
+    jobs = [{ ...jobs[0], state: "failed", error: "Try again" }];
+    doc.dispatchEvent(new Event("visibilitychange"));
+    await flush();
+    assert.equal(polls, 3);
+    assert.equal(timers.size, 0, "terminal jobs stop polling");
+    await getGenerationState().failed.find(image => image.id === "server:wake-test:0")!.retry();
+    await flush();
+    assert.equal(polls, 4, "retry wakes idle polling");
+    assert.equal(timers.size, 1);
+  } finally { stop(); }
+  assert.equal(timers.size, 0);
+  win.dispatchEvent(new Event("focus"));
+  doc.dispatchEvent(new Event("visibilitychange"));
+  await flush();
+  assert.equal(polls, 4, "unmount removes refresh listeners");
+  setServerGenerationJobs([], async () => {}, async () => {});
+});
+
+test("an idle poll in flight cannot erase a newly submitted job or lose its wakeup", async t => {
+  const { submitPosterBatch } = await import("../api");
+  const { setServerGenerationJobs } = await import("./generationState");
+  setServerGenerationJobs([], async () => {}, async () => {});
+  const stale = deferred<Response>();
+  let polls = 0;
+  let nextPoll: (() => Promise<void>) | undefined;
+  const job = { id: "racing-submission", state: "queued", title: "New job", model: "model", variants: 1, error: null };
+  t.mock.method(globalThis, "setTimeout", (cb: () => Promise<void>) => { nextPoll = cb; return 0 as any; });
+  t.mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+    if (init?.method === "POST") return Response.json({ jobs: [job] });
+    return polls++ === 0 ? stale.promise : Response.json({ jobs: [job] });
+  });
+  const stop = pollPosterJobs(error => { throw error; });
+  try {
+    await submitPosterBatch({ submissionId: "race", jobs: [] });
+    stale.resolve(Response.json({ jobs: [] }));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.ok(getGenerationState().pending.some(image => image.id === "server:racing-submission:0"));
+    assert.ok(nextPoll, "submission during a request must schedule another refresh");
+    await nextPoll!();
+    assert.equal(polls, 2);
+    assert.ok(getGenerationState().pending.some(image => image.id === "server:racing-submission:0"));
+  } finally { stop(); }
+  setServerGenerationJobs([], async () => {}, async () => {});
+});

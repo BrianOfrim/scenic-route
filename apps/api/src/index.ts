@@ -1,4 +1,4 @@
-import { JobConflictError } from "./durableJobs";
+import { generationWorkerStatus, JobConflictError } from "./durableJobs";
 import { logger } from "./logger";
 import { backfillPosterIndex } from "./publication";
 import { getImageLimits } from "./imageLimits";
@@ -158,7 +158,7 @@ app.delete("/api/account", async c => {
 
 app.get("/api/health", async (c) => {
   await initDb();
-  return c.json({ ok: true });
+  return c.json({ ok: true, worker: generationWorkerStatus() });
 });
 
 app.get("/api/status", async (c) => {

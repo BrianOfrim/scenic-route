@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { createWorkerLoop } from "./workerLoop";
 import { createHash, randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { accountContext, AccountUnavailableError } from "./accountLifecycle";
@@ -11,6 +12,12 @@ import { generatePoster, modifyPoster, variantPoster } from "./poster";
 import { participationStatus, assertParticipation } from "./participation";
 import { RequestQueue, RequestQueueError } from "./requestQueue";
 import { publishAttempt, recoverPublication, cleanupImageStorage } from "./publication";
+const workerWakeups = new Set<() => void>();
+function wakeGenerationWorkers() { for (const wake of workerWakeups) wake(); }
+type WorkerStatus = { id: string; state: "starting" | "active" | "sleeping" | "error" | "stopped"; lastSuccessfulTick: string | null };
+let workerStatus: WorkerStatus | null = null;
+export function generationWorkerStatus() { return workerStatus && { ...workerStatus }; }
+
 export class JobConflictError extends Error {
     status = 409;
 }
@@ -60,7 +67,7 @@ async function submission(userId: string, id: string, fingerprint: string, clien
     return (await query<any>("SELECT * FROM image_jobs WHERE user_id=$1 AND submission_id=$2 ORDER BY queue_sequence", [userId, id], client)).map(publicJob);
 }
 export async function admitJobs(userId: string, id: string, fingerprint: string, prepared: PreparedJob[]) {
-    return withTransaction(async (client) => {
+    const jobs = await withTransaction(async (client) => {
         await scheduler(client);
         const limits = await owner(userId, client);
         const existing = await submission(userId, id, fingerprint, client);
@@ -81,6 +88,9 @@ export async function admitJobs(userId: string, id: string, fingerprint: string,
             await client.query("INSERT INTO image_jobs(id,user_id,submission_id,work,details) VALUES($1,$2,$3,$4,$5)", [j.id, userId, id, j.work, j.details]);
         return (await query<any>("SELECT * FROM image_jobs WHERE user_id=$1 AND submission_id=$2 ORDER BY queue_sequence", [userId, id], client)).map(publicJob);
     });
+    // Wake only after commit; accepted work remains recoverable if this process exits.
+    wakeGenerationWorkers();
+    return jobs;
 }
 export async function submitGenerationJobs(userId: string, body: {
     submissionId: string;
@@ -90,8 +100,10 @@ export async function submitGenerationJobs(userId: string, body: {
         throw new Error("submissionId is required");
     const fp = submissionFingerprint({ kind: "generate", body });
     const existing = await submission(userId, body.submissionId, fp);
-    if (existing)
+    if (existing) {
+        wakeGenerationWorkers();
         return existing;
+    }
     const adapter = new GenerationJobQueue(undefined, new RequestQueue(128, Infinity, 240000, 8, 16));
     const jobs = await adapter.submit(userId, body);
     const prepared = adapter.prepared(jobs.map(j => j.id));
@@ -110,8 +122,10 @@ export async function submitSavedGenerationJob(userId: string, kind: "modify" | 
         throw new Error("submissionId is required");
     const fp = submissionFingerprint({ kind, body });
     const existing = await submission(userId, body.submissionId, fp);
-    if (existing)
+    if (existing) {
+        wakeGenerationWorkers();
         return existing;
+    }
     const adapter = new GenerationJobQueue(undefined, new RequestQueue(128, Infinity, 240000, 8, 16));
     const jobs = await adapter.submitSaved(userId, kind, body);
     return admitJobs(userId, body.submissionId, fp, adapter.prepared(jobs.map(j => j.id)));
@@ -120,7 +134,7 @@ export async function listGenerationJobs(userId: string) {
     return (await query<any>("SELECT * FROM image_jobs WHERE user_id=$1 AND NOT dismissed AND state <> 'completed' AND (state IN ('queued','generating') OR updated_at > now()-interval '24 hours') ORDER BY queue_sequence", [userId])).map(publicJob);
 }
 export async function retryGenerationJob(userId: string, id: string) {
-    return withTransaction(async (client) => {
+    const jobs = await withTransaction(async (client) => {
         await scheduler(client);
         const enabled = await queryOne<{
             enabled: boolean;
@@ -138,6 +152,9 @@ export async function retryGenerationJob(userId: string, id: string) {
         await client.query("UPDATE image_submissions SET terminal_at=null WHERE user_id=$1 AND submission_id=$2", [userId, j.submission_id]);
         return (await query<any>("SELECT * FROM image_jobs WHERE id=$1", [id], client)).map(publicJob);
     });
+    // Wake only after commit; accepted work remains recoverable if this process exits.
+    wakeGenerationWorkers();
+    return jobs;
 }
 export async function dismissGenerationJob(userId: string, id: string) { await query("UPDATE image_jobs SET dismissed=true WHERE id=$1 AND user_id=$2 AND state='failed'", [id, userId]); }
 export async function removeUserGenerationJobs(userId: string) { await query("DELETE FROM image_jobs WHERE user_id=$1", [userId]); }
@@ -311,9 +328,10 @@ export function startGenerationWorker() {
         throw new Error("Invalid IMAGE_WORKER_CONCURRENCY");
     const running = new Set<Promise<void>>();
     let stopped = false;
-    let ticking = false;
+    let registered = false;
     let lastCleanup = 0;
-    const ready = registerWorker(id, role);
+    const status: WorkerStatus = { id, state: "starting", lastSuccessfulTick: null };
+    workerStatus = status;
     const execute = async (j: ClaimedJob) => {
         let lost = false;
         let beating = false;
@@ -367,11 +385,13 @@ export function startGenerationWorker() {
         }
     };
     const tick = async () => {
-        if (ticking || stopped)
-            return;
-        ticking = true;
+        if (stopped) return false;
+        status.state = "active";
         try {
-            await ready;
+            if (!registered) {
+                await registerWorker(id, role);
+                registered = true;
+            }
             await query("UPDATE image_workers SET heartbeat_at=now() WHERE id=$1", [id]);
             await recoverJobs();
             while (!stopped && running.size < limit) {
@@ -379,7 +399,7 @@ export function startGenerationWorker() {
                 if (!jobs.length)
                     break;
                 for (const j of jobs) {
-                    const p = execute(j).finally(() => running.delete(p));
+                    const p = execute(j).finally(() => { running.delete(p); loop.wake(); });
                     running.add(p);
                 }
             }
@@ -388,17 +408,40 @@ export function startGenerationWorker() {
                 await cleanupImageStorage();
             }
         }
-        catch {
-            console.error("Image worker tick failed", id);
+        catch (error) {
+            status.state = "error";
+            throw error;
         }
-        finally {
-            ticking = false;
-        }
+        const pending = await queryOne<{ pending: boolean }>(
+            "SELECT EXISTS(SELECT 1 FROM image_jobs WHERE state IN ('queued','generating')) pending");
+        const active = running.size > 0 || pending!.pending;
+        status.lastSuccessfulTick = new Date().toISOString();
+        status.state = active ? "active" : "sleeping";
+        return active;
     };
-    const timer = setInterval(() => { void tick(); }, 1000);
-    void tick();
-    const stop = async () => { stopped = true; clearInterval(timer); await ready; await query("UPDATE image_workers SET draining=true WHERE id=$1", [id]); await Promise.allSettled([...running]); };
-    process.once("SIGTERM", () => { void stop().then(async () => { await logger.flush(); process.exit(0); }); });
-    process.once("SIGINT", () => { void stop().then(async () => { await logger.flush(); process.exit(0); }); });
+    // Separate workers cannot receive an in-process API wakeup. Preserve their polling
+    // until a cross-process wakeup transport is configured. Combined production sleeps.
+    const loop = createWorkerLoop(tick, {
+        idleMs: role === "combined" ? 30 * 60_000 : 1000,
+        onError: error => {
+            status.state = "error";
+            console.error("Image worker tick failed", id, error instanceof Error ? error.message : error);
+        },
+    });
+    workerWakeups.add(loop.wake);
+    loop.wake();
+    const stop = async () => {
+        stopped = true;
+        workerWakeups.delete(loop.wake);
+        await loop.stop();
+        if (registered) await query("UPDATE image_workers SET draining=true WHERE id=$1", [id]);
+        await Promise.allSettled([...running]);
+        status.state = "stopped";
+        process.removeListener("SIGTERM", onSignal);
+        process.removeListener("SIGINT", onSignal);
+    };
+    const onSignal = () => { void stop().then(async () => { await logger.flush(); process.exit(0); }); };
+    process.once("SIGTERM", onSignal);
+    process.once("SIGINT", onSignal);
     return stop;
 }

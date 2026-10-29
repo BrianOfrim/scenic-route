@@ -23,6 +23,18 @@ function parseStatus(output) {
   return JSON.parse(output.slice(start));
 }
 
+// A sleeping worker has no recent database heartbeat. Verify its live process state
+// and last successful queue check instead. Retain compatibility with older releases.
+export function healthyWorker(status, worker, now) {
+  if (status.runtime) {
+    const live = status.runtime;
+    const age = now - Date.parse(live.lastSuccessfulTick);
+    return live.id === worker.id && Number.isFinite(age) && age >= 0 &&
+      ((live.state === 'sleeping' && age < 31 * 60_000) || (live.state === 'active' && age < 90_000));
+  }
+  return now - Date.parse(worker.heartbeat_at) < 90_000;
+}
+
 /** Maintenance deployment for the current single combined API/worker machine. */
 export async function deploy({ run = runCommand, wait = sleep, now = Date.now, log = console.log,
   health = async () => {
@@ -64,7 +76,7 @@ export async function deploy({ run = runCommand, wait = sleep, now = Date.now, l
   const before = await status();
   if (typeof before.scheduler?.enabled !== 'boolean') throw new Error('Cannot determine admission state.');
   const workers = before.workers.filter(w => !w.draining && w.id.startsWith(`${machine.id}:`) &&
-    now() - Date.parse(w.heartbeat_at) < 90_000);
+    healthyWorker(before, w, now()));
   if (!workers.length) throw new Error('No healthy current worker found; production was not paused.');
   const drained = [];
   let pauseAttempted = false;
@@ -98,7 +110,7 @@ export async function deploy({ run = runCommand, wait = sleep, now = Date.now, l
           !live.checks?.length || live.checks.some(c => c.status !== 'passing')) return false;
       const jobs = await status();
       return jobs.workers.some(w => !w.draining && !before.workers.some(old => old.id === w.id) &&
-        w.id.startsWith(`${machine.id}:`) && now() - Date.parse(w.heartbeat_at) < 90_000);
+        w.id.startsWith(`${machine.id}:`) && healthyWorker(jobs, w, now()));
     });
     await health();
     if (before.scheduler.enabled) await remote('resume');

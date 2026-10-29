@@ -31,7 +31,7 @@ fly logs -a scenic-route
 fly ssh console -a scenic-route -C 'node --import tsx /app/scripts/image-jobs.mts status'
 ```
 
-`jobs:status` reports admission, queue states, worker heartbeats, active attempts, and cleanup failures. If accepted jobs are stuck, follow [image-workers.md](image-workers.md) before replacing a worker.
+`jobs:status` reports admission, queue states, worker heartbeats, live local worker readiness, active attempts, and cleanup failures. A sleeping combined worker may have an old database heartbeat; inspect its `runtime` ID, state, and last successful check as described in [image-workers.md](image-workers.md). If accepted jobs are stuck, follow [image-workers.md](image-workers.md) before replacing a worker.
 
 ## Rollback and reopening
 
@@ -43,7 +43,7 @@ fly deploy -a scenic-route -c fly.toml --image "$LAST_GOOD_IMAGE" --ha=false --s
 
 An image rollback restores code, not deleted database rows or R2 objects. For data loss or incompatible migrations, restore a matching database/object backup into isolation using [recovery.md](recovery.md). Preserve the failed state and reconcile writes and account deletions since the recovery point.
 
-Before reopening, verify the deployed image, passing Fly checks, a fresh non-draining worker, and the public health endpoint. Inspect Gallery and downloads when relevant to the change. HTTP health alone does not prove database availability, R2 access, email delivery, or provider availability. Paid generation and email smoke tests are separate operations.
+Before reopening, verify the deployed image, passing Fly checks, a healthy non-draining worker (including a verified sleeping worker), and the public health endpoint. Inspect Gallery and downloads when relevant to the change. HTTP health alone does not prove database availability, R2 access, email delivery, or provider availability. Paid generation and email smoke tests are separate operations.
 
 ```sh
 curl --fail --silent --show-error --max-time 10 https://scenic-route.ca/api/health
